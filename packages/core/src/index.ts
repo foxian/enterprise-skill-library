@@ -5,3 +5,4 @@ export * from './schema/validation-result.js';
 export * from './skill/directory-validator.js';
 export * from './skill/skill-md.js';
 export * from './store/local-store.js';
+export * from './version/version.js';

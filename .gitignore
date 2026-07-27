@@ -1,0 +1,6 @@
+node_modules/
+packages/*/dist/
+.superpowers/
+
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts

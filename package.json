@@ -5,8 +5,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "test": "vitest run"
+    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/cli",
+    "test": "npm run build --workspace @esl/core && vitest run"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
