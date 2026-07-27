@@ -27,17 +27,33 @@ name: debugging-helper
 
     expect(result.success).toBe(false);
   });
+
+  it('rejects package metadata in frontmatter', () => {
+    const result = validateSkillMd(`---
+name: debugging-helper
+description: Use when debugging failures, test regressions, stack traces, or unexplained behavior.
+author: zhangsan
+---
+
+# Debugging Helper
+`);
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('skill directory validation', () => {
+  let tmpRootDir: string;
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-skill-'));
+    tmpRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-skill-'));
+    tmpDir = path.join(tmpRootDir, 'debugging-helper');
+    fs.mkdirSync(tmpDir);
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpRootDir, { recursive: true, force: true });
   });
 
   it('accepts a minimal runtime skill package', async () => {
@@ -96,6 +112,57 @@ description: Use when debugging failures, test regressions, stack traces, or une
     expect(result.success).toBe(false);
     expect(result.success ? [] : result.errors).toEqual(
       expect.arrayContaining([expect.stringContaining('resources')])
+    );
+  });
+
+  it('returns validation errors when SKILL.md is a directory', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'skill.json'),
+      JSON.stringify({
+        name: '@myorg/debugging-helper',
+        version: '0.1.0',
+        description: 'Systematic debugging skill',
+        author: 'zhangsan'
+      })
+    );
+    fs.mkdirSync(path.join(tmpDir, 'SKILL.md'));
+
+    const result = await validateSkillDirectory(tmpDir);
+
+    expect(result.success).toBe(false);
+    expect(result.success ? [] : result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('SKILL.md')])
+    );
+  });
+
+  it('requires the SKILL.md name to match the directory name', async () => {
+    const skillDirectory = path.join(tmpDir, 'wrong-directory');
+    fs.mkdirSync(skillDirectory);
+    fs.writeFileSync(
+      path.join(skillDirectory, 'skill.json'),
+      JSON.stringify({
+        name: '@myorg/debugging-helper',
+        version: '0.1.0',
+        description: 'Systematic debugging skill',
+        author: 'zhangsan'
+      })
+    );
+    fs.writeFileSync(
+      path.join(skillDirectory, 'SKILL.md'),
+      `---
+name: debugging-helper
+description: Use when debugging failures, test regressions, stack traces, or unexplained behavior.
+---
+
+# Debugging Helper
+`
+    );
+
+    const result = await validateSkillDirectory(skillDirectory);
+
+    expect(result.success).toBe(false);
+    expect(result.success ? [] : result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('directory name')])
     );
   });
 });

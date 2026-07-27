@@ -52,11 +52,15 @@ export async function validateSkillDirectory(directory: string): Promise<Validat
   }
 
   if (await exists(skillMdPath)) {
-    const validation = validateSkillMd(await fs.readFile(skillMdPath, 'utf8'));
-    if (validation.success) {
-      skillMd = validation.data;
-    } else {
-      errors.push(...validation.errors);
+    try {
+      const validation = validateSkillMd(await fs.readFile(skillMdPath, 'utf8'));
+      if (validation.success) {
+        skillMd = validation.data;
+      } else {
+        errors.push(...validation.errors);
+      }
+    } catch (error) {
+      errors.push(`SKILL.md: ${(error as Error).message}`);
     }
   }
 
@@ -64,6 +68,10 @@ export async function validateSkillDirectory(directory: string): Promise<Validat
     const { skillName } = parseSkillName(skillJson.name);
     if (skillMd.name !== skillName) {
       errors.push(`SKILL.md name must match skill.json name suffix "${skillName}"`);
+    }
+    const directoryName = path.basename(path.resolve(directory));
+    if (skillMd.name !== directoryName) {
+      errors.push(`SKILL.md name must match directory name "${directoryName}"`);
     }
   }
 
