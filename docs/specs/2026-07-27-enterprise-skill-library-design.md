@@ -110,23 +110,30 @@ Enterprise Skill Library（ESL）是一个企业级 AI Agent 技能库管理系�
 
 ### 3.1 技能仓库结构
 
-每个技能是一个独立 Git 仓库，遵循 [Agent Skills 开放标准](https://agentskills.io)：
+每个技能是一个独立 Git 仓库。仓库同时承担两个职责：
+
+1. **ESL 包**：包含 `skill.json`、版本、作者、依赖、发布信息等企业技能库元数据。
+2. **Agent 运行时技能**：遵循 Agent Skills / Codex Skills 的渐进式加载原则，只把 Agent 执行技能所需的文件暴露给目标工具。
 
 ```
 my-awesome-skill/
 ├── skill.json                    # 管理元数据（版本、作者、依赖、兼容性等）
 ├── SKILL.md                      # 技能入口（YAML frontmatter + Markdown 指令）
-├── README.md                     # 人类可读文档
-├── CHANGELOG.md                  # 版本变更记录
+├── README.md                     # 可选：人类可读文档，不进入 Agent 触发依据
+├── CHANGELOG.md                  # 可选：版本变更记录，不进入 Agent 触发依据
+├── agents/                       # 可选：目标工具 UI 元数据
+│   └── openai.yaml
 ├── scripts/                      # 辅助脚本（Python、Bash 等）
 │   └── validate.py
-├── examples/                     # 使用示例
-│   └── example-usage.md
 ├── references/                   # 参考文档（Agent 按需加载）
 │   └── api-guide.md
-└── resources/                    # 模板、资源文件
-    └── config-template.yaml
+├── assets/                       # 模板、图片、示例工程等输出资源
+│   └── config-template.yaml
+└── evals/                        # 可选：技能测试用例
+    └── evals.json
 ```
+
+> **运行时裁剪原则**：安装或适配到具体 Agent 工具时，CLI 只暴露 `SKILL.md`、`agents/`（若目标工具支持）、`scripts/`、`references/`、`assets/` 等运行时文件。`skill.json`、`README.md`、`CHANGELOG.md` 属于 ESL 包管理层，不应参与 Agent 的技能触发判断。
 
 ### 3.2 `skill.json` 规范
 
@@ -168,20 +175,18 @@ my-awesome-skill/
 
 ### 3.3 `SKILL.md` 规范
 
-遵循 Anthropic Agent Skills 开放标准：
+遵循 Agent Skills / Codex Skills 的核心结构。`SKILL.md` 是 Agent 的运行时入口，应保持精简，并通过 `references/`、`scripts/`、`assets/` 实现渐进式加载：
 
 ```markdown
 ---
 name: debugging-helper
-description: >
-  系统化调试技能，帮助 Agent 通过假设驱动的方式定位和修复 Bug。
-  当遇到 bug、测试失败或异常行为时使用。
+description: Use when debugging failures, test regressions, stack traces, or unexplained behavior in software projects.
 ---
 
 # 系统化调试
 
-## 使用时机
-当遇到任何 bug、测试失败或异常行为时激活此技能。
+## 核心原则
+先收集可验证的事实，再形成假设，最后用最小实验验证或排除假设。
 
 ## 步骤
 
@@ -200,10 +205,19 @@ description: >
 | 字段 | 必需 | 说明 |
 |------|:----:|------|
 | `name` | ✅ | 技能名（与目录名匹配，1-64 字符，小写 + 连字符） |
-| `description` | ✅ | Agent 用来判断何时激活该技能的描述（最多 1024 字符） |
-| `license` | ❌ | 许可证 |
-| `compatibility` | ❌ | 环境要求 |
-| `metadata` | ❌ | 任意键值对（如 author、version） |
+| `description` | ✅ | Agent 用来判断何时激活该技能的描述（最多 1024 字符）。应描述触发场景，而不是复述技能流程 |
+
+`SKILL.md` frontmatter 不放 `author`、`version`、`license`、`compatibility` 等包管理字段。这些字段统一放入 `skill.json`，避免污染 Agent 的触发语义。
+
+#### 运行时资源约定
+
+| 目录 | 用途 |
+|------|------|
+| `scripts/` | 可执行辅助脚本，适合确定性、重复性高的操作 |
+| `references/` | 大段参考文档、API 文档、领域知识，Agent 按需读取 |
+| `assets/` | 模板、图片、字体、样例工程等输出资源 |
+| `agents/` | 目标 Agent 工具的 UI 元数据，如 Codex 的 `openai.yaml` |
+| `evals/` | 技能测试用例和评估数据，不属于运行时必需内容 |
 
 ### 3.4 命名约定
 
@@ -341,20 +355,19 @@ esl whoami                         # 显示当前登录用户
 #### `esl init <skill-name>`
 
 ```
-输入: esl init my-debug-skill
+输入: esl init @myorg/my-debug-skill
 输出:
   创建目录 my-debug-skill/
   ├── skill.json        (预填 name、version: "0.1.0"、author)
   ├── SKILL.md          (模板，含 YAML frontmatter 示例)
-  ├── README.md         (说明文档模板)
-  ├── CHANGELOG.md      (空模板)
   ├── scripts/          (空目录)
-  ├── examples/         (空目录)
   ├── references/       (空目录)
-  └── resources/        (空目录)
+  └── assets/           (空目录)
   执行 git init
   提示: "技能 my-debug-skill 已初始化，请编辑 SKILL.md 添加技能指令。"
 ```
+
+`README.md`、`CHANGELOG.md`、`agents/openai.yaml`、`evals/` 属于可选增强内容，后续可通过独立命令或手动添加。Phase 1 的 `init` 默认生成最小可运行技能包，避免鼓励臃肿技能结构。
 
 #### `esl publish`
 
@@ -1035,7 +1048,7 @@ pm2 startup
 
 ### 11.1 设计原则
 
-技能仓库中只存储标准的 Agent Skills 格式（SKILL.md），适配到各 AI 工具的格式由客户端 CLI 在安装时动态完成。
+技能仓库以 ESL 包格式保存，核心运行时入口是标准 Agent Skills 格式（`SKILL.md`）。适配到各 AI 工具时，客户端 CLI 只暴露目标工具需要的运行时文件，并过滤 ESL 包管理文件。
 
 ### 11.2 适配器接口
 
@@ -1226,12 +1239,13 @@ interface ToolAdapter {
 
 | 任务 | 说明 |
 |------|------|
-| 项目初始化 | monorepo 结构（cli + server 两个包）、TypeScript 配置、Vitest |
-| `skill.json` 规范 | JSON Schema 定义 + 校验库 |
-| `esl init` | 初始化技能目录结构和模板文件 |
-| `esl validate` | 校验 skill.json 和 SKILL.md 格式 |
-| `esl version` | 版本号递增 |
+| 项目初始化 | monorepo 结构（`packages/core` + `packages/cli`）、TypeScript 配置、Vitest |
+| `skill.json` 规范 | ESL 包元数据 schema 定义 + 校验库 |
+| `SKILL.md` 规范 | frontmatter 校验、运行时资源目录约定、渐进式加载约束 |
 | 本地存储 | 全局配置目录结构（`~/.skill-library/`） |
+| `esl init` | 初始化最小可运行技能包：`skill.json`、`SKILL.md`、`scripts/`、`references/`、`assets/`，并执行 `git init` |
+| `esl validate` | 校验 `skill.json`、`SKILL.md`、运行时目录结构，并提示旧 `resources/` 迁移到 `assets/` |
+| `esl version` | 递增 `skill.json` 版本号，不打 Git tag（打 tag 属于 publish 阶段） |
 
 ### Phase 2：服务端搭建
 
