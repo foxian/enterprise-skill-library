@@ -1,0 +1,15 @@
+{
+  "name": "@esl/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "esl": "./dist/bin/esl.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@esl/core": "*",
+    "commander": "^11.1.0"
+  }
+}
