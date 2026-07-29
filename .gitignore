@@ -1,6 +1,7 @@
 node_modules/
 packages/*/dist/
 .superpowers/
+.worktrees/
 
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
