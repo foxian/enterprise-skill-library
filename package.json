@@ -5,11 +5,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/cli",
+    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run build --workspace @esl/cli",
     "test": "npm run build --workspace @esl/core && vitest run"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "toad-cache": "3.3.0",
     "typescript": "^5.3.3",
     "vitest": "^1.2.0"
   }
