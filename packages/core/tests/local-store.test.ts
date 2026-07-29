@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initializeLocalStore, resolveLocalStorePaths } from '../src/index.js';
+import { initializeLocalStore, loadConfig, resolveLocalStorePaths, saveConfig } from '../src/index.js';
 
 describe('local store', () => {
   let homeDir: string;
@@ -32,12 +32,29 @@ describe('local store', () => {
     expect(fs.existsSync(paths.skillsDir)).toBe(true);
     expect(JSON.parse(fs.readFileSync(paths.configJson, 'utf8'))).toEqual({
       registry: null,
-      tools: [],
-      user: null
+      gitBase: null,
+      token: null,
+      username: null,
+      tools: []
     });
     expect(JSON.parse(fs.readFileSync(paths.credentialsJson, 'utf8'))).toEqual({
-      api_token: null,
-      ssh_key_path: null
+      api_token: null
     });
+  });
+
+  it('saves and loads Gitea configuration', async () => {
+    await initializeLocalStore({ homeDir });
+    const config = {
+      registry: 'http://skills.company.com/api',
+      gitBase: 'http://skills.company.com/git',
+      token: 'gitea_token_12345',
+      username: 'zhangsan',
+      tools: []
+    };
+
+    await saveConfig(config, { homeDir });
+    const loaded = await loadConfig({ homeDir });
+
+    expect(loaded).toEqual(config);
   });
 });

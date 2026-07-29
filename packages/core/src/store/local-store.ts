@@ -10,6 +10,14 @@ export interface LocalStorePaths {
   skillsDir: string;
 }
 
+export interface EslConfig {
+  registry: string | null;
+  gitBase: string | null;
+  token: string | null;
+  username: string | null;
+  tools: string[];
+}
+
 export interface LocalStoreOptions {
   homeDir?: string;
 }
@@ -41,13 +49,31 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await fs.mkdir(paths.skillsDir, { recursive: true });
   await writeJsonIfMissing(paths.configJson, {
     registry: null,
-    tools: [],
-    user: null
+    gitBase: null,
+    token: null,
+    username: null,
+    tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {
-    api_token: null,
-    ssh_key_path: null
+    api_token: null
   });
 
   return paths;
+}
+
+export async function loadConfig(options: LocalStoreOptions = {}): Promise<EslConfig> {
+  const paths = resolveLocalStorePaths(options);
+  const raw = await fs.readFile(paths.configJson, 'utf8');
+  return JSON.parse(raw) as EslConfig;
+}
+
+export async function saveConfig(
+  config: Partial<EslConfig>,
+  options: LocalStoreOptions = {}
+): Promise<EslConfig> {
+  const paths = resolveLocalStorePaths(options);
+  const current = await loadConfig(options);
+  const updated: EslConfig = { ...current, ...config };
+  await fs.writeFile(paths.configJson, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
+  return updated;
 }
