@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { executeInit } from '../commands/init.js';
+import { executeLogin } from '../commands/login.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 
@@ -15,6 +16,18 @@ export function createProgram(): Command {
     .action(async (skillName: string) => {
       const targetDir = await executeInit(skillName);
       console.log(`Skill initialized at ${targetDir}`);
+    });
+
+  program
+    .command('login')
+    .requiredOption('--registry <url>', 'API Server base URL')
+    .requiredOption('--git-base <url>', 'Gitea Git HTTP base URL')
+    .requiredOption('--username <username>', 'Gitea username')
+    .option('--password <password>', 'Gitea password')
+    .option('--token <token>', 'Gitea personal access token')
+    .action(async (options: { registry: string; gitBase: string; username: string; password?: string; token?: string }) => {
+      await executeLogin(options);
+      console.log(`Logged in as ${options.username}`);
     });
 
   program
