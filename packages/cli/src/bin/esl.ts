@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { executeInfo } from '../commands/info.js';
 import { executeInit } from '../commands/init.js';
+import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
+import { executePublish } from '../commands/publish.js';
+import { executeSearch } from '../commands/search.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 
@@ -28,6 +32,49 @@ export function createProgram(): Command {
     .action(async (options: { registry: string; gitBase: string; username: string; password?: string; token?: string }) => {
       await executeLogin(options);
       console.log(`Logged in as ${options.username}`);
+    });
+
+  program
+    .command('search')
+    .argument('<query>')
+    .option('--registry <url>', 'API Server base URL')
+    .action(async (query: string, options: { registry?: string }) => {
+      const results = await executeSearch(query, options);
+      for (const result of results) {
+        console.log(`${result.name}\t${result.description}`);
+      }
+    });
+
+  program
+    .command('info')
+    .argument('<skill-name>')
+    .option('--registry <url>', 'API Server base URL')
+    .action(async (skillName: string, options: { registry?: string }) => {
+      console.log(JSON.stringify(await executeInfo(skillName, options), null, 2));
+    });
+
+  program
+    .command('publish')
+    .option('--directory <path>', 'skill directory', process.cwd())
+    .option('--registry <url>', 'API Server base URL')
+    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--token <token>', 'Gitea personal access token')
+    .option('--visibility <visibility>', 'public or private')
+    .action(async (options: { directory: string; registry?: string; gitBase?: string; token?: string; visibility?: string }) => {
+      await executePublish(options);
+      console.log('Skill published');
+    });
+
+  program
+    .command('install')
+    .argument('<skill-name>')
+    .option('--version <version>', 'version to install')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--token <token>', 'Gitea personal access token')
+    .action(async (skillName: string, options: { version?: string; registry?: string; gitBase?: string; token?: string }) => {
+      const targetDir = await executeInstall(skillName, options);
+      console.log(`Skill installed at ${targetDir}`);
     });
 
   program
