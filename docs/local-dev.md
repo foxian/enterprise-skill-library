@@ -9,7 +9,7 @@
 
 ## Start Services
 
-Copy `.env.example` to `.env` and set `GITEA_ADMIN_TOKEN` after creating a local Gitea admin token.
+Copy `.env.example` to `.env`. The initial `GITEA_ADMIN_TOKEN` value can stay as `replace-with-local-gitea-admin-token` for first startup; Phase 3 smoke checks do not create repositories through the API Server.
 
 ```powershell
 npm run build
@@ -17,6 +17,12 @@ docker compose up --build
 ```
 
 Open Gitea at `http://localhost:3001`, complete first-run setup, create a user, and create a personal access token.
+
+After Gitea is initialized, replace `GITEA_ADMIN_TOKEN` in `.env` with an admin token and restart the `api` service when you want API-backed repository creation to work:
+
+```powershell
+docker compose up -d api
+```
 
 ## Seed Metadata
 
