@@ -51,4 +51,21 @@ describe('Fastify Server API', () => {
     const body = getRes.json();
     expect(body.name).toBe('@myorg/my-skill');
   });
+
+  it('responds to health checks without requiring Gitea', async () => {
+    const mockGitea = {
+      validateToken: vi.fn(),
+      createRepo: vi.fn()
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/health'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true, service: 'esl-api' });
+    expect(mockGitea.validateToken).not.toHaveBeenCalled();
+  });
 });
