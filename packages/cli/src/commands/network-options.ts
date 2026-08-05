@@ -1,4 +1,5 @@
-import { loadConfig, resolveLocalStorePaths, type LocalStoreOptions } from '@esl/core';
+import { parseSkillName, loadConfig, resolveLocalStorePaths, type LocalStoreOptions } from '@esl/core';
+import path from 'node:path';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   registry?: string;
@@ -49,5 +50,6 @@ export function authenticatedGitUrl(gitBase: string, token: string, repoPath: st
 }
 
 export function installTargetDir(skillName: string, options: LocalStoreOptions): string {
-  return `${resolveLocalStorePaths(options).skillsDir}/${skillName}`;
+  const { scope, skillName: shortName } = parseSkillName(skillName);
+  return path.join(resolveLocalStorePaths(options).skillsDir, `@${scope}`, shortName);
 }

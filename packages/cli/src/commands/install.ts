@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parseSkillName } from '@esl/core';
 import {
   authenticatedGitUrl,
   installTargetDir,
@@ -25,8 +24,7 @@ export async function executeInstall(name: string, options: InstallOptions = {})
   const authToken = requireConfigured(token, 'token');
   const info = await executeInfo(name, options);
   const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
-  const { skillName } = parseSkillName(name);
-  const targetDir = path.normalize(installTargetDir(skillName, options));
+  const targetDir = path.normalize(installTargetDir(name, options));
   const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);
 
   await execFileAsync('git', ['clone', remoteUrl, targetDir]);
