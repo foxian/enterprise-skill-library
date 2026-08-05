@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
@@ -108,6 +111,21 @@ export function createProgram(): Command {
   return program;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function isDirectCliEntry(moduleUrl: string, argvPath: string | undefined): boolean {
+  if (!argvPath) {
+    return false;
+  }
+  return canonicalPath(fileURLToPath(moduleUrl)) === canonicalPath(argvPath);
+}
+
+function canonicalPath(filePath: string): string {
+  try {
+    return fs.realpathSync.native(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
+if (isDirectCliEntry(import.meta.url, process.argv[1])) {
   await createProgram().parseAsync(process.argv);
 }
