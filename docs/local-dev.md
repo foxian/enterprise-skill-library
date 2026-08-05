@@ -11,6 +11,14 @@
 
 Copy `.env.example` to `.env`. The initial `GITEA_ADMIN_TOKEN` value can stay as `replace-with-local-gitea-admin-token` for first startup; Phase 3 smoke checks do not create repositories through the API Server.
 
+If Docker build cannot reach npm registries in a proxied network, set `NPM_PROXY` in `.env` to the Docker-reachable host proxy address. For example, with a local proxy on Windows port `7897`:
+
+```dotenv
+NPM_PROXY=http://host.docker.internal:7897
+```
+
+Leave `NPM_PROXY` blank when Docker containers can access npm directly.
+
 ```powershell
 npm run build
 docker compose up --build
