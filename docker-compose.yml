@@ -21,6 +21,7 @@ services:
       DATABASE_PATH: /data/esl.db
       GITEA_URL: http://gitea:3000
       GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN}
+      GITEA_REPO_OWNER: ${GITEA_REPO_OWNER:-esl-skills}
     volumes:
       - api-data:/data
     depends_on:

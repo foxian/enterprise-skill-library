@@ -9,7 +9,8 @@ describe('server runtime', () => {
         PORT: '3999',
         DATABASE_PATH: ':memory:',
         GITEA_URL: 'http://gitea:3000',
-        GITEA_ADMIN_TOKEN: 'admin-token'
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        GITEA_REPO_OWNER: 'platform-skills'
       } as NodeJS.ProcessEnv,
       listen
     });

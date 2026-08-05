@@ -23,17 +23,17 @@ describe('Fastify Server API', () => {
   it('registers and retrieves a skill', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'zhangsan' }),
-      createRepo: vi.fn().mockResolvedValue({ full_name: 'myorg/my-skill' })
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/alice_code-review' })
     };
 
-    app = buildApp({ dbPath, giteaService: mockGitea as any });
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/skills',
       headers: { authorization: 'token valid-token' },
       payload: {
-        name: '@myorg/my-skill',
+        name: '@alice/code-review',
         version: '0.1.0',
         description: 'Test skill',
         author: 'zhangsan'
@@ -41,23 +41,30 @@ describe('Fastify Server API', () => {
     });
 
     expect(createRes.statusCode).toBe(201);
+    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith(
+      'esl-skills',
+      'alice_code-review',
+      false
+    );
+    expect(createRes.json().gitRepoPath).toBe('esl-skills/alice_code-review');
 
     const getRes = await app.inject({
       method: 'GET',
-      url: '/api/skills/@myorg/my-skill'
+      url: '/api/skills/@alice/code-review'
     });
 
     expect(getRes.statusCode).toBe(200);
     const body = getRes.json();
-    expect(body.name).toBe('@myorg/my-skill');
+    expect(body.name).toBe('@alice/code-review');
+    expect(body.gitRepoPath).toBe('esl-skills/alice_code-review');
   });
 
   it('responds to health checks without requiring Gitea', async () => {
     const mockGitea = {
       validateToken: vi.fn(),
-      createRepo: vi.fn()
+      createOrganizationRepo: vi.fn()
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any });
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
       method: 'GET',

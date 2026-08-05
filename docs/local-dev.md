@@ -24,6 +24,8 @@ After Gitea is initialized, replace `GITEA_ADMIN_TOKEN` in `.env` with an admin 
 docker compose up -d api
 ```
 
+Before publishing a skill, create the `esl-skills` organization in local Gitea. Set `GITEA_REPO_OWNER` in `.env` if you use a different organization.
+
 ## Seed Metadata
 
 Run the seed script against the API database path used by Docker Compose:

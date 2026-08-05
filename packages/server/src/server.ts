@@ -13,7 +13,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
   const config = loadServerConfig(options.env);
   const app = buildApp({
     dbPath: config.databasePath,
-    giteaService: new GiteaService(config.giteaUrl, config.giteaAdminToken)
+    giteaService: new GiteaService(config.giteaUrl, config.giteaAdminToken),
+    repoOwner: config.repoOwner
   });
 
   const listen = options.listen?.bind(app) ?? app.listen.bind(app);

@@ -3,6 +3,7 @@ export interface ServerConfig {
   databasePath: string;
   giteaUrl: string;
   giteaAdminToken: string;
+  repoOwner: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -24,6 +25,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     port,
     databasePath: requireEnv(env, 'DATABASE_PATH'),
     giteaUrl: requireEnv(env, 'GITEA_URL'),
-    giteaAdminToken: requireEnv(env, 'GITEA_ADMIN_TOKEN')
+    giteaAdminToken: requireEnv(env, 'GITEA_ADMIN_TOKEN'),
+    repoOwner: env.GITEA_REPO_OWNER ?? 'esl-skills'
   };
 }

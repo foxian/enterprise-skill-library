@@ -59,6 +59,24 @@ export class GiteaService {
     return (await res.json()) as GiteaRepo;
   }
 
+  async createOrganizationRepo(owner: string, name: string, isPrivate = false): Promise<GiteaRepo> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${owner}/repos`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name, private: isPrivate, auto_init: false })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea organization repository: ${err}`);
+    }
+
+    return (await res.json()) as GiteaRepo;
+  }
+
   async getRepo(owner: string, name: string): Promise<GiteaRepo | null> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
       headers: { Authorization: `token ${this.adminToken}` }

@@ -51,6 +51,28 @@ describe('GiteaService', () => {
     });
   });
 
+  it('creates a repository directly in an organization', async () => {
+    const repo = {
+      id: 1,
+      name: 'alice_code-review',
+      full_name: 'esl-skills/alice_code-review',
+      clone_url: 'http://gitea:3000/esl-skills/alice_code-review.git',
+      html_url: 'http://gitea:3000/esl-skills/alice_code-review'
+    };
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => repo });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createOrganizationRepo('esl-skills', 'alice_code-review')).resolves.toEqual(repo);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/esl-skills/repos', {
+      method: 'POST',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: 'alice_code-review', private: false, auto_init: false })
+    });
+  });
+
   it('gets a repository via the Gitea API', async () => {
     const repo = {
       id: 1,
