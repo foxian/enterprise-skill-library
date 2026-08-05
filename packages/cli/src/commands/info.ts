@@ -3,6 +3,9 @@ import { apiUrl, type NetworkCommandOptions, resolveNetworkConfig } from './netw
 export interface SkillInfo {
   name: string;
   description?: string;
+  createdBy?: string;
+  owner?: string;
+  maintainers?: string[];
   versions?: string[];
   gitRepoPath?: string;
 }
