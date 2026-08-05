@@ -6,6 +6,7 @@ import type { GiteaService } from './services/gitea.js';
 export interface AppOptions {
   dbPath: string;
   giteaService: GiteaService;
+  repoOwner: string;
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -13,7 +14,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const db = initDatabase(options.dbPath);
   const repository = new SkillRepository(db);
 
-  registerSkillsRoutes(app, { repository, giteaService: options.giteaService });
+  app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
+  registerSkillsRoutes(app, {
+    repository,
+    giteaService: options.giteaService,
+    repoOwner: options.repoOwner
+  });
   app.addHook('onClose', () => db.close());
 
   return app;

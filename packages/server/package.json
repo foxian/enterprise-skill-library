@@ -5,7 +5,9 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "start": "node ./dist/server.js",
+    "seed": "node ./dist/seed.js"
   },
   "dependencies": {
     "@esl/core": "*",

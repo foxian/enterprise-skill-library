@@ -6,10 +6,11 @@ import type { GiteaService } from '../services/gitea.js';
 export interface SkillsRouteOptions {
   repository: SkillRepository;
   giteaService: GiteaService;
+  repoOwner: string;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
-  const { repository, giteaService } = options;
+  const { repository, giteaService, repoOwner } = options;
 
   app.post('/api/skills', async (request, reply) => {
     const authorization = request.headers.authorization;
@@ -33,13 +34,20 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     let skill = repository.getSkill(name);
     if (!skill) {
-      const gitRepo = await giteaService.createRepo(scope, skillName, visibility === 'private');
+      const repoName = `${scope}_${skillName}`;
+      const gitRepo = await giteaService.createOrganizationRepo(
+        repoOwner,
+        repoName,
+        visibility === 'private'
+      );
       repository.createSkill({
         name,
         scope,
         skillName,
         description,
-        author: user.username,
+        createdBy: user.username,
+        owner: 'platform',
+        maintainers: [user.username],
         visibility,
         gitRepoPath: gitRepo.full_name
       });

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { parseSkillName, validateSkillDirectory } from '@esl/core';
+import { validateSkillDirectory } from '@esl/core';
 import {
   apiUrl,
   authenticatedGitUrl,
@@ -30,8 +30,6 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
   const authToken = requireConfigured(token, 'token');
   const gitHttpBase = requireConfigured(gitBase, 'git-base');
   const { skillJson } = validation.data;
-  const { scope, skillName } = parseSkillName(skillJson.name);
-
   const res = await fetchImpl(apiUrl(registry, '/api/skills'), {
     method: 'POST',
     headers: {
@@ -53,7 +51,10 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
   }
 
   const published = (await res.json()) as { gitRepoPath?: string };
-  const repoPath = published.gitRepoPath ?? `${scope}/${skillName}`;
+  if (!published.gitRepoPath) {
+    throw new Error('Failed to publish skill metadata: API response did not include gitRepoPath');
+  }
+  const repoPath = published.gitRepoPath;
   const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);
 
   await execFileAsync('git', ['remote', 'add', 'esl', remoteUrl], { cwd: directory });
