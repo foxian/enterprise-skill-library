@@ -31,7 +31,9 @@ describe('development seed', () => {
       scope: 'myorg',
       skillName: 'my-skill',
       description: 'Sample seeded skill',
-      author: 'dev',
+      createdBy: 'dev',
+      owner: 'platform',
+      maintainers: ['dev'],
       visibility: 'public',
       gitRepoPath: 'myorg/my-skill'
     });

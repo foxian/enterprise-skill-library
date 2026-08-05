@@ -45,7 +45,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         scope,
         skillName,
         description,
-        author: user.username,
+        createdBy: user.username,
+        owner: 'platform',
+        maintainers: [user.username],
         visibility,
         gitRepoPath: gitRepo.full_name
       });

@@ -47,6 +47,11 @@ describe('Fastify Server API', () => {
       false
     );
     expect(createRes.json().gitRepoPath).toBe('esl-skills/alice_code-review');
+    expect(createRes.json()).toMatchObject({
+      createdBy: 'zhangsan',
+      owner: 'platform',
+      maintainers: ['zhangsan']
+    });
 
     const getRes = await app.inject({
       method: 'GET',
