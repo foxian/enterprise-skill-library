@@ -10,7 +10,9 @@ describe('esl program', () => {
     const program = createProgram();
     const commandNames = program.commands.map((command) => command.name());
 
-    expect(commandNames).toEqual(expect.arrayContaining(['init', 'validate', 'version', 'install', 'adapt']));
+    expect(commandNames).toEqual(
+      expect.arrayContaining(['init', 'validate', 'version', 'install', 'adapt', 'clone', 'update', 'uninstall'])
+    );
   });
 
   it('detects direct execution from Windows paths', () => {
