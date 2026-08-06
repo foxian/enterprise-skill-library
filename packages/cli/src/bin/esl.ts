@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
 import { executeAdapt } from '../commands/adapt.js';
+import { executeClone } from '../commands/clone.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
@@ -97,6 +98,19 @@ export function createProgram(): Command {
       for (const result of results) {
         console.log(`${result.tool}: ${result.skills.length} skill(s) synced`);
       }
+    });
+
+  program
+    .command('clone')
+    .description('Clone skill source for development')
+    .argument('<skill-name>')
+    .argument('[target]', 'target directory')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--token <token>', 'Gitea personal access token')
+    .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string; token?: string }) => {
+      const targetDir = await executeClone(skillName, { ...options, target });
+      console.log(`Skill cloned to ${targetDir}`);
     });
 
   program
