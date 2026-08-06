@@ -2,8 +2,8 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
 
-describe('esl install', () => {
-  it('clones a scoped skill into the scoped global path', async () => {
+describe('esl install (global mode)', () => {
+  it('clones a scoped skill into the scoped global path with --global', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -17,6 +17,8 @@ describe('esl install', () => {
 
     await executeInstall('@alice/code-review', {
       homeDir,
+      global: true,
+      noAdapt: true,
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',

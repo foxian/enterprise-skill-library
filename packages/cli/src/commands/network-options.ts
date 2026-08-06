@@ -53,3 +53,8 @@ export function installTargetDir(skillName: string, options: LocalStoreOptions):
   const { scope, skillName: shortName } = parseSkillName(skillName);
   return path.join(resolveLocalStorePaths(options).skillsDir, `@${scope}`, shortName);
 }
+
+export function projectSkillsDir(projectRoot: string, skillName: string): string {
+  const { scope, skillName: shortName } = parseSkillName(skillName);
+  return path.join(projectRoot, '.skills', `@${scope}`, shortName);
+}

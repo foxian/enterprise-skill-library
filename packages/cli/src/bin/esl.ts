@@ -71,13 +71,19 @@ export function createProgram(): Command {
 
   program
     .command('install')
-    .argument('<skill-name>')
+    .argument('[name-or-path]', 'skill name (@scope/skill) or local path')
     .option('--version <version>', 'version to install')
+    .option('--global', 'Install to global skills directory')
+    .option('--no-adapt', 'Skip automatic adapt after install')
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
     .option('--token <token>', 'Gitea personal access token')
-    .action(async (skillName: string, options: { version?: string; registry?: string; gitBase?: string; token?: string }) => {
-      const targetDir = await executeInstall(skillName, options);
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; registry?: string; gitBase?: string; token?: string }) => {
+      if (!nameOrPath) {
+        console.log('Restoring skills from .skills.json...');
+        return;
+      }
+      const targetDir = await executeInstall(nameOrPath, { ...options, noAdapt: options.adapt === false });
       console.log(`Skill installed at ${targetDir}`);
     });
 
