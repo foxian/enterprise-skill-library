@@ -11,6 +11,7 @@ import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
 import { executePublish } from '../commands/publish.js';
 import { executeSearch } from '../commands/search.js';
+import { executeUpdate } from '../commands/update.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 
@@ -111,6 +112,25 @@ export function createProgram(): Command {
     .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string; token?: string }) => {
       const targetDir = await executeClone(skillName, { ...options, target });
       console.log(`Skill cloned to ${targetDir}`);
+    });
+
+  program
+    .command('update')
+    .description('Update installed skills to latest versions')
+    .argument('[skill-name]', 'specific skill to update')
+    .option('--global', 'Update global skills')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--token <token>', 'Gitea personal access token')
+    .action(async (skillName: string | undefined, options: { global?: boolean; registry?: string; gitBase?: string; token?: string }) => {
+      const results = await executeUpdate({ ...options, skillName });
+      if (results.length === 0) {
+        console.log('All skills are up to date');
+        return;
+      }
+      for (const result of results) {
+        console.log(`${result.name}: ${result.from} -> ${result.to}`);
+      }
     });
 
   program

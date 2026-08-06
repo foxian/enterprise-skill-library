@@ -8,5 +8,6 @@ export * from './commands/install.js';
 export * from './commands/login.js';
 export * from './commands/publish.js';
 export * from './commands/search.js';
+export * from './commands/update.js';
 export * from './commands/validate.js';
 export * from './commands/version.js';
