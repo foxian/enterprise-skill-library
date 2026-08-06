@@ -67,6 +67,35 @@ describe('copySkillDirectory', () => {
     expect(fs.existsSync(path.join(destDir, 'old-file.txt'))).toBe(false);
     expect(fs.readFileSync(path.join(destDir, 'SKILL.md'), 'utf8')).toBe('# New');
   });
+
+  it('rejects an identical source and target before removing files', async () => {
+    const sourceFile = path.join(srcDir, 'SKILL.md');
+    fs.writeFileSync(sourceFile, '# Hello');
+
+    await expect(copySkillDirectory(srcDir, srcDir)).rejects.toThrow(/must not overlap/i);
+
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('# Hello');
+  });
+
+  it('rejects a target nested inside the source', async () => {
+    const sourceFile = path.join(srcDir, 'SKILL.md');
+    const nestedTarget = path.join(srcDir, 'copy');
+    fs.writeFileSync(sourceFile, '# Hello');
+
+    await expect(copySkillDirectory(srcDir, nestedTarget)).rejects.toThrow(/must not overlap/i);
+
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('# Hello');
+    expect(fs.existsSync(nestedTarget)).toBe(false);
+  });
+
+  it('rejects a target that contains the source', async () => {
+    const sourceFile = path.join(srcDir, 'SKILL.md');
+    fs.writeFileSync(sourceFile, '# Hello');
+
+    await expect(copySkillDirectory(srcDir, tmpDir)).rejects.toThrow(/must not overlap/i);
+
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('# Hello');
+  });
 });
 
 describe('removeDirectory', () => {

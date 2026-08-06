@@ -28,6 +28,13 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 }
 
 export async function copySkillDirectory(source: string, target: string): Promise<void> {
+  const resolvedSource = path.resolve(source);
+  const resolvedTarget = path.resolve(target);
+
+  if (pathsOverlap(resolvedSource, resolvedTarget)) {
+    throw new Error(`Source and target directories must not overlap: ${resolvedSource} and ${resolvedTarget}`);
+  }
+
   await removeDirectory(target);
   await copyRecursive(source, target);
 }
@@ -61,4 +68,13 @@ async function makeWritableRecursive(dir: string): Promise<void> {
       }
     }
   }
+}
+
+function pathsOverlap(source: string, target: string): boolean {
+  return isSameOrDescendant(source, target) || isSameOrDescendant(target, source);
+}
+
+function isSameOrDescendant(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
