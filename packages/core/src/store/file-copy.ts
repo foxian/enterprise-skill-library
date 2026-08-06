@@ -24,7 +24,7 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 }
 
 export async function copySkillDirectory(source: string, target: string): Promise<void> {
-  const resolvedSource = path.resolve(source);
+  const resolvedSource = await resolveExistingPath(source);
   const resolvedTarget = path.resolve(target);
 
   if (pathsOverlap(resolvedSource, resolvedTarget)) {
@@ -36,6 +36,11 @@ export async function copySkillDirectory(source: string, target: string): Promis
 }
 
 export async function removeDirectory(target: string): Promise<void> {
+  if (await isSymbolicLink(target)) {
+    await fs.rm(target, { force: true });
+    return;
+  }
+
   try {
     await makeWritableRecursive(target);
   } catch {
@@ -68,6 +73,22 @@ async function makeWritableRecursive(dir: string): Promise<void> {
         // Ignore failures while restoring file permissions.
       }
     }
+  }
+}
+
+async function resolveExistingPath(input: string): Promise<string> {
+  try {
+    return await fs.realpath(input);
+  } catch {
+    return path.resolve(input);
+  }
+}
+
+async function isSymbolicLink(input: string): Promise<boolean> {
+  try {
+    return (await fs.lstat(input)).isSymbolicLink();
+  } catch {
+    return false;
   }
 }
 

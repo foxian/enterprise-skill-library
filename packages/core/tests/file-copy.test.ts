@@ -103,6 +103,19 @@ describe('copySkillDirectory', () => {
 
     expect(fs.readFileSync(sourceFile, 'utf8')).toBe('# Hello');
   });
+
+  it('rejects a symlinked source that resolves into the target tree', async () => {
+    const realSource = path.join(tmpDir, 'real-source');
+    const linkedSource = path.join(tmpDir, 'linked-source');
+    const nestedTarget = path.join(realSource, 'copy');
+    fs.mkdirSync(realSource);
+    fs.symlinkSync(realSource, linkedSource, 'junction');
+    fs.writeFileSync(path.join(realSource, 'SKILL.md'), '# Hello');
+
+    await expect(copySkillDirectory(linkedSource, nestedTarget)).rejects.toThrow(/must not overlap/i);
+
+    expect(fs.readFileSync(path.join(realSource, 'SKILL.md'), 'utf8')).toBe('# Hello');
+  });
 });
 
 describe('removeDirectory', () => {
@@ -146,6 +159,28 @@ describe('removeDirectory', () => {
       expect(stat.mode & 0o222).toBe(0);
     } finally {
       readdir.mockRestore();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('removes a top-level symlink without traversing it', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-rm-top-link-'));
+    const target = path.join(tmpDir, 'target');
+    const externalDirectory = path.join(tmpDir, 'external');
+    const externalFile = path.join(externalDirectory, 'file.txt');
+    fs.mkdirSync(externalDirectory);
+    fs.writeFileSync(externalFile, 'content');
+    fs.symlinkSync(externalDirectory, target, 'junction');
+
+    const chmod = vi.spyOn(fs.promises, 'chmod');
+
+    try {
+      await removeDirectory(target);
+      expect(fs.existsSync(target)).toBe(false);
+      expect(fs.existsSync(externalFile)).toBe(true);
+      expect(chmod).not.toHaveBeenCalled();
+    } finally {
+      chmod.mockRestore();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
