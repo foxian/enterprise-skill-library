@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
+import { executeAdapt } from '../commands/adapt.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
@@ -78,6 +79,18 @@ export function createProgram(): Command {
     .action(async (skillName: string, options: { version?: string; registry?: string; gitBase?: string; token?: string }) => {
       const targetDir = await executeInstall(skillName, options);
       console.log(`Skill installed at ${targetDir}`);
+    });
+
+  program
+    .command('adapt')
+    .description('Sync installed skills to AI tool directories')
+    .option('--global', 'Adapt global skills instead of project skills')
+    .option('--directory <path>', 'Project directory', process.cwd())
+    .action(async (options: { global?: boolean; directory?: string }) => {
+      const results = await executeAdapt(options);
+      for (const result of results) {
+        console.log(`${result.tool}: ${result.skills.length} skill(s) synced`);
+      }
     });
 
   program
