@@ -1,4 +1,5 @@
 export type { ToolAdapter } from './tool-adapter.js';
+export { adaptGlobal, adaptProject, type AdaptResult } from './adapt-engine.js';
 export { ClaudeAdapter } from './claude-adapter.js';
 export { CodexAdapter } from './codex-adapter.js';
 export { TraeAdapter } from './trae-adapter.js';
