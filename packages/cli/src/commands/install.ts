@@ -114,5 +114,10 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
     await adaptProject(projectRoot, { homeDir: options.homeDir });
   }
 
+  if (!options.global) {
+    const { ensureGitignore } = await import('./uninstall.js');
+    await ensureGitignore(projectRoot);
+  }
+
   return targetDir;
 }

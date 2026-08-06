@@ -12,6 +12,7 @@ import { executeLogin } from '../commands/login.js';
 import { executePublish } from '../commands/publish.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
+import { executeUninstall } from '../commands/uninstall.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 
@@ -131,6 +132,16 @@ export function createProgram(): Command {
       for (const result of results) {
         console.log(`${result.name}: ${result.from} -> ${result.to}`);
       }
+    });
+
+  program
+    .command('uninstall')
+    .description('Remove an installed skill')
+    .argument('<skill-name>')
+    .option('--global', 'Uninstall from global skills directory')
+    .action(async (skillName: string, options: { global?: boolean }) => {
+      await executeUninstall(skillName, options);
+      console.log(`Skill ${skillName} uninstalled`);
     });
 
   program
