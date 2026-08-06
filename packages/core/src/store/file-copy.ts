@@ -18,11 +18,7 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
       await copyRecursive(srcPath, destPath);
     } else {
       await fs.copyFile(srcPath, destPath);
-      try {
-        await fs.chmod(destPath, 0o444);
-      } catch {
-        // On Windows, chmod may not fully work; ignore errors.
-      }
+      await fs.chmod(destPath, 0o444);
     }
   }
 }
@@ -58,7 +54,12 @@ async function makeWritableRecursive(dir: string): Promise<void> {
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
+    const stat = await fs.lstat(fullPath);
+    if (stat.isSymbolicLink()) {
+      continue;
+    }
+
+    if (stat.isDirectory()) {
       await makeWritableRecursive(fullPath);
     } else {
       try {

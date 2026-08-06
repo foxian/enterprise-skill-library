@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copySkillDirectory, removeDirectory } from '../src/store/file-copy.js';
 
 describe('copySkillDirectory', () => {
@@ -48,11 +48,18 @@ describe('copySkillDirectory', () => {
     await copySkillDirectory(srcDir, destDir);
 
     const stat = fs.statSync(path.join(destDir, 'SKILL.md'));
-    if (process.platform === 'win32') {
-      expect(fs.existsSync(path.join(destDir, 'SKILL.md'))).toBe(true);
-    } else {
-      // eslint-disable-next-line no-bitwise
-      expect(stat.mode & 0o222).toBe(0);
+    // eslint-disable-next-line no-bitwise
+    expect(stat.mode & 0o222).toBe(0);
+  });
+
+  it('rejects when it cannot make a copied file read-only', async () => {
+    fs.writeFileSync(path.join(srcDir, 'SKILL.md'), '# Hello');
+    const chmod = vi.spyOn(fs.promises, 'chmod').mockRejectedValueOnce(new Error('permission denied'));
+
+    try {
+      await expect(copySkillDirectory(srcDir, destDir)).rejects.toThrow('permission denied');
+    } finally {
+      chmod.mockRestore();
     }
   });
 
@@ -110,5 +117,36 @@ describe('removeDirectory', () => {
 
   it('does not throw if directory does not exist', async () => {
     await expect(removeDirectory('/nonexistent/path/xyz')).resolves.toBeUndefined();
+  });
+
+  it('does not make files behind a directory symlink writable', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-rm-link-'));
+    const target = path.join(tmpDir, 'target');
+    const externalDirectory = path.join(tmpDir, 'external');
+    const externalFile = path.join(externalDirectory, 'file.txt');
+    const link = path.join(target, 'external-link');
+    fs.mkdirSync(target);
+    fs.mkdirSync(externalDirectory);
+    fs.writeFileSync(externalFile, 'content');
+    fs.chmodSync(externalFile, 0o444);
+    fs.symlinkSync(externalDirectory, link, 'junction');
+
+    const originalReaddir = fs.promises.readdir;
+    const readdir = vi.spyOn(fs.promises, 'readdir').mockImplementation(async (directory, options) => {
+      if (directory === target && options && typeof options === 'object' && 'withFileTypes' in options) {
+        return [{ name: 'external-link', isDirectory: () => true }] as unknown as Awaited<ReturnType<typeof fs.promises.readdir>>;
+      }
+      return originalReaddir(directory, options as { withFileTypes: true });
+    });
+
+    try {
+      await removeDirectory(target);
+      const stat = fs.statSync(externalFile);
+      // eslint-disable-next-line no-bitwise
+      expect(stat.mode & 0o222).toBe(0);
+    } finally {
+      readdir.mockRestore();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
