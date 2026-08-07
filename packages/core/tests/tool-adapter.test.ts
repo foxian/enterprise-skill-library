@@ -7,6 +7,7 @@ import {
   CodexAdapter,
   SUPPORTED_TOOLS,
   TraeAdapter,
+  TraeCnAdapter,
   getAdapter
 } from '../src/adapt/index.js';
 
@@ -43,6 +44,14 @@ describe('ToolAdapter implementations', () => {
     const adapter = new TraeAdapter();
     expect(adapter.name).toBe('trae');
     expect(adapter.projectDir(tmpDir)).toBe(path.join(tmpDir, '.trae', 'skills'));
+    expect(adapter.globalDir()).toBe(path.join(os.homedir(), '.trae', 'skills'));
+  });
+
+  it('TraeCnAdapter targets .trae/skills/ for projects and .trae-cn/skills/ globally', () => {
+    const adapter = new TraeCnAdapter();
+    expect(adapter.name).toBe('trae-cn');
+    expect(adapter.projectDir(tmpDir)).toBe(path.join(tmpDir, '.trae', 'skills'));
+    expect(adapter.globalDir()).toBe(path.join(os.homedir(), '.trae-cn', 'skills'));
   });
 
   it('adapt copies skill to target directory', async () => {
@@ -73,6 +82,7 @@ describe('ToolAdapter implementations', () => {
     expect(getAdapter('claude')).toBeInstanceOf(ClaudeAdapter);
     expect(getAdapter('codex')).toBeInstanceOf(CodexAdapter);
     expect(getAdapter('trae')).toBeInstanceOf(TraeAdapter);
+    expect(getAdapter('trae-cn')).toBeInstanceOf(TraeCnAdapter);
   });
 
   it('getAdapter throws for unknown tool', () => {
@@ -80,6 +90,6 @@ describe('ToolAdapter implementations', () => {
   });
 
   it('exports SUPPORTED_TOOLS', () => {
-    expect(SUPPORTED_TOOLS).toEqual(['claude', 'codex', 'trae']);
+    expect(SUPPORTED_TOOLS).toEqual(['claude', 'codex', 'trae', 'trae-cn']);
   });
 });
