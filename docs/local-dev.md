@@ -34,6 +34,35 @@ docker compose up -d api
 
 Before publishing a skill, create the `esl-skills` organization in local Gitea. Set `GITEA_REPO_OWNER` in `.env` if you use a different organization.
 
+## Local Skill Namespace
+
+Use the reserved `@local` namespace for local or draft skills that are not ready
+to publish:
+
+```powershell
+npm exec -- esl init @local/my-skill
+npm exec -- esl validate .\my-skill
+npm exec -- esl install .\my-skill
+npm exec -- esl adapt
+```
+
+`@local/*` skills can be created, installed, and adapted locally, but they
+cannot be published to the shared server. Before publishing, rename the skill to
+a stable namespace:
+
+```text
+@local/my-skill -> @cnfox/my-skill
+```
+
+or:
+
+```text
+@local/my-skill -> @platform/my-skill
+```
+
+The namespace is part of the stable skill identity. It is not the current owner,
+creator, or maintainer.
+
 ## Seed Metadata
 
 Run the seed script against the API database path used by Docker Compose:

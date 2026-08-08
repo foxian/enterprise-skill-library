@@ -24,12 +24,18 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
     throw new Error(`Invalid skill package: ${validation.errors.join(', ')}`);
   }
 
+  const { skillJson } = validation.data;
+  if (skillJson.name.startsWith('@local/')) {
+    throw new Error(
+      '@local/* skills use the local namespace and must be renamed to a stable namespace before publishing'
+    );
+  }
+
   const fetchImpl = options.customFetch ?? fetch;
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
   const { registry, gitBase, token } = await resolveNetworkConfig(options);
   const authToken = requireConfigured(token, 'token');
   const gitHttpBase = requireConfigured(gitBase, 'git-base');
-  const { skillJson } = validation.data;
   const res = await fetchImpl(apiUrl(registry, '/api/skills'), {
     method: 'POST',
     headers: {

@@ -62,6 +62,36 @@ description: Use when reviewing code changes.
       ['remote', 'add', 'esl', expect.stringContaining('/esl-skills/alice_code-review.git')],
       { cwd: skillDir }
     );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(execFileAsync).toHaveBeenCalledTimes(4);
+  });
+
+  it('rejects local namespace skills before registry or git side effects', async () => {
+    fs.writeFileSync(
+      path.join(skillDir, 'skill.json'),
+      JSON.stringify({
+        name: '@local/code-review',
+        version: '0.1.0',
+        description: 'Code review skill',
+        author: 'alice'
+      })
+    );
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        registry: 'http://localhost:3000/api',
+        gitBase: 'http://localhost:3001',
+        token: 'gitea-token',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('@local/* skills use the local namespace and must be renamed to a stable namespace before publishing');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
   });
 
   it('fails when the registry omits gitRepoPath', async () => {

@@ -74,7 +74,7 @@ export function createProgram(): Command {
 
   program
     .command('install')
-    .argument('[name-or-path]', 'skill name (@scope/skill) or local path')
+    .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
     .option('--version <version>', 'version to install')
     .option('--global', 'Install to global skills directory')
     .option('--no-adapt', 'Skip automatic adapt after install')

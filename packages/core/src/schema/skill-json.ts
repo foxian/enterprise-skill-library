@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ValidationResult } from './validation-result.js';
 
 export const SkillNameSchema = z.string().regex(/^@[a-z0-9-]+\/[a-z0-9-]+$/, {
-  message: 'Skill name must follow @scope/skill-name using lowercase letters, digits, and hyphens'
+  message: 'Skill name must follow @namespace/skill-name using lowercase letters, digits, and hyphens'
 });
 
 export const SemVerSchema = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, {
@@ -46,7 +46,7 @@ export function validateSkillJson(data: unknown): ValidationResult<SkillJson> {
 export function parseSkillName(name: string): { scope: string; skillName: string } {
   const result = SkillNameSchema.safeParse(name);
   if (!result.success) {
-    throw new Error('Skill name must follow @scope/skill-name using lowercase letters, digits, and hyphens');
+    throw new Error('Skill name must follow @namespace/skill-name using lowercase letters, digits, and hyphens');
   }
 
   const [scope, skillName] = name.slice(1).split('/');

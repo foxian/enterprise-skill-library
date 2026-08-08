@@ -40,7 +40,7 @@ describe('esl init', () => {
 
   it('rejects invalid skill names', async () => {
     await expect(executeInit('my-skill', { cwd: tmpDir, runGitInit: false })).rejects.toThrow(
-      '@scope/skill-name'
+      '@namespace/skill-name'
     );
   });
 
