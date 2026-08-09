@@ -7,6 +7,7 @@ import { executeInfo } from '../commands/info.js';
 import { executeAdapt } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
+import { executeUse } from '../commands/use.js';
 import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
@@ -153,6 +154,19 @@ export function createProgram(): Command {
     .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string; token?: string }) => {
       const targetDir = await executeSource(skillName, { ...options, target });
       console.log(`Skill cloned to ${targetDir}`);
+    });
+
+  program
+    .command('use')
+    .description('Output a skill prompt without installing (pipe to an agent)')
+    .argument('<name-or-path>', 'skill name (@namespace/skill) or local path')
+    .option('--version <version>', 'version to use')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--token <token>', 'Gitea personal access token')
+    .action(async (nameOrPath: string, options: { version?: string; registry?: string; gitBase?: string; token?: string }) => {
+      const content = await executeUse(nameOrPath, options);
+      process.stdout.write(content);
     });
 
   program
