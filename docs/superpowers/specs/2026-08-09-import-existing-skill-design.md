@@ -5,13 +5,13 @@
 
 ## 1. 背景
 
-已有 Agent 技能目录通常只有 `SKILL.md`。当前 ESL 的 `install` 要求输入目录已经是合法 skill package，因此至少需要 `skill.json` 和 `SKILL.md`。这让用户把已有本地技能纳入 ESL store 时，需要手动创建 `skill.json`，体验不直接。
+已有 Agent 技能目录通常只有 `SKILL.md`。当前 ESL 的 `install` 要求输入目录已经是合法 skill package，因此至少需要 `skill.json` 和 `SKILL.md`。这让用户把已有本地技能安装到当前项目时，需要手动创建 `skill.json`，体验不直接。
 
 同时，`init` 现在会创建 `scripts/`、`references/`、`assets/` 空目录，但这些目录不是 ESL 合法包的必需条件。默认创建空目录会让最小包结构显得比实际更复杂。
 
 ## 2. 设计目标
 
-- 让已有本地技能可以通过一条命令导入当前项目 store。
+- 让已有本地技能可以通过一条命令导入并安装到当前项目。
 - 保持 `validate` 只检查不写文件。
 - 保持 `init` 只负责创建新技能，不承担导入已有目录的语义。
 - 使用最小 skill package：只要求 `SKILL.md` 和 `skill.json`。
@@ -63,7 +63,7 @@ npm exec -- esl import <path> --no-adapt
 5. 如果目录中没有 `skill.json`，生成最小 `skill.json`。
 6. 如果目录中已有 `skill.json`，不覆盖。
 7. 跑现有 `validateSkillDirectory`。
-8. 调用现有本地路径 `install` 逻辑，把技能安装进当前项目 store。
+8. 调用现有本地路径 `install` 逻辑，把技能安装到当前项目的 `.skills`。
 9. 默认执行现有 project adapt；传入 `--no-adapt` 时跳过。
 
 成功后，当前项目至少会有：
@@ -101,7 +101,7 @@ skills.json
 
 ## 6. 错误处理
 
-以下情况应报错并停止，不写入 project store：
+以下情况应报错并停止，不写入当前项目的 `.skills`：
 
 - `<path>` 不存在或不是目录。
 - `SKILL.md` 不存在。
@@ -146,7 +146,7 @@ CLI 行为放在 `packages/cli`：
 - 解析 `esl import` 参数。
 - 处理 `--namespace` 和 `--no-adapt`。
 - 调用 core 导入准备逻辑。
-- 调用现有 `executeInstall` 完成 store 安装。
+- 调用现有 `executeInstall` 完成当前项目安装。
 - 输出成功或错误信息。
 
 `packages/cli` 不重复实现复制、依赖登记或 adapter 行为，继续复用现有 install 流程。
