@@ -53,7 +53,23 @@ esl search code-review
 esl info @cnfox/code-review
 ```
 
-### 3. 安装技能 (Install)
+### 3. 免安装试用技能 (Use)
+临时读取技能的 Prompt 文本并输出到控制台，无需安装或修改项目依赖（支持管道传递给 Agent）：
+```bash
+# 试用远端技能并直接输出 Prompt
+esl use @cnfox/code-review
+
+# 指定版本号试用
+esl use @cnfox/code-review --version 1.0.0
+
+# 试用本地草稿技能
+esl use ./path/to/my-skill
+
+# 通过管道传递给 Agent (如 Claude Code)
+esl use @cnfox/code-review | claude "请帮助审核当前的 git diff"
+```
+
+### 4. 安装技能 (Install)
 将技能安装至当前项目：
 ```bash
 # 从注册中心安装最新版本
