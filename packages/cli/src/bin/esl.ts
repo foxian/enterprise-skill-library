@@ -6,6 +6,7 @@ import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
 import { executeAdapt } from '../commands/adapt.js';
 import { executeClone } from '../commands/clone.js';
+import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
@@ -70,6 +71,20 @@ export function createProgram(): Command {
     .action(async (options: { directory: string; registry?: string; gitBase?: string; token?: string; visibility?: string }) => {
       await executePublish(options);
       console.log('Skill published');
+    });
+
+  program
+    .command('import')
+    .description('Import an existing local skill directory into the current project')
+    .argument('<path>', 'existing skill directory')
+    .option('--namespace <namespace>', 'skill namespace', 'local')
+    .option('--no-adapt', 'Skip automatic adapt after install')
+    .action(async (sourcePath: string, options: { namespace?: string; adapt?: boolean }) => {
+      const result = await executeImport(sourcePath, {
+        namespace: options.namespace,
+        noAdapt: options.adapt === false
+      });
+      console.log(`Skill ${result.skillName} imported at ${result.targetDir}`);
     });
 
   program

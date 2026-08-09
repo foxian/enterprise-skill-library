@@ -3,6 +3,7 @@ export const CLI_NAME = 'esl';
 export * from './commands/init.js';
 export * from './commands/adapt.js';
 export * from './commands/clone.js';
+export * from './commands/import.js';
 export * from './commands/info.js';
 export * from './commands/install.js';
 export * from './commands/login.js';
