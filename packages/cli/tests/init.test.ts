@@ -24,9 +24,9 @@ describe('esl init', () => {
     expect(targetDir).toBe(path.join(tmpDir, 'my-skill'));
     expect(fs.existsSync(path.join(targetDir, 'skill.json'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(targetDir, 'scripts'))).toBe(true);
-    expect(fs.existsSync(path.join(targetDir, 'references'))).toBe(true);
-    expect(fs.existsSync(path.join(targetDir, 'assets'))).toBe(true);
+    expect(fs.existsSync(path.join(targetDir, 'scripts'))).toBe(false);
+    expect(fs.existsSync(path.join(targetDir, 'references'))).toBe(false);
+    expect(fs.existsSync(path.join(targetDir, 'assets'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'resources'))).toBe(false);
 
     const skillJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'skill.json'), 'utf8'));

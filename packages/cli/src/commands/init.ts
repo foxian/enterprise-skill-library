@@ -27,9 +27,6 @@ export async function executeInit(skillName: string, options: InitOptions = {}):
   }
 
   await fs.mkdir(targetDir, { recursive: true });
-  await fs.mkdir(path.join(targetDir, 'scripts'));
-  await fs.mkdir(path.join(targetDir, 'references'));
-  await fs.mkdir(path.join(targetDir, 'assets'));
 
   const skillJson = {
     name: skillName,
