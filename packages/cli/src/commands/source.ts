@@ -12,13 +12,13 @@ import { executeInfo } from './info.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
-export interface CloneOptions extends NetworkCommandOptions {
+export interface SourceOptions extends NetworkCommandOptions {
   target?: string;
   cwd?: string;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
-export async function executeClone(name: string, options: CloneOptions = {}): Promise<string> {
+export async function executeSource(name: string, options: SourceOptions = {}): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
   const { gitBase, token } = await resolveNetworkConfig(options);
   const gitHttpBase = requireConfigured(gitBase, 'git-base');

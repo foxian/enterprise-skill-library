@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { executeClone } from '../src/commands/clone.js';
+import { executeSource } from '../src/commands/source.js';
 
-describe('esl clone', () => {
+describe('esl source', () => {
   it('clones the full git repository to the target directory', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -13,7 +13,7 @@ describe('esl clone', () => {
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
-    const targetDir = await executeClone('@alice/code-review', {
+    const targetDir = await executeSource('@alice/code-review', {
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
@@ -41,7 +41,7 @@ describe('esl clone', () => {
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
-    const targetDir = await executeClone('@alice/code-review', {
+    const targetDir = await executeSource('@alice/code-review', {
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',

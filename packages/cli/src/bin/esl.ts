@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
 import { executeAdapt } from '../commands/adapt.js';
-import { executeClone } from '../commands/clone.js';
+import { executeSource } from '../commands/source.js';
+import { executeList } from '../commands/list.js';
 import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
@@ -118,7 +119,31 @@ export function createProgram(): Command {
     });
 
   program
-    .command('clone')
+    .command('list')
+    .alias('ls')
+    .description('List installed skills')
+    .option('--global', 'List global skills instead of project skills')
+    .option('--json', 'Output as JSON')
+    .action(async (options: { global?: boolean; json?: boolean }) => {
+      const skills = await executeList(options);
+      if (options.json) {
+        console.log(JSON.stringify(skills, null, 2));
+        return;
+      }
+      if (skills.length === 0) {
+        console.log(options.global ? 'No global skills installed.' : 'No skills installed in this project.');
+        return;
+      }
+      const label = options.global ? 'Global' : 'Project';
+      console.log(`${label} skills (${skills.length} installed):`);
+      for (const skill of skills) {
+        const name = skill.name.padEnd(30);
+        console.log(`  ${name} v${skill.version}   (${skill.source})`);
+      }
+    });
+
+  program
+    .command('source')
     .description('Clone skill source for development')
     .argument('<skill-name>')
     .argument('[target]', 'target directory')
@@ -126,7 +151,7 @@ export function createProgram(): Command {
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
     .option('--token <token>', 'Gitea personal access token')
     .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string; token?: string }) => {
-      const targetDir = await executeClone(skillName, { ...options, target });
+      const targetDir = await executeSource(skillName, { ...options, target });
       console.log(`Skill cloned to ${targetDir}`);
     });
 

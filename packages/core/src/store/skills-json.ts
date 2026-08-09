@@ -86,3 +86,29 @@ export async function addLockEntry(
   data.skills[name] = entry;
   await saveSkillsLock(projectRoot, data);
 }
+
+export interface SkillListEntry {
+  name: string;
+  version: string;
+  source: 'registry' | 'local';
+}
+
+export async function listSkills(projectRoot: string): Promise<SkillListEntry[]> {
+  const lock = await loadSkillsLock(projectRoot);
+  const entries = Object.entries(lock.skills);
+
+  if (entries.length > 0) {
+    return entries.map(([name, entry]) => ({
+      name,
+      version: entry.version,
+      source: entry.resolved.startsWith('file:') ? 'local' as const : 'registry' as const
+    }));
+  }
+
+  const skillsJson = await loadSkillsJson(projectRoot);
+  return Object.entries(skillsJson.skills).map(([name, specifier]) => ({
+    name,
+    version: specifier,
+    source: specifier.startsWith('file:') ? 'local' as const : 'registry' as const
+  }));
+}
