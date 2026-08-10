@@ -10,6 +10,11 @@ namespace is `cnfox`.
 The reserved `local` namespace for skills that are local, unpublished, or not
 yet assigned a stable publishing namespace.
 
+## Local Skill Source
+
+The original local directory where a skill is authored or maintained before it
+is installed into a project skill store.
+
 ## Skill Identity
 
 The full stable skill name in the form `@namespace/skill-name`.

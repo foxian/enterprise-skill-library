@@ -10,6 +10,7 @@ import {
   copySkillDirectory,
   prepareSkillImport,
   removeDirectory,
+  resolveLocalStorePaths,
   validateSkillDirectory
 } from '@esl/core';
 import {
@@ -57,9 +58,15 @@ async function installFromLocalPath(
   }
 
   const { skillJson } = validation.data;
-  const targetDir = projectSkillsDir(projectRoot, skillJson.name);
+  const installRoot = options.global ? resolveLocalStorePaths(options).root : projectRoot;
+  const targetDir = options.global ? installTargetDir(skillJson.name, options) : projectSkillsDir(projectRoot, skillJson.name);
   await copySkillDirectory(resolved, targetDir);
-  await addSkillDependency(projectRoot, skillJson.name, `file:${resolved}`);
+  await addSkillDependency(installRoot, skillJson.name, `file:${resolved}`);
+  await addLockEntry(installRoot, skillJson.name, {
+    version: skillJson.version,
+    resolved: `file:${resolved}`,
+    integrity: ''
+  });
 
   return targetDir;
 }
@@ -79,11 +86,20 @@ async function installFromServer(
   const version = options.version ?? info.versions?.[0];
 
   if (options.global || !projectRoot) {
+    const globalRoot = resolveLocalStorePaths(options).root;
     const targetDir = path.normalize(installTargetDir(name, options));
     await removeDirectory(targetDir);
     await execFileAsync('git', ['clone', remoteUrl, targetDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: targetDir });
+    }
+    await addSkillDependency(globalRoot, name, version ? `^${version}` : '^0.0.0');
+    if (version) {
+      await addLockEntry(globalRoot, name, {
+        version,
+        resolved: repoPath,
+        integrity: ''
+      });
     }
     return targetDir;
   }

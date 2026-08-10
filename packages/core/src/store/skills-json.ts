@@ -38,6 +38,7 @@ async function readJsonFile<T>(filePath: string, defaultValue: T): Promise<T> {
 }
 
 async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 

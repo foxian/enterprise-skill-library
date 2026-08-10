@@ -153,4 +153,24 @@ describe('esl install (project-level)', () => {
 
     expect(targetDir).toBe(path.normalize(path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')));
   });
+
+  it('installs a local path to the global store with --global', async () => {
+    const targetDir = await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      global: true,
+      noAdapt: true
+    });
+
+    const expectedDir = path.join(homeDir, '.skill-library', 'skills', '@myorg', 'my-local-skill');
+    expect(targetDir).toBe(expectedDir);
+    expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, '.skills', '@myorg', 'my-local-skill'))).toBe(false);
+
+    const projectSkillsJson = await loadSkillsJson(projectDir);
+    expect(projectSkillsJson.skills['@myorg/my-local-skill']).toBeUndefined();
+
+    const globalSkillsJson = await loadSkillsJson(path.join(homeDir, '.skill-library'));
+    expect(globalSkillsJson.skills['@myorg/my-local-skill']).toBe(`file:${localSkillDir}`);
+  });
 });

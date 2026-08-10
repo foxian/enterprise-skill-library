@@ -1,4 +1,4 @@
-import { adaptProject, loadSkillsJson, loadSkillsLock } from '@esl/core';
+import { adaptGlobal, adaptProject, loadSkillsJson, loadSkillsLock, resolveLocalStorePaths, validateSkillDirectory } from '@esl/core';
 import { executeInfo } from './info.js';
 import { executeInstall } from './install.js';
 import type { NetworkCommandOptions } from './network-options.js';
@@ -19,17 +19,28 @@ export interface UpdateResultEntry {
 export type UpdateResult = UpdateResultEntry[];
 
 export async function executeUpdate(options: UpdateOptions = {}): Promise<UpdateResult> {
-  const projectRoot = options.projectRoot ?? process.cwd();
-  const skillsJson = await loadSkillsJson(projectRoot);
-  const lockJson = await loadSkillsLock(projectRoot);
+  const manifestRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? process.cwd();
+  const skillsJson = await loadSkillsJson(manifestRoot);
+  const lockJson = await loadSkillsLock(manifestRoot);
   const results: UpdateResultEntry[] = [];
 
   for (const [name, specifier] of Object.entries(skillsJson.skills)) {
-    if (specifier.startsWith('file:')) {
+    if (options.skillName && options.skillName !== name) {
       continue;
     }
 
-    if (options.skillName && options.skillName !== name) {
+    if (specifier.startsWith('file:')) {
+      const targetDir = await executeInstall(specifier.slice('file:'.length), {
+        ...options,
+        projectRoot: manifestRoot,
+        noAdapt: true
+      });
+      const validation = await validateSkillDirectory(targetDir);
+      results.push({
+        name,
+        from: lockJson.skills[name]?.version ?? 'local',
+        to: validation.success ? validation.data.skillJson.version : 'local'
+      });
       continue;
     }
 
@@ -47,7 +58,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
 
       await executeInstall(name, {
         ...options,
-        projectRoot,
+        projectRoot: manifestRoot,
         version: latestVersion,
         noAdapt: true
       });
@@ -63,7 +74,11 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
   }
 
   if (!options.noAdapt && results.length > 0) {
-    await adaptProject(projectRoot, { homeDir: options.homeDir });
+    if (options.global) {
+      await adaptGlobal({ homeDir: options.homeDir });
+    } else {
+      await adaptProject(manifestRoot, { homeDir: options.homeDir });
+    }
   }
 
   return results;
