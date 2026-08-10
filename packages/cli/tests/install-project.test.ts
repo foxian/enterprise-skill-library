@@ -57,6 +57,28 @@ describe('esl install (project-level)', () => {
     expect(skillsJson.skills['@myorg/my-local-skill']).toBe(`file:${localSkillDir}`);
   });
 
+  it('implicitly imports a local skill missing skill.json during install', async () => {
+    const unpreparedSkillDir = path.join(projectDir, 'unprepared-skill');
+    fs.mkdirSync(unpreparedSkillDir);
+    fs.writeFileSync(
+      path.join(unpreparedSkillDir, 'SKILL.md'),
+      '---\nname: unprepared-skill\ndescription: Unprepared test skill.\n---\n\n# Unprepared Skill\n'
+    );
+
+    const targetDir = await executeInstall(unpreparedSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      noAdapt: true
+    });
+
+    const expectedDir = path.join(projectDir, '.skills', '@local', 'unprepared-skill');
+    expect(targetDir).toBe(expectedDir);
+    expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
+
+    const skillsJson = await loadSkillsJson(projectDir);
+    expect(skillsJson.skills['@local/unprepared-skill']).toBe(`file:${unpreparedSkillDir}`);
+  });
+
   it('installs from server to project .skills/', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

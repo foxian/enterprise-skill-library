@@ -8,6 +8,7 @@ import {
   addSkillDependency,
   adaptProject,
   copySkillDirectory,
+  prepareSkillImport,
   removeDirectory,
   validateSkillDirectory
 } from '@esl/core';
@@ -41,7 +42,16 @@ async function installFromLocalPath(
   options: InstallOptions
 ): Promise<string> {
   const resolved = path.resolve(sourcePath);
-  const validation = await validateSkillDirectory(resolved);
+  let validation = await validateSkillDirectory(resolved);
+  if (!validation.success) {
+    try {
+      await prepareSkillImport(resolved);
+      validation = await validateSkillDirectory(resolved);
+    } catch {
+      // If implicit import fails, throw original validation error
+    }
+  }
+
   if (!validation.success) {
     throw new Error(`Invalid skill package at ${resolved}: ${validation.errors.join(', ')}`);
   }
