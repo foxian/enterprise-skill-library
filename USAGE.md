@@ -78,7 +78,7 @@ esl install @cnfox/code-review
 # 安装指定版本
 esl install @cnfox/code-review --version 1.0.0
 
-# 从本地相对路径安装
+# 从本地相对路径安装（若缺少 skill.json，会自动隐式补全元数据并完成安装）
 esl install ./path/to/my-skill
 
 # 安装到个人全局环境 (~/.skill-library/skills/)
@@ -87,8 +87,9 @@ esl install @cnfox/code-review --global
 # 安装但跳过自动 adapt 同步
 esl install @cnfox/code-review --no-adapt
 ```
+> **提示**：安装完成后，`esl install` 会自动运行 `adapt` 引擎将技能同步分发到所有已配置的 AI Agent 目录中。
 
-### 4. 查看已安装技能 (List)
+### 5. 查看已安装技能 (List)
 查看当前项目或全局已安装的技能清单：
 ```bash
 # 查看当前项目安装的技能
@@ -103,7 +104,7 @@ esl list --global
 esl list --json
 ```
 
-### 5. 手动同步适配 (Adapt)
+### 6. 手动同步适配 (Adapt)
 将已安装的技能同步刷入项目配置的各个 AI 工具中（如 Claude Code, Trae 等）：
 ```bash
 # 刷入当前项目
@@ -113,7 +114,7 @@ esl adapt
 esl adapt --global
 ```
 
-### 6. 更新技能 (Update)
+### 7. 更新技能 (Update)
 检查并升级已安装的技能到注册中心的最新版本：
 ```bash
 # 更新项目下所有技能
@@ -126,7 +127,7 @@ esl update @cnfox/code-review
 esl update --global
 ```
 
-### 7. 卸载技能 (Uninstall)
+### 8. 卸载技能 (Uninstall)
 移除已安装的技能（自动清理 `.skills/` 目录、依赖清单及各 AI 工具中的副本）：
 ```bash
 # 卸载项目技能
