@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeUpdate } from '../src/commands/update.js';
-import { initializeLocalStore, loadSkillsJson, saveConfig, saveSkillsJson, saveSkillsLock } from '@esl/core';
+import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveSkillsJson, saveSkillsLock } from '@esl/core';
 
 describe('esl update', () => {
   let projectDir: string;
@@ -140,6 +140,59 @@ describe('esl update', () => {
         noAdapt: true
       })
     ).rejects.toThrow(`Invalid skill package at ${missingSkillDir}`);
+  });
+
+  it('updates registry-backed skills from the global manifest', async () => {
+    const globalRoot = path.join(homeDir, '.skill-library');
+    await saveSkillsJson(globalRoot, {
+      skills: { '@alice/code-review': '^1.0.0' }
+    });
+    await saveSkillsLock(globalRoot, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.0.0',
+          resolved: 'esl-skills/alice_code-review',
+          integrity: ''
+        }
+      }
+    });
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        gitRepoPath: 'esl-skills/alice_code-review',
+        versions: ['1.1.0', '1.0.0']
+      })
+    });
+    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+
+    const result = await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      global: true,
+      registry: 'http://localhost:3000/api',
+      gitBase: 'http://localhost:3001',
+      token: 'gitea-token',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      noAdapt: true
+    });
+
+    expect(result).toEqual([{ name: '@alice/code-review', from: '1.0.0', to: '1.1.0' }]);
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      [
+        'clone',
+        expect.stringContaining('/esl-skills/alice_code-review.git'),
+        path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')
+      ]
+    );
+
+    const globalLock = await loadSkillsLock(globalRoot);
+    expect(globalLock.skills['@alice/code-review']?.version).toBe('1.1.0');
+    expect(fs.existsSync(path.join(projectDir, '.skills', '@alice', 'code-review'))).toBe(false);
   });
 
   it('reports already up-to-date skills', async () => {
