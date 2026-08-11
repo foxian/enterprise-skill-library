@@ -19,7 +19,7 @@ describe('ToolAdapter implementations', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-adapter-'));
     srcDir = path.join(tmpDir, 'source-skill');
     fs.mkdirSync(srcDir);
-    fs.writeFileSync(path.join(srcDir, 'SKILL.md'), '# Test Skill');
+    fs.writeFileSync(path.join(srcDir, 'SKILL.md'), '---\nname: my-skill\ndescription: Test skill.\n---\n\n# Test Skill');
     fs.mkdirSync(path.join(srcDir, 'scripts'));
     fs.writeFileSync(path.join(srcDir, 'scripts', 'run.sh'), '#!/bin/bash');
   });
@@ -54,16 +54,20 @@ describe('ToolAdapter implementations', () => {
     expect(adapter.globalDir()).toBe(path.join(os.homedir(), '.trae-cn', 'skills'));
   });
 
-  it('adapt copies skill to target directory', async () => {
+  it('adapt copies skill to the adapted directory and rewrites the display name', async () => {
     const adapter = new ClaudeAdapter();
     const targetBase = path.join(tmpDir, '.claude', 'skills');
 
-    await adapter.adapt(srcDir, 'my-skill', targetBase);
-
-    expect(fs.readFileSync(path.join(targetBase, 'my-skill', 'SKILL.md'), 'utf8')).toBe(
-      '# Test Skill'
+    await adapter.adapt(
+      srcDir,
+      { identity: '@scope/my-skill', directoryName: 'scope_my-skill', displayName: 'scope:my-skill' },
+      targetBase
     );
-    expect(fs.readFileSync(path.join(targetBase, 'my-skill', 'scripts', 'run.sh'), 'utf8')).toBe(
+
+    expect(fs.readFileSync(path.join(targetBase, 'scope_my-skill', 'SKILL.md'), 'utf8')).toContain(
+      'name: scope:my-skill'
+    );
+    expect(fs.readFileSync(path.join(targetBase, 'scope_my-skill', 'scripts', 'run.sh'), 'utf8')).toBe(
       '#!/bin/bash'
     );
   });
@@ -71,7 +75,11 @@ describe('ToolAdapter implementations', () => {
   it('clean removes all contents from target base directory', async () => {
     const adapter = new ClaudeAdapter();
     const targetBase = path.join(tmpDir, '.claude', 'skills');
-    await adapter.adapt(srcDir, 'my-skill', targetBase);
+    await adapter.adapt(
+      srcDir,
+      { identity: '@scope/my-skill', directoryName: 'scope_my-skill', displayName: 'scope:my-skill' },
+      targetBase
+    );
 
     await adapter.clean(targetBase);
 

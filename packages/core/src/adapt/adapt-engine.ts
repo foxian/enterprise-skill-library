@@ -7,14 +7,31 @@ import { getAdapter } from './index.js';
 
 export interface AdaptResult {
   tool: string;
-  skills: string[];
+  skills: AdaptedSkillResult[];
+}
+
+export interface AdaptedSkillResult {
+  identity: string;
+  directoryName: string;
 }
 
 interface AdaptOptions extends LocalStoreOptions {}
 
 interface SkillDirectory {
-  name: string;
+  identity: string;
+  directoryName: string;
+  displayName: string;
   path: string;
+}
+
+export function adaptedSkillDirectoryName(identity: string): string {
+  const { scope, skillName } = parseSkillName(identity);
+  return `${scope}_${skillName}`;
+}
+
+export function adaptedSkillDisplayName(identity: string): string {
+  const { scope, skillName } = parseSkillName(identity);
+  return `${scope}:${skillName}`;
 }
 
 async function resolveToolList(projectRoot: string, options: AdaptOptions): Promise<string[]> {
@@ -46,9 +63,12 @@ async function scanSkillsDir(skillsDir: string): Promise<SkillDirectory[]> {
     const entries = await fs.readdir(scopePath, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        const parsed = parseSkillName(`${scope.name}/${entry.name}`);
+        const identity = `${scope.name}/${entry.name}`;
+        parseSkillName(identity);
         skills.push({
-          name: parsed.skillName,
+          identity,
+          directoryName: adaptedSkillDirectoryName(identity),
+          displayName: adaptedSkillDisplayName(identity),
           path: path.join(scopePath, entry.name)
         });
       }
@@ -75,10 +95,10 @@ export async function adaptProject(
     const targetBase = adapter.projectDir(projectRoot);
     await adapter.clean(targetBase);
 
-    const adaptedSkills: string[] = [];
+    const adaptedSkills: AdaptedSkillResult[] = [];
     for (const skill of skills) {
-      await adapter.adapt(skill.path, skill.name, targetBase);
-      adaptedSkills.push(skill.name);
+      await adapter.adapt(skill.path, skill, targetBase);
+      adaptedSkills.push({ identity: skill.identity, directoryName: skill.directoryName });
     }
     results.push({ tool: toolName, skills: adaptedSkills });
   }
@@ -98,13 +118,13 @@ export async function adaptGlobal(options: AdaptOptions = {}): Promise<AdaptResu
 
   for (const toolName of config.tools) {
     const adapter = getAdapter(toolName);
-    const targetBase = adapter.globalDir();
+    const targetBase = adapter.globalDir(options.homeDir);
     await adapter.clean(targetBase);
 
-    const adaptedSkills: string[] = [];
+    const adaptedSkills: AdaptedSkillResult[] = [];
     for (const skill of skills) {
-      await adapter.adapt(skill.path, skill.name, targetBase);
-      adaptedSkills.push(skill.name);
+      await adapter.adapt(skill.path, skill, targetBase);
+      adaptedSkills.push({ identity: skill.identity, directoryName: skill.directoryName });
     }
     results.push({ tool: toolName, skills: adaptedSkills });
   }

@@ -19,6 +19,19 @@ is installed into a project skill store.
 
 The full stable skill name in the form `@namespace/skill-name`.
 
+## Adapted Skill Directory Name
+
+The namespace-qualified directory name used for a skill in an AI tool's adapted
+skill directory. It uses `namespace_skill-name`, such as `cnfox_code-review`, so
+the namespace boundary remains unambiguous while staying within a single
+tool-scanned directory level.
+
+## Adapted Skill Display Name
+
+The namespace-qualified name written into an adapted skill's `SKILL.md`
+frontmatter for AI tools to display or identify the skill. It uses
+`namespace:skill-name`, such as `cnfox:code-review`.
+
 ## Created By
 
 The user who first created the skill. This is audit metadata, not the namespace

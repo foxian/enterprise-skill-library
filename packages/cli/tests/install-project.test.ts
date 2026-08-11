@@ -57,6 +57,16 @@ describe('esl install (project-level)', () => {
     expect(skillsJson.skills['@myorg/my-local-skill']).toBe(`file:${localSkillDir}`);
   });
 
+  it('runs adapt with namespaced runtime output by default', async () => {
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir
+    });
+
+    const adaptedSkillMd = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill', 'SKILL.md');
+    expect(fs.readFileSync(adaptedSkillMd, 'utf8')).toContain('name: myorg:my-local-skill');
+  });
+
   it('implicitly imports a local skill missing skill.json during install', async () => {
     const unpreparedSkillDir = path.join(projectDir, 'unprepared-skill');
     fs.mkdirSync(unpreparedSkillDir);

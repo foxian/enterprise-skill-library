@@ -73,7 +73,8 @@ describe('esl import', () => {
       author: 'tester'
     });
 
-    expect(fs.existsSync(path.join(projectDir, '.agents', 'skills', 'brainstorming', 'SKILL.md'))).toBe(true);
+    const adaptedSkillMd = path.join(projectDir, '.agents', 'skills', 'local_brainstorming', 'SKILL.md');
+    expect(fs.readFileSync(adaptedSkillMd, 'utf8')).toContain('name: local:brainstorming');
   });
 
   it('does not adapt when noAdapt is true', async () => {

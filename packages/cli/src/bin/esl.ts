@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
-import { executeAdapt } from '../commands/adapt.js';
+import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
@@ -114,8 +114,8 @@ export function createProgram(): Command {
     .option('--directory <path>', 'Project directory', process.cwd())
     .action(async (options: { global?: boolean; directory?: string }) => {
       const results = await executeAdapt(options);
-      for (const result of results) {
-        console.log(`${result.tool}: ${result.skills.length} skill(s) synced`);
+      for (const line of formatAdaptResults(results)) {
+        console.log(line);
       }
     });
 
