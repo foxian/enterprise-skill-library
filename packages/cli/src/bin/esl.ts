@@ -111,8 +111,9 @@ export function createProgram(): Command {
     .command('adapt')
     .description('Sync installed skills to AI tool directories')
     .option('--global', 'Adapt global skills instead of project skills')
+    .option('--prune', 'Remove manifest-owned stale adapted outputs')
     .option('--directory <path>', 'Project directory', process.cwd())
-    .action(async (options: { global?: boolean; directory?: string }) => {
+    .action(async (options: { global?: boolean; prune?: boolean; directory?: string }) => {
       const results = await executeAdapt(options);
       for (const line of formatAdaptResults(results)) {
         console.log(line);

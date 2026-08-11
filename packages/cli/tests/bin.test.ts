@@ -15,6 +15,13 @@ describe('esl program', () => {
     );
   });
 
+  it('registers the adapt prune option', () => {
+    const program = createProgram();
+    const adaptCommand = program.commands.find((command) => command.name() === 'adapt');
+
+    expect(adaptCommand?.options.map((option) => option.long)).toEqual(expect.arrayContaining(['--prune']));
+  });
+
   it('detects direct execution from Windows paths', () => {
     expect(isDirectCliEntry('file:///D:/DevProjects/esl/packages/cli/dist/bin/esl.js', 'D:\\DevProjects\\esl\\packages\\cli\\dist\\bin\\esl.js')).toBe(true);
   });

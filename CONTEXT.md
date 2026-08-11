@@ -32,6 +32,12 @@ The namespace-qualified name written into an adapted skill's `SKILL.md`
 frontmatter for AI tools to display or identify the skill. It uses
 `namespace:skill-name`, such as `cnfox:code-review`.
 
+## Adapt Manifest
+
+The source-store manifest that records which adapted skill outputs ESL last
+generated for AI tools. Project skills use `.skills/.esl-adapt-manifest.json`;
+global skills use `.skill-library/.esl-adapt-manifest.json`.
+
 ## Created By
 
 The user who first created the skill. This is audit metadata, not the namespace
