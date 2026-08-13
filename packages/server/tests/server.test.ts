@@ -10,6 +10,7 @@ describe('server runtime', () => {
         DATABASE_PATH: ':memory:',
         GITEA_URL: 'http://gitea:3000',
         GITEA_ADMIN_TOKEN: 'admin-token',
+        GITEA_ADMIN_TOKEN_FILE: '/bootstrap/gitea-admin-token',
         GITEA_REPO_OWNER: 'platform-skills',
         ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
       } as NodeJS.ProcessEnv,
