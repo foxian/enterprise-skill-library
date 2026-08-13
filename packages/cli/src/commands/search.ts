@@ -1,4 +1,4 @@
-import { apiUrl, type NetworkCommandOptions, resolveNetworkConfig } from './network-options.js';
+import { apiUrl, fetchWithTimeout, type NetworkCommandOptions, resolveNetworkConfig } from './network-options.js';
 
 export interface SkillSearchResult {
   name: string;
@@ -11,7 +11,7 @@ export async function executeSearch(
 ): Promise<SkillSearchResult[]> {
   const fetchImpl = options.customFetch ?? fetch;
   const registry = options.registry ?? (await resolveNetworkConfig(options)).registry;
-  const res = await fetchImpl(apiUrl(registry, `/api/skills/search?q=${encodeURIComponent(query)}`));
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/skills/search?q=${encodeURIComponent(query)}`));
 
   if (!res.ok) {
     const err = await res.text();

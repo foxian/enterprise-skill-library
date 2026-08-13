@@ -22,6 +22,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
+import { notify } from '../output.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -89,6 +90,7 @@ async function installFromServer(
     const globalRoot = resolveLocalStorePaths(options).root;
     const targetDir = path.normalize(installTargetDir(name, options));
     await removeDirectory(targetDir);
+    notify(`Cloning ${name}...`);
     await execFileAsync('git', ['clone', remoteUrl, targetDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: targetDir });
@@ -107,6 +109,7 @@ async function installFromServer(
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-install-'));
   try {
     const cloneDir = path.join(tmpDir, 'repo');
+    notify(`Cloning ${name}...`);
     await execFileAsync('git', ['clone', remoteUrl, cloneDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: cloneDir });

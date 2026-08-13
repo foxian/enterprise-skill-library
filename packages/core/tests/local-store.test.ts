@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initializeLocalStore, loadConfig, resolveLocalStorePaths, saveConfig } from '../src/index.js';
+import {
+  initializeLocalStore,
+  loadConfig,
+  loadCredentials,
+  resolveLocalStorePaths,
+  saveConfig,
+  saveCredentials
+} from '../src/index.js';
 
 describe('local store', () => {
   let homeDir: string;
@@ -33,13 +40,34 @@ describe('local store', () => {
     expect(JSON.parse(fs.readFileSync(paths.configJson, 'utf8'))).toEqual({
       registry: null,
       gitBase: null,
-      token: null,
       username: null,
       tools: []
     });
     expect(JSON.parse(fs.readFileSync(paths.credentialsJson, 'utf8'))).toEqual({
-      api_token: null
+      token: null
     });
+  });
+
+  it('saves and loads credentials separately from config', async () => {
+    await initializeLocalStore({ homeDir });
+
+    await saveCredentials({ token: 'secret_token_123' }, { homeDir });
+
+    const credentials = await loadCredentials({ homeDir });
+    expect(credentials).toEqual({ token: 'secret_token_123' });
+
+    const config = await loadConfig({ homeDir });
+    expect(config).not.toHaveProperty('token');
+  });
+
+  it.runIf(process.platform !== 'win32')('writes credentials with owner-only permissions', async () => {
+    await initializeLocalStore({ homeDir });
+
+    await saveCredentials({ token: 'secret_token_123' }, { homeDir });
+
+    const credentialsPath = resolveLocalStorePaths({ homeDir }).credentialsJson;
+    const mode = fs.statSync(credentialsPath).mode & 0o777;
+    expect(mode).toBe(0o600);
   });
 
   it('saves and loads Gitea configuration', async () => {
@@ -47,7 +75,6 @@ describe('local store', () => {
     const config = {
       registry: 'http://skills.company.com/api',
       gitBase: 'http://skills.company.com/git',
-      token: 'gitea_token_12345',
       username: 'zhangsan',
       tools: []
     };

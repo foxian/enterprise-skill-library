@@ -1,11 +1,16 @@
-import { initializeLocalStore, saveConfig, type LocalStoreOptions } from '@esl/core';
+import { initializeLocalStore, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
+import fs from 'node:fs/promises';
+import { isInteractive, readHidden } from '../prompt.js';
+import { fetchWithTimeout } from './network-options.js';
 
 export interface LoginOptions extends LocalStoreOptions {
   registry: string;
   gitBase: string;
   username: string;
-  password?: string;
-  token?: string;
+  passwordFile?: string;
+  tokenFile?: string;
+  noInput?: boolean;
+  readInput?: () => Promise<string>;
   customFetch?: typeof fetch;
 }
 
@@ -13,41 +18,75 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   const fetchImpl = options.customFetch ?? fetch;
   await initializeLocalStore({ homeDir: options.homeDir });
 
-  let token = options.token;
-  if (!token && options.password) {
-    const authHeader = `Basic ${Buffer.from(`${options.username}:${options.password}`).toString('base64')}`;
-    const giteaApiUrl = options.gitBase.replace(/\/git\/?$/, '');
-    const res = await fetchImpl(`${giteaApiUrl}/api/v1/users/${options.username}/tokens`, {
-      method: 'POST',
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ name: `esl-cli-${Date.now()}` })
-    });
+  const token = await resolveLoginToken(options, fetchImpl);
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to authenticate with Gitea: ${err}`);
-    }
-
-    const data = (await res.json()) as { sha1: string };
-    token = data.sha1;
-  }
-
-  if (!token) {
-    throw new Error('Password or Token is required for login');
-  }
-
+  await saveCredentials({ token }, { homeDir: options.homeDir });
   await saveConfig(
     {
       registry: options.registry,
       gitBase: options.gitBase,
-      username: options.username,
-      token
+      username: options.username
     },
     { homeDir: options.homeDir }
   );
 
   return token;
+}
+
+async function resolveLoginToken(options: LoginOptions, fetchImpl: typeof fetch): Promise<string> {
+  if (options.tokenFile) {
+    const token = (await fs.readFile(options.tokenFile, 'utf8')).trim();
+    if (!token) {
+      throw new Error(`Token file ${options.tokenFile} is empty`);
+    }
+    return token;
+  }
+
+  const password = options.passwordFile
+    ? (await fs.readFile(options.passwordFile, 'utf8')).trim()
+    : await promptForPassword(options);
+
+  if (!password) {
+    throw new Error('Password is required for login');
+  }
+
+  return exchangePasswordForToken(options, password, fetchImpl);
+}
+
+async function promptForPassword(options: LoginOptions): Promise<string> {
+  if (options.noInput) {
+    throw new Error('Login requires a password or token; pass --password-file or --token-file when using --no-input');
+  }
+  if (options.readInput) {
+    return (await options.readInput()).trim();
+  }
+  if (!isInteractive()) {
+    throw new Error('Login requires a password; run interactively or pass --password-file/--token-file');
+  }
+  return (await readHidden('Password: ')).trim();
+}
+
+async function exchangePasswordForToken(
+  options: LoginOptions,
+  password: string,
+  fetchImpl: typeof fetch
+): Promise<string> {
+  const authHeader = `Basic ${Buffer.from(`${options.username}:${password}`).toString('base64')}`;
+  const giteaApiUrl = options.gitBase.replace(/\/git\/?$/, '');
+  const res = await fetchWithTimeout(fetchImpl, `${giteaApiUrl}/api/v1/users/${options.username}/tokens`, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name: `esl-cli-${Date.now()}` })
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Failed to authenticate with Gitea: ${err}`);
+  }
+
+  const data = (await res.json()) as { sha1: string };
+  return data.sha1;
 }

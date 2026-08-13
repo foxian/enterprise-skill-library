@@ -87,3 +87,11 @@ The ESL platform administrator credential used for the first CLI login and
 initial platform administration.
 
 _Avoid_: Gitea admin token, Gitea Service Administrator token
+
+## Skill User Token
+
+The credential issued to a Skill User to authenticate ESL CLI operations such
+as publishing, installing, updating, and using skills. It is distinct from the
+Bootstrap Token, which is the platform administrator's first-run credential.
+
+_Avoid_: user token, CLI token

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeUpdate } from '../src/commands/update.js';
-import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveSkillsJson, saveSkillsLock } from '@esl/core';
+import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials, saveSkillsJson, saveSkillsLock } from '@esl/core';
 
 describe('esl update', () => {
   let projectDir: string;
@@ -167,6 +167,7 @@ describe('esl update', () => {
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    await saveCredentials({ token: 'gitea-token' }, { homeDir });
 
     const result = await executeUpdate({
       projectRoot: projectDir,
@@ -174,7 +175,6 @@ describe('esl update', () => {
       global: true,
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
-      token: 'gitea-token',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true

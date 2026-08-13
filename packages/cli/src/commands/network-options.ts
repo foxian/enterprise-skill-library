@@ -1,10 +1,15 @@
-import { parseSkillName, loadConfig, resolveLocalStorePaths, type LocalStoreOptions } from '@esl/core';
+import {
+  parseSkillName,
+  loadConfig,
+  loadCredentials,
+  resolveLocalStorePaths,
+  type LocalStoreOptions
+} from '@esl/core';
 import path from 'node:path';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   registry?: string;
   gitBase?: string;
-  token?: string;
   customFetch?: typeof fetch;
 }
 
@@ -15,15 +20,12 @@ export interface ResolvedNetworkConfig {
 }
 
 export async function resolveNetworkConfig(options: NetworkCommandOptions): Promise<ResolvedNetworkConfig> {
-  if (options.registry && options.gitBase && options.token) {
-    return { registry: options.registry, gitBase: options.gitBase, token: options.token };
-  }
-
   const config = await loadConfig({ homeDir: options.homeDir });
+  const credentials = await loadCredentials({ homeDir: options.homeDir });
   return {
     registry: options.registry ?? requireConfigured(config.registry, 'registry'),
     gitBase: options.gitBase ?? config.gitBase,
-    token: options.token ?? config.token
+    token: credentials.token
   };
 }
 
@@ -32,6 +34,37 @@ export function requireConfigured(value: string | null | undefined, name: string
     throw new Error(`Missing ${name}; run esl login or pass --${name}`);
   }
   return value;
+}
+
+export function resolveTimeoutMs(): number {
+  const env = process.env.ESL_HTTP_TIMEOUT;
+  if (env) {
+    const parsed = Number(env);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 30_000;
+}
+
+export async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = resolveTimeoutMs()
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && (error as Error)?.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs} ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function apiUrl(registry: string, path: string): string {
@@ -47,6 +80,11 @@ export function authenticatedGitUrl(gitBase: string, token: string, repoPath: st
   const url = new URL(`${base}/${repoPath}.git`);
   url.username = token;
   return url.toString();
+}
+
+export function remoteGitUrl(gitBase: string, repoPath: string): string {
+  const base = gitBase.replace(/\/$/, '');
+  return `${base}/${repoPath}.git`;
 }
 
 export function installTargetDir(skillName: string, options: LocalStoreOptions): string {

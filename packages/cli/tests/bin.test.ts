@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { createProgram, isDirectCliEntry } from '../src/bin/esl.js';
+import { describe, expect, it, vi } from 'vitest';
+import { createProgram, formatErrorMessage, isDirectCliEntry } from '../src/bin/esl.js';
+import { readCliVersion } from '../src/version.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,6 +49,68 @@ describe('esl program', () => {
     );
     expect(user?.commands.find((command) => command.name() === 'token')?.commands).toHaveLength(0);
     expect(gitea?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['password']));
+  });
+
+  it('registers --json on info and search', () => {
+    const program = createProgram();
+    const info = program.commands.find((command) => command.name() === 'info');
+    const search = program.commands.find((command) => command.name() === 'search');
+
+    expect(info?.options.map((option) => option.long)).toContain('--json');
+    expect(search?.options.map((option) => option.long)).toContain('--json');
+  });
+
+  it('registers the debug option', () => {
+    const program = createProgram();
+    expect(program.options.map((option) => option.long)).toContain('--debug');
+  });
+
+  it('registers --force on publish and uninstall and --no-input globally', () => {
+    const program = createProgram();
+    const publish = program.commands.find((command) => command.name() === 'publish');
+    const uninstall = program.commands.find((command) => command.name() === 'uninstall');
+
+    expect(publish?.options.map((option) => option.long)).toContain('--force');
+    expect(uninstall?.options.map((option) => option.long)).toContain('--force');
+    expect(program.options.map((option) => option.long)).toContain('--no-input');
+  });
+
+  it('formats errors as a single line without a stack trace', () => {
+    const error = new Error('boom');
+    error.stack = 'Error: boom\n    at foo (file.ts:1:1)';
+
+    const message = formatErrorMessage(error);
+
+    expect(message).toContain('Error: boom');
+    expect(message).toContain('--debug');
+    expect(message).not.toContain('at foo');
+  });
+
+  it('formats non-Error throws', () => {
+    expect(formatErrorMessage('plain string')).toContain('Error: plain string');
+  });
+
+  it('reports the CLI version from the package manifest', () => {
+    expect(readCliVersion()).toBe('0.1.0');
+    const program = createProgram();
+    expect(program.version()).toBe('0.1.0');
+  });
+
+  it('includes an example in every command help', () => {
+    const program = createProgram();
+    for (const command of program.commands) {
+      const chunks: string[] = [];
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        chunks.push(String(chunk));
+        return true;
+      });
+      try {
+        command.outputHelp();
+      } finally {
+        spy.mockRestore();
+      }
+      expect(chunks.join(''), `help for ${command.name()}`).toContain('Example');
+    }
   });
 
   it('detects direct execution from Windows paths', () => {

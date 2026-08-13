@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
-import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig } from '@esl/core';
+import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
 
 describe('esl install (project-level)', () => {
   let projectDir: string;
@@ -15,6 +15,7 @@ describe('esl install (project-level)', () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-install-home-'));
     await initializeLocalStore({ homeDir });
     await saveConfig({ tools: ['claude'] }, { homeDir });
+    await saveCredentials({ token: 'gitea-token' }, { homeDir });
 
     localSkillDir = path.join(projectDir, 'my-local-skill');
     fs.mkdirSync(localSkillDir);
@@ -122,7 +123,6 @@ describe('esl install (project-level)', () => {
       homeDir,
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
-      token: 'gitea-token',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -155,7 +155,6 @@ describe('esl install (project-level)', () => {
       global: true,
       registry: 'http://localhost:3000/api',
       gitBase: 'http://localhost:3001',
-      token: 'gitea-token',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true

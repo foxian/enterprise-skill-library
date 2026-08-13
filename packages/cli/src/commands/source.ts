@@ -9,6 +9,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
+import { notify } from '../output.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -31,6 +32,7 @@ export async function executeSource(name: string, options: SourceOptions = {}): 
   const cwd = options.cwd ?? process.cwd();
   const targetDir = options.target ?? path.join(cwd, skillName);
 
+  notify(`Cloning ${name}...`);
   await execFileAsync('git', ['clone', remoteUrl, targetDir]);
 
   return targetDir;

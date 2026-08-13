@@ -1,5 +1,7 @@
-import { loadConfig, type LocalStoreOptions } from '@esl/core';
-import { apiUrl, requireConfigured, type NetworkCommandOptions } from './network-options.js';
+import { loadConfig, loadCredentials, type LocalStoreOptions } from '@esl/core';
+import fs from 'node:fs/promises';
+import { isInteractive, readHidden } from '../prompt.js';
+import { apiUrl, fetchWithTimeout, requireConfigured, type NetworkCommandOptions } from './network-options.js';
 
 export interface BootstrapStatus {
   ready: boolean;
@@ -14,13 +16,15 @@ export interface AdminUserResult {
 }
 
 export interface ChangePasswordOptions extends NetworkCommandOptions {
-  password: string;
+  passwordFile?: string;
+  noInput?: boolean;
+  readInput?: () => Promise<string>;
 }
 
 export async function executeBootstrapStatus(options: NetworkCommandOptions = {}): Promise<BootstrapStatus> {
   const fetchImpl = options.customFetch ?? fetch;
   const registry = await resolveAdminRegistry(options);
-  const res = await fetchImpl(apiUrl(registry, '/api/admin/bootstrap/status'));
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/bootstrap/status'));
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to check bootstrap status: ${err}`);
@@ -34,7 +38,7 @@ export async function executeCreateUser(
 ): Promise<AdminUserResult> {
   const fetchImpl = options.customFetch ?? fetch;
   const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchImpl(apiUrl(registry, '/api/admin/users'), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/users'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
@@ -55,7 +59,7 @@ export async function executeIssueUserToken(
 ): Promise<string> {
   const fetchImpl = options.customFetch ?? fetch;
   const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchImpl(apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/tokens`), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/tokens`), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`
@@ -72,7 +76,7 @@ export async function executeIssueUserToken(
 export async function executeDisableUser(username: string, options: NetworkCommandOptions = {}): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
   const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchImpl(apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/disable`), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/disable`), {
     method: 'POST',
     headers: { Authorization: `token ${token}` }
   });
@@ -85,18 +89,48 @@ export async function executeDisableUser(username: string, options: NetworkComma
 export async function executeGiteaPasswordChange(options: ChangePasswordOptions): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
   const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchImpl(apiUrl(registry, '/api/admin/gitea/password'), {
+  const password = await resolveNewPassword(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/gitea/password'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ password: options.password })
+    body: JSON.stringify({ password })
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to change Gitea password: ${err}`);
   }
+}
+
+async function resolveNewPassword(options: ChangePasswordOptions): Promise<string> {
+  if (options.passwordFile) {
+    const password = (await fs.readFile(options.passwordFile, 'utf8')).trim();
+    if (!password) {
+      throw new Error(`Password file ${options.passwordFile} is empty`);
+    }
+    return password;
+  }
+
+  if (options.noInput) {
+    throw new Error('A new password is required; pass --password-file when using --no-input');
+  }
+  if (options.readInput) {
+    const password = (await options.readInput()).trim();
+    if (!password) {
+      throw new Error('Password is required');
+    }
+    return password;
+  }
+  if (!isInteractive()) {
+    throw new Error('A new password is required; run interactively or pass --password-file');
+  }
+  const password = (await readHidden('New password: ')).trim();
+  if (!password) {
+    throw new Error('Password is required');
+  }
+  return password;
 }
 
 async function resolveAdminRegistry(options: NetworkCommandOptions & LocalStoreOptions): Promise<string> {
@@ -109,9 +143,10 @@ async function resolveAdminAuth(
   options: NetworkCommandOptions & LocalStoreOptions
 ): Promise<{ registry: string; token: string; username: string }> {
   const config = await loadConfig({ homeDir: options.homeDir });
+  const credentials = await loadCredentials({ homeDir: options.homeDir });
   return {
     registry: options.registry ?? requireConfigured(config.registry, 'registry'),
-    token: requireConfigured(options.token ?? config.token, 'token'),
+    token: requireConfigured(credentials.token, 'token'),
     username: requireConfigured(config.username, 'username')
   };
 }

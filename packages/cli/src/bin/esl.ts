@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { executeInfo } from '../commands/info.js';
+import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import {
   executeBootstrapStatus,
   executeCreateUser,
@@ -25,15 +25,23 @@ import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
+import { readCliVersion } from '../version.js';
+
+function example(text: string): string {
+  return `\nExample:\n  ${text}\n`;
+}
 
 export function createProgram(): Command {
   const program = new Command();
 
-  program.name('esl').description('Enterprise Skill Library CLI').version('0.1.0');
+  program.name('esl').description('Enterprise Skill Library CLI').version(readCliVersion());
+  program.option('-d, --debug', 'print stack traces on error');
+  program.option('--no-input', 'disable all prompts');
 
   program
     .command('init')
     .argument('<skill-name>')
+    .addHelpText('after', example('$ esl init my-skill'))
     .action(async (skillName: string) => {
       const targetDir = await executeInit(skillName);
       console.log(`Skill initialized at ${targetDir}`);
@@ -44,14 +52,16 @@ export function createProgram(): Command {
     .requiredOption('--registry <url>', 'API Server base URL')
     .requiredOption('--git-base <url>', 'Gitea Git HTTP base URL')
     .requiredOption('--username <username>', 'Gitea username')
-    .option('--password <password>', 'Gitea password')
-    .option('--token <token>', 'Gitea personal access token')
-    .action(async (options: { registry: string; gitBase: string; username: string; password?: string; token?: string }) => {
-      await executeLogin(options);
+    .option('--password-file <path>', 'Read the Gitea password from a file')
+    .option('--token-file <path>', 'Read a Gitea personal access token from a file')
+    .addHelpText('after', example('$ esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username alice'))
+    .action(async (options: { registry: string; gitBase: string; username: string; passwordFile?: string; tokenFile?: string }) => {
+      await executeLogin({ ...options, noInput: program.opts().input === false });
       console.log(`Logged in as ${options.username}`);
     });
 
   const admin = program.command('admin').description('Manage ESL platform administration');
+  admin.addHelpText('after', example('$ esl admin user create alice'));
 
   const bootstrap = admin.command('bootstrap');
   bootstrap
@@ -70,8 +80,7 @@ export function createProgram(): Command {
     .command('create')
     .argument('<username>')
     .option('--registry <url>', 'API Server base URL')
-    .option('--token <token>', 'administrator token')
-    .action(async (username: string, options: { registry?: string; token?: string }) => {
+    .action(async (username: string, options: { registry?: string }) => {
       await executeCreateUser(username, options);
       console.log(`User ${username} created`);
     });
@@ -80,8 +89,7 @@ export function createProgram(): Command {
     .command('token')
     .argument('<username>')
     .option('--registry <url>', 'API Server base URL')
-    .option('--token <token>', 'administrator token')
-    .action(async (username: string, options: { registry?: string; token?: string }) => {
+    .action(async (username: string, options: { registry?: string }) => {
       const token = await executeIssueUserToken(username, options);
       console.log(token);
     });
@@ -90,8 +98,7 @@ export function createProgram(): Command {
     .command('disable')
     .argument('<username>')
     .option('--registry <url>', 'API Server base URL')
-    .option('--token <token>', 'administrator token')
-    .action(async (username: string, options: { registry?: string; token?: string }) => {
+    .action(async (username: string, options: { registry?: string }) => {
       await executeDisableUser(username, options);
       console.log(`User ${username} disabled`);
     });
@@ -99,11 +106,10 @@ export function createProgram(): Command {
   admin
     .command('gitea')
     .command('password')
-    .requiredOption('--password <password>', 'new Gitea administrator password')
+    .option('--password-file <path>', 'Read the new Gitea administrator password from a file')
     .option('--registry <url>', 'API Server base URL')
-    .option('--token <token>', 'administrator token')
-    .action(async (options: { password: string; registry?: string; token?: string }) => {
-      await executeGiteaPasswordChange(options);
+    .action(async (options: { passwordFile?: string; registry?: string }) => {
+      await executeGiteaPasswordChange({ ...options, noInput: program.opts().input === false });
       console.log('Gitea password changed');
     });
 
@@ -111,8 +117,14 @@ export function createProgram(): Command {
     .command('search')
     .argument('<query>')
     .option('--registry <url>', 'API Server base URL')
-    .action(async (query: string, options: { registry?: string }) => {
+    .option('--json', 'Output as JSON')
+    .addHelpText('after', example('$ esl search code-review'))
+    .action(async (query: string, options: { registry?: string; json?: boolean }) => {
       const results = await executeSearch(query, options);
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2));
+        return;
+      }
       for (const result of results) {
         console.log(`${result.name}\t${result.description}`);
       }
@@ -122,8 +134,15 @@ export function createProgram(): Command {
     .command('info')
     .argument('<skill-name>')
     .option('--registry <url>', 'API Server base URL')
-    .action(async (skillName: string, options: { registry?: string }) => {
-      console.log(JSON.stringify(await executeInfo(skillName, options), null, 2));
+    .option('--json', 'Output as JSON')
+    .addHelpText('after', example('$ esl info @cnfox/code-review'))
+    .action(async (skillName: string, options: { registry?: string; json?: boolean }) => {
+      const info = await executeInfo(skillName, options);
+      if (options.json) {
+        console.log(JSON.stringify(info, null, 2));
+        return;
+      }
+      console.log(formatSkillInfo(info));
     });
 
   program
@@ -131,10 +150,11 @@ export function createProgram(): Command {
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
-    .option('--token <token>', 'Gitea personal access token')
     .option('--visibility <visibility>', 'public or private')
-    .action(async (options: { directory: string; registry?: string; gitBase?: string; token?: string; visibility?: string }) => {
-      await executePublish(options);
+    .option('-f, --force', 'publish without confirmation')
+    .addHelpText('after', example('$ esl publish'))
+    .action(async (options: { directory: string; registry?: string; gitBase?: string; visibility?: string; force?: boolean }) => {
+      await executePublish({ ...options, noInput: program.opts().input === false });
       console.log('Skill published');
     });
 
@@ -144,6 +164,7 @@ export function createProgram(): Command {
     .argument('<path>', 'existing skill directory')
     .option('--namespace <namespace>', 'skill namespace', 'local')
     .option('--no-adapt', 'Skip automatic adapt after install')
+    .addHelpText('after', example('$ esl import ./my-skill --namespace cnfox'))
     .action(async (sourcePath: string, options: { namespace?: string; adapt?: boolean }) => {
       const result = await executeImport(sourcePath, {
         namespace: options.namespace,
@@ -160,8 +181,8 @@ export function createProgram(): Command {
     .option('--no-adapt', 'Skip automatic adapt after install')
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
-    .option('--token <token>', 'Gitea personal access token')
-    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; registry?: string; gitBase?: string; token?: string }) => {
+    .addHelpText('after', example('$ esl install @cnfox/code-review'))
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; registry?: string; gitBase?: string }) => {
       if (!nameOrPath) {
         console.log('Restoring skills from .skills.json...');
         return;
@@ -176,6 +197,7 @@ export function createProgram(): Command {
     .option('--global', 'Adapt global skills instead of project skills')
     .option('--prune', 'Remove manifest-owned stale adapted outputs')
     .option('--directory <path>', 'Project directory', process.cwd())
+    .addHelpText('after', example('$ esl adapt'))
     .action(async (options: { global?: boolean; prune?: boolean; directory?: string }) => {
       const results = await executeAdapt(options);
       for (const line of formatAdaptResults(results)) {
@@ -189,6 +211,7 @@ export function createProgram(): Command {
     .description('List installed skills')
     .option('--global', 'List global skills instead of project skills')
     .option('--json', 'Output as JSON')
+    .addHelpText('after', example('$ esl list'))
     .action(async (options: { global?: boolean; json?: boolean }) => {
       const skills = await executeList(options);
       if (options.json) {
@@ -214,8 +237,8 @@ export function createProgram(): Command {
     .argument('[target]', 'target directory')
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
-    .option('--token <token>', 'Gitea personal access token')
-    .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string; token?: string }) => {
+    .addHelpText('after', example('$ esl source @cnfox/code-review'))
+    .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string }) => {
       const targetDir = await executeSource(skillName, { ...options, target });
       console.log(`Skill cloned to ${targetDir}`);
     });
@@ -227,8 +250,8 @@ export function createProgram(): Command {
     .option('--version <version>', 'version to use')
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
-    .option('--token <token>', 'Gitea personal access token')
-    .action(async (nameOrPath: string, options: { version?: string; registry?: string; gitBase?: string; token?: string }) => {
+    .addHelpText('after', example('$ esl use @cnfox/code-review'))
+    .action(async (nameOrPath: string, options: { version?: string; registry?: string; gitBase?: string }) => {
       const content = await executeUse(nameOrPath, options);
       process.stdout.write(content);
     });
@@ -240,8 +263,8 @@ export function createProgram(): Command {
     .option('--global', 'Update global skills')
     .option('--registry <url>', 'API Server base URL')
     .option('--git-base <url>', 'Gitea Git HTTP base URL')
-    .option('--token <token>', 'Gitea personal access token')
-    .action(async (skillName: string | undefined, options: { global?: boolean; registry?: string; gitBase?: string; token?: string }) => {
+    .addHelpText('after', example('$ esl update'))
+    .action(async (skillName: string | undefined, options: { global?: boolean; registry?: string; gitBase?: string }) => {
       const results = await executeUpdate({ ...options, skillName });
       if (results.length === 0) {
         console.log('All skills are up to date');
@@ -257,6 +280,8 @@ export function createProgram(): Command {
     .description('Remove an installed skill')
     .argument('<skill-name>')
     .option('--global', 'Uninstall from global skills directory')
+    .option('-f, --force', 'uninstall without confirmation')
+    .addHelpText('after', example('$ esl uninstall @cnfox/code-review'))
     .action(async (skillName: string, options: { global?: boolean }) => {
       await executeUninstall(skillName, options);
       console.log(`Skill ${skillName} uninstalled`);
@@ -265,6 +290,7 @@ export function createProgram(): Command {
   program
     .command('validate')
     .argument('[path]', 'skill directory', process.cwd())
+    .addHelpText('after', example('$ esl validate ./my-skill'))
     .action(async (directory: string) => {
       const result = await executeValidate(directory);
       if (result.valid) {
@@ -280,6 +306,7 @@ export function createProgram(): Command {
   program
     .command('version')
     .argument('<release>', 'major, minor, or patch')
+    .addHelpText('after', example('$ esl version minor'))
     .action(async (release: string) => {
       if (release !== 'major' && release !== 'minor' && release !== 'patch') {
         console.error('release must be major, minor, or patch');
@@ -291,6 +318,27 @@ export function createProgram(): Command {
     });
 
   return program;
+}
+
+export function formatErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `Error: ${message}\nRun with --debug for more detail.`;
+}
+
+async function run(argv: string[]): Promise<void> {
+  const debug = argv.includes('-d') || argv.includes('--debug');
+
+  process.on('SIGINT', () => {
+    console.error('\nInterrupted');
+    process.exit(130);
+  });
+
+  try {
+    await createProgram().parseAsync(argv);
+  } catch (error) {
+    console.error(debug ? error : formatErrorMessage(error));
+    process.exitCode = 1;
+  }
 }
 
 export function isDirectCliEntry(moduleUrl: string, argvPath: string | undefined): boolean {
@@ -309,5 +357,5 @@ function canonicalPath(filePath: string): string {
 }
 
 if (isDirectCliEntry(import.meta.url, process.argv[1])) {
-  await createProgram().parseAsync(process.argv);
+  await run(process.argv);
 }

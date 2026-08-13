@@ -13,9 +13,12 @@ export interface LocalStorePaths {
 export interface EslConfig {
   registry: string | null;
   gitBase: string | null;
-  token: string | null;
   username: string | null;
   tools: string[];
+}
+
+export interface EslCredentials {
+  token: string | null;
 }
 
 export interface LocalStoreOptions {
@@ -50,12 +53,11 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await writeJsonIfMissing(paths.configJson, {
     registry: null,
     gitBase: null,
-    token: null,
     username: null,
     tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {
-    api_token: null
+    token: null
   });
 
   return paths;
@@ -75,5 +77,25 @@ export async function saveConfig(
   const current = await loadConfig(options);
   const updated: EslConfig = { ...current, ...config };
   await fs.writeFile(paths.configJson, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
+  return updated;
+}
+
+export async function loadCredentials(options: LocalStoreOptions = {}): Promise<EslCredentials> {
+  const paths = resolveLocalStorePaths(options);
+  const raw = await fs.readFile(paths.credentialsJson, 'utf8');
+  return JSON.parse(raw) as EslCredentials;
+}
+
+export async function saveCredentials(
+  credentials: Partial<EslCredentials>,
+  options: LocalStoreOptions = {}
+): Promise<EslCredentials> {
+  const paths = resolveLocalStorePaths(options);
+  const current = await loadCredentials(options);
+  const updated: EslCredentials = { ...current, ...credentials };
+  await fs.writeFile(paths.credentialsJson, `${JSON.stringify(updated, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
   return updated;
 }
