@@ -54,6 +54,17 @@ describe('server config', () => {
     expect(config.giteaAdminTokenFile).toBe('/bootstrap/gitea-admin-token');
   });
 
+  it('allows a Gitea admin token file without a direct token', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN_FILE: '/bootstrap/gitea-admin-token'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.giteaAdminToken).toBeUndefined();
+    expect(config.giteaAdminTokenFile).toBe('/bootstrap/gitea-admin-token');
+  });
+
   it('throws a clear error for missing required variables', () => {
     expect(() => loadServerConfig({} as NodeJS.ProcessEnv)).toThrow(
       'Missing required environment variable: DATABASE_PATH'

@@ -2,7 +2,7 @@ export interface ServerConfig {
   port: number;
   databasePath: string;
   giteaUrl: string;
-  giteaAdminToken: string;
+  giteaAdminToken?: string;
   giteaAdminTokenFile?: string;
   repoOwner: string;
   bootstrapAdminToken: string;
@@ -23,12 +23,18 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     throw new Error(`Invalid PORT: ${portRaw}`);
   }
 
+  const giteaAdminToken = env.GITEA_ADMIN_TOKEN;
+  const giteaAdminTokenFile = env.GITEA_ADMIN_TOKEN_FILE ?? '/bootstrap/gitea-admin-token';
+  if (!giteaAdminToken && !giteaAdminTokenFile) {
+    throw new Error('Missing required environment variable: GITEA_ADMIN_TOKEN or GITEA_ADMIN_TOKEN_FILE');
+  }
+
   return {
     port,
     databasePath: requireEnv(env, 'DATABASE_PATH'),
     giteaUrl: requireEnv(env, 'GITEA_URL'),
-    giteaAdminToken: requireEnv(env, 'GITEA_ADMIN_TOKEN'),
-    giteaAdminTokenFile: env.GITEA_ADMIN_TOKEN_FILE ?? '/bootstrap/gitea-admin-token',
+    giteaAdminToken,
+    giteaAdminTokenFile,
     repoOwner: env.GITEA_REPO_OWNER ?? 'esl-skills',
     bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token'
   };

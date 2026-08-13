@@ -11,6 +11,9 @@ export interface StartServerOptions {
 
 export async function startServer(options: StartServerOptions = {}): Promise<FastifyInstance> {
   const config = loadServerConfig(options.env);
+  if (!config.giteaAdminToken) {
+    throw new Error('Missing required environment variable: GITEA_ADMIN_TOKEN');
+  }
   const app = buildApp({
     dbPath: config.databasePath,
     giteaService: new GiteaService(config.giteaUrl, config.giteaAdminToken),
