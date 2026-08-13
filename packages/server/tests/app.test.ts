@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { GiteaService } from '../src/services/gitea.js';
 
 describe('Fastify Server API', () => {
   let tmpDir: string;
@@ -79,5 +80,17 @@ describe('Fastify Server API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true, service: 'esl-api' });
     expect(mockGitea.validateToken).not.toHaveBeenCalled();
+  });
+
+  it('builds the app with the resolved Gitea admin token', () => {
+    const giteaService = new GiteaService('http://gitea:3000', 'admin-token');
+    app = buildApp({
+      dbPath,
+      giteaService,
+      repoOwner: 'esl-skills',
+      bootstrapAdminToken: 'bootstrap-token'
+    });
+
+    expect(app).toBeDefined();
   });
 });

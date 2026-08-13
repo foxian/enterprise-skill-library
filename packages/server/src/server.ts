@@ -1,22 +1,49 @@
 import type { FastifyInstance } from 'fastify';
+import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { buildApp } from './app.js';
-import { loadServerConfig } from './config.js';
+import { loadServerConfig, type ServerConfig } from './config.js';
 import { GiteaService } from './services/gitea.js';
 
 export interface StartServerOptions {
   env?: NodeJS.ProcessEnv;
   listen?: FastifyInstance['listen'];
+  readFile?: typeof readFile;
+}
+
+async function resolveGiteaAdminToken(
+  config: ServerConfig,
+  readTokenFile: typeof readFile
+): Promise<string> {
+  if (config.giteaAdminToken) {
+    return config.giteaAdminToken;
+  }
+
+  if (!config.giteaAdminTokenFile) {
+    throw new Error('Missing required environment variable: GITEA_ADMIN_TOKEN or GITEA_ADMIN_TOKEN_FILE');
+  }
+
+  let token: string;
+  try {
+    token = (await readTokenFile(config.giteaAdminTokenFile, 'utf8')).trim();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read Gitea admin token file: ${config.giteaAdminTokenFile}: ${message}`);
+  }
+
+  if (!token) {
+    throw new Error(`Gitea admin token file is empty: ${config.giteaAdminTokenFile}`);
+  }
+
+  return token;
 }
 
 export async function startServer(options: StartServerOptions = {}): Promise<FastifyInstance> {
   const config = loadServerConfig(options.env);
-  if (!config.giteaAdminToken) {
-    throw new Error('Missing required environment variable: GITEA_ADMIN_TOKEN');
-  }
+  const adminToken = await resolveGiteaAdminToken(config, options.readFile ?? readFile);
   const app = buildApp({
     dbPath: config.databasePath,
-    giteaService: new GiteaService(config.giteaUrl, config.giteaAdminToken),
+    giteaService: new GiteaService(config.giteaUrl, adminToken),
     repoOwner: config.repoOwner,
     bootstrapAdminToken: config.bootstrapAdminToken
   });
