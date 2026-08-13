@@ -14,9 +14,9 @@ The first version of `esl admin` is a minimal operational surface:
 ```text
 esl admin bootstrap status
 esl admin user create <username>
-esl admin user token issue <username>
+esl admin user token <username>
 esl admin user disable <username>
-esl admin password change
+esl admin gitea password
 ```
 
 `bootstrap status` reports whether the runtime is ready. It is for admins and
@@ -26,12 +26,14 @@ overridden on the command line.
 `user create` creates a platform user record. The first version does not create
 an everyday password for ordinary users.
 
-`user token issue` issues a token for the target user and returns it once.
+`user token` issues a token for the target user and returns it once.
 
 `user disable` disables the user and invalidates their ability to continue using
 ESL-managed access.
 
-`password change` lets the current administrator update their own password.
+`gitea password` lets the current platform administrator rotate the Gitea
+administrator password used for backend recovery and maintenance. It does not
+add ESL username/password login; CLI authentication remains token-based.
 
 ## User-Facing Rules
 
@@ -55,4 +57,4 @@ ESL-managed access.
 
 This boundary keeps the first version focused on a single operational loop:
 bootstrap the runtime, create users, issue tokens, disable users, and let the
-administrator rotate their own password.
+administrator rotate the Gitea backend administrator password.

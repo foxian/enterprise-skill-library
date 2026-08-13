@@ -9,7 +9,11 @@
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs for this repo live as markdown files in `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles map to the repo's local label vocabulary. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

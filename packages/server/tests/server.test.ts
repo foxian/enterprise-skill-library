@@ -20,6 +20,7 @@ describe('server runtime', () => {
       readFile,
       giteaServiceFactory: () => ({
         validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
+        validateAdminToken: async () => true,
         ensureOrganization: async () => undefined
       }) as any
     });
@@ -70,6 +71,10 @@ describe('server runtime', () => {
         events.push('validate');
         return { id: 1, username: 'admin', email: 'admin@local.esl' };
       }),
+      validateAdminToken: vi.fn().mockImplementation(async () => {
+        events.push('validate');
+        return true;
+      }),
       ensureOrganization: vi.fn().mockImplementation(async () => {
         events.push('ensure');
       })
@@ -110,6 +115,7 @@ describe('server runtime', () => {
       listen,
       giteaServiceFactory: () => ({
         validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
+        validateAdminToken: async () => true,
         ensureOrganization
       }) as any
     });
@@ -132,6 +138,7 @@ describe('server runtime', () => {
         listen,
         giteaServiceFactory: () => ({
           validateToken: async () => null,
+          validateAdminToken: async () => false,
           ensureOrganization: vi.fn()
         }) as any
       })

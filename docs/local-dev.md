@@ -9,7 +9,7 @@
 
 ## Start Services
 
-Copy `.env.example` to `.env`. Set `ESL_BOOTSTRAP_ADMIN_TOKEN` to the token the first ESL Platform Administrator will use for the initial `esl login`.
+Copy `.env.example` to `.env`. Set `GITEA_ADMIN_PASSWORD` to an explicit password of at least 12 characters, and set `ESL_BOOTSTRAP_ADMIN_TOKEN` to the token the first ESL Platform Administrator will use for the initial `esl login`.
 
 If Docker build cannot reach npm registries in a proxied network, set `NPM_PROXY` in `.env` to the Docker-reachable host proxy address. For example, with a local proxy on Windows port `7897`:
 
@@ -26,13 +26,11 @@ docker compose up --build
 
 Gitea runs as ESL's internal Git backend. The local Docker runtime locks Gitea installation and disables public registration so normal setup and user onboarding happen through ESL instead of the Gitea UI.
 
-Set `GITEA_ADMIN_TOKEN` in `.env` to a Gitea administrator token and restart the `api` service when you want API-backed repository and user management to work:
+`gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
 
-```powershell
-docker compose up -d api
-```
+`GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the Gitea administrator password; use `esl admin gitea password` for explicit rotation.
 
-Before publishing a skill, ensure the `esl-skills` organization exists in local Gitea. Set `GITEA_REPO_OWNER` in `.env` if you use a different organization.
+The API validates the internal token and ensures `GITEA_REPO_OWNER` before it starts listening.
 
 ## Admin Commands
 
@@ -42,9 +40,9 @@ After logging in with the bootstrap token, the platform administrator can manage
 npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username admin --token <bootstrap-token>
 npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
-npm exec -- esl admin user token issue alice
+npm exec -- esl admin user token alice
 npm exec -- esl admin user disable alice
-npm exec -- esl admin password change --password <new-password>
+npm exec -- esl admin gitea password --password <new-password>
 ```
 
 ## Local Skill Namespace

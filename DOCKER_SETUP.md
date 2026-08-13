@@ -98,8 +98,11 @@ Copy-Item .env.example .env
 按本机网络情况编辑 `.env`：
 
 ```dotenv
-GITEA_ADMIN_TOKEN=replace-with-local-gitea-admin-token
+GITEA_ADMIN_USERNAME=admin
+GITEA_ADMIN_PASSWORD=replace-with-at-least-12-characters
+GITEA_ADMIN_TOKEN_FILE=/bootstrap/gitea-admin-token
 GITEA_REPO_OWNER=esl-skills
+ESL_BOOTSTRAP_ADMIN_TOKEN=bootstrap-token
 DATABASE_PATH=./data/esl.db
 NPM_PROXY=http://host.docker.internal:7897
 ```
@@ -123,23 +126,20 @@ docker compose up -d --build
 | API | `http://localhost:3000` | Enterprise Skill Library API |
 | Gitea | `http://localhost:3001` | 本地 Git 仓库服务 |
 
-首次启动后，打开 Gitea：
+首次启动时，`gitea-bootstrap` 会自动创建或复用 `GITEA_ADMIN_USERNAME`
+对应的 Gitea 管理员，并把 API 使用的内部管理员 token 写入
+`GITEA_ADMIN_TOKEN_FILE` 指向的共享 bootstrap secret volume。Docker 本地
+运行不需要打开 Gitea UI，也不需要手工创建或复制 `GITEA_ADMIN_TOKEN`。
 
-```text
-http://localhost:3001
-```
-
-完成初始化，创建管理员用户和 token。需要 API 创建仓库时，把 `.env` 中的 `GITEA_ADMIN_TOKEN` 替换成 Gitea 管理员 token，并重启 API：
+`GITEA_ADMIN_PASSWORD` 只在首次创建 Gitea 管理员时使用。后续修改 `.env`
+不会自动改 Gitea 密码；需要轮换恢复密码时，使用：
 
 ```powershell
-docker compose up -d api
+npm exec -- esl admin gitea password --password <new-password>
 ```
 
-发布技能前，需要在 Gitea 中创建组织：
-
-```text
-esl-skills
-```
+API 启动时会校验内部 Gitea 管理员 token，并确保 `GITEA_REPO_OWNER`
+对应的组织存在。发布技能前不需要手工创建 `esl-skills` 组织。
 
 如果使用其他组织名，需要同步修改 `.env`：
 
@@ -153,6 +153,7 @@ GITEA_REPO_OWNER=your-org-name
 docker compose ps
 docker compose logs -f api
 docker compose logs -f gitea
+docker compose logs gitea-bootstrap
 docker compose restart api
 docker compose down
 docker compose down -v
@@ -190,6 +191,15 @@ npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
 
 ```powershell
 npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
+```
+
+管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`：
+
+```powershell
+npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username admin --token bootstrap-token
+npm exec -- esl admin bootstrap status
+npm exec -- esl admin user create alice
+npm exec -- esl admin user token alice
 ```
 
 ## Docker 镜像加速

@@ -35,6 +35,21 @@ describe('esl program', () => {
     expect(adaptCommand?.options.map((option) => option.long)).toEqual(expect.arrayContaining(['--prune']));
   });
 
+  it('registers the first admin command surface', () => {
+    const program = createProgram();
+    const admin = program.commands.find((command) => command.name() === 'admin');
+    const bootstrap = admin?.commands.find((command) => command.name() === 'bootstrap');
+    const user = admin?.commands.find((command) => command.name() === 'user');
+    const gitea = admin?.commands.find((command) => command.name() === 'gitea');
+
+    expect(bootstrap?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['status']));
+    expect(user?.commands.map((command) => command.name())).toEqual(
+      expect.arrayContaining(['create', 'token', 'disable'])
+    );
+    expect(user?.commands.find((command) => command.name() === 'token')?.commands).toHaveLength(0);
+    expect(gitea?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['password']));
+  });
+
   it('detects direct execution from Windows paths', () => {
     expect(isDirectCliEntry('file:///D:/DevProjects/esl/packages/cli/dist/bin/esl.js', 'D:\\DevProjects\\esl\\packages\\cli\\dist\\bin\\esl.js')).toBe(true);
   });

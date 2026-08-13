@@ -5,3 +5,8 @@ packages/*/dist/
 
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
+# ESL managed (do not edit)
+.skills/
+.claude/skills/
+.agents/skills/
+.trae/skills/

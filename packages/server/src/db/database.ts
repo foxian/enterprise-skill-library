@@ -134,17 +134,21 @@ export class AdminRepository {
     this.ensureBootstrapAdmin();
   }
 
-  getBootstrapStatus(repoOwnerReady: boolean): {
+  getBootstrapStatus(status: {
+    gitea: 'ready' | 'missing';
+    adminToken: 'ready' | 'missing' | 'invalid';
+    repoOwner: 'ready' | 'missing';
+  }): {
     ready: boolean;
-    registry: 'configured';
-    admin: 'ready';
+    gitea: 'ready' | 'missing';
+    adminToken: 'ready' | 'missing' | 'invalid';
     repoOwner: 'ready' | 'missing';
   } {
     return {
-      ready: repoOwnerReady,
-      registry: 'configured',
-      admin: 'ready',
-      repoOwner: repoOwnerReady ? 'ready' : 'missing'
+      ready: status.gitea === 'ready' && status.adminToken === 'ready' && status.repoOwner === 'ready',
+      gitea: status.gitea,
+      adminToken: status.adminToken,
+      repoOwner: status.repoOwner
     };
   }
 
@@ -191,18 +195,6 @@ export class AdminRepository {
       throw new Error(`User not found: ${username}`);
     }
     return user;
-  }
-
-  changePassword(username: string, password: string): void {
-    const stmt = this.db.prepare(`
-      UPDATE admin_users
-      SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE username = ?
-    `);
-    const result = stmt.run(hashSecret(password), username);
-    if (result.changes === 0) {
-      throw new Error(`User not found: ${username}`);
-    }
   }
 
   getPlatformAdminForToken(token: string): { username: string } | null {

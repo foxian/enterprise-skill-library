@@ -58,8 +58,10 @@ permissions, and foundational skill library configuration.
 
 ## Gitea Service Administrator
 
-The internal service administrator identity used by ESL to manage the Gitea
-backend on behalf of the platform.
+The configurable Gitea identity used by ESL to manage the internal Git backend
+on behalf of the platform. Its username is configured by
+`GITEA_ADMIN_USERNAME`; its initial password is used only during first-run
+Bootstrap.
 _Avoid_: Gitea administrator when referring to a human ESL administrator.
 
 ## Skill User
@@ -71,3 +73,17 @@ maintain skills according to their permissions.
 
 The first-run process that prepares the ESL Docker runtime with the platform
 state required before normal users can operate it.
+
+## Bootstrap Secret Volume
+
+The Docker volume that stores the internal Gitea administrator token generated
+by Bootstrap for API use.
+
+_Avoid_: user token, Skill User token
+
+## Bootstrap Token
+
+The ESL platform administrator credential used for the first CLI login and
+initial platform administration.
+
+_Avoid_: Gitea admin token, Gitea Service Administrator token

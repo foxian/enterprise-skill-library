@@ -33,7 +33,6 @@ export const databaseSchema = `
 
   CREATE TABLE IF NOT EXISTS admin_users (
     username TEXT PRIMARY KEY,
-    password_hash TEXT,
     disabled INTEGER NOT NULL DEFAULT 0,
     platform_admin INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

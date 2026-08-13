@@ -8,7 +8,7 @@ import {
   executeCreateUser,
   executeDisableUser,
   executeIssueUserToken,
-  executeChangePassword
+  executeGiteaPasswordChange
 } from '../src/commands/admin.js';
 
 describe('esl admin', () => {
@@ -25,7 +25,7 @@ describe('esl admin', () => {
   it('checks bootstrap readiness from the saved registry', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ ready: true, adminUser: 'admin' })
+      json: async () => ({ ready: true, gitea: 'ready', adminToken: 'ready', repoOwner: 'ready' })
     });
 
     await initializeLocalStore({ homeDir });
@@ -101,8 +101,7 @@ describe('esl admin', () => {
     expect(mockFetch).toHaveBeenCalledWith('http://skills.company.com/api/admin/users/alice/tokens', {
       method: 'POST',
       headers: {
-        Authorization: 'token bootstrap-token',
-        'Content-Type': 'application/json'
+        Authorization: 'token bootstrap-token'
       }
     });
   });
@@ -132,7 +131,7 @@ describe('esl admin', () => {
     });
   });
 
-  it('changes the current administrator password', async () => {
+  it('changes the Gitea administrator password', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
 
     await initializeLocalStore({ homeDir });
@@ -147,9 +146,9 @@ describe('esl admin', () => {
       { homeDir }
     );
 
-    await executeChangePassword({ homeDir, password: 'new-password', customFetch: mockFetch as any });
+    await executeGiteaPasswordChange({ homeDir, password: 'new-password', customFetch: mockFetch as any });
 
-    expect(mockFetch).toHaveBeenCalledWith('http://skills.company.com/api/admin/password', {
+    expect(mockFetch).toHaveBeenCalledWith('http://skills.company.com/api/admin/gitea/password', {
       method: 'POST',
       headers: {
         Authorization: 'token bootstrap-token',

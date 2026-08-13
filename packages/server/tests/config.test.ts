@@ -15,6 +15,8 @@ describe('server config', () => {
       giteaUrl: 'http://gitea:3000',
       giteaAdminToken: 'admin-token',
       giteaAdminTokenFile: '/bootstrap/gitea-admin-token',
+      giteaAdminUsername: 'admin',
+      giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
       bootstrapAdminToken: 'bootstrap-token'
     });
@@ -52,6 +54,19 @@ describe('server config', () => {
 
     expect(config.giteaAdminToken).toBe('admin-token');
     expect(config.giteaAdminTokenFile).toBe('/bootstrap/gitea-admin-token');
+  });
+
+  it('loads the configured Gitea admin username and password for bootstrap', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN_FILE: '/bootstrap/gitea-admin-token',
+      GITEA_ADMIN_USERNAME: 'service-admin',
+      GITEA_ADMIN_PASSWORD: 'initial-password'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.giteaAdminUsername).toBe('service-admin');
+    expect(config.giteaAdminPassword).toBe('initial-password');
   });
 
   it('allows a Gitea admin token file without a direct token', () => {

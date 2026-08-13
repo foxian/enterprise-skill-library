@@ -12,6 +12,20 @@ services:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__service__DISABLE_REGISTRATION: "true"
 
+  gitea-bootstrap:
+    image: gitea/gitea:1.22
+    depends_on:
+      - gitea
+    volumes:
+      - gitea-data:/data
+      - bootstrap-secrets:/bootstrap
+      - ./docker/gitea-bootstrap.sh:/bootstrap/gitea-bootstrap.sh:ro
+    environment:
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-admin}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
+      GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
+    entrypoint: ["/bin/sh", "/bootstrap/gitea-bootstrap.sh"]
+
   api:
     build:
       context: .
@@ -24,14 +38,19 @@ services:
       PORT: "3000"
       DATABASE_PATH: /data/esl.db
       GITEA_URL: http://gitea:3000
-      GITEA_ADMIN_TOKEN: ${GITEA_ADMIN_TOKEN}
+      GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-eslroot}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
       GITEA_REPO_OWNER: ${GITEA_REPO_OWNER:-esl-skills}
       ESL_BOOTSTRAP_ADMIN_TOKEN: ${ESL_BOOTSTRAP_ADMIN_TOKEN:-bootstrap-token}
     volumes:
       - api-data:/data
+      - bootstrap-secrets:/bootstrap:ro
     depends_on:
-      - gitea
+      gitea-bootstrap:
+        condition: service_completed_successfully
 
 volumes:
   gitea-data:
+  bootstrap-secrets:
   api-data:

@@ -12,8 +12,8 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   const { repository, giteaService, repoOwner } = options;
 
   app.get('/api/admin/bootstrap/status', async () => {
-    const repoOwnerReady = await giteaService.organizationExists(repoOwner);
-    return repository.getBootstrapStatus(repoOwnerReady);
+    const status = await giteaService.getBootstrapStatus(repoOwner);
+    return repository.getBootstrapStatus(status);
   });
 
   app.post('/api/admin/users', async (request, reply) => {
@@ -45,12 +45,12 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     return { username: user.username, disabled: user.disabled };
   });
 
-  app.post('/api/admin/password', async (request, reply) => {
+  app.post('/api/admin/gitea/password', async (request, reply) => {
     const admin = authorize(request, reply, repository);
     if (!admin) return;
     const { password } = request.body as { password: string };
-    repository.changePassword(admin.username, password);
-    return { username: admin.username, passwordChanged: true };
+    await giteaService.changeUserPassword('admin', password);
+    return { passwordChanged: true };
   });
 }
 

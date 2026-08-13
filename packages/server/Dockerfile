@@ -2,6 +2,7 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 ARG NPM_PROXY=
+ENV npm_config_better_sqlite3_binary_host=https://npmmirror.com/mirrors/better-sqlite3
 
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages packages

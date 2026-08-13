@@ -9,7 +9,12 @@ export interface StartServerOptions {
   env?: NodeJS.ProcessEnv;
   listen?: FastifyInstance['listen'];
   readFile?: typeof readFile;
-  giteaServiceFactory?: (baseUrl: string, adminToken: string) => GiteaService;
+  giteaServiceFactory?: (
+    baseUrl: string,
+    adminToken: string,
+    adminUsername?: string,
+    adminPassword?: string
+  ) => GiteaService;
 }
 
 async function resolveGiteaAdminToken(
@@ -42,11 +47,16 @@ async function resolveGiteaAdminToken(
 export async function startServer(options: StartServerOptions = {}): Promise<FastifyInstance> {
   const config = loadServerConfig(options.env);
   const adminToken = await resolveGiteaAdminToken(config, options.readFile ?? readFile);
-  const giteaService = (options.giteaServiceFactory ?? ((baseUrl, token) => new GiteaService(baseUrl, token)))(
+  const giteaService = (options.giteaServiceFactory ??
+    ((baseUrl, token, adminUsername, adminPassword) =>
+      new GiteaService(baseUrl, token, fetch, adminUsername, adminPassword)))(
     config.giteaUrl,
-    adminToken
+    adminToken,
+    config.giteaAdminUsername,
+    config.giteaAdminPassword
   );
-  if (!(await giteaService.validateToken(adminToken))) {
+  const validateToken = giteaService.validateToken.bind(giteaService);
+  if (!(await validateToken(adminToken))) {
     throw new Error('Invalid Gitea admin token');
   }
   await giteaService.ensureOrganization(config.repoOwner);

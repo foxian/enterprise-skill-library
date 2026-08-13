@@ -3,8 +3,9 @@ import { apiUrl, requireConfigured, type NetworkCommandOptions } from './network
 
 export interface BootstrapStatus {
   ready: boolean;
-  registry?: string;
-  admin?: string;
+  gitea?: 'ready' | 'missing';
+  adminToken?: 'ready' | 'missing' | 'invalid';
+  repoOwner?: 'ready' | 'missing';
 }
 
 export interface AdminUserResult {
@@ -57,8 +58,7 @@ export async function executeIssueUserToken(
   const res = await fetchImpl(apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/tokens`), {
     method: 'POST',
     headers: {
-      Authorization: `token ${token}`,
-      'Content-Type': 'application/json'
+      Authorization: `token ${token}`
     }
   });
   if (!res.ok) {
@@ -82,10 +82,10 @@ export async function executeDisableUser(username: string, options: NetworkComma
   }
 }
 
-export async function executeChangePassword(options: ChangePasswordOptions): Promise<void> {
+export async function executeGiteaPasswordChange(options: ChangePasswordOptions): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
   const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchImpl(apiUrl(registry, '/api/admin/password'), {
+  const res = await fetchImpl(apiUrl(registry, '/api/admin/gitea/password'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
@@ -95,7 +95,7 @@ export async function executeChangePassword(options: ChangePasswordOptions): Pro
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Failed to change password: ${err}`);
+    throw new Error(`Failed to change Gitea password: ${err}`);
   }
 }
 

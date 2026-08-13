@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,14 @@ describe('Admin API', () => {
 
   it('reports bootstrap readiness', async () => {
     const mockGitea = {
+      getBootstrapStatus: async () => ({
+        ready: true,
+        gitea: 'ready',
+        adminToken: 'ready',
+        repoOwner: 'ready'
+      }),
+      isReady: async () => true,
+      validateAdminToken: async () => true,
       organizationExists: async () => true
     };
     app = buildApp({
@@ -35,14 +43,22 @@ describe('Admin API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       ready: true,
-      registry: 'configured',
-      admin: 'ready',
+      gitea: 'ready',
+      adminToken: 'ready',
       repoOwner: 'ready'
     });
   });
 
   it('reports bootstrap not ready when the repo owner organization is missing', async () => {
     const mockGitea = {
+      getBootstrapStatus: async () => ({
+        ready: false,
+        gitea: 'ready',
+        adminToken: 'ready',
+        repoOwner: 'missing'
+      }),
+      isReady: async () => true,
+      validateAdminToken: async () => true,
       organizationExists: async () => false
     };
     app = buildApp({
@@ -56,8 +72,8 @@ describe('Admin API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       ready: false,
-      registry: 'configured',
-      admin: 'ready',
+      gitea: 'ready',
+      adminToken: 'ready',
       repoOwner: 'missing'
     });
   });
@@ -196,21 +212,23 @@ describe('Admin API', () => {
     expect(disabledRes.json()).toEqual({ error: 'Unauthorized: invalid token' });
   });
 
-  it('changes the current administrator password', async () => {
+  it('changes the Gitea administrator password', async () => {
+    const changeUserPassword = vi.fn().mockResolvedValue(undefined);
     app = buildApp({
       dbPath,
-      giteaService: {} as any,
+      giteaService: { changeUserPassword } as any,
       repoOwner: 'esl-skills'
     });
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/admin/password',
+      url: '/api/admin/gitea/password',
       headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'admin', password: 'new-password' }
+      payload: { password: 'new-password' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ username: 'admin', passwordChanged: true });
+    expect(response.json()).toEqual({ passwordChanged: true });
+    expect(changeUserPassword).toHaveBeenCalledWith('admin', 'new-password');
   });
 });

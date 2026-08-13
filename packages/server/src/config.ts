@@ -4,6 +4,8 @@ export interface ServerConfig {
   giteaUrl: string;
   giteaAdminToken?: string;
   giteaAdminTokenFile?: string;
+  giteaAdminUsername: string;
+  giteaAdminPassword?: string;
   repoOwner: string;
   bootstrapAdminToken: string;
 }
@@ -35,6 +37,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     giteaUrl: requireEnv(env, 'GITEA_URL'),
     giteaAdminToken,
     giteaAdminTokenFile,
+    giteaAdminUsername: env.GITEA_ADMIN_USERNAME ?? 'admin',
+    giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
     repoOwner: env.GITEA_REPO_OWNER ?? 'esl-skills',
     bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token'
   };

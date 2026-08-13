@@ -18,7 +18,8 @@ The first version of the administrative surface will stay intentionally small:
 - create a platform user
 - issue a one-time token for that user
 - disable a user
-- let the current administrator change their own password
+- let the current administrator rotate the Gitea administrator password used
+  for backend recovery and maintenance
 
 The CLI will continue to use tokens as the default authentication mechanism.
 The administrator's first login will use the bootstrap token. The registry will
@@ -45,8 +46,9 @@ when explicitly needed.
    can revoke access when someone leaves the platform or no longer needs it.
 8. As a platform administrator, I want disabling a user to stop their ESL
    access, so that revoked users cannot keep using platform-managed access.
-9. As a platform administrator, I want to change my own password from ESL, so
-   that I can rotate credentials without using Gitea directly.
+9. As a platform administrator, I want to rotate the Gitea administrator
+   password from ESL, so that I can maintain the backend recovery credential
+   without using Gitea directly.
 10. As a platform administrator, I want my first login to use the bootstrap
     token, so that I can enter the system before any ordinary tokens exist.
 11. As a skill user, I want to log in with a token, so that I do not have to
@@ -76,7 +78,7 @@ when explicitly needed.
 - Add a minimal `esl admin` command family rather than exposing broad Gitea
   administration directly.
 - Keep the first release focused on `bootstrap status`, `user create`, `user
-  token issue`, `user disable`, and `password change`.
+  token`, `user disable`, and `gitea password`.
 - Read the active registry from client configuration by default and allow
   command-line override only for exceptional cases.
 - Treat the administrator bootstrap token as the initial login credential for
@@ -116,5 +118,5 @@ when explicitly needed.
 
 The first version is intentionally a narrow operational loop: bootstrap the
 runtime, add users, issue tokens, disable users, and let the current
-administrator rotate their own password. Everything else can be added later if
-the operational need proves real.
+administrator rotate the Gitea backend administrator password. Everything else
+can be added later if the operational need proves real.

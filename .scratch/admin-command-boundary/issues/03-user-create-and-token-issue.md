@@ -1,6 +1,6 @@
 # 03 — Admin can create users and issue login tokens
 
-**What to build:** `esl admin user create <username>` creates a Skill User, and `esl admin user token issue <username>` issues a one-time login token for that user.
+**What to build:** `esl admin user create <username>` creates a Skill User, and `esl admin user token <username>` issues a one-time login token for that user.
 
 **Blocked by:** 01 — Docker runtime bootstraps internal Gitea backend; 02 — Admin can check bootstrap readiness
 

@@ -6,9 +6,9 @@ import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
 import {
   executeBootstrapStatus,
-  executeChangePassword,
   executeCreateUser,
   executeDisableUser,
+  executeGiteaPasswordChange,
   executeIssueUserToken
 } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
@@ -60,6 +60,9 @@ export function createProgram(): Command {
     .action(async (options: { registry?: string }) => {
       const status = await executeBootstrapStatus(options);
       console.log(status.ready ? 'Bootstrap ready' : 'Bootstrap not ready');
+      if (status.gitea) console.log(`Gitea: ${status.gitea}`);
+      if (status.adminToken) console.log(`Admin token: ${status.adminToken}`);
+      if (status.repoOwner) console.log(`Repo owner: ${status.repoOwner}`);
     });
 
   const adminUser = admin.command('user');
@@ -73,9 +76,8 @@ export function createProgram(): Command {
       console.log(`User ${username} created`);
     });
 
-  const adminUserToken = adminUser.command('token');
-  adminUserToken
-    .command('issue')
+  adminUser
+    .command('token')
     .argument('<username>')
     .option('--registry <url>', 'API Server base URL')
     .option('--token <token>', 'administrator token')
@@ -95,14 +97,14 @@ export function createProgram(): Command {
     });
 
   admin
+    .command('gitea')
     .command('password')
-    .command('change')
-    .requiredOption('--password <password>', 'new administrator password')
+    .requiredOption('--password <password>', 'new Gitea administrator password')
     .option('--registry <url>', 'API Server base URL')
     .option('--token <token>', 'administrator token')
     .action(async (options: { password: string; registry?: string; token?: string }) => {
-      await executeChangePassword(options);
-      console.log('Password changed');
+      await executeGiteaPasswordChange(options);
+      console.log('Gitea password changed');
     });
 
   program

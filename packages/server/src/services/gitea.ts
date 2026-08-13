@@ -18,7 +18,9 @@ export class GiteaService {
   constructor(
     private baseUrl: string,
     private adminToken: string,
-    private customFetch: typeof fetch = fetch
+    private customFetch: typeof fetch = fetch,
+    private adminUsername?: string,
+    private adminPassword?: string
   ) {}
 
   async validateToken(token: string): Promise<GiteaUser | null> {
@@ -28,6 +30,32 @@ export class GiteaService {
 
     if (!res.ok) return null;
     return (await res.json()) as GiteaUser;
+  }
+
+  async validateAdminToken(token: string): Promise<boolean> {
+    return (await this.validateToken(token)) !== null;
+  }
+
+  async isReady(): Promise<boolean> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/version`);
+    return res.ok;
+  }
+
+  async getBootstrapStatus(repoOwner: string): Promise<{
+    ready: boolean;
+    gitea: 'ready' | 'missing';
+    adminToken: 'ready' | 'missing' | 'invalid';
+    repoOwner: 'ready' | 'missing';
+  }> {
+    const gitea = (await this.isReady()) ? 'ready' : 'missing';
+    const adminToken = (await this.validateAdminToken(this.adminToken)) ? 'ready' : 'invalid';
+    const repoOwnerReady = await this.organizationExists(repoOwner);
+    return {
+      ready: gitea === 'ready' && adminToken === 'ready' && repoOwnerReady,
+      gitea,
+      adminToken,
+      repoOwner: repoOwnerReady ? 'ready' : 'missing'
+    };
   }
 
   async createUser(username: string): Promise<void> {
@@ -52,13 +80,17 @@ export class GiteaService {
   }
 
   async issueUserToken(username: string): Promise<string> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}/tokens`, {
+    if (!this.adminUsername || !this.adminPassword) {
+      throw new Error('Gitea admin username/password required to issue user tokens');
+    }
+    const basicAuth = `Basic ${Buffer.from(`${this.adminUsername}:${this.adminPassword}`).toString('base64')}`;
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${username}/tokens`, {
       method: 'POST',
       headers: {
-        Authorization: `token ${this.adminToken}`,
+        Authorization: basicAuth,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name: `esl-cli-${Date.now()}` })
+      body: JSON.stringify({ name: `esl-cli-${Date.now()}`, scopes: ['all'] })
     });
 
     if (!res.ok) {
@@ -84,6 +116,62 @@ export class GiteaService {
       const err = await res.text();
       throw new Error(`Failed to disable Gitea user: ${err}`);
     }
+  }
+
+  async changeUserPassword(username: string, password: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to change Gitea user password: ${err}`);
+    }
+  }
+
+  async ensureAdminUser(username: string, password: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        username,
+        email: `${username}@local.esl`,
+        password,
+        must_change_password: false
+      })
+    });
+
+    if (!res.ok && res.status !== 409) {
+      const err = await res.text();
+      throw new Error(`Failed to ensure Gitea admin user: ${err}`);
+    }
+  }
+
+  async createAdminToken(username: string, tokenName: string): Promise<string> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}/tokens`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: tokenName })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea admin token: ${err}`);
+    }
+
+    const body = (await res.json()) as { sha1: string };
+    return body.sha1;
   }
 
   async createRepo(owner: string, name: string, isPrivate = false): Promise<GiteaRepo> {
