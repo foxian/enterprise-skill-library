@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { startServer } from '../src/server.js';
+import { GiteaService } from '../src/services/gitea.js';
 
 describe('server runtime', () => {
   it('starts Fastify with env config and injected listen behavior', async () => {
@@ -16,7 +17,11 @@ describe('server runtime', () => {
         ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
       } as NodeJS.ProcessEnv,
       listen,
-      readFile
+      readFile,
+      giteaServiceFactory: () => ({
+        validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
+        ensureOrganization: async () => undefined
+      }) as any
     });
 
     expect(readFile).not.toHaveBeenCalled();
@@ -27,6 +32,10 @@ describe('server runtime', () => {
   it('starts with the Gitea admin token loaded from file', async () => {
     const listen = vi.fn().mockResolvedValue('http://127.0.0.1:3999');
     const readFile = vi.fn().mockResolvedValue('admin-token\n');
+    const customFetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }) })
+      .mockResolvedValueOnce({ ok: true });
 
     const app = await startServer({
       env: {
@@ -38,12 +47,97 @@ describe('server runtime', () => {
         ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
       } as NodeJS.ProcessEnv,
       listen,
-      readFile
+      readFile,
+      giteaServiceFactory: (url, token) => new GiteaService(url, token, customFetch as any)
     });
 
     expect(readFile).toHaveBeenCalledWith('/bootstrap/gitea-admin-token', 'utf8');
+    expect(customFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/user', {
+      headers: { Authorization: 'token admin-token' }
+    });
     expect(listen).toHaveBeenCalledWith({ port: 3999, host: '0.0.0.0' });
     await app.close();
+  });
+
+  it('validates the Gitea admin token before listening', async () => {
+    const events: string[] = [];
+    const listen = vi.fn().mockImplementation(async () => {
+      events.push('listen');
+      return 'http://127.0.0.1:3999';
+    });
+    const giteaService = {
+      validateToken: vi.fn().mockImplementation(async () => {
+        events.push('validate');
+        return { id: 1, username: 'admin', email: 'admin@local.esl' };
+      }),
+      ensureOrganization: vi.fn().mockImplementation(async () => {
+        events.push('ensure');
+      })
+    };
+
+    const app = await startServer({
+      env: {
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token'
+      } as NodeJS.ProcessEnv,
+      listen,
+      giteaServiceFactory: () => giteaService as any
+    });
+
+    expect(giteaService.validateToken).toHaveBeenCalledWith('admin-token');
+    expect(events).toEqual(['validate', 'ensure', 'listen']);
+    await app.close();
+  });
+
+  it('ensures the repo owner organization before listening', async () => {
+    const events: string[] = [];
+    const listen = vi.fn().mockImplementation(async () => {
+      events.push('listen');
+      return 'http://127.0.0.1:3999';
+    });
+    const ensureOrganization = vi.fn().mockImplementation(async () => {
+      events.push('ensure');
+    });
+
+    const app = await startServer({
+      env: {
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        GITEA_REPO_OWNER: 'platform-skills'
+      } as NodeJS.ProcessEnv,
+      listen,
+      giteaServiceFactory: () => ({
+        validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
+        ensureOrganization
+      }) as any
+    });
+
+    expect(ensureOrganization).toHaveBeenCalledWith('platform-skills');
+    expect(events).toEqual(['ensure', 'listen']);
+    await app.close();
+  });
+
+  it('does not listen when the Gitea admin token is invalid', async () => {
+    const listen = vi.fn();
+
+    await expect(
+      startServer({
+        env: {
+          DATABASE_PATH: ':memory:',
+          GITEA_URL: 'http://gitea:3000',
+          GITEA_ADMIN_TOKEN: 'invalid-token'
+        } as NodeJS.ProcessEnv,
+        listen,
+        giteaServiceFactory: () => ({
+          validateToken: async () => null,
+          ensureOrganization: vi.fn()
+        }) as any
+      })
+    ).rejects.toThrow('Invalid Gitea admin token');
+
+    expect(listen).not.toHaveBeenCalled();
   });
 
   it('rejects an empty Gitea admin token file', async () => {

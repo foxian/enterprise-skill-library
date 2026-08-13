@@ -158,4 +158,22 @@ export class GiteaService {
     const err = await res.text();
     throw new Error(`Failed to get Gitea organization: ${err}`);
   }
+
+  async ensureOrganization(owner: string): Promise<void> {
+    if (await this.organizationExists(owner)) return;
+
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username: owner })
+    });
+
+    if (!res.ok && res.status !== 409) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea organization: ${err}`);
+    }
+  }
 }
