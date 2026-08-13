@@ -50,3 +50,24 @@ The current business owner or platform owner of the skill.
 ## Maintainers
 
 The users or teams allowed to maintain or publish the skill.
+
+## ESL Platform Administrator
+
+The person or automation identity allowed to manage ESL platform users,
+permissions, and foundational skill library configuration.
+
+## Gitea Service Administrator
+
+The internal service administrator identity used by ESL to manage the Gitea
+backend on behalf of the platform.
+_Avoid_: Gitea administrator when referring to a human ESL administrator.
+
+## Skill User
+
+An authenticated person who can log in to ESL and consume, create, publish, or
+maintain skills according to their permissions.
+
+## Bootstrap
+
+The first-run process that prepares the ESL Docker runtime with the platform
+state required before normal users can operate it.

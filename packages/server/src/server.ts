@@ -14,7 +14,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
   const app = buildApp({
     dbPath: config.databasePath,
     giteaService: new GiteaService(config.giteaUrl, config.giteaAdminToken),
-    repoOwner: config.repoOwner
+    repoOwner: config.repoOwner,
+    bootstrapAdminToken: config.bootstrapAdminToken
   });
 
   const listen = options.listen?.bind(app) ?? app.listen.bind(app);

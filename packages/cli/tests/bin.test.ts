@@ -11,7 +11,20 @@ describe('esl program', () => {
     const commandNames = program.commands.map((command) => command.name());
 
     expect(commandNames).toEqual(
-      expect.arrayContaining(['init', 'validate', 'version', 'install', 'import', 'adapt', 'list', 'use', 'source', 'update', 'uninstall'])
+      expect.arrayContaining([
+        'init',
+        'validate',
+        'version',
+        'install',
+        'import',
+        'adapt',
+        'list',
+        'use',
+        'source',
+        'update',
+        'uninstall',
+        'admin'
+      ])
     );
   });
 

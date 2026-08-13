@@ -9,7 +9,7 @@
 
 ## Start Services
 
-Copy `.env.example` to `.env`. The initial `GITEA_ADMIN_TOKEN` value can stay as `replace-with-local-gitea-admin-token` for first startup; Phase 3 smoke checks do not create repositories through the API Server.
+Copy `.env.example` to `.env`. Set `ESL_BOOTSTRAP_ADMIN_TOKEN` to the token the first ESL Platform Administrator will use for the initial `esl login`.
 
 If Docker build cannot reach npm registries in a proxied network, set `NPM_PROXY` in `.env` to the Docker-reachable host proxy address. For example, with a local proxy on Windows port `7897`:
 
@@ -24,15 +24,28 @@ npm run build
 docker compose up --build
 ```
 
-Open Gitea at `http://localhost:3001`, complete first-run setup, create a user, and create a personal access token.
+Gitea runs as ESL's internal Git backend. The local Docker runtime locks Gitea installation and disables public registration so normal setup and user onboarding happen through ESL instead of the Gitea UI.
 
-After Gitea is initialized, replace `GITEA_ADMIN_TOKEN` in `.env` with an admin token and restart the `api` service when you want API-backed repository creation to work:
+Set `GITEA_ADMIN_TOKEN` in `.env` to a Gitea administrator token and restart the `api` service when you want API-backed repository and user management to work:
 
 ```powershell
 docker compose up -d api
 ```
 
-Before publishing a skill, create the `esl-skills` organization in local Gitea. Set `GITEA_REPO_OWNER` in `.env` if you use a different organization.
+Before publishing a skill, ensure the `esl-skills` organization exists in local Gitea. Set `GITEA_REPO_OWNER` in `.env` if you use a different organization.
+
+## Admin Commands
+
+After logging in with the bootstrap token, the platform administrator can manage the first user onboarding loop through ESL:
+
+```powershell
+npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username admin --token <bootstrap-token>
+npm exec -- esl admin bootstrap status
+npm exec -- esl admin user create alice
+npm exec -- esl admin user token issue alice
+npm exec -- esl admin user disable alice
+npm exec -- esl admin password change --password <new-password>
+```
 
 ## Local Skill Namespace
 

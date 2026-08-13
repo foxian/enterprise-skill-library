@@ -14,7 +14,8 @@ describe('server config', () => {
       databasePath: '/tmp/esl.db',
       giteaUrl: 'http://gitea:3000',
       giteaAdminToken: 'admin-token',
-      repoOwner: 'esl-skills'
+      repoOwner: 'esl-skills',
+      bootstrapAdminToken: 'bootstrap-token'
     });
   });
 
@@ -27,6 +28,17 @@ describe('server config', () => {
     } as NodeJS.ProcessEnv);
 
     expect(config.repoOwner).toBe('platform-skills');
+  });
+
+  it('loads the configured bootstrap administrator token', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token',
+      ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.bootstrapAdminToken).toBe('configured-bootstrap-token');
   });
 
   it('throws a clear error for missing required variables', () => {

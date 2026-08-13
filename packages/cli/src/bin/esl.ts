@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { executeInfo } from '../commands/info.js';
+import {
+  executeBootstrapStatus,
+  executeChangePassword,
+  executeCreateUser,
+  executeDisableUser,
+  executeIssueUserToken
+} from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
@@ -42,6 +49,60 @@ export function createProgram(): Command {
     .action(async (options: { registry: string; gitBase: string; username: string; password?: string; token?: string }) => {
       await executeLogin(options);
       console.log(`Logged in as ${options.username}`);
+    });
+
+  const admin = program.command('admin').description('Manage ESL platform administration');
+
+  const bootstrap = admin.command('bootstrap');
+  bootstrap
+    .command('status')
+    .option('--registry <url>', 'API Server base URL')
+    .action(async (options: { registry?: string }) => {
+      const status = await executeBootstrapStatus(options);
+      console.log(status.ready ? 'Bootstrap ready' : 'Bootstrap not ready');
+    });
+
+  const adminUser = admin.command('user');
+  adminUser
+    .command('create')
+    .argument('<username>')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--token <token>', 'administrator token')
+    .action(async (username: string, options: { registry?: string; token?: string }) => {
+      await executeCreateUser(username, options);
+      console.log(`User ${username} created`);
+    });
+
+  const adminUserToken = adminUser.command('token');
+  adminUserToken
+    .command('issue')
+    .argument('<username>')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--token <token>', 'administrator token')
+    .action(async (username: string, options: { registry?: string; token?: string }) => {
+      const token = await executeIssueUserToken(username, options);
+      console.log(token);
+    });
+
+  adminUser
+    .command('disable')
+    .argument('<username>')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--token <token>', 'administrator token')
+    .action(async (username: string, options: { registry?: string; token?: string }) => {
+      await executeDisableUser(username, options);
+      console.log(`User ${username} disabled`);
+    });
+
+  admin
+    .command('password')
+    .command('change')
+    .requiredOption('--password <password>', 'new administrator password')
+    .option('--registry <url>', 'API Server base URL')
+    .option('--token <token>', 'administrator token')
+    .action(async (options: { password: string; registry?: string; token?: string }) => {
+      await executeChangePassword(options);
+      console.log('Password changed');
     });
 
   program
