@@ -1,5 +1,9 @@
 # Local Development Runtime
 
+This is the authoritative guide for starting ESL locally. For Docker Desktop,
+registry, proxy, or recovery issues, see
+[Docker troubleshooting](docker-troubleshooting.md).
+
 ## Prerequisites
 
 - Node.js 18+
@@ -20,6 +24,9 @@ NPM_PROXY=http://host.docker.internal:7897
 ```
 
 Leave `NPM_PROXY` blank when Docker containers can access npm directly.
+
+For Docker-specific network diagnosis and image-pull recovery, see
+[Docker troubleshooting](docker-troubleshooting.md).
 
 ```powershell
 npm run build
@@ -105,4 +112,5 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
 That maps Gitea to `http://localhost:3001`; normal ESL workflows should keep
-using `http://localhost:3000`.
+using `http://localhost:3000`. See
+[Docker troubleshooting](docker-troubleshooting.md) for the recovery workflow.

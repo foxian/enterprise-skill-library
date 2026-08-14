@@ -1,7 +1,10 @@
 # Agent Instructions
 
 - Project conventions live in [docs/agent-coding-principles.md](docs/agent-coding-principles.md).
-- Docker local runtime setup lives in [DOCKER_SETUP.md](DOCKER_SETUP.md).
+- Docker local runtime guidance lives in
+  [docs/guides/local-development.md](docs/guides/local-development.md).
+- Docker-specific diagnosis lives in
+  [docs/guides/docker-troubleshooting.md](docs/guides/docker-troubleshooting.md).
 - Keep reusable logic in `packages/core`; keep CLI parsing, output, and exit behavior in `packages/cli`.
 - Verify changes with `npm test` and `npm run build`.
 

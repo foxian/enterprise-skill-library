@@ -19,20 +19,10 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 ## 二、 环境配置与登录 (Setup & Login)
 
 ### 1. 本地服务启动 (仅本地开发环境)
-如需运行本地 ESL Server，请在项目根目录执行：
-```powershell
-docker compose up -d
-```
 
-Docker 本地运行会自动执行 Gitea bootstrap：
-
-- `gitea-bootstrap` 一次性创建或复用 Gitea 管理员；
-- 默认 Gitea 管理员用户名是 `eslroot`，因为 Gitea 1.22 会拒绝创建保留用户名 `admin`；
-- 初始 Gitea 管理员密码来自 `.env` 中的 `GITEA_ADMIN_PASSWORD`；
-- API 使用的内部 Gitea admin token 会写入 Docker volume，不需要手工去 Gitea 后台创建；
-- `gitea-bootstrap` 正常结束后显示为 `Exited (0)`，这是预期状态。
-
-详细说明请参阅 [DOCKER_SETUP.md](DOCKER_SETUP.md)。
+本地运行 ESL Server 的环境准备、Docker 启动和管理员初始化，请参阅
+[本地开发指南](local-development.md)。正常使用只需要访问 ESL Server；
+Gitea 是内部 Git Backend，不需要直接配置或登录。
 
 ### 2. 登录认证 (Login)
 使用 CLI 登录 ESL Server。默认本地 Docker 地址是：
@@ -75,14 +65,9 @@ esl login \
 
 CLI 不再支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的凭据文件（仅所有者可读），不会写入 `config.json`。
 
-如果你要登录 Gitea 网页后台进行恢复或诊断，先用
-`docker-compose.debug.yml` 启动调试端口，再打开 `http://localhost:3001`，
-使用：
-
-- 用户名：`eslroot`
-- 密码：`.env` 中的 `GITEA_ADMIN_PASSWORD`
-
-注意：`bootstrap-token` 是 ESL CLI 管理员 token，不是 Gitea 网页密码。
+需要直接登录 Gitea 网页后台进行恢复或诊断时，请参阅
+[Docker 排障指南](docker-troubleshooting.md)。`bootstrap-token` 是 ESL CLI
+管理员 token，不是 Gitea 网页密码。
 
 ### 3. 平台管理员命令 (Admin)
 检查 Docker bootstrap 是否完成：
