@@ -36,6 +36,14 @@ export class GiteaService {
     return (await this.validateToken(token)) !== null;
   }
 
+  async validateAdminUserToken(token: string): Promise<GiteaUser | null> {
+    if (!this.adminUsername) {
+      return null;
+    }
+    const user = await this.validateToken(token);
+    return user && user.username === this.adminUsername ? user : null;
+  }
+
   async isReady(): Promise<boolean> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/version`);
     return res.ok;
@@ -132,6 +140,13 @@ export class GiteaService {
       const err = await res.text();
       throw new Error(`Failed to change Gitea user password: ${err}`);
     }
+  }
+
+  async changeAdminPassword(password: string): Promise<void> {
+    if (!this.adminUsername) {
+      throw new Error('Gitea admin username required to change the administrator password');
+    }
+    await this.changeUserPassword(this.adminUsername, password);
   }
 
   async ensureAdminUser(username: string, password: string): Promise<void> {

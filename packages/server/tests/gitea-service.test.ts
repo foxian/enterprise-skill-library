@@ -234,4 +234,63 @@ describe('GiteaService', () => {
       'Failed to get Gitea repository: bad credentials'
     );
   });
+
+  it('recognizes the administrator token via Gitea validation', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, username: 'eslroot', email: 'eslroot@local.esl' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any, 'eslroot');
+
+    await expect(gitea.validateAdminUserToken('some-token')).resolves.toEqual({
+      id: 1,
+      username: 'eslroot',
+      email: 'eslroot@local.esl'
+    });
+  });
+
+  it('returns null when the token does not belong to the administrator', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 2, username: 'alice', email: 'alice@local.esl' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any, 'eslroot');
+
+    await expect(gitea.validateAdminUserToken('alice-token')).resolves.toBeNull();
+  });
+
+  it('returns null when no administrator username is configured', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, username: 'eslroot', email: 'eslroot@local.esl' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.validateAdminUserToken('some-token')).resolves.toBeNull();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('changes the administrator password via the configured admin username', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any, 'eslroot');
+
+    await gitea.changeAdminPassword('new-password');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/admin/users/eslroot', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password: 'new-password' })
+    });
+  });
+
+  it('throws when changing the administrator password without a configured username', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.changeAdminPassword('new-password')).rejects.toThrow(/admin username required/);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
