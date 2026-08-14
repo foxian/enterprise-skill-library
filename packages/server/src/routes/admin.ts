@@ -17,7 +17,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.post('/api/admin/users', async (request, reply) => {
-    if (!authorize(request, reply, repository)) return;
+    if (!(await authorize(request, reply, repository, giteaService))) return;
     const { username } = request.body as { username: string };
     await giteaService.createUser(username);
     const user = repository.createUser(username);
@@ -25,7 +25,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.post('/api/admin/users/:username/tokens', async (request, reply) => {
-    if (!authorize(request, reply, repository)) return;
+    if (!(await authorize(request, reply, repository, giteaService))) return;
     const { username } = request.params as { username: string };
     let token: string;
     try {
@@ -38,7 +38,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.post('/api/admin/users/:username/disable', async (request, reply) => {
-    if (!authorize(request, reply, repository)) return;
+    if (!(await authorize(request, reply, repository, giteaService))) return;
     const { username } = request.params as { username: string };
     await giteaService.disableUser(username);
     const user = repository.disableUser(username);
@@ -46,19 +46,20 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   });
 
   app.post('/api/admin/gitea/password', async (request, reply) => {
-    const admin = authorize(request, reply, repository);
+    const admin = await authorize(request, reply, repository, giteaService);
     if (!admin) return;
     const { password } = request.body as { password: string };
-    await giteaService.changeUserPassword('admin', password);
+    await giteaService.changeAdminPassword(password);
     return { passwordChanged: true };
   });
 }
 
-function authorize(
+async function authorize(
   request: FastifyRequest,
   reply: FastifyReply,
-  repository: AdminRepository
-): { username: string } | null {
+  repository: AdminRepository,
+  giteaService: GiteaService
+): Promise<{ username: string } | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
     reply.status(401).send({ error: 'Unauthorized: missing token' });
@@ -67,10 +68,11 @@ function authorize(
 
   const token = authorization.replace('token ', '').trim();
   const admin = repository.getPlatformAdminForToken(token);
-  if (!admin) {
-    reply.status(403).send({ error: 'Forbidden: platform administrator token required' });
-    return null;
-  }
+  if (admin) return admin;
 
-  return admin;
+  const giteaAdmin = await giteaService.validateAdminUserToken(token);
+  if (giteaAdmin) return { username: giteaAdmin.username };
+
+  reply.status(403).send({ error: 'Forbidden: platform administrator token required' });
+  return null;
 }

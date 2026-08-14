@@ -213,10 +213,10 @@ describe('Admin API', () => {
   });
 
   it('changes the Gitea administrator password', async () => {
-    const changeUserPassword = vi.fn().mockResolvedValue(undefined);
+    const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
     app = buildApp({
       dbPath,
-      giteaService: { changeUserPassword } as any,
+      giteaService: { changeAdminPassword } as any,
       repoOwner: 'esl-skills'
     });
 
@@ -229,6 +229,50 @@ describe('Admin API', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ passwordChanged: true });
-    expect(changeUserPassword).toHaveBeenCalledWith('admin', 'new-password');
+    expect(changeAdminPassword).toHaveBeenCalledWith('new-password');
+  });
+
+  it('authorizes a password-minted administrator token via the Gitea fallback', async () => {
+    const mockGitea = {
+      validateAdminUserToken: async () => ({ username: 'eslroot' }),
+      createUser: async () => undefined
+    };
+    app = buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { authorization: 'token password-minted-token' },
+      payload: { username: 'alice' }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({ username: 'alice', disabled: false });
+  });
+
+  it('rejects a non-administrator token on admin routes', async () => {
+    const mockGitea = {
+      validateAdminUserToken: async () => null,
+      createUser: async () => undefined
+    };
+    app = buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { authorization: 'token some-user-token' },
+      payload: { username: 'alice' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'Forbidden: platform administrator token required' });
   });
 });
