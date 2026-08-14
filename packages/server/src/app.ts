@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { AdminRepository, initDatabase, SkillRepository } from './db/database.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import type { GiteaService } from './services/gitea.js';
 
@@ -18,6 +19,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const adminRepository = new AdminRepository(db, options.bootstrapAdminToken ?? 'bootstrap-token');
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
+  registerAuthRoutes(app, {
+    repository: adminRepository,
+    giteaService: options.giteaService
+  });
   registerAdminRoutes(app, {
     repository: adminRepository,
     giteaService: options.giteaService,

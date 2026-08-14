@@ -10,8 +10,8 @@ export async function executeSearch(
   options: NetworkCommandOptions = {}
 ): Promise<SkillSearchResult[]> {
   const fetchImpl = options.customFetch ?? fetch;
-  const registry = options.registry ?? (await resolveNetworkConfig(options)).registry;
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/skills/search?q=${encodeURIComponent(query)}`));
+  const server = options.server ?? (await resolveNetworkConfig(options)).server;
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/skills/search?q=${encodeURIComponent(query)}`));
 
   if (!res.ok) {
     const err = await res.text();

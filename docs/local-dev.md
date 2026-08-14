@@ -28,6 +28,9 @@ docker compose up --build
 
 Gitea runs as ESL's internal Git backend. The local Docker runtime locks Gitea installation and disables public registration so normal setup and user onboarding happen through ESL instead of the Gitea UI.
 
+The user-facing ESL Server is `http://localhost:3000`. API routes are served
+under `/api`, and Git HTTP traffic is routed under `/git`.
+
 `gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
 
 `GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the Gitea administrator password; use `esl admin gitea password` for explicit rotation.
@@ -39,12 +42,12 @@ The API validates the internal token and ensures `GITEA_REPO_OWNER` before it st
 After logging in with the bootstrap token, the platform administrator can manage the first user onboarding loop through ESL:
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username eslroot --token <bootstrap-token>
+npm exec -- esl login --server http://localhost:3000 --username eslroot --token-file .\bootstrap-token.txt
 npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
 npm exec -- esl admin user token alice
 npm exec -- esl admin user disable alice
-npm exec -- esl admin gitea password --password <new-password>
+npm exec -- esl admin gitea password --password-file .\new-password.txt
 ```
 
 ## Local Skill Namespace
@@ -87,9 +90,19 @@ docker compose exec api npm run seed --workspace @esl/server
 ## CLI Smoke
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
-npm exec -- esl search my-skill --registry http://localhost:3000/api
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl login --server http://localhost:3000 --username <user> --token-file .\user-token.txt
+npm exec -- esl search my-skill --server http://localhost:3000
+npm exec -- esl info @myorg/my-skill --server http://localhost:3000
 ```
 
 `publish` and `install` are not part of the Phase 3 smoke path.
+
+To expose Gitea directly for backend diagnostics or recovery, run Docker with
+the debug override:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+That maps Gitea to `http://localhost:3001`; normal ESL workflows should keep
+using `http://localhost:3000`.

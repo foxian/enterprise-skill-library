@@ -1,5 +1,5 @@
 import { parseSkillName } from '@esl/core';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AdminRepository, SkillRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 
@@ -28,7 +28,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         version: string;
         visibility?: string;
       };
-      return createSkill(reply, repository, giteaService, repoOwner, eslUser.username, {
+      return createSkill(request, reply, repository, giteaService, repoOwner, eslUser.username, {
         name,
         description,
         version,
@@ -51,7 +51,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       version: string;
       visibility?: string;
     };
-    return createSkill(reply, repository, giteaService, repoOwner, user.username, {
+    return createSkill(request, reply, repository, giteaService, repoOwner, user.username, {
       name,
       description,
       version,
@@ -72,11 +72,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(404).send({ error: 'Skill not found' });
     }
 
-    return { ...skill, versions: repository.getVersions(name) };
+    return withCloneUrl(request, { ...skill, versions: repository.getVersions(name) });
   });
 }
 
 async function createSkill(
+  request: FastifyRequest,
   reply: FastifyReply,
   repository: SkillRepository,
   giteaService: GiteaService,
@@ -109,5 +110,13 @@ async function createSkill(
   }
 
   repository.addVersion(input.name, input.version);
-  return reply.status(201).send(skill);
+  return reply.status(201).send(withCloneUrl(request, skill));
+}
+
+function withCloneUrl<T extends { gitRepoPath: string }>(request: FastifyRequest, skill: T): T & { cloneUrl: string } {
+  const host = request.hostname.replace(/:80$/, '').replace(/:443$/, '');
+  return {
+    ...skill,
+    cloneUrl: `${request.protocol}://${host}/git/${skill.gitRepoPath}.git`
+  };
 }

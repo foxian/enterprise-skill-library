@@ -95,3 +95,26 @@ as publishing, installing, updating, and using skills. It is distinct from the
 Bootstrap Token, which is the platform administrator's first-run credential.
 
 _Avoid_: user token, CLI token
+
+## ESL Server
+
+The single user-facing HTTP entry point for ESL CLI and automation clients. It
+owns API access and discovery of Git clone URLs while hiding internal backend
+service topology from normal Skill Users.
+
+_Avoid_: registry when referring to the full user-facing service endpoint
+
+## Registry API
+
+The ESL Server API surface for skill metadata, search, publishing, install
+resolution, authentication, and administration.
+
+_Avoid_: server when referring only to API routes
+
+## Git Backend
+
+The internal repository hosting service used by ESL to store skill source
+repositories. Skill Users should reach it through Git clone URLs discovered from
+the ESL Server, not by configuring a separate backend base URL.
+
+_Avoid_: Gitea when the specific implementation does not matter

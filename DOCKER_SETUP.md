@@ -126,19 +126,20 @@ docker compose up -d --build
 
 | 服务 | 端口 | 说明 |
 | --- | --- | --- |
-| API | `http://localhost:3000` | Enterprise Skill Library API |
-| Gitea | `http://localhost:3001` | 本地 Git 仓库服务 |
+| ESL Server | `http://localhost:3000` | Enterprise Skill Library API and Git HTTP entry point |
 
 首次启动时，`gitea-bootstrap` 会自动创建或复用 `GITEA_ADMIN_USERNAME`
 对应的 Gitea 管理员，并把 API 使用的内部管理员 token 写入
 `GITEA_ADMIN_TOKEN_FILE` 指向的共享 bootstrap secret volume。Docker 本地
 运行不需要打开 Gitea UI，也不需要手工创建或复制 `GITEA_ADMIN_TOKEN`。
+默认运行只暴露 ESL Server；需要直接访问 Gitea 进行恢复或诊断时，使用
+`docker-compose.debug.yml` 覆盖文件。
 
 `GITEA_ADMIN_PASSWORD` 只在首次创建 Gitea 管理员时使用。后续修改 `.env`
 不会自动改 Gitea 密码；需要轮换恢复密码时，使用：
 
 ```powershell
-npm exec -- esl admin gitea password --password <new-password>
+npm exec -- esl admin gitea password --password-file .\new-password.txt
 ```
 
 API 启动时会校验内部 Gitea 管理员 token，并确保 `GITEA_REPO_OWNER`
@@ -175,7 +176,7 @@ docker compose exec api npm run seed --workspace @esl/server
 搜索 seeded skill：
 
 ```powershell
-npm exec -- esl search my-skill --registry http://localhost:3000/api
+npm exec -- esl search my-skill --server http://localhost:3000
 ```
 
 预期会返回类似：
@@ -187,19 +188,19 @@ npm exec -- esl search my-skill --registry http://localhost:3000/api
 查看详情：
 
 ```powershell
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl info @myorg/my-skill --server http://localhost:3000
 ```
 
-登录本地 registry：
+登录本地 ESL Server：
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
+npm exec -- esl login --server http://localhost:3000 --username <user> --token-file .\user-token.txt
 ```
 
 管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`：
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username eslroot --token bootstrap-token
+npm exec -- esl login --server http://localhost:3000 --username eslroot --token-file .\bootstrap-token.txt
 npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
 npm exec -- esl admin user token alice

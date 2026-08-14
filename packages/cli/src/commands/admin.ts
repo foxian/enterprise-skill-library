@@ -1,7 +1,6 @@
-import { loadConfig, type LocalStoreOptions } from '@esl/core';
 import fs from 'node:fs/promises';
 import { isInteractive, readHidden } from '../prompt.js';
-import { apiUrl, fetchWithTimeout, requireConfigured, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
+import { apiUrl, fetchWithTimeout, requireConfigured, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 
 export interface BootstrapStatus {
   ready: boolean;
@@ -23,8 +22,8 @@ export interface ChangePasswordOptions extends NetworkCommandOptions {
 
 export async function executeBootstrapStatus(options: NetworkCommandOptions = {}): Promise<BootstrapStatus> {
   const fetchImpl = options.customFetch ?? fetch;
-  const registry = await resolveAdminRegistry(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/bootstrap/status'));
+  const server = (await resolveNetworkConfig(options)).server;
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/bootstrap/status'));
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Failed to check bootstrap status: ${err}`);
@@ -37,8 +36,8 @@ export async function executeCreateUser(
   options: NetworkCommandOptions = {}
 ): Promise<AdminUserResult> {
   const fetchImpl = options.customFetch ?? fetch;
-  const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/users'), {
+  const { server, token } = await resolveAdminAuth(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/users'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
@@ -58,8 +57,8 @@ export async function executeIssueUserToken(
   options: NetworkCommandOptions = {}
 ): Promise<string> {
   const fetchImpl = options.customFetch ?? fetch;
-  const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/tokens`), {
+  const { server, token } = await resolveAdminAuth(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/admin/users/${encodeURIComponent(username)}/tokens`), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`
@@ -75,8 +74,8 @@ export async function executeIssueUserToken(
 
 export async function executeDisableUser(username: string, options: NetworkCommandOptions = {}): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
-  const { registry, token } = await resolveAdminAuth(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/admin/users/${encodeURIComponent(username)}/disable`), {
+  const { server, token } = await resolveAdminAuth(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/admin/users/${encodeURIComponent(username)}/disable`), {
     method: 'POST',
     headers: { Authorization: `token ${token}` }
   });
@@ -88,9 +87,9 @@ export async function executeDisableUser(username: string, options: NetworkComma
 
 export async function executeGiteaPasswordChange(options: ChangePasswordOptions): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
-  const { registry, token } = await resolveAdminAuth(options);
+  const { server, token } = await resolveAdminAuth(options);
   const password = await resolveNewPassword(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/admin/gitea/password'), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/gitea/password'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
@@ -133,19 +132,10 @@ async function resolveNewPassword(options: ChangePasswordOptions): Promise<strin
   return password;
 }
 
-async function resolveAdminRegistry(options: NetworkCommandOptions & LocalStoreOptions): Promise<string> {
-  if (options.registry) return options.registry;
-  const config = await loadConfig({ homeDir: options.homeDir });
-  return requireConfigured(config.registry, 'registry');
-}
-
-async function resolveAdminAuth(
-  options: NetworkCommandOptions & LocalStoreOptions
-): Promise<{ registry: string; token: string; username: string }> {
-  const config = await loadConfig({ homeDir: options.homeDir });
+async function resolveAdminAuth(options: NetworkCommandOptions): Promise<{ server: string; token: string }> {
+  const config = await resolveNetworkConfig(options);
   return {
-    registry: options.registry ?? requireConfigured(config.registry, 'registry'),
-    token: await requireFreshToken(options),
-    username: requireConfigured(config.username, 'username')
+    server: config.server,
+    token: requireConfigured(await requireFreshToken(options), 'token')
   };
 }

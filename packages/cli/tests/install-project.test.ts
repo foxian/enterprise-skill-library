@@ -95,13 +95,13 @@ describe('esl install (project-level)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
     const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
-      if (args[0] === 'clone') {
-        const cloneDir = args[2];
+      if (args.includes('clone')) {
+        const cloneDir = args.at(-1)!;
         fs.mkdirSync(cloneDir, { recursive: true });
         fs.writeFileSync(path.join(cloneDir, 'SKILL.md'), '---\nname: code-review\ndescription: Test.\n---\n');
         fs.writeFileSync(
@@ -121,8 +121,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       projectRoot: projectDir,
       homeDir,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -144,7 +143,7 @@ describe('esl install (project-level)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -153,8 +152,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       homeDir,
       global: true,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true

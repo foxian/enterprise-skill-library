@@ -26,8 +26,7 @@ describe('esl admin', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        registry: 'http://skills.company.com/api',
-        gitBase: 'http://skills.company.com/git',
+        server: 'http://skills.company.com',
         username: 'admin',
         tools: []
       },
@@ -36,14 +35,14 @@ describe('esl admin', () => {
     await saveCredentials({ token: adminToken, loginAt: new Date().toISOString() }, { homeDir });
   }
 
-  it('checks bootstrap readiness from the saved registry', async () => {
+  it('checks bootstrap readiness from the saved ESL Server', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ ready: true, gitea: 'ready', adminToken: 'ready', repoOwner: 'ready' })
     });
 
     await initializeLocalStore({ homeDir });
-    await saveConfig({ registry: 'http://skills.company.com/api' }, { homeDir });
+    await saveConfig({ server: 'http://skills.company.com' }, { homeDir });
 
     const result = await executeBootstrapStatus({ homeDir, customFetch: mockFetch as any });
 
@@ -152,8 +151,7 @@ describe('esl admin', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        registry: 'http://skills.company.com/api',
-        gitBase: 'http://skills.company.com/git',
+        server: 'http://skills.company.com',
         username: 'admin',
         tools: []
       },

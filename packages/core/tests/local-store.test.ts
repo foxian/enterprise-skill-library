@@ -38,8 +38,7 @@ describe('local store', () => {
     expect(fs.existsSync(paths.cacheDir)).toBe(true);
     expect(fs.existsSync(paths.skillsDir)).toBe(true);
     expect(JSON.parse(fs.readFileSync(paths.configJson, 'utf8'))).toEqual({
-      registry: null,
-      gitBase: null,
+      server: null,
       username: null,
       tools: []
     });
@@ -71,11 +70,10 @@ describe('local store', () => {
     expect(mode).toBe(0o600);
   });
 
-  it('saves and loads Gitea configuration', async () => {
+  it('saves and loads ESL Server configuration', async () => {
     await initializeLocalStore({ homeDir });
     const config = {
-      registry: 'http://skills.company.com/api',
-      gitBase: 'http://skills.company.com/git',
+      server: 'http://skills.company.com',
       username: 'zhangsan',
       tools: []
     };

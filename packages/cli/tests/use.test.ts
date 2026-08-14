@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { initializeLocalStore, saveCredentials } from '@esl/core';
 import { executeUse } from '../src/commands/use.js';
 
 describe('esl use', () => {
@@ -33,5 +35,47 @@ describe('esl use', () => {
     const result = await executeUse(subDir);
     expect(result).toBe(skillContent);
     await fs.rm(tmpDir, { recursive: true });
+  });
+
+  it('reads SKILL.md from a server clone URL with token authentication headers', async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-use-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        versions: ['0.1.0']
+      })
+    });
+    const skillContent = '---\nname: code-review\ndescription: Test.\n---\n';
+    const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes('clone')) {
+        const cloneDir = args.at(-1)!;
+        fsSync.mkdirSync(cloneDir, { recursive: true });
+        fsSync.writeFileSync(path.join(cloneDir, 'SKILL.md'), skillContent);
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const result = await executeUse('@alice/code-review', {
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toBe(skillContent);
+    expect(execFileAsync).toHaveBeenCalledWith('git', [
+      '-c',
+      'http.extraHeader=Authorization: Bearer gitea-token',
+      'clone',
+      '--depth',
+      '1',
+      'http://localhost:3000/git/esl-skills/alice_code-review.git',
+      expect.any(String)
+    ]);
+    await fs.rm(homeDir, { recursive: true });
   });
 });

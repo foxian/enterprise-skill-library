@@ -110,6 +110,29 @@ export class GiteaService {
     return body.sha1;
   }
 
+  async loginUser(username: string, password: string): Promise<string | null> {
+    const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${username}/tokens`, {
+      method: 'POST',
+      headers: {
+        Authorization: basicAuth,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: `esl-cli-${Date.now()}`, scopes: ['all'] })
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      return null;
+    }
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to authenticate with Gitea: ${err}`);
+    }
+
+    const body = (await res.json()) as { sha1: string };
+    return body.sha1;
+  }
+
   async disableUser(username: string): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',

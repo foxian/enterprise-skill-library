@@ -60,6 +60,19 @@ describe('esl program', () => {
     expect(search?.options.map((option) => option.long)).toContain('--json');
   });
 
+  it('uses --server for ESL Server commands and does not expose old network flags', () => {
+    const program = createProgram();
+    const commandNames = ['login', 'search', 'info', 'publish', 'install', 'source', 'use', 'update'];
+
+    for (const commandName of commandNames) {
+      const command = program.commands.find((entry) => entry.name() === commandName);
+      const options = command?.options.map((option) => option.long) ?? [];
+      expect(options, commandName).toContain('--server');
+      expect(options, commandName).not.toContain('--registry');
+      expect(options, commandName).not.toContain('--git-base');
+    }
+  });
+
   it('registers the debug option', () => {
     const program = createProgram();
     expect(program.options.map((option) => option.long)).toContain('--debug');

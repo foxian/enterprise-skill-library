@@ -4,8 +4,7 @@ import { isInteractive, readHidden } from '../prompt.js';
 import { fetchWithTimeout } from './network-options.js';
 
 export interface LoginOptions extends LocalStoreOptions {
-  registry: string;
-  gitBase: string;
+  server: string;
   username: string;
   passwordFile?: string;
   tokenFile?: string;
@@ -23,8 +22,7 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
-      registry: options.registry,
-      gitBase: options.gitBase,
+      server: options.server,
       username: options.username
     },
     { homeDir: options.homeDir }
@@ -71,22 +69,20 @@ async function exchangePasswordForToken(
   password: string,
   fetchImpl: typeof fetch
 ): Promise<string> {
-  const authHeader = `Basic ${Buffer.from(`${options.username}:${password}`).toString('base64')}`;
-  const giteaApiUrl = options.gitBase.replace(/\/git\/?$/, '');
-  const res = await fetchWithTimeout(fetchImpl, `${giteaApiUrl}/api/v1/users/${options.username}/tokens`, {
+  const server = options.server.replace(/\/$/, '');
+  const res = await fetchWithTimeout(fetchImpl, `${server}/api/auth/login`, {
     method: 'POST',
     headers: {
-      Authorization: authHeader,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ name: `esl-cli-${Date.now()}` })
+    body: JSON.stringify({ username: options.username, password })
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Failed to authenticate with Gitea: ${err}`);
+    throw new Error(`Failed to authenticate with ESL Server: ${err}`);
   }
 
-  const data = (await res.json()) as { sha1: string };
-  return data.sha1;
+  const data = (await res.json()) as { token: string };
+  return data.token;
 }

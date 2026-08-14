@@ -14,7 +14,7 @@ describe('esl list', () => {
         skills: {
           '@alice/code-review': {
             version: '1.0.0',
-            resolved: 'http://localhost:3001/esl-skills/alice_code-review.git',
+            resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
             integrity: 'sha256-abc123'
           },
           '@local/my-helper': {

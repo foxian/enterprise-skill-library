@@ -11,8 +11,7 @@ export interface LocalStorePaths {
 }
 
 export interface EslConfig {
-  registry: string | null;
-  gitBase: string | null;
+  server: string | null;
   username: string | null;
   tools: string[];
 }
@@ -52,8 +51,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await fs.mkdir(paths.cacheDir, { recursive: true });
   await fs.mkdir(paths.skillsDir, { recursive: true });
   await writeJsonIfMissing(paths.configJson, {
-    registry: null,
-    gitBase: null,
+    server: null,
     username: null,
     tools: []
   });

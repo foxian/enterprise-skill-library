@@ -152,7 +152,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'esl-skills/alice_code-review',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -162,7 +162,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['1.1.0', '1.0.0']
       })
     });
@@ -173,8 +173,7 @@ describe('esl update', () => {
       projectRoot: projectDir,
       homeDir,
       global: true,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -184,8 +183,10 @@ describe('esl update', () => {
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
       [
+        '-c',
+        'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
-        expect.stringContaining('/esl-skills/alice_code-review.git'),
+        'http://localhost:3000/git/esl-skills/alice_code-review.git',
         path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')
       ]
     );
@@ -204,7 +205,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'esl-skills/alice_code-review',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -218,7 +219,7 @@ describe('esl update', () => {
       executeUpdate({
         projectRoot: projectDir,
         homeDir,
-        registry: 'http://localhost:3000/api',
+        server: 'http://localhost:3000',
         customFetch: fetchImpl as any,
         noAdapt: true
       })
@@ -269,7 +270,11 @@ describe('esl update', () => {
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
       skills: {
-        '@myorg/my-skill': { version: '1.2.0', resolved: 'esl-skills/myorg_my-skill', integrity: '' }
+        '@myorg/my-skill': {
+          version: '1.2.0',
+          resolved: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          integrity: ''
+        }
       }
     });
 
@@ -277,7 +282,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@myorg/my-skill',
-        gitRepoPath: 'esl-skills/myorg_my-skill',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
         versions: ['1.2.0', '1.0.0']
       })
     });
@@ -286,7 +291,7 @@ describe('esl update', () => {
     const result = await executeUpdate({
       projectRoot: projectDir,
       homeDir,
-      registry: 'http://localhost:3000/api',
+      server: 'http://localhost:3000',
       noAdapt: true,
       customFetch: fetchImpl as any
     });

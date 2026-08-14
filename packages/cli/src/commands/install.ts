@@ -14,12 +14,11 @@ import {
   validateSkillDirectory
 } from '@esl/core';
 import {
-  authenticatedGitUrl,
   installTargetDir,
-  projectSkillsDir,
+  gitAuthHeaderConfig,
   requireConfigured,
   requireFreshToken,
-  resolveNetworkConfig,
+  projectSkillsDir,
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
@@ -79,12 +78,10 @@ async function installFromServer(
   options: InstallOptions
 ): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { gitBase } = await resolveNetworkConfig(options);
-  const gitHttpBase = requireConfigured(gitBase, 'git-base');
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
-  const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
-  const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);
+  const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
+  const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? info.versions?.[0];
 
   if (options.global || !projectRoot) {
@@ -92,7 +89,7 @@ async function installFromServer(
     const targetDir = path.normalize(installTargetDir(name, options));
     await removeDirectory(targetDir);
     notify(`Cloning ${name}...`);
-    await execFileAsync('git', ['clone', remoteUrl, targetDir]);
+    await execFileAsync('git', ['-c', authHeader, 'clone', remoteUrl, targetDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: targetDir });
     }
@@ -100,7 +97,7 @@ async function installFromServer(
     if (version) {
       await addLockEntry(globalRoot, name, {
         version,
-        resolved: repoPath,
+        resolved: remoteUrl,
         integrity: ''
       });
     }
@@ -111,7 +108,7 @@ async function installFromServer(
   try {
     const cloneDir = path.join(tmpDir, 'repo');
     notify(`Cloning ${name}...`);
-    await execFileAsync('git', ['clone', remoteUrl, cloneDir]);
+    await execFileAsync('git', ['-c', authHeader, 'clone', remoteUrl, cloneDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: cloneDir });
     }
@@ -122,7 +119,7 @@ async function installFromServer(
     if (version) {
       await addLockEntry(projectRoot, name, {
         version,
-        resolved: repoPath,
+        resolved: remoteUrl,
         integrity: ''
       });
     }

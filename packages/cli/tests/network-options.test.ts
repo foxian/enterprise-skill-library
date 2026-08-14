@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { initializeLocalStore, saveCredentials } from '@esl/core';
+import { initializeLocalStore, saveConfig, saveCredentials } from '@esl/core';
 import {
   fetchWithTimeout,
   installTargetDir,
   requireFreshToken,
+  resolveNetworkConfig,
   resolveLoginTtlMs,
   resolveTimeoutMs
 } from '../src/commands/network-options.js';
@@ -20,6 +21,45 @@ describe('network option paths', () => {
     expect(result).toBe(
       path.join('C:\\temp\\esl-home', '.skill-library', 'skills', '@alice', 'code-review')
     );
+  });
+});
+
+describe('resolveNetworkConfig', () => {
+  it('resolves the saved ESL Server URL and token', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-network-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://skills.company.com' }, { homeDir });
+    await saveCredentials({ token: 'tok', loginAt: new Date().toISOString() }, { homeDir });
+
+    await expect(resolveNetworkConfig({ homeDir })).resolves.toEqual({
+      server: 'http://skills.company.com',
+      token: 'tok'
+    });
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('lets an explicit ESL Server URL override saved config', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-network-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.example.com' }, { homeDir });
+    await saveCredentials({ token: 'tok', loginAt: new Date().toISOString() }, { homeDir });
+
+    await expect(resolveNetworkConfig({ homeDir, server: 'http://override.example.com' })).resolves.toEqual({
+      server: 'http://override.example.com',
+      token: 'tok'
+    });
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('asks for --server when no ESL Server URL is configured', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-network-'));
+    await initializeLocalStore({ homeDir });
+
+    await expect(resolveNetworkConfig({ homeDir })).rejects.toThrow('Missing server; run esl login or pass --server');
+
+    fs.rmSync(homeDir, { recursive: true, force: true });
   });
 });
 
@@ -106,4 +146,3 @@ describe('requireFreshToken', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 });
-

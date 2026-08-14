@@ -8,12 +8,13 @@ export interface SkillInfo {
   maintainers?: string[];
   versions?: string[];
   gitRepoPath?: string;
+  cloneUrl?: string;
 }
 
 export async function executeInfo(name: string, options: NetworkCommandOptions = {}): Promise<SkillInfo> {
   const fetchImpl = options.customFetch ?? fetch;
-  const registry = options.registry ?? (await resolveNetworkConfig(options)).registry;
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, `/api/skills/${encodeURIComponent(name)}`));
+  const server = options.server ?? (await resolveNetworkConfig(options)).server;
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/skills/${encodeURIComponent(name)}`));
 
   if (!res.ok) {
     const err = await res.text();

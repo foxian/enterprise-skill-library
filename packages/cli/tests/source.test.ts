@@ -23,7 +23,7 @@ describe('esl source', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -40,8 +40,7 @@ describe('esl source', () => {
     try {
       targetDir = await executeSource('@alice/code-review', {
         homeDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         cwd: '/tmp/test-dir'
@@ -53,8 +52,10 @@ describe('esl source', () => {
     expect(notified).toBe(true);
     expect(targetDir).toContain('code-review');
     expect(execFileAsync).toHaveBeenCalledWith('git', [
+      '-c',
+      'http.extraHeader=Authorization: Bearer gitea-token',
       'clone',
-      expect.stringContaining('/esl-skills/alice_code-review.git'),
+      'http://localhost:3000/git/esl-skills/alice_code-review.git',
       expect.stringContaining('code-review')
     ]);
   });
@@ -64,7 +65,7 @@ describe('esl source', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -72,8 +73,7 @@ describe('esl source', () => {
 
     const targetDir = await executeSource('@alice/code-review', {
       homeDir,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       target: '/tmp/my-clone-dir'
@@ -81,8 +81,10 @@ describe('esl source', () => {
 
     expect(targetDir).toBe('/tmp/my-clone-dir');
     expect(execFileAsync).toHaveBeenCalledWith('git', [
+      '-c',
+      'http.extraHeader=Authorization: Bearer gitea-token',
       'clone',
-      expect.stringContaining('/esl-skills/alice_code-review.git'),
+      'http://localhost:3000/git/esl-skills/alice_code-review.git',
       '/tmp/my-clone-dir'
     ]);
   });

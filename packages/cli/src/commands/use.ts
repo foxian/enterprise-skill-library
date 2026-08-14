@@ -5,10 +5,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { removeDirectory } from '@esl/core';
 import {
-  authenticatedGitUrl,
+  gitAuthHeaderConfig,
   requireConfigured,
   requireFreshToken,
-  resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
@@ -32,18 +31,16 @@ async function readSkillMdFromLocal(sourcePath: string): Promise<string> {
 
 async function readSkillMdFromServer(name: string, options: UseOptions): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { gitBase } = await resolveNetworkConfig(options);
-  const gitHttpBase = requireConfigured(gitBase, 'git-base');
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
-  const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
-  const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);
+  const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
+  const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? info.versions?.[0];
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-use-'));
   try {
     const cloneDir = path.join(tmpDir, 'repo');
-    await execFileAsync('git', ['clone', '--depth', '1', remoteUrl, cloneDir]);
+    await execFileAsync('git', ['-c', authHeader, 'clone', '--depth', '1', remoteUrl, cloneDir]);
     if (version) {
       await execFileAsync('git', ['checkout', version], { cwd: cloneDir });
     }

@@ -3,10 +3,9 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { parseSkillName } from '@esl/core';
 import {
-  authenticatedGitUrl,
+  gitAuthHeaderConfig,
   requireConfigured,
   requireFreshToken,
-  resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
@@ -22,19 +21,17 @@ export interface SourceOptions extends NetworkCommandOptions {
 
 export async function executeSource(name: string, options: SourceOptions = {}): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { gitBase } = await resolveNetworkConfig(options);
-  const gitHttpBase = requireConfigured(gitBase, 'git-base');
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
-  const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
-  const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);
+  const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
+  const authHeader = gitAuthHeaderConfig(authToken);
 
   const { skillName } = parseSkillName(name);
   const cwd = options.cwd ?? process.cwd();
   const targetDir = options.target ?? path.join(cwd, skillName);
 
   notify(`Cloning ${name}...`);
-  await execFileAsync('git', ['clone', remoteUrl, targetDir]);
+  await execFileAsync('git', ['-c', authHeader, 'clone', remoteUrl, targetDir]);
 
   return targetDir;
 }

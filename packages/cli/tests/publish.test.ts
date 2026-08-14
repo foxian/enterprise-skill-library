@@ -43,20 +43,19 @@ description: Use when reviewing code changes.
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('pushes to the repository path returned by the registry', async () => {
+  it('pushes to the clone URL returned by the ESL Server', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review'
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
     await executePublish({
       directory: skillDir,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -70,7 +69,7 @@ description: Use when reviewing code changes.
     expect(remoteArgs[0]).toBe('remote');
     expect(remoteArgs[1]).toBe('add');
     expect(remoteArgs[2]).toBe('esl');
-    expect(remoteArgs[3]).toContain('/esl-skills/alice_code-review.git');
+    expect(remoteArgs[3]).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
     expect(remoteArgs[3]).not.toContain('gitea-token');
 
     const pushArgSets = (execFileAsync.mock.calls.map((call) => call[1]) as string[][]).filter((args) =>
@@ -98,8 +97,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         homeDir,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
@@ -110,7 +108,7 @@ description: Use when reviewing code changes.
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails when the registry omits gitRepoPath', async () => {
+  it('fails when the ESL Server omits cloneUrl', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ name: '@alice/code-review' })
@@ -119,14 +117,13 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
         execFileAsync: vi.fn() as any
       })
-    ).rejects.toThrow('API response did not include gitRepoPath');
+    ).rejects.toThrow('API response did not include cloneUrl');
   });
 
   it('prompts for confirmation before pushing', async () => {
@@ -134,7 +131,7 @@ description: Use when reviewing code changes.
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review'
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -142,8 +139,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      registry: 'http://localhost:3000/api',
-      gitBase: 'http://localhost:3001',
+      server: 'http://localhost:3000',
       homeDir,
       confirmInput,
       customFetch: fetchImpl as any,
@@ -162,8 +158,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         homeDir,
         confirmInput,
         customFetch: fetchImpl as any,
@@ -181,8 +176,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
@@ -203,8 +197,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,

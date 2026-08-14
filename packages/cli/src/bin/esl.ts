@@ -49,13 +49,12 @@ export function createProgram(): Command {
 
   program
     .command('login')
-    .requiredOption('--registry <url>', 'API Server base URL')
-    .requiredOption('--git-base <url>', 'Gitea Git HTTP base URL')
-    .requiredOption('--username <username>', 'Gitea username')
-    .option('--password-file <path>', 'Read the Gitea password from a file')
-    .option('--token-file <path>', 'Read a Gitea personal access token from a file')
-    .addHelpText('after', example('$ esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username alice'))
-    .action(async (options: { registry: string; gitBase: string; username: string; passwordFile?: string; tokenFile?: string }) => {
+    .requiredOption('--server <url>', 'ESL Server URL')
+    .requiredOption('--username <username>', 'ESL username')
+    .option('--password-file <path>', 'Read the ESL password from a file')
+    .option('--token-file <path>', 'Read a Skill User Token from a file')
+    .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
+    .action(async (options: { server: string; username: string; passwordFile?: string; tokenFile?: string }) => {
       await executeLogin({ ...options, noInput: program.opts().input === false });
       console.log(`Logged in as ${options.username}`);
     });
@@ -66,8 +65,8 @@ export function createProgram(): Command {
   const bootstrap = admin.command('bootstrap');
   bootstrap
     .command('status')
-    .option('--registry <url>', 'API Server base URL')
-    .action(async (options: { registry?: string }) => {
+    .option('--server <url>', 'ESL Server URL')
+    .action(async (options: { server?: string }) => {
       const status = await executeBootstrapStatus(options);
       console.log(status.ready ? 'Bootstrap ready' : 'Bootstrap not ready');
       if (status.gitea) console.log(`Gitea: ${status.gitea}`);
@@ -79,8 +78,8 @@ export function createProgram(): Command {
   adminUser
     .command('create')
     .argument('<username>')
-    .option('--registry <url>', 'API Server base URL')
-    .action(async (username: string, options: { registry?: string }) => {
+    .option('--server <url>', 'ESL Server URL')
+    .action(async (username: string, options: { server?: string }) => {
       await executeCreateUser(username, options);
       console.log(`User ${username} created`);
     });
@@ -88,8 +87,8 @@ export function createProgram(): Command {
   adminUser
     .command('token')
     .argument('<username>')
-    .option('--registry <url>', 'API Server base URL')
-    .action(async (username: string, options: { registry?: string }) => {
+    .option('--server <url>', 'ESL Server URL')
+    .action(async (username: string, options: { server?: string }) => {
       const token = await executeIssueUserToken(username, options);
       console.log(token);
     });
@@ -97,8 +96,8 @@ export function createProgram(): Command {
   adminUser
     .command('disable')
     .argument('<username>')
-    .option('--registry <url>', 'API Server base URL')
-    .action(async (username: string, options: { registry?: string }) => {
+    .option('--server <url>', 'ESL Server URL')
+    .action(async (username: string, options: { server?: string }) => {
       await executeDisableUser(username, options);
       console.log(`User ${username} disabled`);
     });
@@ -107,8 +106,8 @@ export function createProgram(): Command {
     .command('gitea')
     .command('password')
     .option('--password-file <path>', 'Read the new Gitea administrator password from a file')
-    .option('--registry <url>', 'API Server base URL')
-    .action(async (options: { passwordFile?: string; registry?: string }) => {
+    .option('--server <url>', 'ESL Server URL')
+    .action(async (options: { passwordFile?: string; server?: string }) => {
       await executeGiteaPasswordChange({ ...options, noInput: program.opts().input === false });
       console.log('Gitea password changed');
     });
@@ -116,10 +115,10 @@ export function createProgram(): Command {
   program
     .command('search')
     .argument('<query>')
-    .option('--registry <url>', 'API Server base URL')
+    .option('--server <url>', 'ESL Server URL')
     .option('--json', 'Output as JSON')
     .addHelpText('after', example('$ esl search code-review'))
-    .action(async (query: string, options: { registry?: string; json?: boolean }) => {
+    .action(async (query: string, options: { server?: string; json?: boolean }) => {
       const results = await executeSearch(query, options);
       if (options.json) {
         console.log(JSON.stringify(results, null, 2));
@@ -133,10 +132,10 @@ export function createProgram(): Command {
   program
     .command('info')
     .argument('<skill-name>')
-    .option('--registry <url>', 'API Server base URL')
+    .option('--server <url>', 'ESL Server URL')
     .option('--json', 'Output as JSON')
     .addHelpText('after', example('$ esl info @cnfox/code-review'))
-    .action(async (skillName: string, options: { registry?: string; json?: boolean }) => {
+    .action(async (skillName: string, options: { server?: string; json?: boolean }) => {
       const info = await executeInfo(skillName, options);
       if (options.json) {
         console.log(JSON.stringify(info, null, 2));
@@ -148,12 +147,11 @@ export function createProgram(): Command {
   program
     .command('publish')
     .option('--directory <path>', 'skill directory', process.cwd())
-    .option('--registry <url>', 'API Server base URL')
-    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('-f, --force', 'publish without confirmation')
     .addHelpText('after', example('$ esl publish'))
-    .action(async (options: { directory: string; registry?: string; gitBase?: string; visibility?: string; force?: boolean }) => {
+    .action(async (options: { directory: string; server?: string; visibility?: string; force?: boolean }) => {
       await executePublish({ ...options, noInput: program.opts().input === false });
       console.log('Skill published');
     });
@@ -179,10 +177,9 @@ export function createProgram(): Command {
     .option('--version <version>', 'version to install')
     .option('--global', 'Install to global skills directory')
     .option('--no-adapt', 'Skip automatic adapt after install')
-    .option('--registry <url>', 'API Server base URL')
-    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl install @cnfox/code-review'))
-    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; registry?: string; gitBase?: string }) => {
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; server?: string }) => {
       if (!nameOrPath) {
         console.log('Restoring skills from .skills.json...');
         return;
@@ -235,10 +232,9 @@ export function createProgram(): Command {
     .description('Clone skill source for development')
     .argument('<skill-name>')
     .argument('[target]', 'target directory')
-    .option('--registry <url>', 'API Server base URL')
-    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl source @cnfox/code-review'))
-    .action(async (skillName: string, target: string | undefined, options: { registry?: string; gitBase?: string }) => {
+    .action(async (skillName: string, target: string | undefined, options: { server?: string }) => {
       const targetDir = await executeSource(skillName, { ...options, target });
       console.log(`Skill cloned to ${targetDir}`);
     });
@@ -248,10 +244,9 @@ export function createProgram(): Command {
     .description('Output a skill prompt without installing (pipe to an agent)')
     .argument('<name-or-path>', 'skill name (@namespace/skill) or local path')
     .option('--version <version>', 'version to use')
-    .option('--registry <url>', 'API Server base URL')
-    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl use @cnfox/code-review'))
-    .action(async (nameOrPath: string, options: { version?: string; registry?: string; gitBase?: string }) => {
+    .action(async (nameOrPath: string, options: { version?: string; server?: string }) => {
       const content = await executeUse(nameOrPath, options);
       process.stdout.write(content);
     });
@@ -261,10 +256,9 @@ export function createProgram(): Command {
     .description('Update installed skills to latest versions')
     .argument('[skill-name]', 'specific skill to update')
     .option('--global', 'Update global skills')
-    .option('--registry <url>', 'API Server base URL')
-    .option('--git-base <url>', 'Gitea Git HTTP base URL')
+    .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl update'))
-    .action(async (skillName: string | undefined, options: { global?: boolean; registry?: string; gitBase?: string }) => {
+    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
       const results = await executeUpdate({ ...options, skillName });
       if (results.length === 0) {
         console.log('All skills are up to date');

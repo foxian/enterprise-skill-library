@@ -158,6 +158,36 @@ describe('GiteaService', () => {
     expect(JSON.parse(mockFetch.mock.calls[0][1].body).name).toMatch(/^esl-cli-/);
   });
 
+  it('logs in a user by exchanging their password for a Gitea token', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sha1: 'skill-user-token' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.loginUser('alice', 'correct-password')).resolves.toBe('skill-user-token');
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/users/alice/tokens', {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from('alice:correct-password').toString('base64')}`,
+        'Content-Type': 'application/json'
+      },
+      body: expect.any(String)
+    });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).name).toMatch(/^esl-cli-/);
+  });
+
+  it('returns null when user password login fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'bad credentials'
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.loginUser('alice', 'wrong-password')).resolves.toBeNull();
+  });
+
   it('throws when issuing a user token without admin credentials', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ sha1: 'x' }) });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);

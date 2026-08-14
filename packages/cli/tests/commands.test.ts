@@ -9,7 +9,7 @@ describe('network CLI commands', () => {
     });
 
     const results = await executeSearch('test', {
-      registry: 'http://skills.company.com/api',
+      server: 'http://skills.company.com',
       customFetch: mockFetch as any
     });
 
@@ -28,7 +28,7 @@ describe('network CLI commands', () => {
     });
 
     const result = await executeInfo('@myorg/my-skill', {
-      registry: 'http://skills.company.com/api',
+      server: 'http://skills.company.com',
       customFetch: mockFetch as any
     });
 

@@ -5,8 +5,7 @@ import { confirm, isInteractive } from '../prompt.js';
 import {
   apiUrl,
   fetchWithTimeout,
-  remoteGitUrl,
-  requireConfigured,
+  gitAuthHeaderConfig,
   requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
@@ -41,10 +40,9 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
 
   const fetchImpl = options.customFetch ?? fetch;
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { registry, gitBase } = await resolveNetworkConfig(options);
+  const { server } = await resolveNetworkConfig(options);
   const authToken = await requireFreshToken(options);
-  const gitHttpBase = requireConfigured(gitBase, 'git-base');
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/skills'), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills'), {
     method: 'POST',
     headers: {
       Authorization: `token ${authToken}`,
@@ -64,18 +62,16 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
     throw new Error(`Failed to publish skill metadata: ${err}`);
   }
 
-  const published = (await res.json()) as { gitRepoPath?: string };
-  if (!published.gitRepoPath) {
-    throw new Error('Failed to publish skill metadata: API response did not include gitRepoPath');
+  const published = (await res.json()) as { cloneUrl?: string };
+  if (!published.cloneUrl) {
+    throw new Error('Failed to publish skill metadata: API response did not include cloneUrl');
   }
-  const repoPath = published.gitRepoPath;
-  const remoteUrl = remoteGitUrl(gitHttpBase, repoPath);
-  const authHeader = `Authorization: Bearer ${authToken}`;
+  const authHeader = gitAuthHeaderConfig(authToken);
 
-  await execFileAsync('git', ['remote', 'add', 'esl', remoteUrl], { cwd: directory });
-  await execFileAsync('git', ['-c', `http.extraHeader=${authHeader}`, 'push', 'esl', 'HEAD:main'], { cwd: directory });
+  await execFileAsync('git', ['remote', 'add', 'esl', published.cloneUrl], { cwd: directory });
+  await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   await execFileAsync('git', ['tag', skillJson.version], { cwd: directory });
-  await execFileAsync('git', ['-c', `http.extraHeader=${authHeader}`, 'push', 'esl', '--tags'], { cwd: directory });
+  await execFileAsync('git', ['-c', authHeader, 'push', 'esl', '--tags'], { cwd: directory });
 
   return published;
 }
@@ -92,7 +88,7 @@ async function confirmPublish(
     throw new Error('Publishing requires confirmation; pass --force to skip it');
   }
 
-  const question = `Publish ${name} v${version} to the registry? [y/N] `;
+  const question = `Publish ${name} v${version} to the ESL Server? [y/N] `;
   const confirmFn =
     options.confirmInput ??
     (async () => {

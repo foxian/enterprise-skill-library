@@ -32,7 +32,7 @@ describe('Fastify Server API', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/skills',
-      headers: { authorization: 'token valid-token' },
+      headers: { host: 'localhost:3000', authorization: 'token valid-token' },
       payload: {
         name: '@alice/code-review',
         version: '0.1.0',
@@ -48,6 +48,7 @@ describe('Fastify Server API', () => {
       false
     );
     expect(createRes.json().gitRepoPath).toBe('esl-skills/alice_code-review');
+    expect(createRes.json().cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
     expect(createRes.json()).toMatchObject({
       createdBy: 'zhangsan',
       owner: 'platform',
@@ -56,13 +57,15 @@ describe('Fastify Server API', () => {
 
     const getRes = await app.inject({
       method: 'GET',
-      url: '/api/skills/@alice/code-review'
+      url: '/api/skills/@alice/code-review',
+      headers: { host: 'localhost:3000' }
     });
 
     expect(getRes.statusCode).toBe(200);
     const body = getRes.json();
     expect(body.name).toBe('@alice/code-review');
     expect(body.gitRepoPath).toBe('esl-skills/alice_code-review');
+    expect(body.cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
   });
 
   it('responds to health checks without requiring Gitea', async () => {
@@ -80,6 +83,62 @@ describe('Fastify Server API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true, service: 'esl-api' });
     expect(mockGitea.validateToken).not.toHaveBeenCalled();
+  });
+
+  it('logs in through the ESL Server and registers the returned Skill User Token', async () => {
+    const mockGitea = {
+      loginUser: vi.fn().mockResolvedValue('skill-user-token'),
+      createUser: vi.fn().mockResolvedValue(undefined),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/alice_demo' })
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { authorization: 'token bootstrap-token' },
+      payload: { username: 'alice' }
+    });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'alice', password: 'correct-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toEqual({ token: 'skill-user-token', username: 'alice' });
+    expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
+
+    const createSkillRes = await app.inject({
+      method: 'POST',
+      url: '/api/skills',
+      headers: { authorization: 'token skill-user-token' },
+      payload: {
+        name: '@alice/demo',
+        version: '0.1.0',
+        description: 'Demo skill'
+      }
+    });
+
+    expect(createSkillRes.statusCode).toBe(201);
+    expect(createSkillRes.json().createdBy).toBe('alice');
+  });
+
+  it('rejects invalid ESL Server login credentials without issuing a token', async () => {
+    const mockGitea = {
+      loginUser: vi.fn().mockResolvedValue(null)
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'alice', password: 'wrong-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(401);
+    expect(loginRes.json()).toEqual({ error: 'Unauthorized: invalid credentials' });
   });
 
   it('builds the app with the resolved Gitea admin token', () => {

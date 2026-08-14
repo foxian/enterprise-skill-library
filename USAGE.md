@@ -19,7 +19,7 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 ## 二、 环境配置与登录 (Setup & Login)
 
 ### 1. 本地服务启动 (仅本地开发环境)
-如需运行本地注册中心与 Gitea 服务，请在项目根目录执行：
+如需运行本地 ESL Server，请在项目根目录执行：
 ```powershell
 docker compose up -d
 ```
@@ -35,52 +35,49 @@ Docker 本地运行会自动执行 Gitea bootstrap：
 详细说明请参阅 [DOCKER_SETUP.md](DOCKER_SETUP.md)。
 
 ### 2. 登录认证 (Login)
-使用 CLI 登录内部技能服务网关。默认本地 Docker 地址是：
+使用 CLI 登录 ESL Server。默认本地 Docker 地址是：
 
-- API registry: `http://localhost:3000/api`
-- Gitea Git base: `http://localhost:3001`
+- ESL Server: `http://localhost:3000`
 
 平台管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`（通过 `--token-file` 提供）：
 
 ```powershell
 esl login \
-  --registry http://localhost:3000/api \
-  --git-base http://localhost:3001 \
+  --server http://localhost:3000 \
   --username eslroot \
   --token-file ./bootstrap-token.txt
 ```
 
-平台管理员也可以用 Gitea 账号密码登录（交互式输入密码，与普通用户一致）：
+平台管理员也可以用 ESL 账号密码登录（交互式输入密码，与普通用户一致）：
 
 ```powershell
 esl login \
-  --registry http://localhost:3000/api \
-  --git-base http://localhost:3001 \
+  --server http://localhost:3000 \
   --username eslroot
 ```
 
 登录后的 token 默认 30 天有效，过期后需重新登录；可通过环境变量 `ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。
 
-普通 Skill User 登录：可使用管理员签发的用户 token，或用 Gitea 账号密码（CLI 会自动用密码换取 token）：
+普通 Skill User 登录：可使用管理员签发的用户 token，或用 ESL 账号密码登录：
 
 ```powershell
 # 用用户 token
 esl login \
-  --registry http://localhost:3000/api \
-  --git-base http://localhost:3001 \
+  --server http://localhost:3000 \
   --username alice \
   --token-file ./user-token.txt
 
-# 用 Gitea 密码（交互式隐藏输入；脚本中改用 --password-file ./pw.txt）
+# 用密码（交互式隐藏输入；脚本中改用 --password-file ./pw.txt）
 esl login \
-  --registry http://localhost:3000/api \
-  --git-base http://localhost:3001 \
+  --server http://localhost:3000 \
   --username alice
 ```
 
 CLI 不再支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的凭据文件（仅所有者可读），不会写入 `config.json`。
 
-如果你要登录 Gitea 网页后台，打开 `http://localhost:3001`，使用：
+如果你要登录 Gitea 网页后台进行恢复或诊断，先用
+`docker-compose.debug.yml` 启动调试端口，再打开 `http://localhost:3001`，
+使用：
 
 - 用户名：`eslroot`
 - 密码：`.env` 中的 `GITEA_ADMIN_PASSWORD`
@@ -126,7 +123,7 @@ esl admin gitea password --password-file ./new-password.txt
 如果你是技能的使用者，希望在项目或个人开发环境中使用团队共享的技能：
 
 ### 1. 搜索技能 (Search)
-在注册中心搜索可用技能：
+在 ESL Server 搜索可用技能：
 ```bash
 esl search code-review
 
@@ -135,7 +132,7 @@ esl search code-review --json
 ```
 
 ### 2. 查看技能详情 (Info)
-查看指定技能的元数据、版本及 Git 仓库路径：
+查看指定技能的元数据、版本及源码信息：
 ```bash
 # 人类可读摘要（默认）
 esl info @cnfox/code-review
@@ -163,7 +160,7 @@ esl use @cnfox/code-review | claude "请帮助审核当前的 git diff"
 ### 4. 安装技能 (Install)
 将技能安装至当前项目：
 ```bash
-# 从注册中心安装最新版本
+# 从 ESL Server 安装最新版本
 esl install @cnfox/code-review
 
 # 安装指定版本
@@ -206,7 +203,7 @@ esl adapt --global
 ```
 
 ### 7. 更新技能 (Update)
-检查并升级已安装的技能到注册中心的最新版本：
+检查并升级已安装的技能到 ESL Server 上的最新版本：
 ```bash
 # 更新项目下所有技能
 esl update
@@ -249,7 +246,7 @@ esl validate ./my-skill
 ```
 
 ### 3. 发布技能 (Publish)
-将校验通过的技能推送到 Gitea 并在 Server 注册：
+将校验通过的技能发布到 ESL Server，并由 ESL Server 管理内部 Git Backend：
 ```bash
 cd my-skill
 esl publish

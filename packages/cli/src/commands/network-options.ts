@@ -8,14 +8,12 @@ import {
 import path from 'node:path';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
-  registry?: string;
-  gitBase?: string;
+  server?: string;
   customFetch?: typeof fetch;
 }
 
 export interface ResolvedNetworkConfig {
-  registry: string;
-  gitBase: string | null;
+  server: string;
   token: string | null;
 }
 
@@ -23,8 +21,7 @@ export async function resolveNetworkConfig(options: NetworkCommandOptions): Prom
   const config = await loadConfig({ homeDir: options.homeDir });
   const credentials = await loadCredentials({ homeDir: options.homeDir });
   return {
-    registry: options.registry ?? requireConfigured(config.registry, 'registry'),
-    gitBase: options.gitBase ?? config.gitBase,
+    server: options.server ?? requireConfigured(config.server, 'server'),
     token: credentials.token
   };
 }
@@ -91,24 +88,13 @@ export async function fetchWithTimeout(
   }
 }
 
-export function apiUrl(registry: string, path: string): string {
-  const base = registry.replace(/\/$/, '');
-  if (base.endsWith('/api') && path.startsWith('/api/')) {
-    return `${base}${path.slice('/api'.length)}`;
-  }
+export function apiUrl(server: string, path: string): string {
+  const base = server.replace(/\/$/, '');
   return `${base}${path}`;
 }
 
-export function authenticatedGitUrl(gitBase: string, token: string, repoPath: string): string {
-  const base = gitBase.replace(/\/$/, '');
-  const url = new URL(`${base}/${repoPath}.git`);
-  url.username = token;
-  return url.toString();
-}
-
-export function remoteGitUrl(gitBase: string, repoPath: string): string {
-  const base = gitBase.replace(/\/$/, '');
-  return `${base}/${repoPath}.git`;
+export function gitAuthHeaderConfig(token: string): string {
+  return `http.extraHeader=Authorization: Bearer ${token}`;
 }
 
 export function installTargetDir(skillName: string, options: LocalStoreOptions): string {

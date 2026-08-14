@@ -23,7 +23,7 @@ describe('esl install (global mode)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        gitRepoPath: 'esl-skills/alice_code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -41,8 +41,7 @@ describe('esl install (global mode)', () => {
         homeDir,
         global: true,
         noAdapt: true,
-        registry: 'http://localhost:3000/api',
-        gitBase: 'http://localhost:3001',
+        server: 'http://localhost:3000',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       });
@@ -55,8 +54,10 @@ describe('esl install (global mode)', () => {
       1,
       'git',
       [
+        '-c',
+        'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
-        expect.stringContaining('/esl-skills/alice_code-review.git'),
+        'http://localhost:3000/git/esl-skills/alice_code-review.git',
         path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')
       ]
     );
