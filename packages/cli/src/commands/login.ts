@@ -20,7 +20,7 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
 
   const token = await resolveLoginToken(options, fetchImpl);
 
-  await saveCredentials({ token }, { homeDir: options.homeDir });
+  await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
       registry: options.registry,

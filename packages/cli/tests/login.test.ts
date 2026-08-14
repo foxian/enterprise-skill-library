@@ -40,6 +40,29 @@ describe('esl login', () => {
     expect(config).not.toHaveProperty('token');
   });
 
+  it('records the login time when storing credentials', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sha1: 'mock_gitea_token_sha1' })
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      registry: 'http://skills.company.com/api',
+      gitBase: 'http://skills.company.com/git',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const credentials = await loadCredentials({ homeDir });
+    expect(credentials.token).toBe('mock_gitea_token_sha1');
+    expect(credentials.loginAt).toBeTruthy();
+    expect(Number.isNaN(Date.parse(credentials.loginAt as string))).toBe(false);
+  });
+
   it('stores a token from a token file without contacting the Git backend', async () => {
     const mockFetch = vi.fn();
     const tokenFile = path.join(homeDir, 'token.txt');
