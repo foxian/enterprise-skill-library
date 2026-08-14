@@ -50,6 +50,17 @@ esl login \
   --token-file ./bootstrap-token.txt
 ```
 
+平台管理员也可以用 Gitea 账号密码登录（交互式输入密码，与普通用户一致）：
+
+```powershell
+esl login \
+  --registry http://localhost:3000/api \
+  --git-base http://localhost:3001 \
+  --username eslroot
+```
+
+登录后的 token 默认 30 天有效，过期后需重新登录；可通过环境变量 `ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。
+
 普通 Skill User 登录：可使用管理员签发的用户 token，或用 Gitea 账号密码（CLI 会自动用密码换取 token）：
 
 ```powershell
