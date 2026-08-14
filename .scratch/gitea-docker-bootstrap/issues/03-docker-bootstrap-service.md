@@ -17,7 +17,7 @@ Bootstrap Secret Volume.
   Volume.
 - [ ] API reads the token from the Bootstrap Secret Volume.
 - [ ] API depends on successful `gitea-bootstrap` completion.
-- [ ] `GITEA_ADMIN_USERNAME` defaults to `admin`.
+- [ ] `GITEA_ADMIN_USERNAME` defaults to `eslroot`.
 - [ ] `GITEA_ADMIN_PASSWORD` is required for Docker Bootstrap.
 - [ ] Bootstrap rejects empty, example, or too-short initial passwords.
 - [ ] Bootstrap is idempotent when the administrator and token file already

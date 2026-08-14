@@ -15,7 +15,7 @@ describe('server config', () => {
       giteaUrl: 'http://gitea:3000',
       giteaAdminToken: 'admin-token',
       giteaAdminTokenFile: '/bootstrap/gitea-admin-token',
-      giteaAdminUsername: 'admin',
+      giteaAdminUsername: 'eslroot',
       giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
       bootstrapAdminToken: 'bootstrap-token'

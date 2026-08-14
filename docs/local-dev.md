@@ -11,6 +11,8 @@
 
 Copy `.env.example` to `.env`. Set `GITEA_ADMIN_PASSWORD` to an explicit password of at least 12 characters, and set `ESL_BOOTSTRAP_ADMIN_TOKEN` to the token the first ESL Platform Administrator will use for the initial `esl login`.
 
+`GITEA_ADMIN_USERNAME` defaults to `eslroot`; Gitea 1.22 rejects the reserved username `admin` during bootstrap user creation.
+
 If Docker build cannot reach npm registries in a proxied network, set `NPM_PROXY` in `.env` to the Docker-reachable host proxy address. For example, with a local proxy on Windows port `7897`:
 
 ```dotenv
@@ -37,7 +39,7 @@ The API validates the internal token and ensures `GITEA_REPO_OWNER` before it st
 After logging in with the bootstrap token, the platform administrator can manage the first user onboarding loop through ESL:
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username admin --token <bootstrap-token>
+npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username eslroot --token <bootstrap-token>
 npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
 npm exec -- esl admin user token alice

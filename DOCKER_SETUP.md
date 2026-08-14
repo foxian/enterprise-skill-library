@@ -98,7 +98,7 @@ Copy-Item .env.example .env
 按本机网络情况编辑 `.env`：
 
 ```dotenv
-GITEA_ADMIN_USERNAME=admin
+GITEA_ADMIN_USERNAME=eslroot
 GITEA_ADMIN_PASSWORD=replace-with-at-least-12-characters
 GITEA_ADMIN_TOKEN_FILE=/bootstrap/gitea-admin-token
 GITEA_REPO_OWNER=esl-skills
@@ -106,6 +106,9 @@ ESL_BOOTSTRAP_ADMIN_TOKEN=bootstrap-token
 DATABASE_PATH=./data/esl.db
 NPM_PROXY=http://host.docker.internal:7897
 ```
+
+`GITEA_ADMIN_USERNAME` 默认使用 `eslroot`，因为 Gitea 1.22 会拒绝创建
+保留用户名 `admin`。
 
 启动服务：
 
@@ -196,7 +199,7 @@ npm exec -- esl login --registry http://localhost:3000/api --git-base http://loc
 管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`：
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username admin --token bootstrap-token
+npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username eslroot --token bootstrap-token
 npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
 npm exec -- esl admin user token alice

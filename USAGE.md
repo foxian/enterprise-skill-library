@@ -20,19 +20,92 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 
 ### 1. 本地服务启动 (仅本地开发环境)
 如需运行本地注册中心与 Gitea 服务，请在项目根目录执行：
-```bash
+```powershell
 docker compose up -d
 ```
+
+Docker 本地运行会自动执行 Gitea bootstrap：
+
+- `gitea-bootstrap` 一次性创建或复用 Gitea 管理员；
+- 默认 Gitea 管理员用户名是 `eslroot`，因为 Gitea 1.22 会拒绝创建保留用户名 `admin`；
+- 初始 Gitea 管理员密码来自 `.env` 中的 `GITEA_ADMIN_PASSWORD`；
+- API 使用的内部 Gitea admin token 会写入 Docker volume，不需要手工去 Gitea 后台创建；
+- `gitea-bootstrap` 正常结束后显示为 `Exited (0)`，这是预期状态。
+
 详细说明请参阅 [DOCKER_SETUP.md](DOCKER_SETUP.md)。
 
 ### 2. 登录认证 (Login)
-使用 CLI 登录内部技能服务网关：
-```bash
+使用 CLI 登录内部技能服务网关。默认本地 Docker 地址是：
+
+- API registry: `http://localhost:3000/api`
+- Gitea Git base: `http://localhost:3001`
+
+平台管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`（通过 `--token-file` 提供）：
+
+```powershell
 esl login \
-  --registry http://localhost:4001 \
+  --registry http://localhost:3000/api \
   --git-base http://localhost:3001 \
-  --username admin \
-  --token your-gitea-token
+  --username eslroot \
+  --token-file ./bootstrap-token.txt
+```
+
+普通 Skill User 登录：可使用管理员签发的用户 token，或用 Gitea 账号密码（CLI 会自动用密码换取 token）：
+
+```powershell
+# 用用户 token
+esl login \
+  --registry http://localhost:3000/api \
+  --git-base http://localhost:3001 \
+  --username alice \
+  --token-file ./user-token.txt
+
+# 用 Gitea 密码（交互式隐藏输入；脚本中改用 --password-file ./pw.txt）
+esl login \
+  --registry http://localhost:3000/api \
+  --git-base http://localhost:3001 \
+  --username alice
+```
+
+CLI 不再支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的凭据文件（仅所有者可读），不会写入 `config.json`。
+
+如果你要登录 Gitea 网页后台，打开 `http://localhost:3001`，使用：
+
+- 用户名：`eslroot`
+- 密码：`.env` 中的 `GITEA_ADMIN_PASSWORD`
+
+注意：`bootstrap-token` 是 ESL CLI 管理员 token，不是 Gitea 网页密码。
+
+### 3. 平台管理员命令 (Admin)
+检查 Docker bootstrap 是否完成：
+
+```powershell
+esl admin bootstrap status
+```
+
+创建 Skill User：
+
+```powershell
+esl admin user create alice
+```
+
+给 Skill User 签发登录 token：
+
+```powershell
+esl admin user token alice
+```
+
+禁用 Skill User：
+
+```powershell
+esl admin user disable alice
+```
+
+轮换 Gitea 管理员网页后台密码：
+
+```powershell
+# 从文件读取新密码（或交互式隐藏输入）
+esl admin gitea password --password-file ./new-password.txt
 ```
 
 ---
@@ -45,12 +118,19 @@ esl login \
 在注册中心搜索可用技能：
 ```bash
 esl search code-review
+
+# 输出 JSON 结构化数据
+esl search code-review --json
 ```
 
 ### 2. 查看技能详情 (Info)
 查看指定技能的元数据、版本及 Git 仓库路径：
 ```bash
+# 人类可读摘要（默认）
 esl info @cnfox/code-review
+
+# 输出完整 JSON 结构
+esl info @cnfox/code-review --json
 ```
 
 ### 3. 免安装试用技能 (Use)
@@ -146,8 +226,8 @@ esl uninstall @cnfox/code-review --global
 ### 1. 初始化技能模板 (Init)
 脚手架初始化一个新的技能目录：
 ```bash
-# 在当前目录下创建 my-skill 文件夹
-esl init my-skill --name @cnfox/my-skill
+# 在当前目录下创建 my-skill 文件夹，技能标识为 @cnfox/my-skill
+esl init @cnfox/my-skill
 ```
 将会生成包含 `SKILL.md`（带 YAML Frontmatter）、`skill.json` 以及 `scripts/`、`references/`、`assets/` 等目录的标准规范包。
 
@@ -162,8 +242,12 @@ esl validate ./my-skill
 ```bash
 cd my-skill
 esl publish
+
+# 跳过交互确认（脚本 / 非交互）
+esl publish --force
 ```
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布。请先在 `skill.json` 中配置合法的团队命名空间。
+> `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。
 
 ### 4. 升级版本号 (Version)
 按照 SemVer 语义化版本更新技能版本：

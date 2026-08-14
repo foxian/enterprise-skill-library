@@ -21,7 +21,7 @@ services:
       - bootstrap-secrets:/bootstrap
       - ./docker/gitea-bootstrap.sh:/bootstrap/gitea-bootstrap.sh:ro
     environment:
-      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-admin}
+      GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-eslroot}
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
       GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
     entrypoint: ["/bin/sh", "/bootstrap/gitea-bootstrap.sh"]

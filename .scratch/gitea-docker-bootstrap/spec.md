@@ -102,7 +102,8 @@ The end-user Docker setup should be:
   own administrative CLI.
 - Mount the same Gitea data volume into `gitea` and `gitea-bootstrap`.
 - Create a Bootstrap Secret Volume shared by `gitea-bootstrap` and the API.
-- Require `GITEA_ADMIN_USERNAME`, defaulting to `admin`.
+- Require `GITEA_ADMIN_USERNAME`, defaulting to `eslroot` because Gitea 1.22
+  rejects the reserved username `admin` during user creation.
 - Require `GITEA_ADMIN_PASSWORD` for Docker Bootstrap.
 - Reject `GITEA_ADMIN_PASSWORD` when it is empty, still the example value, or
   shorter than 12 characters.

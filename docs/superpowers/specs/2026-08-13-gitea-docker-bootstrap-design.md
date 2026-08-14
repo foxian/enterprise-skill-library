@@ -19,11 +19,14 @@ The administrator provides the initial Gitea administrator password explicitly
 in `.env`:
 
 ```dotenv
-GITEA_ADMIN_USERNAME=admin
+GITEA_ADMIN_USERNAME=eslroot
 GITEA_ADMIN_PASSWORD=change-this-admin-password
 GITEA_REPO_OWNER=esl-skills
 ESL_BOOTSTRAP_ADMIN_TOKEN=bootstrap-token
 ```
+
+The default username is `eslroot` because Gitea 1.22 rejects `admin` as a
+reserved username during user creation.
 
 `GITEA_ADMIN_PASSWORD` is an initialization input. Changing it after Gitea has
 already been bootstrapped will not rotate the password. Password rotation after
@@ -112,7 +115,7 @@ password`.
 New Docker-facing configuration:
 
 ```dotenv
-GITEA_ADMIN_USERNAME=admin
+GITEA_ADMIN_USERNAME=eslroot
 GITEA_ADMIN_PASSWORD=change-this-admin-password
 GITEA_ADMIN_TOKEN_FILE=/bootstrap/gitea-admin-token
 ```
