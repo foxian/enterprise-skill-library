@@ -44,7 +44,8 @@ describe('local store', () => {
       tools: []
     });
     expect(JSON.parse(fs.readFileSync(paths.credentialsJson, 'utf8'))).toEqual({
-      token: null
+      token: null,
+      loginAt: null
     });
   });
 
@@ -54,7 +55,7 @@ describe('local store', () => {
     await saveCredentials({ token: 'secret_token_123' }, { homeDir });
 
     const credentials = await loadCredentials({ homeDir });
-    expect(credentials).toEqual({ token: 'secret_token_123' });
+    expect(credentials).toEqual({ token: 'secret_token_123', loginAt: null });
 
     const config = await loadConfig({ homeDir });
     expect(config).not.toHaveProperty('token');

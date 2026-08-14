@@ -19,6 +19,7 @@ export interface EslConfig {
 
 export interface EslCredentials {
   token: string | null;
+  loginAt: string | null;
 }
 
 export interface LocalStoreOptions {
@@ -57,7 +58,8 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
     tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {
-    token: null
+    token: null,
+    loginAt: null
   });
 
   return paths;
