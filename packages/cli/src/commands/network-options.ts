@@ -47,6 +47,30 @@ export function resolveTimeoutMs(): number {
   return 30_000;
 }
 
+export function resolveLoginTtlMs(): number {
+  const env = process.env.ESL_LOGIN_TTL_HOURS;
+  if (env) {
+    const parsed = Number(env);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed * 3_600_000;
+    }
+  }
+  return 720 * 3_600_000;
+}
+
+export async function requireFreshToken(options: LocalStoreOptions = {}): Promise<string> {
+  const credentials = await loadCredentials({ homeDir: options.homeDir });
+  const token = requireConfigured(credentials.token, 'token');
+  if (!credentials.loginAt) {
+    throw new Error('Login expired; run esl login to re-authenticate');
+  }
+  const loginAt = Date.parse(credentials.loginAt);
+  if (Number.isNaN(loginAt) || Date.now() - loginAt > resolveLoginTtlMs()) {
+    throw new Error('Login expired; run esl login to re-authenticate');
+  }
+  return token;
+}
+
 export async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   url: string,
