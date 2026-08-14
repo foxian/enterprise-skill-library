@@ -49,3 +49,15 @@ export function confirm(question: string, streams: PromptStreams = {}): Promise<
 export function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
+
+export function readStdinText(input: NodeJS.ReadableStream = process.stdin): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    input.setEncoding('utf8');
+    input.on('data', (chunk) => {
+      data += chunk;
+    });
+    input.on('end', () => resolve(data));
+    input.on('error', reject);
+  });
+}

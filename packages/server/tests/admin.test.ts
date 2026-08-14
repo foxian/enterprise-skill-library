@@ -212,7 +212,52 @@ describe('Admin API', () => {
     expect(disabledRes.json()).toEqual({ error: 'Unauthorized: invalid token' });
   });
 
-  it('changes the Gitea administrator password', async () => {
+  it('changes the ESL Administrator Account password with its own token', async () => {
+    const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
+    const validateAdminUserToken = vi.fn().mockResolvedValue({ username: 'eslroot' });
+    app = buildApp({
+      dbPath,
+      giteaService: { changeAdminPassword, validateAdminUserToken } as any,
+      repoOwner: 'esl-skills'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/account/password',
+      headers: { authorization: 'token administrator-account-token' },
+      payload: { password: 'new-password' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ passwordChanged: true });
+    expect(validateAdminUserToken).toHaveBeenCalledWith('administrator-account-token');
+    expect(changeAdminPassword).toHaveBeenCalledWith('new-password');
+  });
+
+  it('rejects the Bootstrap Token when changing the ESL Administrator Account password', async () => {
+    const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
+    const validateAdminUserToken = vi.fn().mockResolvedValue(null);
+    app = buildApp({
+      dbPath,
+      giteaService: { changeAdminPassword, validateAdminUserToken } as any,
+      repoOwner: 'esl-skills'
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/account/password',
+      headers: { authorization: 'token bootstrap-token' },
+      payload: { password: 'new-password' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: 'Administrator account login required to change its password'
+    });
+    expect(changeAdminPassword).not.toHaveBeenCalled();
+  });
+
+  it('does not retain the old Gitea-named password route', async () => {
     const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
     app = buildApp({
       dbPath,
@@ -223,13 +268,12 @@ describe('Admin API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/admin/gitea/password',
-      headers: { authorization: 'token bootstrap-token' },
+      headers: { authorization: 'token administrator-account-token' },
       payload: { password: 'new-password' }
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ passwordChanged: true });
-    expect(changeAdminPassword).toHaveBeenCalledWith('new-password');
+    expect(response.statusCode).toBe(404);
+    expect(changeAdminPassword).not.toHaveBeenCalled();
   });
 
   it('authorizes a password-minted administrator token via the Gitea fallback', async () => {

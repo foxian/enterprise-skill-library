@@ -45,13 +45,31 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     return { username: user.username, disabled: user.disabled };
   });
 
-  app.post('/api/admin/gitea/password', async (request, reply) => {
-    const admin = await authorize(request, reply, repository, giteaService);
-    if (!admin) return;
+  app.post('/api/admin/account/password', async (request, reply) => {
+    if (!(await authorizeAdministratorAccount(request, reply, giteaService))) return;
     const { password } = request.body as { password: string };
     await giteaService.changeAdminPassword(password);
     return { passwordChanged: true };
   });
+}
+
+async function authorizeAdministratorAccount(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  giteaService: GiteaService
+): Promise<boolean> {
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith('token ')) {
+    reply.status(401).send({ error: 'Unauthorized: missing token' });
+    return false;
+  }
+
+  const token = authorization.replace('token ', '').trim();
+  const admin = await giteaService.validateAdminUserToken(token);
+  if (admin) return true;
+
+  reply.status(403).send({ error: 'Administrator account login required to change its password' });
+  return false;
 }
 
 async function authorize(

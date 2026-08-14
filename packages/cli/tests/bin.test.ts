@@ -41,14 +41,15 @@ describe('esl program', () => {
     const admin = program.commands.find((command) => command.name() === 'admin');
     const bootstrap = admin?.commands.find((command) => command.name() === 'bootstrap');
     const user = admin?.commands.find((command) => command.name() === 'user');
-    const gitea = admin?.commands.find((command) => command.name() === 'gitea');
+    const account = admin?.commands.find((command) => command.name() === 'account');
 
     expect(bootstrap?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['status']));
     expect(user?.commands.map((command) => command.name())).toEqual(
       expect.arrayContaining(['create', 'token', 'disable'])
     );
     expect(user?.commands.find((command) => command.name() === 'token')?.commands).toHaveLength(0);
-    expect(gitea?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['password']));
+    expect(account?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['change-password']));
+    expect(admin?.commands.map((command) => command.name())).not.toContain('gitea');
   });
 
   it('registers --json on info and search', () => {

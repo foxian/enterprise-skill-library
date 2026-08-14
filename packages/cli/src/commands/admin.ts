@@ -18,6 +18,7 @@ export interface ChangePasswordOptions extends NetworkCommandOptions {
   passwordFile?: string;
   noInput?: boolean;
   readInput?: () => Promise<string>;
+  readPassword?: (prompt: string) => Promise<string>;
 }
 
 export async function executeBootstrapStatus(options: NetworkCommandOptions = {}): Promise<BootstrapStatus> {
@@ -85,11 +86,11 @@ export async function executeDisableUser(username: string, options: NetworkComma
   }
 }
 
-export async function executeGiteaPasswordChange(options: ChangePasswordOptions): Promise<void> {
+export async function executeAdministratorAccountPasswordChange(options: ChangePasswordOptions): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
   const { server, token } = await resolveAdminAuth(options);
   const password = await resolveNewPassword(options);
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/gitea/password'), {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/account/password'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
@@ -98,9 +99,22 @@ export async function executeGiteaPasswordChange(options: ChangePasswordOptions)
     body: JSON.stringify({ password })
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Failed to change Gitea password: ${err}`);
+    const err = await readErrorMessage(res);
+    throw new Error(`Failed to change administrator account password: ${err}`);
   }
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { error?: unknown };
+    if (typeof body.error === 'string') {
+      return body.error;
+    }
+  } catch {
+    // Fall through to the raw response body.
+  }
+  return text;
 }
 
 async function resolveNewPassword(options: ChangePasswordOptions): Promise<string> {
@@ -113,21 +127,39 @@ async function resolveNewPassword(options: ChangePasswordOptions): Promise<strin
   }
 
   if (options.noInput) {
-    throw new Error('A new password is required; pass --password-file when using --no-input');
+    if (options.readInput) {
+      return readPasswordFromInput(options.readInput);
+    }
+    throw new Error('A new password is required; pass --password-file or pipe a password on stdin when using --no-input');
   }
   if (options.readInput) {
-    const password = (await options.readInput()).trim();
-    if (!password) {
-      throw new Error('Password is required');
-    }
-    return password;
+    return readPasswordFromInput(options.readInput);
+  }
+  if (options.readPassword) {
+    return readConfirmedPassword(options.readPassword);
   }
   if (!isInteractive()) {
-    throw new Error('A new password is required; run interactively or pass --password-file');
+    throw new Error('A new password is required; run interactively, pass --password-file, or pipe a password on stdin');
   }
-  const password = (await readHidden('New password: ')).trim();
+  return readConfirmedPassword((prompt: string) => readHidden(prompt));
+}
+
+async function readPasswordFromInput(readInput: () => Promise<string>): Promise<string> {
+  const password = (await readInput()).trim();
   if (!password) {
     throw new Error('Password is required');
+  }
+  return password;
+}
+
+async function readConfirmedPassword(readPassword: (prompt: string) => Promise<string>): Promise<string> {
+  const password = (await readPassword('New password: ')).trim();
+  if (!password) {
+    throw new Error('Password is required');
+  }
+  const confirmPassword = (await readPassword('Confirm new password: ')).trim();
+  if (password !== confirmPassword) {
+    throw new Error('Passwords do not match');
   }
   return password;
 }

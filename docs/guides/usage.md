@@ -94,11 +94,15 @@ esl admin user token alice
 esl admin user disable alice
 ```
 
-轮换 Gitea 管理员网页后台密码：
+修改已配置的 ESL Administrator Account 密码。当前该账号由
+`GITEA_ADMIN_USERNAME` 对应的 Gitea 用户承载；必须先用该账号自身登录，
+不能用 Bootstrap Token 执行改密：
 
 ```powershell
-# 从文件读取新密码（或交互式隐藏输入）
-esl admin gitea password --password-file ./new-password.txt
+esl login --server http://localhost:3000 --username eslroot
+
+# 从文件读取新密码；交互式执行时会隐藏输入并要求确认
+esl admin account change-password --password-file ./new-password.txt
 ```
 
 ---

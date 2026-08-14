@@ -56,13 +56,21 @@ The users or teams allowed to maintain or publish the skill.
 The person or automation identity allowed to manage ESL platform users,
 permissions, and foundational skill library configuration.
 
+## ESL Administrator Account
+
+The configured administrator account that carries ESL platform administration
+authority. For the current product model, this account is backed by the Gitea
+user named by `GITEA_ADMIN_USERNAME`.
+_Avoid_: Gitea account when referring to the ESL administration role.
+
 ## Gitea Service Administrator
 
-The configurable Gitea identity used by ESL to manage the internal Git backend
-on behalf of the platform. Its username is configured by
-`GITEA_ADMIN_USERNAME`; its initial password is used only during first-run
-Bootstrap.
-_Avoid_: Gitea administrator when referring to a human ESL administrator.
+The Gitea identity that backs the ESL Administrator Account and is used by ESL
+to manage the internal Git backend on behalf of the platform. Its username is
+configured by `GITEA_ADMIN_USERNAME`; its initial password is used during
+first-run Bootstrap and may later be changed through the ESL Administrator
+Account password-change command.
+_Avoid_: Gitea administrator when referring to a human ESL Platform Administrator.
 
 ## Skill User
 

@@ -94,9 +94,11 @@ Gitea is then available at `http://localhost:3001`. Sign in as `eslroot` with
 the `GITEA_ADMIN_PASSWORD` value from `.env`. Continue using the ESL Server at
 `http://localhost:3000` for normal API and Git workflows.
 
-Rotate the Gitea administrator password through ESL rather than editing
-runtime storage:
+Change the ESL Administrator Account password through ESL rather than editing
+runtime storage. This requires logging in as that account; the Bootstrap Token
+cannot change the account password:
 
 ```powershell
-npm exec -- esl admin gitea password --password-file .\new-password.txt
+npm exec -- esl login --server http://localhost:3000 --username eslroot
+npm exec -- esl admin account change-password --password-file .\new-password.txt
 ```

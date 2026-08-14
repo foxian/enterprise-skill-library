@@ -13,7 +13,8 @@ The initial administrator password is explicitly supplied through
 `GITEA_ADMIN_PASSWORD`, must be at least 12 characters, and is used only when
 the administrator is first created. Existing administrator passwords are never
 overwritten by later `.env` changes; password rotation uses
-`esl admin gitea password`. If the token file is missing, bootstrap creates a
-replacement token and preserves existing tokens. A successful one-shot
-bootstrap service exits with code 0, and the API depends on that successful
-completion before listening.
+`esl admin account change-password` after logging in as the ESL Administrator
+Account. If the token file is missing, bootstrap creates a replacement token
+and preserves existing tokens. A successful one-shot bootstrap service exits
+with code 0, and the API depends on that successful completion before
+listening.

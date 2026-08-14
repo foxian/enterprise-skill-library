@@ -8,7 +8,7 @@ import {
   executeCreateUser,
   executeDisableUser,
   executeIssueUserToken,
-  executeGiteaPasswordChange
+  executeAdministratorAccountPasswordChange
 } from '../src/commands/admin.js';
 
 describe('esl admin', () => {
@@ -114,20 +114,20 @@ describe('esl admin', () => {
     );
   });
 
-  it('changes the Gitea administrator password from a file', async () => {
+  it('changes the ESL Administrator Account password from a file', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-    await seedAdmin('bootstrap-token');
+    await seedAdmin('administrator-account-token');
     const passwordFile = path.join(homeDir, 'new-pw.txt');
     fs.writeFileSync(passwordFile, 'new-password');
 
-    await executeGiteaPasswordChange({ homeDir, passwordFile, customFetch: mockFetch as any });
+    await executeAdministratorAccountPasswordChange({ homeDir, passwordFile, customFetch: mockFetch as any });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      'http://skills.company.com/api/admin/gitea/password',
+      'http://skills.company.com/api/admin/account/password',
       expect.objectContaining({
         method: 'POST',
         headers: {
-          Authorization: 'token bootstrap-token',
+          Authorization: 'token administrator-account-token',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ password: 'new-password' })
@@ -135,15 +135,86 @@ describe('esl admin', () => {
     );
   });
 
-  it('fails fast when changing password with --no-input and no file', async () => {
+  it('changes the ESL Administrator Account password from stdin input', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    await seedAdmin('administrator-account-token');
+
+    await executeAdministratorAccountPasswordChange({
+      homeDir,
+      noInput: true,
+      readInput: async () => 'stdin-password',
+      customFetch: mockFetch as any
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/admin/account/password',
+      expect.objectContaining({
+        body: JSON.stringify({ password: 'stdin-password' })
+      })
+    );
+  });
+
+  it('confirms the ESL Administrator Account password in interactive input', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    await seedAdmin('administrator-account-token');
+    const readPassword = vi.fn().mockResolvedValueOnce('new-password').mockResolvedValueOnce('new-password');
+
+    await executeAdministratorAccountPasswordChange({
+      homeDir,
+      readPassword,
+      customFetch: mockFetch as any
+    });
+
+    expect(readPassword).toHaveBeenNthCalledWith(1, 'New password: ');
+    expect(readPassword).toHaveBeenNthCalledWith(2, 'Confirm new password: ');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/admin/account/password',
+      expect.objectContaining({
+        body: JSON.stringify({ password: 'new-password' })
+      })
+    );
+  });
+
+  it('rejects mismatched interactive administrator account passwords', async () => {
     const mockFetch = vi.fn();
-    await seedAdmin('bootstrap-token');
+    await seedAdmin('administrator-account-token');
 
     await expect(
-      executeGiteaPasswordChange({ homeDir, noInput: true, customFetch: mockFetch as any })
-    ).rejects.toThrow('pass --password-file');
+      executeAdministratorAccountPasswordChange({
+        homeDir,
+        readPassword: vi.fn().mockResolvedValueOnce('first-password').mockResolvedValueOnce('second-password'),
+        customFetch: mockFetch as any
+      })
+    ).rejects.toThrow('Passwords do not match');
 
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when changing password with --no-input and no stdin or file', async () => {
+    const mockFetch = vi.fn();
+    await seedAdmin('administrator-account-token');
+
+    await expect(
+      executeAdministratorAccountPasswordChange({ homeDir, noInput: true, customFetch: mockFetch as any })
+    ).rejects.toThrow('pass --password-file or pipe a password on stdin');
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('prints the administrator account login guidance without raw JSON', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      text: async () => JSON.stringify({ error: 'Administrator account login required to change its password' })
+    });
+    await seedAdmin('bootstrap-token');
+    const passwordFile = path.join(homeDir, 'new-pw.txt');
+    fs.writeFileSync(passwordFile, 'new-password');
+
+    await expect(
+      executeAdministratorAccountPasswordChange({ homeDir, passwordFile, customFetch: mockFetch as any })
+    ).rejects.toThrow(
+      'Failed to change administrator account password: Administrator account login required to change its password'
+    );
   });
 
   it('rejects an admin command when the login is expired', async () => {

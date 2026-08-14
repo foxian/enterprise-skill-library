@@ -3,12 +3,13 @@ import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readHidden, readStdinText } from '../prompt.js';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import {
   executeBootstrapStatus,
   executeCreateUser,
   executeDisableUser,
-  executeGiteaPasswordChange,
+  executeAdministratorAccountPasswordChange,
   executeIssueUserToken
 } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
@@ -102,14 +103,21 @@ export function createProgram(): Command {
       console.log(`User ${username} disabled`);
     });
 
-  admin
-    .command('gitea')
-    .command('password')
-    .option('--password-file <path>', 'Read the new Gitea administrator password from a file')
+  const account = admin.command('account').description('Manage the ESL administrator account');
+  account
+    .command('change-password')
+    .description('Change the configured ESL administrator account password')
+    .option('--password-file <path>', 'Read the new ESL administrator account password from a file')
     .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl admin account change-password --server http://localhost:3000'))
     .action(async (options: { passwordFile?: string; server?: string }) => {
-      await executeGiteaPasswordChange({ ...options, noInput: program.opts().input === false });
-      console.log('Gitea password changed');
+      await executeAdministratorAccountPasswordChange({
+        ...options,
+        noInput: program.opts().input === false,
+        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readPassword: readHidden
+      });
+      console.log('Administrator account password changed');
     });
 
   program

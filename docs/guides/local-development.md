@@ -40,7 +40,7 @@ under `/api`, and Git HTTP traffic is routed under `/git`.
 
 `gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
 
-`GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the Gitea administrator password; use `esl admin gitea password` for explicit rotation.
+`GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the ESL Administrator Account password; log in as the configured administrator account and use `esl admin account change-password` for explicit rotation.
 
 The API validates the internal token and ensures `GITEA_REPO_OWNER` before it starts listening.
 
@@ -54,7 +54,14 @@ npm exec -- esl admin bootstrap status
 npm exec -- esl admin user create alice
 npm exec -- esl admin user token alice
 npm exec -- esl admin user disable alice
-npm exec -- esl admin gitea password --password-file .\new-password.txt
+```
+
+Changing the ESL Administrator Account password requires an account login, not
+the Bootstrap Token:
+
+```powershell
+npm exec -- esl login --server http://localhost:3000 --username eslroot
+npm exec -- esl admin account change-password --password-file .\new-password.txt
 ```
 
 ## Local Skill Namespace
