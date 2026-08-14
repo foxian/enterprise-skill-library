@@ -195,6 +195,73 @@ describe('esl update', () => {
     expect(fs.existsSync(path.join(projectDir, '.skills', '@alice', 'code-review'))).toBe(false);
   });
 
+  it('fails fast when the login is expired and registry skills are present', async () => {
+    await saveSkillsJson(projectDir, {
+      skills: { '@alice/code-review': '^1.0.0' }
+    });
+    await saveSkillsLock(projectDir, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.0.0',
+          resolved: 'esl-skills/alice_code-review',
+          integrity: ''
+        }
+      }
+    });
+    const expiredLoginAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+    await saveCredentials({ token: 'gitea-token', loginAt: expiredLoginAt }, { homeDir });
+
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+
+    await expect(
+      executeUpdate({
+        projectRoot: projectDir,
+        homeDir,
+        registry: 'http://localhost:3000/api',
+        customFetch: fetchImpl as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('updates file: dependencies without requiring a fresh login', async () => {
+    const localSkillDir = path.join(projectDir, 'local-skill');
+    fs.mkdirSync(localSkillDir);
+    fs.writeFileSync(
+      path.join(localSkillDir, 'skill.json'),
+      JSON.stringify({
+        name: '@myorg/local-skill',
+        version: '0.2.0',
+        description: 'A local test skill',
+        author: 'tester'
+      })
+    );
+    fs.writeFileSync(
+      path.join(localSkillDir, 'SKILL.md'),
+      '---\nname: local-skill\ndescription: Local test skill.\n---\n\n# Updated Local Skill\n'
+    );
+    await saveSkillsJson(projectDir, {
+      skills: { '@myorg/local-skill': `file:${localSkillDir}` }
+    });
+    const expiredLoginAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
+    await saveCredentials({ token: 'gitea-token', loginAt: expiredLoginAt }, { homeDir });
+    const installedDir = path.join(projectDir, '.skills', '@myorg', 'local-skill');
+    fs.mkdirSync(installedDir, { recursive: true });
+    fs.writeFileSync(path.join(installedDir, 'SKILL.md'), '# Old Local Skill\n');
+
+    const result = await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      noAdapt: true
+    });
+
+    expect(result).toEqual([{ name: '@myorg/local-skill', from: 'local', to: '0.2.0' }]);
+    expect(fs.readFileSync(path.join(installedDir, 'SKILL.md'), 'utf8')).toContain('# Updated Local Skill');
+  });
+
   it('reports already up-to-date skills', async () => {
     await saveSkillsJson(projectDir, {
       skills: { '@myorg/my-skill': '^1.0.0' }
@@ -214,6 +281,7 @@ describe('esl update', () => {
         versions: ['1.2.0', '1.0.0']
       })
     });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
 
     const result = await executeUpdate({
       projectRoot: projectDir,

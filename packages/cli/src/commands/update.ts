@@ -1,6 +1,7 @@
 import { adaptGlobal, adaptProject, loadSkillsJson, loadSkillsLock, resolveLocalStorePaths, validateSkillDirectory } from '@esl/core';
 import { executeInfo } from './info.js';
 import { executeInstall } from './install.js';
+import { requireFreshToken } from './network-options.js';
 import type { NetworkCommandOptions } from './network-options.js';
 
 export interface UpdateOptions extends NetworkCommandOptions {
@@ -23,6 +24,14 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
   const skillsJson = await loadSkillsJson(manifestRoot);
   const lockJson = await loadSkillsLock(manifestRoot);
   const results: UpdateResultEntry[] = [];
+
+  const hasRegistrySkills = Object.entries(skillsJson.skills).some(
+    ([name, specifier]) =>
+      (!options.skillName || options.skillName === name) && !specifier.startsWith('file:')
+  );
+  if (hasRegistrySkills) {
+    await requireFreshToken(options);
+  }
 
   for (const [name, specifier] of Object.entries(skillsJson.skills)) {
     if (options.skillName && options.skillName !== name) {
