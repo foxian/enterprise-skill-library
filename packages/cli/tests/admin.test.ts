@@ -33,7 +33,7 @@ describe('esl admin', () => {
       },
       { homeDir }
     );
-    await saveCredentials({ token: adminToken }, { homeDir });
+    await saveCredentials({ token: adminToken, loginAt: new Date().toISOString() }, { homeDir });
   }
 
   it('checks bootstrap readiness from the saved registry', async () => {
@@ -144,6 +144,29 @@ describe('esl admin', () => {
       executeGiteaPasswordChange({ homeDir, noInput: true, customFetch: mockFetch as any })
     ).rejects.toThrow('pass --password-file');
 
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an admin command when the login is expired', async () => {
+    const mockFetch = vi.fn();
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      {
+        registry: 'http://skills.company.com/api',
+        gitBase: 'http://skills.company.com/git',
+        username: 'admin',
+        tools: []
+      },
+      { homeDir }
+    );
+    await saveCredentials(
+      { token: 'bootstrap-token', loginAt: new Date(Date.now() - 31 * 24 * 3_600_000).toISOString() },
+      { homeDir }
+    );
+
+    await expect(executeCreateUser('alice', { homeDir, customFetch: mockFetch as any })).rejects.toThrow(
+      'Login expired; run esl login to re-authenticate'
+    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

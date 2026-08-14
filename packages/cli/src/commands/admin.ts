@@ -1,7 +1,7 @@
-import { loadConfig, loadCredentials, type LocalStoreOptions } from '@esl/core';
+import { loadConfig, type LocalStoreOptions } from '@esl/core';
 import fs from 'node:fs/promises';
 import { isInteractive, readHidden } from '../prompt.js';
-import { apiUrl, fetchWithTimeout, requireConfigured, type NetworkCommandOptions } from './network-options.js';
+import { apiUrl, fetchWithTimeout, requireConfigured, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
 
 export interface BootstrapStatus {
   ready: boolean;
@@ -143,10 +143,9 @@ async function resolveAdminAuth(
   options: NetworkCommandOptions & LocalStoreOptions
 ): Promise<{ registry: string; token: string; username: string }> {
   const config = await loadConfig({ homeDir: options.homeDir });
-  const credentials = await loadCredentials({ homeDir: options.homeDir });
   return {
     registry: options.registry ?? requireConfigured(config.registry, 'registry'),
-    token: requireConfigured(credentials.token, 'token'),
+    token: await requireFreshToken(options),
     username: requireConfigured(config.username, 'username')
   };
 }
