@@ -1,5 +1,6 @@
 # Agent Instructions
 
+- Use Simplified Chinese for all communication and interaction with the user (including code comments, commit messages, and documentation where appropriate). 与用户的所有沟通和交流应使用简体中文。
 - Project conventions live in [docs/agent-coding-principles.md](docs/agent-coding-principles.md).
 - Docker local runtime guidance lives in
   [docs/guides/local-development.md](docs/guides/local-development.md).
