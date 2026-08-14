@@ -78,6 +78,9 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
         to: latestVersion
       });
     } catch (error) {
+      if (isBlockingNetworkConfigurationError(error)) {
+        throw error;
+      }
       console.error(`Failed to update ${name}: ${(error as Error).message}`);
     }
   }
@@ -91,4 +94,13 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
   }
 
   return results;
+}
+
+function isBlockingNetworkConfigurationError(error: unknown): boolean {
+  const message = (error as Error).message ?? '';
+  return (
+    message.startsWith('Missing server;') ||
+    message.startsWith('Missing token;') ||
+    message.startsWith('Login expired;')
+  );
 }

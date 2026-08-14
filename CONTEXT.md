@@ -19,6 +19,12 @@ is installed into a project skill store.
 
 The full stable skill name in the form `@namespace/skill-name`.
 
+## Skill Release
+
+A specific published version of a Skill Identity that can be discovered,
+installed, updated to, or used by a Skill User.
+_Avoid_: version when referring to the installable skill artifact.
+
 ## Adapted Skill Directory Name
 
 The namespace-qualified directory name used for a skill in an AI tool's adapted

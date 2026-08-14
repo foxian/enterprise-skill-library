@@ -228,6 +228,64 @@ describe('esl update', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('fails clearly when registry skills are present and no ESL Server is configured', async () => {
+    await saveSkillsJson(projectDir, {
+      skills: { '@alice/code-review': '^1.0.0' }
+    });
+    await saveSkillsLock(projectDir, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          integrity: ''
+        }
+      }
+    });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeUpdate({
+        projectRoot: projectDir,
+        homeDir,
+        customFetch: fetchImpl as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Missing server; run esl login or pass --server');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when login is missing and registry skills are present', async () => {
+    await saveSkillsJson(projectDir, {
+      skills: { '@alice/code-review': '^1.0.0' }
+    });
+    await saveSkillsLock(projectDir, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          integrity: ''
+        }
+      }
+    });
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executeUpdate({
+        projectRoot: projectDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        customFetch: fetchImpl as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Missing token; run esl login or pass --token');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('updates file: dependencies without requiring a fresh login', async () => {
     const localSkillDir = path.join(projectDir, 'local-skill');
     fs.mkdirSync(localSkillDir);

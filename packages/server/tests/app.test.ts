@@ -68,6 +68,64 @@ describe('Fastify Server API', () => {
     expect(body.cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
   });
 
+  it('exposes author-published releases for another user to discover and inspect', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockImplementation(async (token: string) => {
+        if (token === 'author-token') return { username: 'author' };
+        if (token === 'consumer-token') return { username: 'consumer' };
+        return null;
+      }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/author_demo' })
+    };
+
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    for (const version of ['0.1.0', '0.1.1']) {
+      const publishRes = await app.inject({
+        method: 'POST',
+        url: '/api/skills',
+        headers: { host: 'localhost:3000', authorization: 'token author-token' },
+        payload: {
+          name: '@author/demo',
+          version,
+          description: 'Shared demo skill'
+        }
+      });
+
+      expect(publishRes.statusCode).toBe(201);
+      expect(publishRes.json().cloneUrl).toBe('http://localhost:3000/git/esl-skills/author_demo.git');
+    }
+
+    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledTimes(1);
+
+    const searchRes = await app.inject({
+      method: 'GET',
+      url: '/api/skills/search?q=demo',
+      headers: { host: 'localhost:3000', authorization: 'token consumer-token' }
+    });
+    expect(searchRes.statusCode).toBe(200);
+    expect(searchRes.json()).toEqual([
+      expect.objectContaining({
+        name: '@author/demo',
+        createdBy: 'author',
+        gitRepoPath: 'esl-skills/author_demo'
+      })
+    ]);
+
+    const infoRes = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@author/demo',
+      headers: { host: 'localhost:3000', authorization: 'token consumer-token' }
+    });
+    expect(infoRes.statusCode).toBe(200);
+    expect(infoRes.json()).toMatchObject({
+      name: '@author/demo',
+      createdBy: 'author',
+      cloneUrl: 'http://localhost:3000/git/esl-skills/author_demo.git',
+      versions: ['0.1.1', '0.1.0']
+    });
+  });
+
   it('responds to health checks without requiring Gitea', async () => {
     const mockGitea = {
       validateToken: vi.fn(),

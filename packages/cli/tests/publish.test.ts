@@ -81,6 +81,41 @@ description: Use when reviewing code changes.
     }
   });
 
+  it('updates an existing esl remote before publishing another release from the same repository', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
+      })
+    });
+    const remoteExists = new Error('error: remote esl already exists.');
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args.join(' ') === 'remote add esl http://localhost:3000/git/esl-skills/alice_code-review.git') {
+        throw remoteExists;
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    await executePublish({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['remote', 'set-url', 'esl', 'http://localhost:3000/git/esl-skills/alice_code-review.git'],
+      { cwd: skillDir }
+    );
+    expect(execFileAsync).toHaveBeenCalledWith('git', expect.arrayContaining(['push', 'esl', 'HEAD:main']), {
+      cwd: skillDir
+    });
+  });
+
   it('rejects local namespace skills before registry or git side effects', async () => {
     fs.writeFileSync(
       path.join(skillDir, 'skill.json'),
@@ -206,5 +241,43 @@ description: Use when reviewing code changes.
     ).rejects.toThrow('Login expired; run esl login to re-authenticate');
 
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when login is missing', async () => {
+    await saveCredentials({ token: null, loginAt: null }, { homeDir });
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Missing token; run esl login or pass --token');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when no ESL Server is configured', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Missing server; run esl login or pass --server');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
   });
 });

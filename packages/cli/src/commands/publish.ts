@@ -68,12 +68,32 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
   }
   const authHeader = gitAuthHeaderConfig(authToken);
 
-  await execFileAsync('git', ['remote', 'add', 'esl', published.cloneUrl], { cwd: directory });
+  await ensureEslRemote(execFileAsync, directory, published.cloneUrl);
   await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   await execFileAsync('git', ['tag', skillJson.version], { cwd: directory });
   await execFileAsync('git', ['-c', authHeader, 'push', 'esl', '--tags'], { cwd: directory });
 
   return published;
+}
+
+async function ensureEslRemote(
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string,
+  cloneUrl: string
+): Promise<void> {
+  try {
+    await execFileAsync('git', ['remote', 'add', 'esl', cloneUrl], { cwd: directory });
+  } catch (error) {
+    if (!isExistingRemoteError(error)) {
+      throw error;
+    }
+    await execFileAsync('git', ['remote', 'set-url', 'esl', cloneUrl], { cwd: directory });
+  }
+}
+
+function isExistingRemoteError(error: unknown): boolean {
+  const message = (error as Error).message ?? '';
+  return message.includes('remote esl already exists') || message.includes('remote `esl` already exists');
 }
 
 async function confirmPublish(

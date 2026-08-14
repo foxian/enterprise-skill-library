@@ -109,7 +109,8 @@ npm exec -- esl search my-skill --server http://localhost:3000
 npm exec -- esl info @myorg/my-skill --server http://localhost:3000
 ```
 
-`publish` and `install` are not part of the Phase 3 smoke path.
+For the full publish, cross-user install, update, and source smoke path, see
+[Skill Release lifecycle walkthrough](skill-release-lifecycle.md).
 
 To expose Gitea directly for backend diagnostics or recovery, run Docker with
 the debug override:

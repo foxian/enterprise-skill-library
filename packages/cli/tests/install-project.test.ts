@@ -138,6 +138,67 @@ describe('esl install (project-level)', () => {
     expect(lock.skills['@alice/code-review']?.version).toBe('0.1.0');
   });
 
+  it('fails fast when login is missing for a server-backed install', async () => {
+    await saveCredentials({ token: null, loginAt: null }, { homeDir });
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeInstall('@alice/code-review', {
+        projectRoot: projectDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Missing token; run esl login or pass --token');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the login is expired for a server-backed install', async () => {
+    await saveCredentials(
+      { token: 'gitea-token', loginAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString() },
+      { homeDir }
+    );
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeInstall('@alice/code-review', {
+        projectRoot: projectDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly when no ESL Server is configured for a server-backed install', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeInstall('@alice/code-review', {
+        projectRoot: projectDir,
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        noAdapt: true
+      })
+    ).rejects.toThrow('Missing server; run esl login or pass --server');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
   it('installs from server to global with --global', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

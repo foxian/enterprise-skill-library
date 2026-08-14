@@ -88,4 +88,62 @@ describe('esl source', () => {
       '/tmp/my-clone-dir'
     ]);
   });
+
+  it('fails fast when login is missing', async () => {
+    await saveCredentials({ token: null, loginAt: null }, { homeDir });
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeSource('@alice/code-review', {
+        homeDir,
+        server: 'http://localhost:3000',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        target: '/tmp/my-clone-dir'
+      })
+    ).rejects.toThrow('Missing token; run esl login or pass --token');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the login is expired', async () => {
+    await saveCredentials(
+      { token: 'gitea-token', loginAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString() },
+      { homeDir }
+    );
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeSource('@alice/code-review', {
+        homeDir,
+        server: 'http://localhost:3000',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        target: '/tmp/my-clone-dir'
+      })
+    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly when no ESL Server is configured', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeSource('@alice/code-review', {
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any,
+        target: '/tmp/my-clone-dir'
+      })
+    ).rejects.toThrow('Missing server; run esl login or pass --server');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
 });
