@@ -7,6 +7,7 @@ import { removeDirectory } from '@esl/core';
 import {
   authenticatedGitUrl,
   requireConfigured,
+  requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
@@ -31,9 +32,9 @@ async function readSkillMdFromLocal(sourcePath: string): Promise<string> {
 
 async function readSkillMdFromServer(name: string, options: UseOptions): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { gitBase, token } = await resolveNetworkConfig(options);
+  const { gitBase } = await resolveNetworkConfig(options);
   const gitHttpBase = requireConfigured(gitBase, 'git-base');
-  const authToken = requireConfigured(token, 'token');
+  const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
   const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
   const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);

@@ -15,7 +15,7 @@ describe('esl install (project-level)', () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-install-home-'));
     await initializeLocalStore({ homeDir });
     await saveConfig({ tools: ['claude'] }, { homeDir });
-    await saveCredentials({ token: 'gitea-token' }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
 
     localSkillDir = path.join(projectDir, 'my-local-skill');
     fs.mkdirSync(localSkillDir);

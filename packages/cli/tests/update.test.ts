@@ -167,7 +167,7 @@ describe('esl update', () => {
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-    await saveCredentials({ token: 'gitea-token' }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
 
     const result = await executeUpdate({
       projectRoot: projectDir,

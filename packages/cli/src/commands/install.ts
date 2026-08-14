@@ -18,6 +18,7 @@ import {
   installTargetDir,
   projectSkillsDir,
   requireConfigured,
+  requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
@@ -78,9 +79,9 @@ async function installFromServer(
   options: InstallOptions
 ): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { gitBase, token } = await resolveNetworkConfig(options);
+  const { gitBase } = await resolveNetworkConfig(options);
   const gitHttpBase = requireConfigured(gitBase, 'git-base');
-  const authToken = requireConfigured(token, 'token');
+  const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
   const repoPath = requireConfigured(info.gitRepoPath, 'gitRepoPath');
   const remoteUrl = authenticatedGitUrl(gitHttpBase, authToken, repoPath);

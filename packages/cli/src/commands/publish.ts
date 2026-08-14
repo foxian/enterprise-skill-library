@@ -7,6 +7,7 @@ import {
   fetchWithTimeout,
   remoteGitUrl,
   requireConfigured,
+  requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
@@ -40,8 +41,8 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
 
   const fetchImpl = options.customFetch ?? fetch;
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const { registry, gitBase, token } = await resolveNetworkConfig(options);
-  const authToken = requireConfigured(token, 'token');
+  const { registry, gitBase } = await resolveNetworkConfig(options);
+  const authToken = await requireFreshToken(options);
   const gitHttpBase = requireConfigured(gitBase, 'git-base');
   const res = await fetchWithTimeout(fetchImpl, apiUrl(registry, '/api/skills'), {
     method: 'POST',

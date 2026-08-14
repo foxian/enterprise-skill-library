@@ -14,7 +14,7 @@ describe('esl publish', () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-publish-'));
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-publish-home-'));
     await initializeLocalStore({ homeDir });
-    await saveCredentials({ token: 'gitea-token' }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
     skillDir = path.join(tmpRoot, 'code-review');
     fs.mkdirSync(skillDir);
     fs.writeFileSync(
@@ -189,6 +189,28 @@ description: Use when reviewing code changes.
         execFileAsync: vi.fn() as any
       })
     ).rejects.toThrow('Publishing requires confirmation; pass --force to skip it');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when the login has expired', async () => {
+    await saveCredentials(
+      { token: 'gitea-token', loginAt: new Date(Date.now() - 31 * 24 * 3_600_000).toISOString() },
+      { homeDir }
+    );
+    const fetchImpl = vi.fn();
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        registry: 'http://localhost:3000/api',
+        gitBase: 'http://localhost:3001',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: vi.fn() as any
+      })
+    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
 
     expect(fetchImpl).not.toHaveBeenCalled();
   });

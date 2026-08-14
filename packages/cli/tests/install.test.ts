@@ -11,7 +11,7 @@ describe('esl install (global mode)', () => {
   beforeEach(async () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-install-home-'));
     await initializeLocalStore({ homeDir });
-    await saveCredentials({ token: 'gitea-token' }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
   });
 
   afterEach(() => {

@@ -11,7 +11,7 @@ describe('esl source', () => {
   beforeEach(async () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-source-home-'));
     await initializeLocalStore({ homeDir });
-    await saveCredentials({ token: 'gitea-token' }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
   });
 
   afterEach(() => {
