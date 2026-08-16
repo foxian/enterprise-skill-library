@@ -13,18 +13,18 @@ export function readHidden(prompt: string, streams: PromptStreams = {}): Promise
   const input = streams.input ?? process.stdin;
   const output = streams.output ?? process.stdout;
 
-  output.write(prompt);
-
   return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input, output, terminal: true }) as MutableReadline;
     const originalWriteToOutput = rl._writeToOutput.bind(rl);
 
-    rl._writeToOutput = () => {
-      // Suppress echoing of the typed input. The prompt itself was already
-      // written to output above.
+    rl._writeToOutput = (text: string) => {
+      if (text === prompt) {
+        originalWriteToOutput(prompt);
+      }
+      // Suppress echoing of the typed input.
     };
 
-    rl.question('', (answer) => {
+    rl.question(prompt, (answer) => {
       rl._writeToOutput = originalWriteToOutput;
       rl.close();
       output.write('\n');
