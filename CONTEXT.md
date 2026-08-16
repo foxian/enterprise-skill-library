@@ -132,3 +132,10 @@ repositories. Skill Users should reach it through Git clone URLs discovered from
 the ESL Server, not by configuring a separate backend base URL.
 
 _Avoid_: Gitea when the specific implementation does not matter
+
+## Git Backend Maintenance Entry
+
+The internal or recovery web entry point for inspecting and maintaining the Git
+Backend. It is not the normal product surface for Skill Users.
+
+_Avoid_: Gitea backend address, Gitea user portal
