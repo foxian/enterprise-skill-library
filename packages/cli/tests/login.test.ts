@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadConfig, loadCredentials } from '@esl/core';
+import { initializeLocalStore, loadConfig, loadCredentials, saveConfig } from '@esl/core';
 import { executeLogin } from '../src/commands/login.js';
 
 describe('esl login', () => {
@@ -117,5 +117,44 @@ describe('esl login', () => {
         customFetch: vi.fn() as any
       })
     ).rejects.toThrow('pass --password-file or --token-file');
+  });
+
+  it('uses the saved server when --server is not passed', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: 'zhangsan', tools: [] }, { homeDir });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan' })
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://saved.company.com/api/auth/login',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ username: 'zhangsan', password: 'password123' })
+      })
+    );
+  });
+
+  it('fails when no server is passed or saved', async () => {
+    await initializeLocalStore({ homeDir });
+
+    await expect(
+      executeLogin({
+        username: 'zhangsan',
+        noInput: true,
+        homeDir,
+        customFetch: vi.fn() as any
+      })
+    ).rejects.toThrow(/server/i);
   });
 });

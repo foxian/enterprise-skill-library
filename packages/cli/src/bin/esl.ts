@@ -22,6 +22,7 @@ import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
+import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeSearch } from '../commands/search.js';
@@ -53,14 +54,26 @@ export function createProgram(): Command {
 
   program
     .command('login')
-    .requiredOption('--server <url>', 'ESL Server URL')
     .requiredOption('--username <username>', 'ESL username')
+    .option('--server <url>', 'ESL Server URL (defaults to the saved server)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
     .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
-    .action(async (options: { server: string; username: string; passwordFile?: string; tokenFile?: string }) => {
+    .action(async (options: { server?: string; username: string; passwordFile?: string; tokenFile?: string }) => {
       await executeLogin({ ...options, noInput: program.opts().input === false });
       console.log(`Logged in as ${options.username}`);
+    });
+
+  const configCmd = program.command('config').description('Manage ESL client configuration');
+  configCmd.addHelpText('after', example('$ esl config set-server http://localhost:3000'));
+  configCmd
+    .command('set-server')
+    .description('Set the ESL Server URL used by all commands')
+    .argument('<url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl config set-server http://localhost:3000'))
+    .action(async (url: string) => {
+      const { server } = await executeSetServer(url);
+      console.log(`Server set to ${server}`);
     });
 
   program

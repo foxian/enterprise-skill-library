@@ -1,10 +1,11 @@
 import { initializeLocalStore, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
 import fs from 'node:fs/promises';
 import { isInteractive, readHidden } from '../prompt.js';
+import { resolveServer } from './config.js';
 import { fetchWithTimeout } from './network-options.js';
 
 export interface LoginOptions extends LocalStoreOptions {
-  server: string;
+  server?: string;
   username: string;
   passwordFile?: string;
   tokenFile?: string;
@@ -17,12 +18,13 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   const fetchImpl = options.customFetch ?? fetch;
   await initializeLocalStore({ homeDir: options.homeDir });
 
-  const token = await resolveLoginToken(options, fetchImpl);
+  const server = await resolveServer({ server: options.server, homeDir: options.homeDir });
+  const token = await resolveLoginToken(options, server, fetchImpl);
 
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
-      server: options.server,
+      server,
       username: options.username
     },
     { homeDir: options.homeDir }
@@ -31,7 +33,11 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   return token;
 }
 
-async function resolveLoginToken(options: LoginOptions, fetchImpl: typeof fetch): Promise<string> {
+async function resolveLoginToken(
+  options: LoginOptions,
+  server: string,
+  fetchImpl: typeof fetch
+): Promise<string> {
   if (options.tokenFile) {
     const token = (await fs.readFile(options.tokenFile, 'utf8')).trim();
     if (!token) {
@@ -48,7 +54,7 @@ async function resolveLoginToken(options: LoginOptions, fetchImpl: typeof fetch)
     throw new Error('Password is required for login');
   }
 
-  return exchangePasswordForToken(options, password, fetchImpl);
+  return exchangePasswordForToken(server, options.username, password, fetchImpl);
 }
 
 async function promptForPassword(options: LoginOptions): Promise<string> {
@@ -65,17 +71,18 @@ async function promptForPassword(options: LoginOptions): Promise<string> {
 }
 
 async function exchangePasswordForToken(
-  options: LoginOptions,
+  server: string,
+  username: string,
   password: string,
   fetchImpl: typeof fetch
 ): Promise<string> {
-  const server = options.server.replace(/\/$/, '');
-  const res = await fetchWithTimeout(fetchImpl, `${server}/api/auth/login`, {
+  const base = server.replace(/\/$/, '');
+  const res = await fetchWithTimeout(fetchImpl, `${base}/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ username: options.username, password })
+    body: JSON.stringify({ username, password })
   });
 
   if (!res.ok) {
