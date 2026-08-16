@@ -157,4 +157,60 @@ describe('esl login', () => {
       })
     ).rejects.toThrow(/server/i);
   });
+
+  it('uses the saved username when --username is not passed', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: 'eslroot', tools: [] }, { homeDir });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'eslroot' })
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({ passwordFile, homeDir, customFetch: mockFetch as any });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://saved.company.com/api/auth/login',
+      expect.objectContaining({
+        body: JSON.stringify({ username: 'eslroot', password: 'password123' })
+      })
+    );
+  });
+
+  it('prompts for the username when none is passed or saved', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice' })
+    });
+    const readUsername = vi.fn().mockResolvedValue('alice');
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({ passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
+
+    expect(readUsername).toHaveBeenCalledWith('Username: ');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://saved.company.com/api/auth/login',
+      expect.objectContaining({
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
+      })
+    );
+  });
+
+  it('fails when no username is passed, saved, or provided interactively', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
+
+    await expect(
+      executeLogin({
+        noInput: true,
+        passwordFile: path.join(homeDir, 'pw.txt'),
+        homeDir,
+        customFetch: vi.fn() as any
+      })
+    ).rejects.toThrow(/username/i);
+  });
 });

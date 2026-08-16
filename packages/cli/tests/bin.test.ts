@@ -37,15 +37,16 @@ describe('esl program', () => {
     expect(whoami?.options.map((option) => option.long)).toEqual([]);
   });
 
-  it('registers the config set-server command and makes login --server optional', () => {
+  it('registers the config set-server command and makes login options optional', () => {
     const program = createProgram();
     const config = program.commands.find((command) => command.name() === 'config');
     const login = program.commands.find((command) => command.name() === 'login');
     const serverOption = login?.options.find((option) => option.long === '--server');
+    const usernameOption = login?.options.find((option) => option.long === '--username');
 
     expect(config?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['set-server']));
     expect(serverOption?.mandatory).toBe(false);
-    expect(login?.options.map((option) => option.long)).toEqual(expect.arrayContaining(['--username']));
+    expect(usernameOption?.mandatory).toBe(false);
   });
 
   it('registers the adapt prune option', () => {

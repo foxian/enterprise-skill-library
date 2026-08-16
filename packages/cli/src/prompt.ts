@@ -34,6 +34,20 @@ export function readHidden(prompt: string, streams: PromptStreams = {}): Promise
   });
 }
 
+export function readText(prompt: string, streams: PromptStreams = {}): Promise<string> {
+  const input = streams.input ?? process.stdin;
+  const output = streams.output ?? process.stdout;
+
+  return new Promise((resolve, reject) => {
+    const rl = readline.createInterface({ input, output, terminal: true });
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+    rl.on('error', reject);
+  });
+}
+
 export function confirm(question: string, streams: PromptStreams = {}): Promise<boolean> {
   const input = streams.input ?? process.stdin;
   const output = streams.output ?? process.stdout;

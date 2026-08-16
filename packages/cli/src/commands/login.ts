@@ -1,16 +1,17 @@
-import { initializeLocalStore, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
+import { initializeLocalStore, loadConfig, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
 import fs from 'node:fs/promises';
-import { isInteractive, readHidden } from '../prompt.js';
+import { isInteractive, readHidden, readText } from '../prompt.js';
 import { resolveServer } from './config.js';
 import { fetchWithTimeout } from './network-options.js';
 
 export interface LoginOptions extends LocalStoreOptions {
   server?: string;
-  username: string;
+  username?: string;
   passwordFile?: string;
   tokenFile?: string;
   noInput?: boolean;
   readInput?: () => Promise<string>;
+  readUsername?: (prompt: string) => Promise<string>;
   customFetch?: typeof fetch;
 }
 
@@ -19,13 +20,14 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   await initializeLocalStore({ homeDir: options.homeDir });
 
   const server = await resolveServer({ server: options.server, homeDir: options.homeDir });
-  const token = await resolveLoginToken(options, server, fetchImpl);
+  const username = await resolveUsername(options);
+  const token = await resolveLoginToken(options, server, username, fetchImpl);
 
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
       server,
-      username: options.username
+      username
     },
     { homeDir: options.homeDir }
   );
@@ -33,9 +35,30 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   return token;
 }
 
+async function resolveUsername(options: LoginOptions): Promise<string> {
+  if (options.username) {
+    return options.username;
+  }
+  const config = await loadConfig({ homeDir: options.homeDir });
+  if (config.username) {
+    return config.username;
+  }
+  if (options.noInput) {
+    throw new Error('A username is required; pass --username or run interactively');
+  }
+  if (options.readUsername) {
+    return (await options.readUsername('Username: ')).trim();
+  }
+  if (!isInteractive()) {
+    throw new Error('A username is required; pass --username or run interactively');
+  }
+  return (await readText('Username: ')).trim();
+}
+
 async function resolveLoginToken(
   options: LoginOptions,
   server: string,
+  username: string,
   fetchImpl: typeof fetch
 ): Promise<string> {
   if (options.tokenFile) {
@@ -54,7 +77,7 @@ async function resolveLoginToken(
     throw new Error('Password is required for login');
   }
 
-  return exchangePasswordForToken(server, options.username, password, fetchImpl);
+  return exchangePasswordForToken(server, username, password, fetchImpl);
 }
 
 async function promptForPassword(options: LoginOptions): Promise<string> {

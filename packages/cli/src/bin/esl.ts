@@ -54,14 +54,19 @@ export function createProgram(): Command {
 
   program
     .command('login')
-    .requiredOption('--username <username>', 'ESL username')
+    .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
     .option('--server <url>', 'ESL Server URL (defaults to the saved server)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
     .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
-    .action(async (options: { server?: string; username: string; passwordFile?: string; tokenFile?: string }) => {
-      await executeLogin({ ...options, noInput: program.opts().input === false });
-      console.log(`Logged in as ${options.username}`);
+    .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
+      await executeLogin({
+        ...options,
+        noInput: program.opts().input === false,
+        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readUsername: process.stdin.isTTY ? undefined : () => readStdinText()
+      });
+      console.log(`Logged in as ${options.username ?? 'you'}`);
     });
 
   const configCmd = program.command('config').description('Manage ESL client configuration');
