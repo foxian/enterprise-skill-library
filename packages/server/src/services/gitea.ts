@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-
 export interface GiteaUser {
   id: number;
   username: string;
@@ -66,7 +64,7 @@ export class GiteaService {
     };
   }
 
-  async createUser(username: string): Promise<void> {
+  async createUser(username: string, password: string): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users`, {
       method: 'POST',
       headers: {
@@ -76,7 +74,7 @@ export class GiteaService {
       body: JSON.stringify({
         username,
         email: `${username}@local.esl`,
-        password: crypto.randomUUID(),
+        password,
         must_change_password: false
       })
     });
@@ -85,6 +83,14 @@ export class GiteaService {
       const err = await res.text();
       throw new Error(`Failed to create Gitea user: ${err}`);
     }
+  }
+
+  async validateUserPassword(username: string, password: string): Promise<boolean> {
+    const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/user`, {
+      headers: { Authorization: basicAuth }
+    });
+    return res.ok;
   }
 
   async issueUserToken(username: string): Promise<string> {

@@ -117,11 +117,11 @@ describe('GiteaService', () => {
     });
   });
 
-  it('creates a user via the Gitea admin API', async () => {
+  it('creates a user via the Gitea admin API with the given initial password', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
 
-    await gitea.createUser('alice');
+    await gitea.createUser('alice', 'initial-password');
 
     expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/admin/users', {
       method: 'POST',
@@ -131,6 +131,27 @@ describe('GiteaService', () => {
       },
       body: expect.stringContaining('"username":"alice"')
     });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).password).toBe('initial-password');
+  });
+
+  it('validates a user password via Gitea basic auth', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, username: 'alice', email: 'alice@local.esl' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.validateUserPassword('alice', 'correct-password')).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/user', {
+      headers: { Authorization: `Basic ${Buffer.from('alice:correct-password').toString('base64')}` }
+    });
+  });
+
+  it('rejects an invalid user password via Gitea basic auth', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.validateUserPassword('alice', 'wrong-password')).resolves.toBe(false);
   });
 
   it('issues a user token via the Gitea user tokens API with admin basic auth', async () => {

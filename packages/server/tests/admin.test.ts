@@ -98,7 +98,8 @@ describe('Admin API', () => {
     });
 
     expect(createRes.statusCode).toBe(201);
-    expect(createRes.json()).toEqual({ username: 'alice', disabled: false });
+    expect(createRes.json()).toMatchObject({ username: 'alice', disabled: false });
+    expect(typeof createRes.json().password).toBe('string');
 
     const tokenRes = await app.inject({
       method: 'POST',
@@ -295,7 +296,8 @@ describe('Admin API', () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toEqual({ username: 'alice', disabled: false });
+    expect(response.json()).toMatchObject({ username: 'alice', disabled: false });
+    expect(typeof response.json().password).toBe('string');
   });
 
   it('rejects a non-administrator token on admin routes', async () => {

@@ -83,6 +83,26 @@ _Avoid_: Gitea administrator when referring to a human ESL Platform Administrato
 An authenticated person who can log in to ESL and consume, create, publish, or
 maintain skills according to their permissions.
 
+## Skill User Credential
+
+A username and password pair that a Skill User presents to log in to ESL. The
+password is hosted and validated by Gitea; ESL never stores the password
+itself.
+
+## Skill User Initial Password
+
+The password a Skill User uses to log in for the first time. It is generated
+randomly when the user is created and shown to the platform administrator
+exactly once for hand-off, or it may be supplied by the administrator. It may be
+changed by the Skill User afterwards.
+_Avoid_: default password, temporary password
+
+## Skill User Password Change
+
+The Skill User's self-service action to replace their own password. It requires
+the current password and takes effect in Gitea.
+_Avoid_: password reset
+
 ## Bootstrap
 
 The first-run process that prepares the ESL Docker runtime with the platform

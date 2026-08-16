@@ -5,9 +5,11 @@ import path from 'node:path';
 import { initializeLocalStore, saveConfig, saveCredentials } from '@esl/core';
 import {
   executeBootstrapStatus,
+  executeChangeOwnPassword,
   executeCreateUser,
   executeDisableUser,
   executeIssueUserToken,
+  executeSetUserPassword,
   executeAdministratorAccountPasswordChange
 } from '../src/commands/admin.js';
 
@@ -76,6 +78,50 @@ describe('esl admin', () => {
     );
   });
 
+  it('surfaces the generated initial password returned by the server', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ username: 'alice', disabled: false, password: 'generated-password' })
+    });
+    await seedAdmin('bootstrap-token');
+
+    const result = await executeCreateUser('alice', { homeDir, customFetch: mockFetch as any });
+
+    expect(result.password).toBe('generated-password');
+  });
+
+  it('passes a custom initial password from a password file when creating a user', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ username: 'alice', disabled: false })
+    });
+    await seedAdmin('bootstrap-token');
+    const passwordFile = path.join(homeDir, 'initial-pw.txt');
+    fs.writeFileSync(passwordFile, 'custom-password');
+
+    const result = await executeCreateUser('alice', { homeDir, passwordFile, customFetch: mockFetch as any });
+
+    expect(result.password).toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/admin/users',
+      expect.objectContaining({
+        body: JSON.stringify({ username: 'alice', password: 'custom-password' })
+      })
+    );
+  });
+
+  it('rejects create with both --random and --password-file', async () => {
+    const mockFetch = vi.fn();
+    await seedAdmin('bootstrap-token');
+    const passwordFile = path.join(homeDir, 'initial-pw.txt');
+    fs.writeFileSync(passwordFile, 'custom-password');
+
+    await expect(
+      executeCreateUser('alice', { homeDir, passwordFile, random: true, customFetch: mockFetch as any })
+    ).rejects.toThrow('mutually exclusive');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('issues a token for an existing user', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -97,6 +143,65 @@ describe('esl admin', () => {
     );
   });
 
+  it('resets a user password with a generated one shown once', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ username: 'alice', password: 'generated-password' })
+    });
+    await seedAdmin('bootstrap-token');
+
+    const result = await executeSetUserPassword('alice', { homeDir, customFetch: mockFetch as any });
+
+    expect(result.password).toBe('generated-password');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/admin/users/alice/password',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          Authorization: 'token bootstrap-token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+      })
+    );
+  });
+
+  it('passes a supplied password when resetting a user password', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ username: 'alice' })
+    });
+    await seedAdmin('bootstrap-token');
+    const passwordFile = path.join(homeDir, 'reset-pw.txt');
+    fs.writeFileSync(passwordFile, 'supplied-password');
+
+    const result = await executeSetUserPassword('alice', {
+      homeDir,
+      passwordFile,
+      customFetch: mockFetch as any
+    });
+
+    expect(result.password).toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/admin/users/alice/password',
+      expect.objectContaining({
+        body: JSON.stringify({ password: 'supplied-password' })
+      })
+    );
+  });
+
+  it('rejects resetting a user password with both --random and --password-file', async () => {
+    const mockFetch = vi.fn();
+    await seedAdmin('bootstrap-token');
+    const passwordFile = path.join(homeDir, 'reset-pw.txt');
+    fs.writeFileSync(passwordFile, 'supplied-password');
+
+    await expect(
+      executeSetUserPassword('alice', { homeDir, passwordFile, random: true, customFetch: mockFetch as any })
+    ).rejects.toThrow('mutually exclusive');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('disables a user with the saved admin token', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     await seedAdmin('bootstrap-token');
@@ -112,6 +217,52 @@ describe('esl admin', () => {
         }
       })
     );
+  });
+
+  it('changes the current user password with current and new passwords', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    await seedAdmin('alice-token');
+    const readPassword = vi
+      .fn()
+      .mockResolvedValueOnce('current-password')
+      .mockResolvedValueOnce('new-password')
+      .mockResolvedValueOnce('new-password');
+
+    await executeChangeOwnPassword({ homeDir, readPassword, customFetch: mockFetch as any });
+
+    expect(readPassword).toHaveBeenNthCalledWith(1, 'Current password: ');
+    expect(readPassword).toHaveBeenNthCalledWith(2, 'New password: ');
+    expect(readPassword).toHaveBeenNthCalledWith(3, 'Confirm new password: ');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/auth/password',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          Authorization: 'token alice-token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ oldPassword: 'current-password', newPassword: 'new-password' })
+      })
+    );
+  });
+
+  it('rejects a self-service password change when the new passwords do not match', async () => {
+    const mockFetch = vi.fn();
+    await seedAdmin('alice-token');
+
+    await expect(
+      executeChangeOwnPassword({
+        homeDir,
+        readPassword: vi
+          .fn()
+          .mockResolvedValueOnce('current-password')
+          .mockResolvedValueOnce('first-new')
+          .mockResolvedValueOnce('second-new'),
+        customFetch: mockFetch as any
+      })
+    ).rejects.toThrow('Passwords do not match');
+
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('changes the ESL Administrator Account password from a file', async () => {

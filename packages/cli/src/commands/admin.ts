@@ -14,11 +14,24 @@ export interface AdminUserResult {
   disabled: boolean;
 }
 
+export interface CreateUserResult extends AdminUserResult {
+  password?: string;
+}
+
+export interface PasswordSupplyOptions extends NetworkCommandOptions {
+  passwordFile?: string;
+  random?: boolean;
+}
+
 export interface ChangePasswordOptions extends NetworkCommandOptions {
   passwordFile?: string;
   noInput?: boolean;
   readInput?: () => Promise<string>;
   readPassword?: (prompt: string) => Promise<string>;
+}
+
+export interface ChangeOwnPasswordOptions extends ChangePasswordOptions {
+  currentPasswordFile?: string;
 }
 
 export async function executeBootstrapStatus(options: NetworkCommandOptions = {}): Promise<BootstrapStatus> {
@@ -34,23 +47,24 @@ export async function executeBootstrapStatus(options: NetworkCommandOptions = {}
 
 export async function executeCreateUser(
   username: string,
-  options: NetworkCommandOptions = {}
-): Promise<AdminUserResult> {
+  options: PasswordSupplyOptions = {}
+): Promise<CreateUserResult> {
   const fetchImpl = options.customFetch ?? fetch;
   const { server, token } = await resolveAdminAuth(options);
+  const password = await resolveOptionalPassword(options);
   const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/admin/users'), {
     method: 'POST',
     headers: {
       Authorization: `token ${token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ username })
+    body: JSON.stringify(password ? { username, password } : { username })
   });
   if (!res.ok) {
-    const err = await res.text();
+    const err = await readErrorMessage(res);
     throw new Error(`Failed to create user: ${err}`);
   }
-  return (await res.json()) as AdminUserResult;
+  return (await res.json()) as CreateUserResult;
 }
 
 export async function executeIssueUserToken(
@@ -86,6 +100,33 @@ export async function executeDisableUser(username: string, options: NetworkComma
   }
 }
 
+export interface SetUserPasswordResult {
+  username: string;
+  password?: string;
+}
+
+export async function executeSetUserPassword(
+  username: string,
+  options: PasswordSupplyOptions = {}
+): Promise<SetUserPasswordResult> {
+  const fetchImpl = options.customFetch ?? fetch;
+  const { server, token } = await resolveAdminAuth(options);
+  const password = await resolveOptionalPassword(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/admin/users/${encodeURIComponent(username)}/password`), {
+    method: 'POST',
+    headers: {
+      Authorization: `token ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(password ? { password } : {})
+  });
+  if (!res.ok) {
+    const err = await readErrorMessage(res);
+    throw new Error(`Failed to set user password: ${err}`);
+  }
+  return (await res.json()) as SetUserPasswordResult;
+}
+
 export async function executeAdministratorAccountPasswordChange(options: ChangePasswordOptions): Promise<void> {
   const fetchImpl = options.customFetch ?? fetch;
   const { server, token } = await resolveAdminAuth(options);
@@ -104,6 +145,25 @@ export async function executeAdministratorAccountPasswordChange(options: ChangeP
   }
 }
 
+export async function executeChangeOwnPassword(options: ChangeOwnPasswordOptions): Promise<void> {
+  const fetchImpl = options.customFetch ?? fetch;
+  const { server, token } = await resolveAdminAuth(options);
+  const currentPassword = await resolveCurrentPassword(options);
+  const newPassword = await resolveNewPassword(options);
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/auth/password'), {
+    method: 'POST',
+    headers: {
+      Authorization: `token ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ oldPassword: currentPassword, newPassword })
+  });
+  if (!res.ok) {
+    const err = await readErrorMessage(res);
+    throw new Error(`Failed to change password: ${err}`);
+  }
+}
+
 async function readErrorMessage(res: Response): Promise<string> {
   const text = await res.text();
   try {
@@ -115,6 +175,20 @@ async function readErrorMessage(res: Response): Promise<string> {
     // Fall through to the raw response body.
   }
   return text;
+}
+
+async function resolveOptionalPassword(options: PasswordSupplyOptions): Promise<string | undefined> {
+  if (options.passwordFile && options.random) {
+    throw new Error('--password-file and --random are mutually exclusive');
+  }
+  if (options.passwordFile) {
+    const password = (await fs.readFile(options.passwordFile, 'utf8')).trim();
+    if (!password) {
+      throw new Error(`Password file ${options.passwordFile} is empty`);
+    }
+    return password;
+  }
+  return undefined;
 }
 
 async function resolveNewPassword(options: ChangePasswordOptions): Promise<string> {
@@ -150,6 +224,33 @@ async function readPasswordFromInput(readInput: () => Promise<string>): Promise<
     throw new Error('Password is required');
   }
   return password;
+}
+
+async function resolveCurrentPassword(options: ChangeOwnPasswordOptions): Promise<string> {
+  if (options.currentPasswordFile) {
+    const password = (await fs.readFile(options.currentPasswordFile, 'utf8')).trim();
+    if (!password) {
+      throw new Error(`Password file ${options.currentPasswordFile} is empty`);
+    }
+    return password;
+  }
+
+  if (options.noInput) {
+    if (options.readInput) {
+      return readPasswordFromInput(options.readInput);
+    }
+    throw new Error('A current password is required; pass --current-password-file or pipe a password on stdin when using --no-input');
+  }
+  if (options.readInput) {
+    return readPasswordFromInput(options.readInput);
+  }
+  if (options.readPassword) {
+    return (await options.readPassword('Current password: ')).trim();
+  }
+  if (!isInteractive()) {
+    throw new Error('A current password is required; run interactively or pass --current-password-file');
+  }
+  return (await readHidden('Current password: ')).trim();
 }
 
 async function readConfirmedPassword(readPassword: (prompt: string) => Promise<string>): Promise<string> {

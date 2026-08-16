@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import crypto from 'node:crypto';
 import type { AdminRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 
@@ -18,10 +19,18 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
   app.post('/api/admin/users', async (request, reply) => {
     if (!(await authorize(request, reply, repository, giteaService))) return;
-    const { username } = request.body as { username: string };
-    await giteaService.createUser(username);
+    const { username, password } = request.body as { username: string; password?: string };
+    const initialPassword = password ? password : generateRandomPassword();
+    await giteaService.createUser(username, initialPassword);
     const user = repository.createUser(username);
-    return reply.status(201).send({ username: user.username, disabled: user.disabled });
+    const result: { username: string; disabled: boolean; password?: string } = {
+      username: user.username,
+      disabled: user.disabled
+    };
+    if (!password) {
+      result.password = initialPassword;
+    }
+    return reply.status(201).send(result);
   });
 
   app.post('/api/admin/users/:username/tokens', async (request, reply) => {
@@ -43,6 +52,19 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     await giteaService.disableUser(username);
     const user = repository.disableUser(username);
     return { username: user.username, disabled: user.disabled };
+  });
+
+  app.post('/api/admin/users/:username/password', async (request, reply) => {
+    if (!(await authorize(request, reply, repository, giteaService))) return;
+    const { username } = request.params as { username: string };
+    const { password } = request.body as { password?: string };
+    const resolvedPassword = password ? password : generateRandomPassword();
+    await giteaService.changeUserPassword(username, resolvedPassword);
+    const result: { username: string; password?: string } = { username };
+    if (!password) {
+      result.password = resolvedPassword;
+    }
+    return result;
   });
 
   app.post('/api/admin/account/password', async (request, reply) => {
@@ -93,4 +115,8 @@ async function authorize(
 
   reply.status(403).send({ error: 'Forbidden: platform administrator token required' });
   return null;
+}
+
+function generateRandomPassword(): string {
+  return crypto.randomBytes(18).toString('base64url');
 }

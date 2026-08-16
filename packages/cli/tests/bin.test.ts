@@ -45,11 +45,18 @@ describe('esl program', () => {
 
     expect(bootstrap?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['status']));
     expect(user?.commands.map((command) => command.name())).toEqual(
-      expect.arrayContaining(['create', 'token', 'disable'])
+      expect.arrayContaining(['create', 'token', 'disable', 'set-password'])
     );
     expect(user?.commands.find((command) => command.name() === 'token')?.commands).toHaveLength(0);
     expect(account?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['change-password']));
     expect(admin?.commands.map((command) => command.name())).not.toContain('gitea');
+  });
+
+  it('registers the top-level account command surface', () => {
+    const program = createProgram();
+    const account = program.commands.find((command) => command.name() === 'account');
+
+    expect(account?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['change-password']));
   });
 
   it('registers --json on info and search', () => {

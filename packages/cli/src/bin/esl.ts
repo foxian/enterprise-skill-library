@@ -7,10 +7,12 @@ import { readHidden, readStdinText } from '../prompt.js';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import {
   executeBootstrapStatus,
+  executeChangeOwnPassword,
   executeCreateUser,
   executeDisableUser,
   executeAdministratorAccountPasswordChange,
-  executeIssueUserToken
+  executeIssueUserToken,
+  executeSetUserPassword
 } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
@@ -60,6 +62,27 @@ export function createProgram(): Command {
       console.log(`Logged in as ${options.username}`);
     });
 
+  const myAccount = program
+    .command('account')
+    .description('Manage your own ESL account');
+  myAccount.addHelpText('after', example('$ esl account change-password'));
+  myAccount
+    .command('change-password')
+    .description('Change your own ESL password')
+    .option('--current-password-file <path>', 'Read the current ESL password from a file')
+    .option('--password-file <path>', 'Read the new ESL password from a file')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl account change-password --server http://localhost:3000'))
+    .action(async (options: { currentPasswordFile?: string; passwordFile?: string; server?: string }) => {
+      await executeChangeOwnPassword({
+        ...options,
+        noInput: program.opts().input === false,
+        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readPassword: readHidden
+      });
+      console.log('Password changed');
+    });
+
   const admin = program.command('admin').description('Manage ESL platform administration');
   admin.addHelpText('after', example('$ esl admin user create alice'));
 
@@ -80,9 +103,15 @@ export function createProgram(): Command {
     .command('create')
     .argument('<username>')
     .option('--server <url>', 'ESL Server URL')
-    .action(async (username: string, options: { server?: string }) => {
-      await executeCreateUser(username, options);
+    .option('--password-file <path>', 'Use a custom initial password from a file')
+    .option('--random', 'Generate a random initial password')
+    .addHelpText('after', example('$ esl admin user create alice'))
+    .action(async (username: string, options: { server?: string; passwordFile?: string; random?: boolean }) => {
+      const result = await executeCreateUser(username, options);
       console.log(`User ${username} created`);
+      if (result.password) {
+        console.log(`Initial password: ${result.password}`);
+      }
     });
 
   adminUser
@@ -101,6 +130,21 @@ export function createProgram(): Command {
     .action(async (username: string, options: { server?: string }) => {
       await executeDisableUser(username, options);
       console.log(`User ${username} disabled`);
+    });
+
+  adminUser
+    .command('set-password')
+    .argument('<username>')
+    .option('--server <url>', 'ESL Server URL')
+    .option('--password-file <path>', 'Use a custom new password from a file')
+    .option('--random', 'Generate a random new password')
+    .addHelpText('after', example('$ esl admin user set-password alice'))
+    .action(async (username: string, options: { server?: string; passwordFile?: string; random?: boolean }) => {
+      const result = await executeSetUserPassword(username, options);
+      console.log(`Password for ${username} reset`);
+      if (result.password) {
+        console.log(`New password: ${result.password}`);
+      }
     });
 
   const account = admin.command('account').description('Manage the ESL administrator account');
