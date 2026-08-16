@@ -36,4 +36,23 @@ describe('readHidden', () => {
 
     expect(chunks.join('')).not.toContain('supersecret');
   });
+
+  it('shows the prompt while hiding the typed input', async () => {
+    const input = new Readable({ read() {} });
+    input.push('supersecret\n');
+    input.push(null);
+
+    const chunks: string[] = [];
+    const output = new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(chunk.toString());
+        callback();
+      }
+    });
+
+    await readHidden('Password: ', { input, output });
+
+    expect(chunks.join('')).toContain('Password:');
+    expect(chunks.join('')).not.toContain('supersecret');
+  });
 });
