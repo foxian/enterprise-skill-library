@@ -162,7 +162,7 @@ export class GiteaService {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ login_name: username, password })
     });
 
     if (!res.ok) {

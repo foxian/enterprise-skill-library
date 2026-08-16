@@ -245,7 +245,7 @@ describe('GiteaService', () => {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ password: 'new-password' })
+      body: JSON.stringify({ login_name: 'admin', password: 'new-password' })
     });
   });
 
@@ -333,7 +333,7 @@ describe('GiteaService', () => {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ password: 'new-password' })
+      body: JSON.stringify({ login_name: 'eslroot', password: 'new-password' })
     });
   });
 

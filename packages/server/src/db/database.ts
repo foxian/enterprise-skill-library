@@ -163,9 +163,10 @@ export class AdminRepository {
   }
 
   registerIssuedToken(username: string, token: string): void {
-    const user = this.getUser(username);
+    let user = this.getUser(username);
     if (!user) {
-      throw new Error(`User not found: ${username}`);
+      this.createUser(username);
+      user = this.getUser(username)!;
     }
     if (user.disabled) {
       throw new Error(`User is disabled: ${username}`);
