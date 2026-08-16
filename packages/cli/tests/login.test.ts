@@ -158,9 +158,31 @@ describe('esl login', () => {
     ).rejects.toThrow(/server/i);
   });
 
-  it('uses the saved username when --username is not passed', async () => {
+  it('always prompts for the username, ignoring a saved username', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: 'eslroot', tools: [] }, { homeDir });
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice' })
+    });
+    const readUsername = vi.fn().mockResolvedValue('alice');
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({ passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
+
+    expect(readUsername).toHaveBeenCalledWith('Username: ');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://saved.company.com/api/auth/login',
+      expect.objectContaining({
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
+      })
+    );
+  });
+
+  it('uses an explicit --username without prompting', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: 'ignored-user', tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ token: 'mock_skill_user_token', username: 'eslroot' })
@@ -168,7 +190,7 @@ describe('esl login', () => {
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
-    await executeLogin({ passwordFile, homeDir, customFetch: mockFetch as any });
+    await executeLogin({ username: 'eslroot', passwordFile, homeDir, customFetch: mockFetch as any });
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://saved.company.com/api/auth/login',
@@ -178,7 +200,7 @@ describe('esl login', () => {
     );
   });
 
-  it('prompts for the username when none is passed or saved', async () => {
+  it('prompts for the username when none is passed', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
@@ -228,7 +250,7 @@ describe('esl login', () => {
     );
   });
 
-  it('fails when no username is passed, saved, or provided interactively', async () => {
+  it('fails when no username is passed or provided interactively with --no-input', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
 

@@ -1,4 +1,4 @@
-import { initializeLocalStore, loadConfig, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
+import { initializeLocalStore, saveConfig, saveCredentials, type LocalStoreOptions } from '@esl/core';
 import fs from 'node:fs/promises';
 import { isInteractive, readHidden, readText } from '../prompt.js';
 import { resolveServer } from './config.js';
@@ -38,10 +38,6 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
 async function resolveUsername(options: LoginOptions): Promise<string> {
   if (options.username) {
     return options.username;
-  }
-  const config = await loadConfig({ homeDir: options.homeDir });
-  if (config.username) {
-    return config.username;
   }
   if (options.noInput) {
     throw new Error('A username is required; pass --username or run interactively');
