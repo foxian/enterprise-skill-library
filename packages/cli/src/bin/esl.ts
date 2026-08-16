@@ -22,6 +22,7 @@ import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
+import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
@@ -60,6 +61,15 @@ export function createProgram(): Command {
     .action(async (options: { server: string; username: string; passwordFile?: string; tokenFile?: string }) => {
       await executeLogin({ ...options, noInput: program.opts().input === false });
       console.log(`Logged in as ${options.username}`);
+    });
+
+  program
+    .command('whoami')
+    .description('Show the current login and login status')
+    .addHelpText('after', example('$ esl whoami'))
+    .action(async () => {
+      const result = await executeWhoami();
+      console.log(formatWhoami(result));
     });
 
   const myAccount = program

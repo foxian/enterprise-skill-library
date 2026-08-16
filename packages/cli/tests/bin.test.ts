@@ -29,6 +29,14 @@ describe('esl program', () => {
     );
   });
 
+  it('registers the whoami command', () => {
+    const program = createProgram();
+    const whoami = program.commands.find((command) => command.name() === 'whoami');
+
+    expect(whoami).toBeDefined();
+    expect(whoami?.options.map((option) => option.long)).toEqual([]);
+  });
+
   it('registers the adapt prune option', () => {
     const program = createProgram();
     const adaptCommand = program.commands.find((command) => command.name() === 'adapt');
