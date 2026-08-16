@@ -200,6 +200,34 @@ describe('esl login', () => {
     );
   });
 
+  it('prompts for the username before the password, then validates both', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
+    const calls: string[] = [];
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice' })
+    });
+    const readUsername = vi.fn(async () => {
+      calls.push('username');
+      return 'alice';
+    });
+    const readInput = vi.fn(async () => {
+      calls.push('password');
+      return 'password123';
+    });
+
+    await executeLogin({ homeDir, readUsername, readInput, customFetch: mockFetch as any });
+
+    expect(calls).toEqual(['username', 'password']);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://saved.company.com/api/auth/login',
+      expect.objectContaining({
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
+      })
+    );
+  });
+
   it('fails when no username is passed, saved, or provided interactively', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
