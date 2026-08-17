@@ -56,6 +56,16 @@ npm exec -- esl admin user token alice
 npm exec -- esl admin user disable alice
 ```
 
+`esl admin user create alice` now generates a random initial password and prints
+it exactly once so the user can log in with `esl login`. To reset a user's
+password later, use `esl admin user set-password alice`. A Skill User can change
+their own password with `esl account change-password`.
+
+The server URL and username are optional on `esl login`: set the server once
+with `npm exec -- esl config set-server http://localhost:3000`, then `esl login`
+prompts for username and password interactively. Check the current login with
+`npm exec -- esl whoami`.
+
 Changing the ESL Administrator Account password requires an account login, not
 the Bootstrap Token:
 
