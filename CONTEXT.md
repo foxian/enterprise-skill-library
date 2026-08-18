@@ -7,8 +7,9 @@ namespace is `cnfox`.
 
 ## Local Namespace
 
-The reserved `local` namespace for skills that are local, unpublished, or not
-yet assigned a stable publishing namespace.
+The reserved `local` namespace for Skill Identities installed from a Local
+Skill Source. `@local/*` distinguishes local path sourced skills from skills
+installed from the ESL Server.
 
 ## Local Skill Source
 
