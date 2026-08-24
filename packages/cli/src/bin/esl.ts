@@ -25,6 +25,7 @@ import { executeLogin } from '../commands/login.js';
 import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
+import { executeUpload } from '../commands/upload.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
@@ -222,6 +223,17 @@ export function createProgram(): Command {
         return;
       }
       console.log(formatSkillInfo(info));
+    });
+
+  program
+    .command('upload')
+    .description('Upload a local skill as a server-hosted source')
+    .option('--directory <path>', 'skill directory', process.cwd())
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl upload --directory ./my-skill'))
+    .action(async (options: { directory: string; server?: string }) => {
+      const uploaded = await executeUpload(options);
+      console.log(`Skill source uploaded: ${uploaded.name} (${uploaded.skillId})`);
     });
 
   program

@@ -68,6 +68,95 @@ describe('Fastify Server API', () => {
     expect(body.cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
   });
 
+  it('uploads a server-hosted skill without creating a release', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+    };
+
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      payload: {
+        name: 'reviewer',
+        description: 'Shared reviewer'
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      name: '@platform-ai/reviewer',
+      status: 'active-unreleased',
+      createdBy: 'alice',
+      maintainers: ['alice'],
+      versions: []
+    });
+    expect(response.json().skillId).toMatch(/^sk_/);
+    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', true);
+  });
+
+  it('renames a skill while preserving its Skill ID and creates a redirect', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      renameRepo: vi.fn().mockResolvedValue(undefined)
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+
+    const upload = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Reviewer' }
+    });
+    const skillId = upload.json().skillId;
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/rename',
+      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      payload: { name: 'reviewer-pro' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ name: '@platform-ai/reviewer-pro', skillId });
+    expect(mockGitea.renameRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', 'reviewer-pro');
+    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' })).statusCode).toBe(301);
+  });
+
+  it('archives a skill and only a platform administrator can restore it', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateAdminUserToken: vi.fn().mockResolvedValue(null),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Reviewer' }
+    });
+
+    const archive = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/archive',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(archive.statusCode).toBe(200);
+    expect(archive.json().status).toBe('archived');
+
+    const restore = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/restore',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(restore.statusCode).toBe(403);
+  });
+
   it('exposes author-published releases for another user to discover and inspect', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockImplementation(async (token: string) => {

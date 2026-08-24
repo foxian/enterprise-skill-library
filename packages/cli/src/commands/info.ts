@@ -9,6 +9,9 @@ export interface SkillInfo {
   versions?: string[];
   gitRepoPath?: string;
   cloneUrl?: string;
+  publishedPackage?: boolean;
+  skillId?: string;
+  status?: string;
 }
 
 export async function executeInfo(name: string, options: NetworkCommandOptions = {}): Promise<SkillInfo> {

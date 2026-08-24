@@ -94,4 +94,26 @@ describe('API Server Database', () => {
     expect(new SkillRepository(migratedAgain).getSkill('@alice/debugger')?.createdBy).toBe('alice');
     migratedAgain.close();
   });
+
+  it('creates an unreleased server skill with a stable Skill ID', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+
+    const skill = repo.createServerSkill({
+      name: '@platform-ai/reviewer',
+      scope: 'platform-ai',
+      skillName: 'reviewer',
+      description: 'Shared reviewer',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'platform-ai/reviewer'
+    });
+
+    expect(skill.skillId).toMatch(/^sk_[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(skill.status).toBe('active-unreleased');
+    expect(repo.getSkillById(skill.skillId)?.name).toBe('@platform-ai/reviewer');
+    db.close();
+  });
 });

@@ -11,7 +11,8 @@ import {
   prepareSkillImport,
   removeDirectory,
   resolveLocalStorePaths,
-  validateSkillDirectory
+  validateSkillDirectory,
+  preparePublishedSkillPackage
 } from '@esl/core';
 import {
   installTargetDir,
@@ -83,6 +84,9 @@ async function installFromServer(
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
   const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? info.versions?.[0];
+  if (!version) {
+    throw new Error(`Skill ${name} has no published Skill Release; use esl source for source access`);
+  }
 
   if (options.global || !projectRoot) {
     const globalRoot = resolveLocalStorePaths(options).root;
@@ -90,17 +94,16 @@ async function installFromServer(
     await removeDirectory(targetDir);
     notify(`Cloning ${name}...`);
     await execFileAsync('git', ['-c', authHeader, 'clone', remoteUrl, targetDir]);
-    if (version) {
-      await execFileAsync('git', ['checkout', version], { cwd: targetDir });
+    await execFileAsync('git', ['checkout', version], { cwd: targetDir });
+    if (info.publishedPackage) {
+      await preparePublishedSkillPackage(targetDir, name);
     }
-    await addSkillDependency(globalRoot, name, version ? `^${version}` : '^0.0.0');
-    if (version) {
-      await addLockEntry(globalRoot, name, {
-        version,
-        resolved: remoteUrl,
-        integrity: ''
-      });
-    }
+    await addSkillDependency(globalRoot, name, `^${version}`);
+    await addLockEntry(globalRoot, name, {
+      version,
+      resolved: remoteUrl,
+      integrity: ''
+    });
     return targetDir;
   }
 
@@ -115,14 +118,15 @@ async function installFromServer(
 
     const targetDir = projectSkillsDir(projectRoot, name);
     await copySkillDirectory(cloneDir, targetDir);
-    await addSkillDependency(projectRoot, name, version ? `^${version}` : '^0.0.0');
-    if (version) {
-      await addLockEntry(projectRoot, name, {
-        version,
-        resolved: remoteUrl,
-        integrity: ''
-      });
+    if (info.publishedPackage) {
+      await preparePublishedSkillPackage(targetDir, name);
     }
+    await addSkillDependency(projectRoot, name, `^${version}`);
+    await addLockEntry(projectRoot, name, {
+      version,
+      resolved: remoteUrl,
+      integrity: ''
+    });
 
     return targetDir;
   } finally {

@@ -279,6 +279,21 @@ export class GiteaService {
     throw new Error(`Failed to get Gitea repository: ${err}`);
   }
 
+  async renameRepo(owner: string, name: string, nextName: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: nextName })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to rename Gitea repository: ${err}`);
+    }
+  }
+
   async organizationExists(owner: string): Promise<boolean> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${owner}`, {
       headers: { Authorization: `token ${this.adminToken}` }

@@ -1,6 +1,7 @@
 export const databaseSchema = `
   CREATE TABLE IF NOT EXISTS skills (
     name TEXT PRIMARY KEY,
+    skill_id TEXT UNIQUE,
     scope TEXT NOT NULL,
     skill_name TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -9,6 +10,7 @@ export const databaseSchema = `
     owner TEXT NOT NULL DEFAULT 'platform',
     maintainers_json TEXT NOT NULL DEFAULT '[]',
     visibility TEXT NOT NULL DEFAULT 'public',
+    status TEXT NOT NULL DEFAULT 'published',
     git_repo_path TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -29,6 +31,13 @@ export const databaseSchema = `
     tag TEXT NOT NULL,
     PRIMARY KEY (skill_name, tag),
     FOREIGN KEY (skill_name) REFERENCES skills(name) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS skill_identity_redirects (
+    old_name TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    current_name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS admin_users (

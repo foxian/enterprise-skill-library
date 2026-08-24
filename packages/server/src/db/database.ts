@@ -10,6 +10,8 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'created_by', "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'owner', "TEXT NOT NULL DEFAULT 'platform'");
   ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, 'skill_id', 'TEXT');
+  ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
   db.exec(`
     UPDATE skills
     SET created_by = author
@@ -27,6 +29,7 @@ function ensureColumn(db: Database.Database, column: string, definition: string)
 
 export interface SkillRecord {
   name: string;
+  skillId?: string;
   scope: string;
   skillName: string;
   description: string;
@@ -34,6 +37,7 @@ export interface SkillRecord {
   owner: string;
   maintainers: string[];
   visibility: string;
+  status?: string;
   gitRepoPath: string;
 }
 
@@ -62,10 +66,84 @@ export class SkillRepository {
     );
   }
 
+  createServerSkill(skill: SkillRecord): SkillRecord {
+    const skillId = skill.skillId ?? createSkillId();
+    const status = skill.status ?? 'active-unreleased';
+    const stmt = this.db.prepare(`
+      INSERT INTO skills (
+        name, skill_id, scope, skill_name, description, author, created_by,
+        owner, maintainers_json, visibility, status, git_repo_path
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      skill.name,
+      skillId,
+      skill.scope,
+      skill.skillName,
+      skill.description,
+      skill.createdBy,
+      skill.createdBy,
+      skill.owner,
+      JSON.stringify(skill.maintainers),
+      skill.visibility,
+      status,
+      skill.gitRepoPath
+    );
+    return this.getSkill(skill.name)!;
+  }
+
+  markPublished(name: string): void {
+    this.db.prepare(`
+      UPDATE skills
+      SET status = 'active-published',
+          skill_id = COALESCE(skill_id, ?),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE name = ?
+    `).run(createSkillId(), name);
+  }
+
+  archiveSkill(name: string): void {
+    this.db.prepare(`UPDATE skills SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
+  }
+
+  restoreSkill(name: string): void {
+    this.db.prepare(`UPDATE skills SET status = 'active-unreleased', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
+  }
+
+  renameSkill(currentName: string, nextName: string, nextSkillName: string): SkillRecord {
+    const skill = this.getSkill(currentName);
+    if (!skill?.skillId) throw new Error('Skill cannot be renamed without a Skill ID');
+    if (this.getSkill(nextName)) throw new Error('Skill name already exists');
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`UPDATE skill_versions SET skill_name = ? WHERE skill_name = ?`).run(nextName, currentName);
+      this.db.prepare(`
+        UPDATE skills
+        SET name = ?, scope = ?, skill_name = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE name = ?
+      `).run(nextName, skill.scope, nextSkillName, currentName);
+      this.db.prepare(`
+        INSERT INTO skill_identity_redirects (old_name, skill_id, current_name)
+        VALUES (?, ?, ?)
+      `).run(currentName, skill.skillId, nextName);
+    });
+    transaction();
+    return this.getSkill(nextName)!;
+  }
+
+  resolveRedirect(name: string): { skillId: string; currentName: string } | undefined {
+    return this.db.prepare(`
+      SELECT skill_id AS skillId, current_name AS currentName
+      FROM skill_identity_redirects
+      WHERE old_name = ?
+    `).get(name) as { skillId: string; currentName: string } | undefined;
+  }
+
   getSkill(name: string): SkillRecord | undefined {
     const stmt = this.db.prepare(`
       SELECT
         name,
+        skill_id AS skillId,
         scope,
         skill_name AS skillName,
         description,
@@ -73,11 +151,33 @@ export class SkillRepository {
         owner,
         maintainers_json AS maintainersJson,
         visibility,
+        status,
         git_repo_path AS gitRepoPath
       FROM skills
       WHERE name = ?
     `);
     const row = stmt.get(name) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string }) | undefined;
+    return row ? deserializeSkill(row) : undefined;
+  }
+
+  getSkillById(skillId: string): SkillRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT
+        name,
+        skill_id AS skillId,
+        scope,
+        skill_name AS skillName,
+        description,
+        created_by AS createdBy,
+        owner,
+        maintainers_json AS maintainersJson,
+        visibility,
+        status,
+        git_repo_path AS gitRepoPath
+      FROM skills
+      WHERE skill_id = ?
+    `);
+    const row = stmt.get(skillId) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string }) | undefined;
     return row ? deserializeSkill(row) : undefined;
   }
 
@@ -112,7 +212,8 @@ export class SkillRepository {
         visibility,
         git_repo_path AS gitRepoPath
       FROM skills
-      WHERE name LIKE ? OR description LIKE ?
+      WHERE (name LIKE ? OR description LIKE ?)
+        AND (status IS NULL OR status = 'published' OR status = 'active-published')
     `);
     const term = `%${query}%`;
     return (stmt.all(term, term) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
@@ -271,7 +372,7 @@ function hashSecret(secret: string): string {
 function deserializeSkill(
   row: Omit<SkillRecord, 'maintainers'> & { maintainersJson: string }
 ): SkillRecord {
-  return {
+  const skill: SkillRecord = {
     name: row.name,
     scope: row.scope,
     skillName: row.skillName,
@@ -282,4 +383,13 @@ function deserializeSkill(
     visibility: row.visibility,
     gitRepoPath: row.gitRepoPath
   };
+  if (row.skillId) skill.skillId = row.skillId;
+  if (row.skillId && row.status) skill.status = row.status;
+  return skill;
+}
+
+function createSkillId(): string {
+  const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  const bytes = crypto.randomBytes(26);
+  return `sk_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')}`;
 }

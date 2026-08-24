@@ -2,8 +2,86 @@
 
 ## Namespace
 
-The stable namespace portion of a skill identity. In `@cnfox/code-review`, the
-namespace is `cnfox`.
+服务器托管技能身份中的稳定平台组织名。在
+`@platform-ai/code-review` 中，Namespace 是 `platform-ai`。
+
+## Skill Source Lifecycle
+
+## Skill ID
+
+服务器为服务器托管技能生成的不可变标识。Owner、公开名称或 Git 仓库地址变化
+时，仍以它作为查找键。它在首次 Source Upload 时生成，即使技能尚未产生
+Skill Release 也一直存在。其格式为带 `sk_` 前缀的 ULID。
+
+## Skill Rename
+
+平台管理员或 Owner 对 Server-hosted Skill Identity 执行的显式改名操作。
+Skill ID 保持不变，旧 Identity 永久重定向到新 Identity。普通 Git push
+不得直接改变 `SKILL.md.name` 或技能身份；名称变更必须经过该流程。使用旧
+Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release 时仍允许
+安装旧包。旧 Identity 永久保留且不得被其他技能复用。
+
+## Skill Update Migration
+
+已安装技能因 Skill Rename 而产生新 Identity 时，`update` 基于同一个 Skill ID
+自动迁移本地安装目录、依赖键、锁文件和适配输出的操作。固定旧 Release 的
+安装不受影响。
+
+## Server-hosted Skill Source
+
+技能上传至 ESL Server 的 Platform Organization 后形成的协作维护源码仓库。
+它独立于 Skill Release 存在；上传时其 `skill.json` 中的 Skill Identity
+会被规范化为 Platform Organization 的 Namespace。
+
+## Source Upload
+
+从本地技能首次创建 Server-hosted Skill Source 的操作。它创建 Skill ID 和
+服务器 Git 仓库，不用于覆盖已存在的服务器源码。
+
+## Source Update
+
+Maintainer 将对 Server-hosted Skill Source 的后续 Git 提交推送到服务器的
+操作。它不创建 Skill Release。
+
+## Source Checkout
+
+通过 `source` 获取 Server-hosted Skill Source 的操作，默认检出当前 `main`
+分支；需要复现历史内容时必须显式指定 Git ref 或 Skill Release。
+
+## Source Remote
+
+本地技能仓库指向 ESL Server 源码仓库的独立 Git remote，名称为 `esl`；首次
+Source Upload 不覆盖用户已有的 `origin`。
+
+## Active Unreleased Skill Source
+
+已上传但尚未产生 Skill Release、仍可由 Maintainer 协作维护的
+Server-hosted Skill Source。它可以被授权用户下载源码，但不能作为技能安装。
+首次上传由已登录 Skill User 发起，上传者自动成为初始 Maintainer。
+
+## Archived Skill
+
+被明确停用或废弃的 Server-hosted Skill。它不再接受源码修改或新的
+Skill Release；其 Skill ID、Git 历史、历史 Skill Release、Published Skill
+Package、安装记录和名称重定向仍然保留。初期不允许物理删除；未来如需清理，
+必须通过带审计、备份和恢复窗口的受控治理流程。恢复 Archived Skill 仅允许
+ESL Platform Administrator 执行。
+
+## Unreleased Skill Source
+
+尚未产生任何 Skill Release 的 Server-hosted Skill Source。经授权的 Skill User
+可以下载和修改其源码，但不能将它作为技能安装。
+
+## Published Skill Package
+
+发布 Skill Release 时生成的、不可变且带 Namespace 的安装产物。远程安装消费
+该产物，而非源码仓库；它绑定产生该 Release 的源码 commit，发布后不可覆盖或
+删除。
+
+## Platform Organization
+
+ESL 初始化时配置的唯一组织。它是全部 Skill User 的共享源码仓库空间，并为
+每个 Server-hosted Skill Identity 提供 Namespace；正常运行期间不得变更。
 
 ## Local Namespace
 
@@ -23,7 +101,10 @@ The full stable skill name in the form `@namespace/skill-name`.
 ## Skill Release
 
 A specific published version of a Skill Identity that can be discovered,
-installed, updated to, or used by a Skill User.
+installed, updated to, or used by a Skill User. It is created from a specific
+source commit of a Server-hosted Skill Source. Published Skill Source may
+continue to change, but only a new Skill Release can affect installation or
+update.
 _Avoid_: version when referring to the installable skill artifact.
 
 ## Adapted Skill Directory Name
@@ -56,12 +137,13 @@ The current business owner or platform owner of the skill.
 
 ## Maintainers
 
-The users or teams allowed to maintain or publish the skill.
+允许修改 Server-hosted Skill Source 并发布 Skill Release 的用户或团队。
 
 ## ESL Platform Administrator
 
 The person or automation identity allowed to manage ESL platform users,
 permissions, and foundational skill library configuration.
+它对失联、停用或无人维护的技能拥有治理兜底权。
 
 ## ESL Administrator Account
 

@@ -11,6 +11,7 @@ export * from './commands/info.js';
 export * from './commands/install.js';
 export * from './commands/login.js';
 export * from './commands/publish.js';
+export * from './commands/upload.js';
 export * from './commands/search.js';
 export * from './commands/update.js';
 export * from './commands/uninstall.js';
