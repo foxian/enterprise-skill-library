@@ -4,9 +4,11 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import type { GiteaService } from './services/gitea.js';
+import path from 'node:path';
 
 export interface AppOptions {
   dbPath: string;
+  packageRoot?: string;
   giteaService: GiteaService;
   repoOwner: string;
   bootstrapAdminToken?: string;
@@ -32,7 +34,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repository,
     adminRepository,
     giteaService: options.giteaService,
-    repoOwner: options.repoOwner
+    repoOwner: options.repoOwner,
+    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
   });
   app.addHook('onClose', () => db.close());
 

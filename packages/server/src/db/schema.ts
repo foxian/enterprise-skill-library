@@ -40,6 +40,22 @@ export const databaseSchema = `
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS skill_releases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_id TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    source_commit TEXT NOT NULL,
+    package_path TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    release_manifest_json TEXT NOT NULL,
+    dependency_lock_json TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(skill_id, version),
+    FOREIGN KEY (skill_name) REFERENCES skills(name) ON DELETE RESTRICT
+  );
+
   CREATE TABLE IF NOT EXISTS admin_users (
     username TEXT PRIMARY KEY,
     disabled INTEGER NOT NULL DEFAULT 0,

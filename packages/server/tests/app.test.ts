@@ -127,6 +127,71 @@ describe('Fastify Server API', () => {
     expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' })).statusCode).toBe(301);
   });
 
+  it('rejects a rename that would reuse an existing skill identity before touching Gitea', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createOrganizationRepo: vi.fn()
+        .mockResolvedValueOnce({ full_name: 'platform-ai/reviewer' })
+        .mockResolvedValueOnce({ full_name: 'platform-ai/other' }),
+      renameRepo: vi.fn().mockResolvedValue(undefined),
+      updateSkillName: vi.fn().mockResolvedValue(undefined)
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    for (const name of ['reviewer', 'other']) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/skills/upload',
+        headers: { authorization: 'token alice-token' },
+        payload: { name, description: name }
+      });
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/rename',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'other' }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain('already exists');
+    expect(mockGitea.updateSkillName).not.toHaveBeenCalled();
+    expect(mockGitea.renameRepo).not.toHaveBeenCalled();
+  });
+
+  it('attempts to roll back source metadata when repository rename fails', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      updateSkillName: vi.fn().mockResolvedValue(undefined),
+      renameRepo: vi.fn().mockRejectedValue(new Error('backend unavailable'))
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Reviewer' }
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/rename',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer-pro' }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ retryable: true });
+    expect(mockGitea.updateSkillName).toHaveBeenNthCalledWith(
+      2,
+      'platform-ai',
+      'reviewer-pro',
+      'reviewer'
+    );
+    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' })).statusCode).toBe(200);
+  });
+
   it('archives a skill and only a platform administrator can restore it', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),

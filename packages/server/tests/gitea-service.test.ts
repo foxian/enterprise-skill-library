@@ -2,6 +2,76 @@ import { describe, expect, it, vi } from 'vitest';
 import { GiteaService } from '../src/services/gitea.js';
 
 describe('GiteaService', () => {
+  it('grants a maintainer write access to a repository', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.addRepositoryCollaborator('platform-ai', 'reviewer', 'alice', 'write');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://gitea:3000/api/v1/repos/platform-ai/reviewer/collaborators/alice',
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: 'token admin-token',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ permission: 'write' })
+      }
+    );
+  });
+
+  it('updates repository archived state', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.setRepositoryArchived('platform-ai', 'reviewer', true);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://gitea:3000/api/v1/repos/platform-ai/reviewer',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ archived: true })
+      })
+    );
+  });
+
+  it('resolves an annotated release tag to its commit target', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: 'v1.0.0',
+          object: { sha: 'tag-object', type: 'tag' }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ object: { sha: 'abc123' } })
+      });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.getReleaseTag('platform-ai', 'reviewer', 'v1.0.0')).resolves.toEqual({
+      name: 'v1.0.0',
+      target: 'abc123'
+    });
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      'http://gitea:3000/api/v1/repos/platform-ai/reviewer/git/tags/tag-object',
+      { headers: { Authorization: 'token admin-token' } }
+    );
+  });
+
+  it('does not hide a conflicting tag creation response', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 409, text: async () => 'conflict' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(
+      gitea.createReleaseTag('platform-ai', 'reviewer', 'v1.0.0', 'abc123', 'Release')
+    ).rejects.toThrow('Failed to create Gitea release tag');
+  });
+
   it('validates user token via Gitea API', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

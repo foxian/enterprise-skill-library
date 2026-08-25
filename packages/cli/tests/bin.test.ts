@@ -116,6 +116,14 @@ describe('esl program', () => {
     expect(program.options.map((option) => option.long)).toContain('--no-input');
   });
 
+  it('registers the release tag repair command', () => {
+    const program = createProgram();
+    const repairTag = program.commands.find((command) => command.name() === 'repair-tag');
+
+    expect(repairTag).toBeDefined();
+    expect(repairTag?.options.map((option) => option.long)).toContain('--server');
+  });
+
   it('formats errors as a single line without a stack trace', () => {
     const error = new Error('boom');
     error.stack = 'Error: boom\n    at foo (file.ts:1:1)';

@@ -2,6 +2,8 @@ export const VERSION = '0.1.0';
 
 export * from './adapt/index.js';
 export * from './schema/skill-json.js';
+export * from './schema/release-manifest.js';
+export * from './schema/compatibility.js';
 export * from './schema/validation-result.js';
 export * from './skill/directory-validator.js';
 export * from './skill/import-skill.js';

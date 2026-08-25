@@ -26,6 +26,8 @@ import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeUpload } from '../commands/upload.js';
+import { executeRename } from '../commands/rename.js';
+import { executeRepairTag } from '../commands/repair-tag.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
@@ -237,14 +239,39 @@ export function createProgram(): Command {
     });
 
   program
+    .command('rename')
+    .description('Rename a server-hosted skill')
+    .argument('<skill-name>')
+    .argument('<new-name>')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl rename @platform-ai/reviewer reviewer-pro'))
+    .action(async (identity: string, newName: string, options: { server?: string }) => {
+      const renamed = await executeRename(identity, { ...options, newName });
+      console.log(`Skill renamed: ${(renamed as { name?: string }).name ?? newName}`);
+    });
+
+  program
+    .command('repair-tag')
+    .description('Repair a missing release tag')
+    .argument('<skill-name>')
+    .argument('<version>')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl repair-tag @platform-ai/reviewer 1.0.0'))
+    .action(async (identity: string, version: string, options: { server?: string }) => {
+      const repaired = await executeRepairTag(identity, { ...options, version });
+      console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${version}`}`);
+    });
+
+  program
     .command('publish')
+    .argument('[version]', 'Skill Release SemVer for release.json sources')
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('-f, --force', 'publish without confirmation')
     .addHelpText('after', example('$ esl publish'))
-    .action(async (options: { directory: string; server?: string; visibility?: string; force?: boolean }) => {
-      await executePublish({ ...options, noInput: program.opts().input === false });
+    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; force?: boolean }) => {
+      await executePublish({ ...options, version, noInput: program.opts().input === false });
       console.log('Skill published');
     });
 
@@ -268,10 +295,11 @@ export function createProgram(): Command {
     .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
     .option('--version <version>', 'version to install')
     .option('--global', 'Install to global skills directory')
+    .option('--ignore-compatibility', 'Install incompatible published packages')
     .option('--no-adapt', 'Skip automatic adapt after install')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl install @cnfox/code-review'))
-    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; server?: string }) => {
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
       if (!nameOrPath) {
         console.log('Restoring skills from .skills.json...');
         return;

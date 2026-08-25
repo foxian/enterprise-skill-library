@@ -12,6 +12,19 @@ export interface GiteaRepo {
   html_url: string;
 }
 
+export interface GiteaContentEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  content?: string;
+  encoding?: string;
+}
+
+export interface GiteaTag {
+  name: string;
+  target: string;
+}
+
 export class GiteaService {
   constructor(
     private baseUrl: string,
@@ -291,6 +304,170 @@ export class GiteaService {
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`Failed to rename Gitea repository: ${err}`);
+    }
+  }
+
+  async addRepositoryCollaborator(
+    owner: string,
+    repository: string,
+    username: string,
+    permission: 'read' | 'write' | 'admin' = 'write'
+  ): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `token ${this.adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ permission })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to configure Gitea repository collaborator: ${err}`);
+    }
+  }
+
+  async setRepositoryArchived(owner: string, repository: string, archived: boolean): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ archived })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to update Gitea repository archive state: ${err}`);
+    }
+  }
+
+  async createReleaseTag(
+    owner: string,
+    repository: string,
+    tag: string,
+    target: string,
+    message: string
+  ): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/tags`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ tag_name: tag, target, message })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea release tag: ${err}`);
+    }
+  }
+
+  async getReleaseTag(owner: string, repository: string, tag: string): Promise<GiteaTag | null> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/refs/tags/${encodeURIComponent(tag)}`,
+      { headers: { Authorization: `token ${this.adminToken}` } }
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to get Gitea release tag: ${err}`);
+    }
+
+    const body = (await res.json()) as {
+      ref?: string;
+      object?: { sha?: string; type?: string };
+      name?: string;
+    };
+    if (body.object?.type === 'tag' && body.object.sha) {
+      const tagObject = await this.customFetch(
+        `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/tags/${encodeURIComponent(body.object.sha)}`,
+        { headers: { Authorization: `token ${this.adminToken}` } }
+      );
+      if (!tagObject.ok) {
+        const err = await tagObject.text();
+        throw new Error(`Failed to get Gitea annotated release tag: ${err}`);
+      }
+      const tagBody = (await tagObject.json()) as { object?: { sha?: string } };
+      return {
+        name: body.name ?? tag,
+        target: tagBody.object?.sha ?? ''
+      };
+    }
+    return {
+      name: body.name ?? tag,
+      target: body.object?.sha ?? body.ref?.replace(/^refs\/tags\//, '') ?? ''
+    };
+  }
+
+  async readSourceTree(owner: string, repository: string, ref: string): Promise<Record<string, string>> {
+    const files: Record<string, string> = {};
+    const visit = async (directory: string): Promise<void> => {
+      const suffix = directory ? `/${directory}` : '';
+      const response = await this.customFetch(
+        `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents${suffix}?ref=${encodeURIComponent(ref)}`,
+        { headers: { Authorization: `token ${this.adminToken}` } }
+      );
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to read source commit: ${error}`);
+      }
+      const entries = (await response.json()) as GiteaContentEntry[];
+      for (const entry of entries) {
+        if (entry.type === 'dir') {
+          await visit(entry.path);
+        } else {
+          const content = entry.content ?? '';
+          files[entry.path] = entry.encoding === 'base64'
+            ? Buffer.from(content.replace(/\s/g, ''), 'base64').toString('utf8')
+            : content;
+        }
+      }
+    };
+    await visit('');
+    return files;
+  }
+
+  async updateSkillName(owner: string, repository: string, shortName: string): Promise<void> {
+    const url = `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/SKILL.md?ref=main`;
+    const read = await this.customFetch(url, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+    if (!read.ok) {
+      const error = await read.text();
+      throw new Error(`Failed to read SKILL.md for rename: ${error}`);
+    }
+    const file = (await read.json()) as { content: string; sha: string; encoding?: string };
+    const source = file.encoding === 'base64'
+      ? Buffer.from(file.content.replace(/\s/g, ''), 'base64').toString('utf8')
+      : file.content;
+    const updated = source.replace(
+      /^(---\r?\n)([\s\S]*?)(\r?\n---)/,
+      (_match, open: string, frontmatter: string, close: string) =>
+        `${open}${frontmatter.replace(/(^name:\s*)[^\r\n]+/m, `$1${shortName}`)}${close}`
+    );
+    const write = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/SKILL.md`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `token ${this.adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          branch: 'main',
+          message: `Rename skill to ${shortName}`,
+          sha: file.sha,
+          content: Buffer.from(updated, 'utf8').toString('base64')
+        })
+      }
+    );
+    if (!write.ok) {
+      const error = await write.text();
+      throw new Error(`Failed to update SKILL.md for rename: ${error}`);
     }
   }
 

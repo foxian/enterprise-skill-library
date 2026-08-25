@@ -41,6 +41,18 @@ export interface SkillRecord {
   gitRepoPath: string;
 }
 
+export interface SkillReleaseRecord {
+  skillId: string;
+  skillName: string;
+  version: string;
+  sourceCommit: string;
+  packagePath: string;
+  checksum: string;
+  releaseManifest: unknown;
+  dependencyLock: unknown;
+  createdBy: string;
+}
+
 export class SkillRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -111,7 +123,7 @@ export class SkillRepository {
     this.db.prepare(`UPDATE skills SET status = 'active-unreleased', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
   }
 
-  renameSkill(currentName: string, nextName: string, nextSkillName: string): SkillRecord {
+  renameSkill(currentName: string, nextName: string, nextSkillName: string, nextGitRepoPath?: string): SkillRecord {
     const skill = this.getSkill(currentName);
     if (!skill?.skillId) throw new Error('Skill cannot be renamed without a Skill ID');
     if (this.getSkill(nextName)) throw new Error('Skill name already exists');
@@ -119,9 +131,9 @@ export class SkillRepository {
       this.db.prepare(`UPDATE skill_versions SET skill_name = ? WHERE skill_name = ?`).run(nextName, currentName);
       this.db.prepare(`
         UPDATE skills
-        SET name = ?, scope = ?, skill_name = ?, updated_at = CURRENT_TIMESTAMP
+        SET name = ?, scope = ?, skill_name = ?, git_repo_path = COALESCE(?, git_repo_path), updated_at = CURRENT_TIMESTAMP
         WHERE name = ?
-      `).run(nextName, skill.scope, nextSkillName, currentName);
+      `).run(nextName, skill.scope, nextSkillName, nextGitRepoPath ?? null, currentName);
       this.db.prepare(`
         INSERT INTO skill_identity_redirects (old_name, skill_id, current_name)
         VALUES (?, ?, ?)
@@ -218,6 +230,78 @@ export class SkillRepository {
     const term = `%${query}%`;
     return (stmt.all(term, term) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
       .map(deserializeSkill);
+  }
+
+  createRelease(release: SkillReleaseRecord): SkillReleaseRecord {
+    this.db.prepare(`
+      INSERT INTO skill_releases (
+        skill_id, skill_name, version, source_commit, package_path, checksum,
+        release_manifest_json, dependency_lock_json, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      release.skillId,
+      release.skillName,
+      release.version,
+      release.sourceCommit,
+      release.packagePath,
+      release.checksum,
+      JSON.stringify(release.releaseManifest),
+      JSON.stringify(release.dependencyLock),
+      release.createdBy
+    );
+    return this.getRelease(release.skillName, release.version)!;
+  }
+
+  getRelease(skillName: string, version: string): SkillReleaseRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT
+        skill_id AS skillId,
+        skill_name AS skillName,
+        version,
+        source_commit AS sourceCommit,
+        package_path AS packagePath,
+        checksum,
+        release_manifest_json AS releaseManifestJson,
+        dependency_lock_json AS dependencyLockJson,
+        created_by AS createdBy
+      FROM skill_releases
+      WHERE skill_name = ? AND version = ?
+    `).get(skillName, version) as ({
+      releaseManifestJson: string;
+      dependencyLockJson: string;
+    } & Omit<SkillReleaseRecord, 'releaseManifest' | 'dependencyLock'>) | undefined;
+    if (!row) return undefined;
+    return {
+      ...row,
+      releaseManifest: JSON.parse(row.releaseManifestJson),
+      dependencyLock: JSON.parse(row.dependencyLockJson)
+    };
+  }
+
+  getReleases(skillName: string): SkillReleaseRecord[] {
+    const rows = this.db.prepare(`
+      SELECT
+        skill_id AS skillId,
+        skill_name AS skillName,
+        version,
+        source_commit AS sourceCommit,
+        package_path AS packagePath,
+        checksum,
+        release_manifest_json AS releaseManifestJson,
+        dependency_lock_json AS dependencyLockJson,
+        created_by AS createdBy
+      FROM skill_releases
+      WHERE skill_name = ?
+      ORDER BY id DESC
+    `).all(skillName) as ({
+      releaseManifestJson: string;
+      dependencyLockJson: string;
+    } & Omit<SkillReleaseRecord, 'releaseManifest' | 'dependencyLock'>)[];
+    return rows.map((row) => ({
+      ...row,
+      releaseManifest: JSON.parse(row.releaseManifestJson),
+      dependencyLock: JSON.parse(row.dependencyLockJson)
+    }));
   }
 }
 

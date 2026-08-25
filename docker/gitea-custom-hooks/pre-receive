@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+repo_name="$(basename "$(pwd)")"
+repo_name="${repo_name%.git}"
+expected_short_name="$repo_name"
+case "$repo_name" in
+  *_*)
+    expected_short_name="${repo_name#*_}"
+    ;;
+esac
+
+while read -r oldrev newrev refname; do
+  case "$newrev" in
+    0000000000000000000000000000000000000000)
+      continue
+      ;;
+  esac
+
+  if ! skill_md="$(git show "${newrev}:SKILL.md" 2>/dev/null)"; then
+    echo "SKILL.md is required for ESL managed repositories" >&2
+    exit 1
+  fi
+
+  actual_short_name="$(
+    printf '%s\n' "$skill_md" | awk '
+      BEGIN { in_frontmatter = 0 }
+      /^---[[:space:]]*$/ {
+        if (in_frontmatter == 0) {
+          in_frontmatter = 1
+          next
+        }
+        exit
+      }
+      in_frontmatter && /^name:[[:space:]]*/ {
+        sub(/^name:[[:space:]]*/, "")
+        print
+        exit
+      }
+    '
+  )"
+
+  if [ -z "$actual_short_name" ]; then
+    echo "SKILL.md.name is required; use the explicit rename flow" >&2
+    exit 1
+  fi
+
+  if [ "$actual_short_name" != "$expected_short_name" ]; then
+    echo "SKILL.md.name must remain '$expected_short_name'; use esl rename instead" >&2
+    exit 1
+  fi
+done

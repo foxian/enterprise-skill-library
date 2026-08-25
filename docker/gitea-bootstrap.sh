@@ -26,6 +26,9 @@ until wget -q -O /dev/null "$GITEA_URL/api/v1/version"; do
 done
 
 mkdir -p "$(dirname "$GITEA_ADMIN_TOKEN_FILE")"
+if [ -d /data/gitea/custom/hooks ]; then
+  chmod -R +x /data/gitea/custom/hooks
+fi
 
 if ! su-exec git gitea admin user list --admin | awk '{print $2}' | grep -Fxq "$GITEA_ADMIN_USERNAME"; then
   su-exec git gitea admin user create \

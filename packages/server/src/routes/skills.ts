@@ -1,5 +1,9 @@
-import { parseSkillName } from '@esl/core';
+import { parseSkillName, validateReleaseManifest } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import semver from 'semver';
 import type { AdminRepository, SkillRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 
@@ -8,10 +12,12 @@ export interface SkillsRouteOptions {
   adminRepository?: AdminRepository;
   giteaService: GiteaService;
   repoOwner: string;
+  packageRoot?: string;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
   const { repository, adminRepository, giteaService, repoOwner } = options;
+  const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
   app.post('/api/skills/upload', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
@@ -34,6 +40,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     const gitRepo = await giteaService.createOrganizationRepo(repoOwner, shortName, true);
+    if (typeof giteaService.addRepositoryCollaborator === 'function') {
+      await giteaService.addRepositoryCollaborator(repoOwner, shortName, user.username, 'write');
+    }
     const skill = repository.createServerSkill({
       name,
       scope: repoOwner,
@@ -113,9 +122,251 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
     }
     const nextName = `@${repoOwner}/${nextShortName}`;
-    await giteaService.renameRepo(repoOwner, skill.skillName, nextShortName);
-    const renamed = repository.renameSkill(currentName, nextName, nextShortName);
-    return reply.send(withCloneUrl(request, { ...renamed, versions: repository.getVersions(nextName) }));
+    if (repository.getSkill(nextName)) {
+      return reply.status(409).send({ error: 'Skill name already exists' });
+    }
+    let metadataUpdated = false;
+    let repoRenamed = false;
+    try {
+      if (typeof giteaService.updateSkillName === 'function') {
+        await giteaService.updateSkillName(repoOwner, skill.skillName, nextShortName);
+        metadataUpdated = true;
+      }
+      await giteaService.renameRepo(repoOwner, skill.skillName, nextShortName);
+      repoRenamed = true;
+      const renamed = repository.renameSkill(
+        currentName,
+        nextName,
+        nextShortName,
+        `${repoOwner}/${nextShortName}`
+      );
+      return reply.send(withCloneUrl(request, { ...renamed, versions: repository.getVersions(nextName) }));
+    } catch (error) {
+      if (repoRenamed) {
+        try {
+          await giteaService.renameRepo(repoOwner, nextShortName, skill.skillName);
+        } catch {
+        }
+      }
+      if (metadataUpdated && typeof giteaService.updateSkillName === 'function') {
+        try {
+          await giteaService.updateSkillName(repoOwner, nextShortName, skill.skillName);
+        } catch {
+        }
+      }
+      return reply.status(409).send({
+        error: `Skill rename failed; rollback attempted: ${(error as Error).message}`,
+        retryable: true
+      });
+    }
+  });
+
+  app.post('/api/skills/:scope/:skillName/releases', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill || !skill.maintainers.includes(user.username)) {
+      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    }
+    if (skill.status === 'archived') {
+      return reply.status(409).send({ error: 'Archived skills cannot create releases' });
+    }
+
+    const body = request.body as {
+      version?: string;
+      sourceCommit?: string;
+      releaseManifest?: unknown;
+      files?: Record<string, string>;
+    };
+    if (!body.version || !semver.valid(body.version)) {
+      return reply.status(400).send({ error: 'Release version must be valid SemVer' });
+    }
+    if (!body.sourceCommit) {
+      return reply.status(400).send({ error: 'sourceCommit is required' });
+    }
+    const sourceFiles = typeof giteaService.readSourceTree === 'function'
+      ? await giteaService.readSourceTree(repoOwner, skill.skillName, body.sourceCommit)
+      : body.files ?? {};
+    let sourceManifest: unknown = body.releaseManifest;
+    if (sourceFiles['release.json']) {
+      try {
+        sourceManifest = JSON.parse(sourceFiles['release.json']);
+      } catch {
+        return reply.status(400).send({ error: 'release.json is not valid JSON' });
+      }
+    }
+    const manifest = validateReleaseManifest(sourceManifest);
+    if (!manifest.success) {
+      return reply.status(400).send({ error: manifest.errors.join(', ') });
+    }
+    if (!skill.skillId) {
+      return reply.status(409).send({ error: 'Skill has no Skill ID' });
+    }
+    if (repository.getRelease(name, body.version)) {
+      return reply.status(409).send({ error: `Skill Release ${body.version} already exists` });
+    }
+    const releaseTag = `v${body.version}`;
+    let existingReleaseTag: { target: string } | null = null;
+    if (typeof giteaService.getReleaseTag === 'function') {
+      existingReleaseTag = await giteaService.getReleaseTag(repoOwner, skill.skillName, releaseTag);
+      if (existingReleaseTag && existingReleaseTag.target !== body.sourceCommit) {
+        return reply.status(409).send({
+          error: `Release Tag ${releaseTag} points to ${existingReleaseTag.target}, expected ${body.sourceCommit}`
+        });
+      }
+    }
+
+    let dependencyLock: Record<string, unknown>;
+    try {
+      dependencyLock = resolveDependencyLock(repository, name, manifest.data.dependencies);
+    } catch (error) {
+      return reply.status(409).send({ error: (error as Error).message });
+    }
+
+    const publishedFiles = { ...sourceFiles };
+    if (publishedFiles['SKILL.md']) {
+      publishedFiles['SKILL.md'] = publishedFiles['SKILL.md'].replace(
+        /^(---\r?\n)([\s\S]*?)(\r?\n---)/,
+        (_match, open: string, frontmatter: string, close: string) =>
+          `${open}${frontmatter.replace(/(^name:\s*)[^\r\n]+/m, `$1${skill.scope}:${skill.skillName}`)}${close}`
+      );
+    }
+    const contentChecksum = `sha256-${crypto.createHash('sha256')
+      .update(JSON.stringify(publishedFiles))
+      .digest('hex')}`;
+    publishedFiles['skill.json'] = `${JSON.stringify({
+      name,
+      version: body.version,
+      skillId: skill.skillId,
+      sourceCommit: body.sourceCommit,
+      contentChecksum,
+      ...manifest.data
+    }, null, 2)}\n`;
+    const packageManifest = {
+      name,
+      skillId: skill.skillId,
+      version: body.version,
+      sourceCommit: body.sourceCommit,
+      releaseManifest: manifest.data,
+      dependencyLock,
+      files: publishedFiles
+    };
+    const bytes = Buffer.from(JSON.stringify(packageManifest, null, 2));
+    const checksum = `sha256-${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+    const packagePath = path.join(packageRoot, skill.skillId, body.version, `${checksum}.json`);
+    await fs.mkdir(path.dirname(packagePath), { recursive: true });
+    await fs.writeFile(packagePath, bytes, { flag: 'wx' });
+
+    let release;
+    try {
+      release = repository.createRelease({
+        skillId: skill.skillId,
+        skillName: name,
+        version: body.version,
+        sourceCommit: body.sourceCommit,
+        packagePath,
+        checksum,
+        releaseManifest: manifest.data,
+        dependencyLock,
+        createdBy: user.username
+      });
+    } catch (error) {
+      await fs.rm(packagePath, { force: true });
+      if (String(error).toLowerCase().includes('unique')) {
+        return reply.status(409).send({ error: `Skill Release ${body.version} already exists` });
+      }
+      throw error;
+    }
+    let tagPending = false;
+    if (typeof giteaService.createReleaseTag === 'function' && !existingReleaseTag) {
+      try {
+        await giteaService.createReleaseTag(
+          repoOwner,
+          skill.skillName,
+          releaseTag,
+          body.sourceCommit,
+          `Release ${name} ${body.version}`
+        );
+      } catch {
+        tagPending = true;
+      }
+    }
+    repository.addVersion(name, body.version);
+    if (skill.status !== 'active-published') repository.markPublished(name);
+    return reply.status(201).send({
+      ...release,
+      status: 'published',
+      tagPending,
+      packageUrl: `/api/packages/${skill.skillId}/${body.version}/${checksum}.json`
+    });
+  });
+
+  app.post('/api/skills/:scope/:skillName/releases/:version/repair-tag', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string; version: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill || !skill.maintainers.includes(user.username)) {
+      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    }
+    const release = repository.getRelease(name, decodeURIComponent(params.version));
+    if (!release) {
+      return reply.status(404).send({ error: 'Skill Release not found' });
+    }
+    if (typeof giteaService.getReleaseTag !== 'function') {
+      return reply.status(501).send({ error: 'Release Tag repair is not supported by the Git backend' });
+    }
+
+    const tag = `v${release.version}`;
+    const existing = await giteaService.getReleaseTag(repoOwner, skill.skillName, tag);
+    if (existing) {
+      if (existing.target !== release.sourceCommit) {
+        return reply.status(409).send({
+          error: `Release Tag ${tag} points to ${existing.target}, expected ${release.sourceCommit}`
+        });
+      }
+      return reply.send({
+        repaired: false,
+        tag,
+        sourceCommit: release.sourceCommit
+      });
+    }
+
+    try {
+      await giteaService.createReleaseTag(
+        repoOwner,
+        skill.skillName,
+        tag,
+        release.sourceCommit,
+        `Release ${name} ${release.version}`
+      );
+    } catch (error) {
+      return reply.status(409).send({ error: (error as Error).message });
+    }
+    return reply.send({
+      repaired: true,
+      tag,
+      sourceCommit: release.sourceCommit
+    });
+  });
+
+  app.get('/api/packages/:skillId/:version/:checksum', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const params = request.params as { skillId: string; version: string; checksum: string };
+    if (![params.skillId, params.version, params.checksum].every((value) => /^[A-Za-z0-9._-]+$/.test(value))) {
+      return reply.status(400).send({ error: 'Invalid Published Skill Package path' });
+    }
+    const packagePath = path.join(packageRoot, params.skillId, params.version, params.checksum);
+    try {
+      const bytes = await fs.readFile(packagePath);
+      return reply.type('application/json').send(bytes);
+    } catch {
+      return reply.status(404).send({ error: 'Published Skill Package not found' });
+    }
   });
 
   app.post('/api/skills/:scope/:skillName/archive', async (request, reply) => {
@@ -125,6 +376,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const skill = repository.getSkill(name);
     if (!user || !skill || (skill.owner !== user.username && !skill.maintainers.includes(user.username))) {
       return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    }
+    if (typeof giteaService.setRepositoryArchived === 'function') {
+      try {
+        await giteaService.setRepositoryArchived(repoOwner, skill.skillName, true);
+      } catch (error) {
+        return reply.status(409).send({ error: (error as Error).message });
+      }
     }
     repository.archiveSkill(name);
     return reply.send(repository.getSkill(name));
@@ -137,6 +395,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(403).send({ error: 'Forbidden: platform administrator required' });
     }
     if (!repository.getSkill(name)) return reply.status(404).send({ error: 'Skill not found' });
+    const restored = repository.getSkill(name);
+    if (restored && typeof giteaService.setRepositoryArchived === 'function') {
+      try {
+        await giteaService.setRepositoryArchived(repoOwner, restored.skillName, false);
+      } catch (error) {
+        return reply.status(409).send({ error: (error as Error).message });
+      }
+    }
     repository.restoreSkill(name);
     return reply.send(repository.getSkill(name));
   });
@@ -158,8 +424,56 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(404).send({ error: 'Skill not found' });
     }
 
-    return withCloneUrl(request, { ...skill, versions: repository.getVersions(name) });
+    const releases = repository.getReleases(name);
+    const latest = releases[0];
+    return withCloneUrl(request, {
+      ...skill,
+      versions: repository.getVersions(name),
+      releases: releases.map((release) => ({
+        ...release,
+        packageUrl: `${request.protocol}://${request.hostname}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
+      })),
+      packageUrl: latest
+        ? `${request.protocol}://${request.hostname}/api/packages/${latest.skillId}/${latest.version}/${path.basename(latest.packagePath)}`
+        : undefined
+    });
   });
+}
+
+function resolveDependencyLock(
+  repository: SkillRepository,
+  rootName: string,
+  dependencies: Record<string, string>
+): Record<string, { skillId: string; version: string; checksum: string }> {
+  const lock: Record<string, { skillId: string; version: string; checksum: string }> = {};
+  const visiting = new Set<string>([rootName]);
+
+  const visit = (name: string, range: string): void => {
+    if (visiting.has(name)) {
+      throw new Error(`Dependency cycle detected: ${[...visiting, name].join(' -> ')}`);
+    }
+    const releases = repository.getReleases(name);
+    const selected = releases.find((release) => semver.satisfies(release.version, range));
+    if (!selected?.skillId) {
+      throw new Error(`Dependency ${name}@${range} has no published Release`);
+    }
+    lock[name] = {
+      skillId: selected.skillId,
+      version: selected.version,
+      checksum: selected.checksum
+    };
+    visiting.add(name);
+    const releaseManifest = selected.releaseManifest as { dependencies?: Record<string, string> };
+    for (const [dependency, dependencyRange] of Object.entries(releaseManifest.dependencies ?? {})) {
+      visit(dependency, dependencyRange);
+    }
+    visiting.delete(name);
+  };
+
+  for (const [name, range] of Object.entries(dependencies)) {
+    visit(name, range);
+  }
+  return lock;
 }
 
 async function authorizePlatformAdministrator(
