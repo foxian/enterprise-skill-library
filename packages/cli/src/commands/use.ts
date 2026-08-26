@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { removeDirectory } from '@esl/core';
+import { isBuiltinIdentity, loadBuiltinPackageOrThrow, removeDirectory } from '@esl/core';
 import {
   gitAuthHeaderConfig,
   requireConfigured,
@@ -11,6 +11,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { executeInfo } from './info.js';
+import { resolveBuiltinDir } from '../builtin-dir.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -50,7 +51,16 @@ async function readSkillMdFromServer(name: string, options: UseOptions): Promise
   }
 }
 
+async function readSkillMdFromBuiltin(name: string, options: UseOptions): Promise<string> {
+  const builtinDir = options.builtinDir ?? resolveBuiltinDir();
+  const builtin = await loadBuiltinPackageOrThrow(builtinDir, name);
+  return fs.readFile(path.join(builtin.directory, 'SKILL.md'), 'utf8');
+}
+
 export async function executeUse(nameOrPath: string, options: UseOptions = {}): Promise<string> {
+  if (isBuiltinIdentity(nameOrPath)) {
+    return readSkillMdFromBuiltin(nameOrPath, options);
+  }
   return isLocalPath(nameOrPath)
     ? readSkillMdFromLocal(nameOrPath)
     : readSkillMdFromServer(nameOrPath, options);

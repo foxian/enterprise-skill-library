@@ -98,6 +98,36 @@ describe('Fastify Server API', () => {
     expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', true);
   });
 
+  it('grants an authenticated user read access before source checkout', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'consumer' }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      addRepositoryCollaborator: vi.fn().mockResolvedValue(undefined)
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token consumer-token' },
+      payload: { name: 'reviewer', description: 'Reviewer' }
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/source-access',
+      headers: { authorization: 'token consumer-token', host: 'localhost:3000' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().cloneUrl).toBe('http://localhost:3000/git/platform-ai/reviewer.git');
+    expect(mockGitea.addRepositoryCollaborator).toHaveBeenCalledWith(
+      'platform-ai',
+      'reviewer',
+      'consumer',
+      'read'
+    );
+  });
+
   it('renames a skill while preserving its Skill ID and creates a redirect', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),

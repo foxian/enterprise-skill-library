@@ -58,6 +58,13 @@ describe('esl source', () => {
       'http://localhost:3000/git/esl-skills/alice_code-review.git',
       expect.stringContaining('code-review')
     ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/%40alice%2Fcode-review/source-access',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Authorization: 'token gitea-token' }
+      })
+    );
   });
 
   it('clones to a custom target directory', async () => {

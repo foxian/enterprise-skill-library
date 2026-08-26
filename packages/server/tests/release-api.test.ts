@@ -81,6 +81,57 @@ describe('Skill Release API', () => {
     expect(fs.readdirSync(path.join(tmpDir, 'packages'))).toHaveLength(1);
   });
 
+  it('builds public package and clone URLs from forwarded proxy headers', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases',
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        releaseManifest: {
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        },
+        files: {
+          'SKILL.md': '---\nname: reviewer\n---\n',
+          'release.json': JSON.stringify({
+            schemaVersion: 1,
+            license: 'MIT',
+            keywords: [],
+            compatibility: {},
+            dependencies: {}
+          })
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: {
+        host: 'api:3000',
+        'x-forwarded-host': 'localhost:3000',
+        'x-forwarded-proto': 'http'
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git',
+      packageUrl: expect.stringContaining('http://localhost:3000/api/packages/')
+    });
+  });
+
   it('uses release.json from the source commit instead of client metadata', async () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',

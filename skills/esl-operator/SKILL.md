@@ -1,5 +1,5 @@
 ---
-name: esl
+name: esl-operator
 description: >
   Operate the Enterprise Skill Library (ESL) CLI from natural language. Search, try, install, list, update, uninstall, or adapt shared skills into AI tools (Claude Code/Trae/Codex); create, validate, version, publish, or clone the source of skills. Use whenever the user wants to find or use a shared skill, install/update skills (project or global), sync skills into their AI tools, author or publish a skill, pull someone's skill source for edits, or otherwise drive the `esl` command — even when they never say "esl". Routes login and server setup but never types passwords.
 ---
@@ -29,7 +29,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
-**3. 身份语法别混。** 远端技能写全名 `@namespace/skill-name`（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`；`@local/*` 是未发布本地专用的草稿命名空间，被系统拦截、无法 `publish`。用户含糊地说"那个技能"时先确认是远端还是本地、是哪个名字。
+**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。
 
 ## 输出与解析
 

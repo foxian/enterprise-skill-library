@@ -10,6 +10,7 @@ import path from 'node:path';
 export interface NetworkCommandOptions extends LocalStoreOptions {
   server?: string;
   customFetch?: typeof fetch;
+  builtinDir?: string;
 }
 
 export interface ResolvedNetworkConfig {
@@ -105,4 +106,17 @@ export function installTargetDir(skillName: string, options: LocalStoreOptions):
 export function projectSkillsDir(projectRoot: string, skillName: string): string {
   const { scope, skillName: shortName } = parseSkillName(skillName);
   return path.join(projectRoot, '.skills', `@${scope}`, shortName);
+}
+
+export function publishedInstallTargetDir(
+  skillName: string,
+  options: LocalStoreOptions
+): string {
+  const { scope, skillName: shortName } = parseSkillName(skillName);
+  return path.join(resolveLocalStorePaths(options).skillsDir, `${scope}_${shortName}`);
+}
+
+export function publishedProjectSkillsDir(projectRoot: string, skillName: string): string {
+  const { scope, skillName: shortName } = parseSkillName(skillName);
+  return path.join(projectRoot, '.skills', `${scope}_${shortName}`);
 }

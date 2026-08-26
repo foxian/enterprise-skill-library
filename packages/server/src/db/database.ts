@@ -128,7 +128,9 @@ export class SkillRepository {
     if (!skill?.skillId) throw new Error('Skill cannot be renamed without a Skill ID');
     if (this.getSkill(nextName)) throw new Error('Skill name already exists');
     const transaction = this.db.transaction(() => {
+      this.db.pragma('defer_foreign_keys = ON');
       this.db.prepare(`UPDATE skill_versions SET skill_name = ? WHERE skill_name = ?`).run(nextName, currentName);
+      this.db.prepare(`UPDATE skill_releases SET skill_name = ? WHERE skill_name = ?`).run(nextName, currentName);
       this.db.prepare(`
         UPDATE skills
         SET name = ?, scope = ?, skill_name = ?, git_repo_path = COALESCE(?, git_repo_path), updated_at = CURRENT_TIMESTAMP

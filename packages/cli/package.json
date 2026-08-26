@@ -6,8 +6,13 @@
     "esl": "./dist/bin/esl.js"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc && node scripts/build-builtin.mjs",
+    "prepack": "node scripts/verify-builtin.mjs",
+    "postinstall": "node scripts/postinstall.mjs"
   },
+  "files": [
+    "dist/"
+  ],
   "dependencies": {
     "@esl/core": "*",
     "commander": "^11.1.0"

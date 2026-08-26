@@ -39,6 +39,41 @@ describe('network CLI commands', () => {
     );
   });
 
+  it('resolves renamed skill info through the current identity', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 301,
+        json: async () => ({
+          oldName: '@myorg/my-skill',
+          currentName: '@myorg/renamed-skill',
+          skillId: 'sk_test'
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          name: '@myorg/renamed-skill',
+          versions: ['0.1.0']
+        })
+      });
+
+    const result = await executeInfo('@myorg/my-skill', {
+      server: 'http://skills.company.com',
+      customFetch: mockFetch as any
+    });
+
+    expect(result).toMatchObject({
+      name: '@myorg/renamed-skill',
+      currentName: '@myorg/renamed-skill',
+      oldName: '@myorg/my-skill',
+      versions: ['0.1.0']
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('formats skill info for humans with core fields', () => {
     const result = formatSkillInfo({
       name: '@myorg/my-skill',

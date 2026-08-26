@@ -17,7 +17,7 @@ export async function executeUninstall(name: string, options: UninstallOptions =
   await removeSkillDependency(projectRoot, name);
 
   if (!options.noAdapt) {
-    await adaptProject(projectRoot, { homeDir: options.homeDir });
+    await adaptProject(projectRoot, { homeDir: options.homeDir, prune: true });
   }
 }
 

@@ -196,6 +196,56 @@ describe('esl update', () => {
     expect(fs.existsSync(path.join(projectDir, '.skills', '@alice', 'code-review'))).toBe(false);
   });
 
+  it('migrates an installed skill after a server-side rename even when the version is unchanged', async () => {
+    await saveSkillsJson(projectDir, {
+      skills: { '@alice/code-review': '^1.0.0' }
+    });
+    await saveSkillsLock(projectDir, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          skillId: 'sk_test',
+          identity: '@alice/code-review',
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/api/packages/sk_test/1.0.0/package.json',
+          integrity: ''
+        }
+      }
+    });
+    const oldDirectory = path.join(projectDir, '.skills', 'alice_code-review');
+    fs.mkdirSync(oldDirectory, { recursive: true });
+    fs.writeFileSync(path.join(oldDirectory, 'SKILL.md'), '# Installed skill\n');
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review-renamed',
+        currentName: '@alice/code-review-renamed',
+        versions: ['1.0.0']
+      })
+    });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+
+    const result = await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      noAdapt: true
+    });
+
+    expect(result).toEqual([{ name: '@alice/code-review-renamed', from: '1.0.0', to: '1.0.0' }]);
+    expect(fs.existsSync(oldDirectory)).toBe(false);
+    expect(fs.readFileSync(path.join(projectDir, '.skills', 'alice_code-review-renamed', 'SKILL.md'), 'utf8'))
+      .toContain('# Installed skill');
+    const skills = await loadSkillsJson(projectDir);
+    expect(skills.skills['@alice/code-review']).toBeUndefined();
+    expect(skills.skills['@alice/code-review-renamed']).toBe('^1.0.0');
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@alice/code-review']).toBeUndefined();
+    expect(lock.skills['@alice/code-review-renamed']?.identity).toBe('@alice/code-review-renamed');
+  });
+
   it('fails fast when the login is expired and registry skills are present', async () => {
     await saveSkillsJson(projectDir, {
       skills: { '@alice/code-review': '^1.0.0' }

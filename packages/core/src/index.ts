@@ -5,6 +5,7 @@ export * from './schema/skill-json.js';
 export * from './schema/release-manifest.js';
 export * from './schema/compatibility.js';
 export * from './schema/validation-result.js';
+export * from './skill/builtin-package.js';
 export * from './skill/directory-validator.js';
 export * from './skill/import-skill.js';
 export * from './skill/published-package.js';

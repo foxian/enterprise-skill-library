@@ -7,9 +7,13 @@ import { promisify } from 'node:util';
 import {
   addLockEntry,
   addSkillDependency,
+  adaptGlobal,
   adaptProject,
   copySkillDirectory,
   evaluateCompatibility,
+  isBuiltinIdentity,
+  loadBuiltinPackageOrThrow,
+  BUILTIN_SPECIFIER_PREFIX,
   prepareSkillImport,
   removeDirectory,
   resolveLocalStorePaths,
@@ -30,6 +34,7 @@ import {
 } from './network-options.js';
 import { executeInfo } from './info.js';
 import { notify } from '../output.js';
+import { resolveBuiltinDir } from '../builtin-dir.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -83,6 +88,36 @@ async function installFromLocalPath(
     resolved: `file:${resolved}`,
     integrity: ''
   });
+
+  return targetDir;
+}
+
+async function installFromBuiltin(
+  name: string,
+  projectRoot: string,
+  options: InstallOptions
+): Promise<string> {
+  const builtinDir = options.builtinDir ?? resolveBuiltinDir();
+  const builtin = await loadBuiltinPackageOrThrow(builtinDir, name);
+
+  const installRoot = options.global ? resolveLocalStorePaths(options).root : projectRoot;
+  const targetDir = options.global
+    ? installTargetDir(name, options)
+    : projectSkillsDir(projectRoot, name);
+
+  await copySkillDirectory(builtin.directory, targetDir);
+  await addSkillDependency(installRoot, name, `${BUILTIN_SPECIFIER_PREFIX}${builtin.shortName}`);
+  await addLockEntry(installRoot, name, {
+    identity: name,
+    version: builtin.version,
+    resolved: `${BUILTIN_SPECIFIER_PREFIX}${builtin.shortName}`,
+    integrity: builtin.checksum,
+    source: 'builtin'
+  });
+
+  if (options.global && !options.noAdapt) {
+    await adaptGlobal({ homeDir: options.homeDir });
+  }
 
   return targetDir;
 }
@@ -343,9 +378,11 @@ async function installPublishedDependencies(
 export async function executeInstall(nameOrPath: string, options: InstallOptions = {}): Promise<string> {
   const projectRoot = options.projectRoot ?? process.cwd();
 
-  const targetDir = isLocalPath(nameOrPath)
-    ? await installFromLocalPath(nameOrPath, projectRoot, options)
-    : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
+  const targetDir = isBuiltinIdentity(nameOrPath)
+    ? await installFromBuiltin(nameOrPath, projectRoot, options)
+    : isLocalPath(nameOrPath)
+      ? await installFromLocalPath(nameOrPath, projectRoot, options)
+      : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
 
   if (!options.noAdapt && !options.global) {
     await adaptProject(projectRoot, { homeDir: options.homeDir });

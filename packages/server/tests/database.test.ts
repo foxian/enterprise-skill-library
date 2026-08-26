@@ -116,4 +116,52 @@ describe('API Server Database', () => {
     expect(repo.getSkillById(skill.skillId)?.name).toBe('@platform-ai/reviewer');
     db.close();
   });
+
+  it('renames a skill while preserving its release history', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+    const skill = repo.createServerSkill({
+      name: '@platform-ai/reviewer',
+      scope: 'platform-ai',
+      skillName: 'reviewer',
+      description: 'Shared reviewer',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'platform-ai/reviewer'
+    });
+    repo.createRelease({
+      skillId: skill.skillId!,
+      skillName: skill.name,
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: '/packages/reviewer.json',
+      checksum: 'sha256-abc',
+      releaseManifest: {
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      dependencyLock: {},
+      createdBy: 'alice'
+    });
+
+    const renamed = repo.renameSkill(
+      '@platform-ai/reviewer',
+      '@platform-ai/reviewer-pro',
+      'reviewer-pro',
+      'platform-ai/reviewer-pro'
+    );
+
+    expect(renamed.name).toBe('@platform-ai/reviewer-pro');
+    expect(repo.getRelease('@platform-ai/reviewer-pro', '1.0.0')?.skillId).toBe(skill.skillId);
+    expect(repo.resolveRedirect('@platform-ai/reviewer')).toEqual({
+      skillId: skill.skillId,
+      currentName: '@platform-ai/reviewer-pro'
+    });
+    db.close();
+  });
 });

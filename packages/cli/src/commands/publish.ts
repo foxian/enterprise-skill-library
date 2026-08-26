@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
-import { validateSkillDirectory } from '@esl/core';
+import { isBuiltinIdentity, validateSkillDirectory, validateSkillSourceDirectory } from '@esl/core';
 import { confirm, isInteractive } from '../prompt.js';
 import {
   apiUrl,
@@ -15,6 +17,7 @@ const defaultExecFileAsync = promisify(execFile);
 
 export interface PublishOptions extends NetworkCommandOptions {
   directory?: string;
+  version?: string;
   visibility?: string;
   force?: boolean;
   noInput?: boolean;
@@ -24,12 +27,18 @@ export interface PublishOptions extends NetworkCommandOptions {
 
 export async function executePublish(options: PublishOptions = {}): Promise<unknown> {
   const directory = options.directory ?? process.cwd();
+  if (await fileExists(`${directory}/release.json`)) {
+    return executeSourceRelease(options, directory);
+  }
   const validation = await validateSkillDirectory(directory);
   if (!validation.success) {
     throw new Error(`Invalid skill package: ${validation.errors.join(', ')}`);
   }
 
   const { skillJson } = validation.data;
+  if (isBuiltinIdentity(skillJson.name)) {
+    throw new Error('Built-in skills cannot be published; they are bundled with the ESL CLI');
+  }
   if (skillJson.name.startsWith('@local/')) {
     throw new Error(
       '@local/* skills use the local namespace and must be renamed to a stable namespace before publishing'
@@ -74,6 +83,94 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
   await execFileAsync('git', ['-c', authHeader, 'push', 'esl', '--tags'], { cwd: directory });
 
   return published;
+}
+
+async function executeSourceRelease(options: PublishOptions, directory: string): Promise<unknown> {
+  const version = options.version;
+  if (!version) {
+    throw new Error('Release version is required; use esl publish <version>');
+  }
+  const validation = await validateSkillSourceDirectory(directory);
+  if (!validation.success) {
+    throw new Error(`Invalid skill source: ${validation.errors.join(', ')}`);
+  }
+
+  const status = await git(options, directory, ['status', '--porcelain']);
+  if (status.trim()) {
+    throw new Error('Cannot publish: working tree is not clean');
+  }
+  const remoteUrl = await git(options, directory, ['remote', 'get-url', 'esl']);
+  await confirmPublish(options, inferIdentityFromRemote(remoteUrl), version);
+  const head = (await git(options, directory, ['rev-parse', 'HEAD'])).trim();
+  const remoteHead = (await git(options, directory, ['rev-parse', 'esl/main'])).trim();
+  if (head !== remoteHead) {
+    throw new Error('Cannot publish: local HEAD must be pushed and equal to esl/main');
+  }
+  const identity = inferIdentityFromRemote(remoteUrl);
+  const fetchImpl = options.customFetch ?? fetch;
+  const { server } = await resolveNetworkConfig(options);
+  const authToken = await requireFreshToken(options);
+  const response = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/skills/${encodeURIComponent(identity)}/releases`), {
+    method: 'POST',
+    headers: {
+      Authorization: `token ${authToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      version,
+      sourceCommit: head,
+      releaseManifest: validation.data.releaseManifest,
+      files: await collectSourceFiles(directory)
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to publish Skill Release: ${await response.text()}`);
+  }
+  return response.json();
+}
+
+async function collectSourceFiles(directory: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  async function visit(current: string): Promise<void> {
+    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+      if (entry.name === '.git') continue;
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await visit(fullPath);
+      } else {
+        files[path.relative(directory, fullPath).replaceAll(path.sep, '/')] = await fs.readFile(fullPath, 'utf8');
+      }
+    }
+  }
+  await visit(directory);
+  return files;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function git(
+  options: PublishOptions,
+  directory: string,
+  args: string[]
+): Promise<string> {
+  const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  const result = await execFileAsync('git', args, { cwd: directory });
+  return result.stdout;
+}
+
+function inferIdentityFromRemote(remoteUrl: string): string {
+  const match = remoteUrl.trim().match(/\/git\/([^/]+)\/([^/]+?)(?:\.git)?$/);
+  if (!match) {
+    throw new Error('Cannot determine Skill Identity from the esl remote URL');
+  }
+  return `@${match[1]}/${match[2]}`;
 }
 
 async function ensureEslRemote(

@@ -1,7 +1,0 @@
-{
-  "name": "@cnfox/esl",
-  "version": "0.1.0",
-  "description": "Operate the Enterprise Skill Library (ESL) CLI from natural language — search, install, use, update, uninstall, adapt, and author/publish skills.",
-  "author": "cnfox",
-  "keywords": ["esl", "cli", "skill-library", "operator"]
-}

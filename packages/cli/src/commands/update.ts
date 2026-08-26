@@ -1,7 +1,23 @@
-import { adaptGlobal, adaptProject, loadSkillsJson, loadSkillsLock, resolveLocalStorePaths, validateSkillDirectory } from '@esl/core';
+﻿import fs from 'node:fs/promises';
+import path from 'node:path';
+import {
+  adaptGlobal,
+  adaptProject,
+  BUILTIN_SPECIFIER_PREFIX,
+  isBuiltinIdentity,
+  loadSkillsJson,
+  loadSkillsLock,
+  renameSkillState,
+  resolveLocalStorePaths,
+  validateSkillDirectory
+} from '@esl/core';
 import { executeInfo } from './info.js';
 import { executeInstall } from './install.js';
-import { requireFreshToken } from './network-options.js';
+import {
+  publishedInstallTargetDir,
+  publishedProjectSkillsDir,
+  requireFreshToken
+} from './network-options.js';
 import type { NetworkCommandOptions } from './network-options.js';
 
 export interface UpdateOptions extends NetworkCommandOptions {
@@ -27,7 +43,9 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
 
   const hasRegistrySkills = Object.entries(skillsJson.skills).some(
     ([name, specifier]) =>
-      (!options.skillName || options.skillName === name) && !specifier.startsWith('file:')
+      (!options.skillName || options.skillName === name) &&
+      !specifier.startsWith('file:') &&
+      !specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)
   );
   if (hasRegistrySkills) {
     await requireFreshToken(options);
@@ -35,6 +53,21 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
 
   for (const [name, specifier] of Object.entries(skillsJson.skills)) {
     if (options.skillName && options.skillName !== name) {
+      continue;
+    }
+
+    if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX) || isBuiltinIdentity(name)) {
+      const currentVersion = lockJson.skills[name]?.version;
+      const targetDir = await executeInstall(name, {
+        ...options,
+        projectRoot: manifestRoot,
+        noAdapt: true
+      });
+      const validation = await validateSkillDirectory(targetDir);
+      const to = validation.success ? validation.data.skillJson.version : 'builtin';
+      if (currentVersion !== to) {
+        results.push({ name, from: currentVersion ?? 'builtin', to });
+      }
       continue;
     }
 
@@ -55,25 +88,44 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
 
     try {
       const info = await executeInfo(name, options);
+      const resolvedName = info.currentName ?? name;
       const latestVersion = info.versions?.[0];
       if (!latestVersion) {
         continue;
       }
 
       const currentVersion = lockJson.skills[name]?.version;
-      if (currentVersion === latestVersion) {
+      if (currentVersion !== latestVersion) {
+        await executeInstall(resolvedName, {
+          ...options,
+          projectRoot: manifestRoot,
+          version: latestVersion,
+          noAdapt: true
+        });
+      }
+
+      if (resolvedName !== name) {
+        const oldDirectory = options.global
+          ? publishedInstallTargetDir(name, options)
+          : publishedProjectSkillsDir(manifestRoot, name);
+        const newDirectory = options.global
+          ? publishedInstallTargetDir(resolvedName, options)
+          : publishedProjectSkillsDir(manifestRoot, resolvedName);
+        if (currentVersion === latestVersion && await directoryExists(oldDirectory)) {
+          await fs.mkdir(path.dirname(newDirectory), { recursive: true });
+          await fs.rename(oldDirectory, newDirectory);
+        } else {
+          await fs.rm(oldDirectory, { recursive: true, force: true });
+        }
+        await renameSkillState(manifestRoot, name, resolvedName);
+      }
+
+      if (currentVersion === latestVersion && resolvedName === name) {
         continue;
       }
 
-      await executeInstall(name, {
-        ...options,
-        projectRoot: manifestRoot,
-        version: latestVersion,
-        noAdapt: true
-      });
-
       results.push({
-        name,
+        name: resolvedName,
         from: currentVersion ?? 'unknown',
         to: latestVersion
       });
@@ -94,6 +146,14 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
   }
 
   return results;
+}
+
+async function directoryExists(directory: string): Promise<boolean> {
+  try {
+    return (await fs.stat(directory)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function isBlockingNetworkConfigurationError(error: unknown): boolean {

@@ -161,6 +161,24 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
   });
 
+  app.post('/api/skills/:scope/:skillName/source-access', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    if (typeof giteaService.addRepositoryCollaborator === 'function') {
+      try {
+        await giteaService.addRepositoryCollaborator(repoOwner, skill.skillName, user.username, 'read');
+      } catch (error) {
+        return reply.status(409).send({ error: (error as Error).message });
+      }
+    }
+    return reply.send(withCloneUrl(request, skill));
+  });
+
   app.post('/api/skills/:scope/:skillName/releases', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
@@ -431,10 +449,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       versions: repository.getVersions(name),
       releases: releases.map((release) => ({
         ...release,
-        packageUrl: `${request.protocol}://${request.hostname}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
+        packageUrl: `${requestOrigin(request)}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
       })),
       packageUrl: latest
-        ? `${request.protocol}://${request.hostname}/api/packages/${latest.skillId}/${latest.version}/${path.basename(latest.packagePath)}`
+        ? `${requestOrigin(request)}/api/packages/${latest.skillId}/${latest.version}/${path.basename(latest.packagePath)}`
         : undefined
     });
   });
@@ -550,9 +568,20 @@ async function createSkill(
 }
 
 function withCloneUrl<T extends { gitRepoPath: string }>(request: FastifyRequest, skill: T): T & { cloneUrl: string } {
-  const host = request.hostname.replace(/:80$/, '').replace(/:443$/, '');
   return {
     ...skill,
-    cloneUrl: `${request.protocol}://${host}/git/${skill.gitRepoPath}.git`
+    cloneUrl: `${requestOrigin(request)}/git/${skill.gitRepoPath}.git`
   };
+}
+
+function requestOrigin(request: FastifyRequest): string {
+  const forwardedProto = firstForwardedValue(request.headers['x-forwarded-proto']) ?? request.protocol;
+  const forwardedHost = firstForwardedValue(request.headers['x-forwarded-host'])
+    ?? request.hostname.replace(/:80$/, '').replace(/:443$/, '');
+  return `${forwardedProto}://${forwardedHost}`;
+}
+
+function firstForwardedValue(value: string | string[] | undefined): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value;
+  return first?.split(',')[0]?.trim() || undefined;
 }

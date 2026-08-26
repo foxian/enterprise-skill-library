@@ -4,6 +4,12 @@ packages/*/dist/
 .worktrees/
 .env
 
+# Smoke-test runtime artifacts (may contain real credentials)
+.scratch/smoke-workspace/
+.scratch/docker-smoke.env
+.scratch/docker-smoke-compose.yml
+.scratch/docker-smoke.override.yml
+
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
 # ESL managed (do not edit)

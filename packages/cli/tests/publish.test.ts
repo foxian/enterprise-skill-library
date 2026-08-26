@@ -280,4 +280,84 @@ description: Use when reviewing code changes.
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).not.toHaveBeenCalled();
   });
+
+  it('publishes a release manifest from a clean HEAD already on esl/main without pushing source', async () => {
+    fs.rmSync(path.join(skillDir, 'skill.json'));
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@platform-ai/code-review',
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        packageUrl: '/api/packages/sk_123/1.0.0/sha.json'
+      })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/%40platform-ai%2Fcode-review/releases',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"sourceCommit":"abc123"')
+      })
+    );
+    expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('push'))).toBe(false);
+  });
+
+  it('rejects a dirty release worktree before calling the server', async () => {
+    fs.rmSync(path.join(skillDir, 'skill.json'));
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockResolvedValue({ stdout: ' M SKILL.md\n', stderr: '' });
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('working tree is not clean');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

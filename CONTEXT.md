@@ -1,9 +1,17 @@
 # Context
 
+## Scope
+
+Skill Identity 形式 `@scope/skill-name` 的第一段。它是机械层概念，无治理
+含义；adapt 引擎按它生成安装目录名与展示名。Scope 分两类：由 Platform
+Organization 占用的 Namespace，以及保留 Scope（`local`、`builtin`）。
+
 ## Namespace
 
-服务器托管技能身份中的稳定平台组织名。在
-`@platform-ai/code-review` 中，Namespace 是 `platform-ai`。
+由 Platform Organization 占用的 Scope。它带治理语义：运行后不可变，在
+Bootstrap 时配置，为所有 Server-hosted Skill Identity 提供稳定平台组织名。
+在 `@platform-ai/code-review` 中，Namespace 是 `platform-ai`。保留 Scope
+不是 Namespace。
 
 ## Skill Source Lifecycle
 
@@ -16,6 +24,7 @@ Skill Release 也一直存在。其格式为带 `sk_` 前缀的 ULID。
 ## Skill Rename
 
 平台管理员或 Owner 对 Server-hosted Skill Identity 执行的显式改名操作。
+Rename 只改短名，不改 scope 段；scope 段由 Platform Organization 锁定。
 Skill ID 保持不变，旧 Identity 永久重定向到新 Identity。普通 Git push
 不得直接改变 `SKILL.md.name` 或技能身份；名称变更必须经过该流程。使用旧
 Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release 时仍允许
@@ -30,8 +39,8 @@ Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release
 ## Server-hosted Skill Source
 
 技能上传至 ESL Server 的 Platform Organization 后形成的协作维护源码仓库。
-它独立于 Skill Release 存在；上传时其 `skill.json` 中的 Skill Identity
-会被规范化为 Platform Organization 的 Namespace。
+它独立于 Skill Release 存在；其 Skill Identity 由服务器记录，源码中的
+`SKILL.md.name` 保持短名并与服务器记录的当前短名一致。
 
 ## Source Upload
 
@@ -78,16 +87,78 @@ ESL Platform Administrator 执行。
 该产物，而非源码仓库；它绑定产生该 Release 的源码 commit，发布后不可覆盖或
 删除。
 
+## Release Manifest
+
+Server-hosted Skill Source 中随源码一起进行 Git 管理的 `release.json`。它声明
+服务器生成 Skill Release 和 Published Skill Package 时所需的发布属性，包括
+`schemaVersion`、许可证、搜索关键词、兼容性约束和技能依赖，但不记录 SemVer、
+源码 commit、checksum、发布时间或发布状态。发布时，服务器从目标源码 commit
+读取并校验该清单，将其内容固化为该 Skill Release 的元数据快照；后续源码修改
+不影响已经创建的 Skill Release。除 `license` 外，其余字段允许为空集合，但
+字段本身必须存在。
+
+_Avoid_: Skill Release，用于指代该文件时。
+
+## Release Dependency Lock
+
+服务器在发布时为每个 `release.json.dependencies` 解析出的精确依赖结果。它把
+依赖的 Skill ID、固定版本和制品校验值保存为该 Skill Release 的锁定图，确保
+同一 Release 之后任何时间安装都解析到同一组已发布技能。
+
+## Release Tag
+
+Skill Release 创建成功后，由 `publish` 在 Server-hosted Skill Source 中创建并
+推送的 annotated Git tag，格式为 `v<SemVer>`。它指向 Skill Release 绑定的
+源码 commit，帮助用户在 Git 历史中定位发布源码，但不是 Skill Release 或
+Published Skill Package 的事实来源。Release Tag 推送失败不使已经创建的
+Skill Release 失效；后续发布重试可以在确认 commit 一致后补建或补推该 Tag。
+
+_Avoid_: Skill Release，用于指代 Git tag 时。
+
 ## Platform Organization
 
 ESL 初始化时配置的唯一组织。它是全部 Skill User 的共享源码仓库空间，并为
 每个 Server-hosted Skill Identity 提供 Namespace；正常运行期间不得变更。
 
-## Local Namespace
+## Local Scope
 
-The reserved `local` namespace for Skill Identities installed from a Local
-Skill Source. `@local/*` distinguishes local path sourced skills from skills
-installed from the ESL Server.
+保留 Scope `local`，用于从 Local Skill Source 安装的 Skill Identity。
+`@local/*` 将本地路径来源的技能与从 ESL Server 安装的技能区分开。它不是
+Namespace，不参与 Skill Rename，不可 `publish`。
+
+## Built-in Scope
+
+保留 Scope `builtin`，用于由 ESL CLI 发行包直接携带的 Built-in Skill。
+`@builtin/*` 将内置技能与 Server-hosted 技能和本地草稿区分开。它不是
+Namespace，不参与 Skill Rename，不可 `upload`、`publish`、`source`、
+`version` 或 `rename`。
+
+## Built-in Skill
+
+由 ESL CLI 发行包直接携带的只读技能资源。它不属于 Server-hosted Skill，
+不创建 Skill ID、Git 仓库、Skill Release 或 Published Skill Package，也不
+出现在 ESL Server 搜索结果中。用户仍通过 `install` 将其安装到项目或全局
+技能目录；其来源不需要登录或网络。
+
+## Client-coupled Built-in Skill
+
+随 ESL CLI 版本一起发行的 Built-in Skill。每个 ESL CLI SemVer 携带同一 SemVer
+的固定技能内容；该内容只随 CLI 发行更新，不可通过 Source Upload、Git push
+或 `publish` 独立修改。当前 Client-coupled Built-in Skill 为 `esl-operator`。
+Skill User 只能安装与本机 ESL CLI 完全相同版本的此类技能。ESL CLI 升级时自动
+更新已安装的全局副本及其 ESL 管理的适配输出；项目级副本不自动更新，必须在该
+项目中显式执行 `update`。自动同步由 CLI 的 npm lifecycle 触发，只更新用户
+已经显式安装的全局副本，不自动首次安装；同步失败不阻断 CLI 安装，并在下一次
+CLI 执行时重试。CLI 降级时全局副本也同步降级。
+
+## Built-in Skill Package
+
+ESL CLI 构建时从 Built-in Skill 源码生成并随 npm 包发布的本地安装产物。它包含
+`SKILL.md`、支持文件、由 CLI 版本生成的 `skill.json` 和内容校验元数据。它不
+属于 Published Skill Package，安装身份为 `@builtin/<skill-name>`，并在
+锁文件中以 `source: "builtin"` 与 `builtin:<skill-name>` 标识。
+`skill.json` 的 SemVer（含 prerelease 标识）必须严格等于当前 `@esl/cli`
+的版本，构建与 npm 发布前校验。
 
 ## Local Skill Source
 
@@ -96,7 +167,10 @@ is installed into a project skill store.
 
 ## Skill Identity
 
-The full stable skill name in the form `@namespace/skill-name`.
+The current full skill name in the form `@scope/skill-name`. For Server-hosted
+skills the scope is its Namespace; for reserved scopes it is `local` or
+`builtin`. It can change only through Skill Rename; Skill ID is the stable
+identifier across renames.
 
 ## Skill Release
 
@@ -109,16 +183,16 @@ _Avoid_: version when referring to the installable skill artifact.
 
 ## Adapted Skill Directory Name
 
-The namespace-qualified directory name used for a skill in an AI tool's adapted
-skill directory. It uses `namespace_skill-name`, such as `cnfox_code-review`, so
-the namespace boundary remains unambiguous while staying within a single
+The scope-qualified directory name used for a skill in an AI tool's adapted
+skill directory. It uses `scope_skill-name`, such as `cnfox_code-review`, so
+the scope boundary remains unambiguous while staying within a single
 tool-scanned directory level.
 
 ## Adapted Skill Display Name
 
-The namespace-qualified name written into an adapted skill's `SKILL.md`
+The scope-qualified name written into an adapted skill's `SKILL.md`
 frontmatter for AI tools to display or identify the skill. It uses
-`namespace:skill-name`, such as `cnfox:code-review`.
+`scope:skill-name`, such as `cnfox:code-review`.
 
 ## Adapt Manifest
 

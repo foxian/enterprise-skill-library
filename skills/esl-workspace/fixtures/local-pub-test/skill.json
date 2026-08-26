@@ -1,0 +1,7 @@
+{
+  "name": "@local/local-pub-test",
+  "version": "0.1.0",
+  "description": "Fixture for testing the @local publish guard.",
+  "author": "eval",
+  "keywords": []
+}

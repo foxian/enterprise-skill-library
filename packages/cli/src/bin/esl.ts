@@ -34,6 +34,7 @@ import { executeUninstall } from '../commands/uninstall.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 import { readCliVersion } from '../version.js';
+import { retryPendingGlobalSync } from '../commands/sync-builtin.js';
 
 function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
@@ -448,6 +449,7 @@ async function run(argv: string[]): Promise<void> {
   });
 
   try {
+    await retryPendingGlobalSync({});
     await createProgram().parseAsync(argv);
   } catch (error) {
     console.error(debug ? error : formatErrorMessage(error));

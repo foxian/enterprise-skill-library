@@ -1,4 +1,5 @@
 import { apiUrl, fetchWithTimeout, type NetworkCommandOptions, resolveNetworkConfig } from './network-options.js';
+import { isBuiltinIdentity } from '@esl/core';
 
 export interface SkillSearchResult {
   name: string;
@@ -18,5 +19,6 @@ export async function executeSearch(
     throw new Error(`Failed to search skills: ${err}`);
   }
 
-  return (await res.json()) as SkillSearchResult[];
+  const results = (await res.json()) as SkillSearchResult[];
+  return results.filter((result) => !isBuiltinIdentity(result.name));
 }

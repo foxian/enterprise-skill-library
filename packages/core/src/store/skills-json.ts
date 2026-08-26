@@ -1,15 +1,20 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
+
 export interface SkillsJson {
   skills: Record<string, string>;
   tools?: string[];
 }
 
 export interface SkillsLockEntry {
+  skillId?: string;
+  identity?: string;
   version: string;
   resolved: string;
   integrity: string;
+  source?: 'registry' | 'local' | 'builtin';
 }
 
 export interface SkillsLockJson {
@@ -88,10 +93,29 @@ export async function addLockEntry(
   await saveSkillsLock(projectRoot, data);
 }
 
+export async function renameSkillState(
+  projectRoot: string,
+  oldName: string,
+  newName: string
+): Promise<void> {
+  const skills = await loadSkillsJson(projectRoot);
+  if (skills.skills[oldName] !== undefined) {
+    skills.skills[newName] = skills.skills[oldName];
+    delete skills.skills[oldName];
+    await saveSkillsJson(projectRoot, skills);
+  }
+  const lock = await loadSkillsLock(projectRoot);
+  if (lock.skills[oldName]) {
+    lock.skills[newName] = { ...lock.skills[oldName], identity: newName };
+    delete lock.skills[oldName];
+    await saveSkillsLock(projectRoot, lock);
+  }
+}
+
 export interface SkillListEntry {
   name: string;
   version: string;
-  source: 'registry' | 'local';
+  source: 'registry' | 'local' | 'builtin';
 }
 
 export async function listSkills(projectRoot: string): Promise<SkillListEntry[]> {
@@ -102,7 +126,11 @@ export async function listSkills(projectRoot: string): Promise<SkillListEntry[]>
     return entries.map(([name, entry]) => ({
       name,
       version: entry.version,
-      source: entry.resolved.startsWith('file:') ? 'local' as const : 'registry' as const
+      source: entry.source === 'builtin'
+        ? 'builtin' as const
+        : entry.resolved.startsWith('file:')
+          ? 'local' as const
+          : 'registry' as const
     }));
   }
 
@@ -110,6 +138,10 @@ export async function listSkills(projectRoot: string): Promise<SkillListEntry[]>
   return Object.entries(skillsJson.skills).map(([name, specifier]) => ({
     name,
     version: specifier,
-    source: specifier.startsWith('file:') ? 'local' as const : 'registry' as const
+    source: specifier.startsWith('file:')
+      ? 'local' as const
+      : specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)
+        ? 'builtin' as const
+        : 'registry' as const
   }));
 }
