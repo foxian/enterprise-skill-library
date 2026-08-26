@@ -13,7 +13,7 @@
 
 ### Issue tracker
 
-Issues and specs for this repo live as markdown files in `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues and specs for this repo live as GitHub issues in `foxian/enterprise-skill-library`, operated via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
