@@ -14,7 +14,8 @@
 
 ## 安装
 `esl install @scope/skill-name|./path [--version V] [--global] [--no-adapt]`
-- 从 Server 装最新或指定版本；`./path` 装本地草稿（缺 `skill.json` 会自动补全元数据）。
+- 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径——三者身份都确定，无需额外参数。
+- 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 `.skills/` 里的**副本**补 `skill.json`，源目录不动。
 - 默认装到当前项目 `.skills/`；`--global` 装到 `~/.skill-library/skills/`。
 - 安装后会**自动跑 adapt** 把技能同步到 AI 工具目录。若用户只想要 `.skills/` 里的文件、不想刷到工具，用 `--no-adapt`。
 - 跑完报告：装了什么、版本、adapt 到了哪些工具目录。

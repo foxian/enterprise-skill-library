@@ -189,7 +189,7 @@ esl install @cnfox/code-review
 # 安装指定版本
 esl install @cnfox/code-review --version 1.0.0
 
-# 从本地相对路径安装（若缺少 skill.json，会自动隐式补全元数据并完成安装）
+# 从本地相对路径安装（身份固定为 @local/<name>；在安装副本里补 skill.json，源目录不动）
 esl install ./path/to/my-skill
 
 # 安装到个人全局环境 (~/.skill-library/skills/)
@@ -259,36 +259,49 @@ esl uninstall @cnfox/code-review --global
 ```bash
 # 在当前目录下创建 my-skill 文件夹，技能标识为 @cnfox/my-skill
 esl init @cnfox/my-skill
+
+# 指定许可证（默认 MIT）
+esl init @cnfox/my-skill --license Apache-2.0
 ```
-将会生成包含 `SKILL.md`（带 YAML Frontmatter）、`skill.json` 以及 `scripts/`、`references/`、`assets/` 等目录的标准规范包。
+将会生成包含 `SKILL.md`（带 YAML Frontmatter）与 `release.json` 的源码骨架。源码形态的发布输入是 `SKILL.md` + `release.json`；`skill.json` 不属于源码，只作为安装副本或发布包的生成物。
 
 ### 2. 校验技能规范 (Validate)
-在发布前检查技能结构、`SKILL.md` 规范与 `skill.json` 元数据是否合法：
+在发布前检查技能结构、`SKILL.md` 规范与 `release.json` 元数据是否合法：
 ```bash
 esl validate ./my-skill
 ```
 
-### 3. 发布技能 (Publish)
-将校验通过的技能发布到 ESL Server，并由 ESL Server 管理内部 Git Backend：
+### 3. 上传源码 (Upload)
+将本地源码目录首次创建为 Server-hosted Skill Source，并推上服务器（生成 Skill ID 与 `esl` remote）：
+```bash
+esl upload --directory ./my-skill
+```
+发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。
+
+### 4. 发布技能 (Publish)
+将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：
 ```bash
 cd my-skill
-esl publish
+esl publish 0.1.0
 
 # 跳过交互确认（脚本 / 非交互）
-esl publish --force
+esl publish 0.1.0 --force
 ```
-> **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布。请先在 `skill.json` 中配置合法的团队命名空间。
+> **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
+> `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认）并落盘。若尚无 `esl` remote 会报错并提示先 `esl upload`。
 > `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。
 
-### 4. 升级版本号 (Version)
-按照 SemVer 语义化版本更新技能版本：
+### 5. 升级版本号 (Version)
+源码形态（`SKILL.md` + `release.json`）的技能不存储本地版本号，`esl version` 对它不可用；发新版直接指定 SemVer：
 ```bash
-esl version minor   # 0.1.0 -> 0.2.0
-esl version patch   # 0.2.0 -> 0.2.1
-esl version major   # 0.2.1 -> 1.0.0
+# 源码形态：直接向 publish 传 SemVer
+esl publish 0.2.0   # minor
+esl publish 0.2.1   # patch
+esl publish 1.0.0   # major
 ```
+`esl version minor|patch|major` 仍可用于含 `skill.json` 的安装副本或包形态目录。
 
-### 5. 克隆远端源码进行二次开发 (Source)
+### 6. 克隆远端源码进行二次开发 (Source)
 若需要对别人发布的技能进行二次开发或修复 Bug，可直接获取其完整 Git 源码：
 ```bash
 # 将 @cnfox/code-review 的 Git 源码克隆到当前目录

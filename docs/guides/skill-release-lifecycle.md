@@ -81,9 +81,10 @@ Push-Location .scratch\smoke-workspace
 npm exec -- esl init @author/demo
 Push-Location demo
 git branch -M main
-git add skill.json SKILL.md
+git add SKILL.md release.json
 git commit -m "Initial demo skill"
-npm exec -- esl publish --force
+npm exec -- esl upload --directory .
+npm exec -- esl publish 0.1.0 --force
 Pop-Location
 Pop-Location
 ```
@@ -114,17 +115,17 @@ The project should now contain `.skills.json`, `.skills-lock.json`, and
 
 ## 5. Author Publishes A Patch Release
 
-Log back in as `author`, bump the skill version with `esl version patch`, commit
-the change, and publish the next Skill Release.
+Log back in as `author`, make a source change, commit it, and publish the next
+Skill Release. Source-form skills do not store a version locally; the SemVer is
+passed directly to `esl publish`.
 
 ```powershell
 npm exec -- esl login --server http://localhost:3000 --username author --token-file .scratch\smoke-workspace\author-token.txt
 
 Push-Location .scratch\smoke-workspace\demo
-npm exec -- esl version patch
-git add skill.json
+git add SKILL.md release.json
 git commit -m "Release 0.1.1"
-npm exec -- esl publish --force
+npm exec -- esl publish 0.1.1 --force
 Pop-Location
 ```
 

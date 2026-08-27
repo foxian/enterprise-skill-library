@@ -8,6 +8,7 @@
   [docs/guides/docker-troubleshooting.md](docs/guides/docker-troubleshooting.md).
 - Keep reusable logic in `packages/core`; keep CLI parsing, output, and exit behavior in `packages/cli`.
 - Verify changes with `npm test` and `npm run build`.
+- Any change to the `esl` CLI's commands, flags, or behavior must also update the client-coupled built-in skill `skills/esl-operator/` (`SKILL.md` and its `references/`), so the operator skill matches the CLI it ships with. Treat this as part of the same change, not a follow-up. When in doubt, check `docs/adr/0008` for the client-coupled contract and keep the two in lockstep.
 
 ## Agent skills
 

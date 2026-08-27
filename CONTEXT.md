@@ -40,7 +40,10 @@ Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release
 
 技能上传至 ESL Server 的 Platform Organization 后形成的协作维护源码仓库。
 它独立于 Skill Release 存在；其 Skill Identity 由服务器记录，源码中的
-`SKILL.md.name` 保持短名并与服务器记录的当前短名一致。
+`SKILL.md.name` 保持短名并与服务器记录的当前短名一致。源码以
+`SKILL.md` 与 Release Manifest（`release.json`）为内容；它不包含 Skill
+Manifest（`skill.json`），后者只作为安装副本或 Published Skill Package 的
+生成物存在。
 
 ## Source Upload
 
@@ -95,9 +98,22 @@ Server-hosted Skill Source 中随源码一起进行 Git 管理的 `release.json`
 源码 commit、checksum、发布时间或发布状态。发布时，服务器从目标源码 commit
 读取并校验该清单，将其内容固化为该 Skill Release 的元数据快照；后续源码修改
 不影响已经创建的 Skill Release。除 `license` 外，其余字段允许为空集合，但
-字段本身必须存在。
+字段本身必须存在。它是**发布链**的清单：只被 `upload` / `publish` 与服务器
+发布流程消费，源目录之外不出现于本地安装或适配链路。
 
 _Avoid_: Skill Release，用于指代该文件时。
+
+## Skill Manifest
+
+已安装技能的**安装副本**或 **Published Skill Package** 中携带的 `skill.json`。
+它记录技能身份、SemVer 版本、描述、作者与可选的关键词、兼容性、依赖等
+元数据，供 `install`（本地副本）、`adapt`、`version`、`list` 等本地消费链路
+读取。它只在两种生成物中出现：本地安装时的技能包副本，以及服务器发布时生成
+的 Published Skill Package（由 ESL Server 写入，见 ADR-0007）；**它不进入
+Server-hosted Skill Source 源码**，也不作为发布输入。
+
+_Avoid_: 用 Skill Manifest 指代源码中的清单；源码中的发布清单是
+Release Manifest（`release.json`）。
 
 ## Release Dependency Lock
 
@@ -163,7 +179,10 @@ ESL CLI 构建时从 Built-in Skill 源码生成并随 npm 包发布的本地安
 ## Local Skill Source
 
 The original local directory where a skill is authored or maintained before it
-is installed into a project skill store.
+is installed into a project skill store. A Local Skill Source contains
+`SKILL.md` and, for source-form skills, a Release Manifest (`release.json`); it
+does not contain a Skill Manifest (`skill.json`), which is only produced into
+an installed copy or a Published Skill Package.
 
 ## Skill Identity
 
