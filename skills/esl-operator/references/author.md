@@ -17,7 +17,7 @@
 - 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 
 ## 发布
-`esl publish [version] [--force|-f]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认），并落盘到源码目录。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+`esl publish [version] [--force|-f] [--license SPDX]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），落盘后**提示先 commit + push、再重跑 `publish`**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
 
 - 若目录还没有 `esl` remote，`publish` 会报错并提示你先 `esl upload`；它不自动建仓、不隐式 push。
 - `publish` 只发布当前已推送的 HEAD，不自动推断或替你定发布身份。
