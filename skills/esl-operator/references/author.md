@@ -12,7 +12,9 @@
 注意：`validate` 只校验结构，**不拦 `@local/*` 保留 Scope**——`@local` 的发布拦截由 `publish` 阶段执行。所以你在提议 `publish` 前要自己复核技能身份不是 `@local/*`，别等 `validate` 通过就以为能发。
 
 ## 上传源码（发布前必需）
-`esl upload --directory ./path` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
+`esl upload --directory ./path [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
+
+- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 
 ## 发布
 `esl publish [version] [--force|-f]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认），并落盘到源码目录。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。

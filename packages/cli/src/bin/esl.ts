@@ -228,14 +228,15 @@ export function createProgram(): Command {
       console.log(formatSkillInfo(info));
     });
 
-  program
+program
     .command('upload')
     .description('Upload a local skill as a server-hosted source')
     .option('--directory <path>', 'skill directory', process.cwd())
+    .option('--license <spdx>', 'SPDX license for a missing release.json')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl upload --directory ./my-skill'))
-    .action(async (options: { directory: string; server?: string }) => {
-      const uploaded = await executeUpload(options);
+    .action(async (options: { directory: string; license?: string; server?: string }) => {
+      const uploaded = await executeUpload({ ...options, noInput: program.opts().input === false });
       console.log(`Skill source uploaded: ${uploaded.name} (${uploaded.skillId})`);
     });
 

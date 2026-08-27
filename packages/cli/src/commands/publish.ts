@@ -2,8 +2,8 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { createMinimalReleaseManifest, fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
-import { confirm, isInteractive, readText } from '../prompt.js';
+import { fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
+import { confirm, isInteractive } from '../prompt.js';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -11,6 +11,7 @@ import {
   resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
+import { ensureReleaseManifest } from './release-manifest.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -42,26 +43,6 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
     );
   }
   return executeSourceRelease(options, directory);
-}
-
-async function ensureReleaseManifest(options: PublishOptions, directory: string): Promise<void> {
-  const license = await resolveLicense(options);
-  const releaseJson = createMinimalReleaseManifest(license);
-  await fs.writeFile(path.join(directory, 'release.json'), `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
-}
-
-async function resolveLicense(options: PublishOptions): Promise<string> {
-  if (options.license) {
-    return options.license;
-  }
-  if (options.noInput || !isInteractive()) {
-    throw new Error('Missing release.json: a license is required to create release.json; pass --license or run interactively');
-  }
-  const license = (await readText('Missing release.json. SPDX license for the new manifest: ')).trim();
-  if (!license) {
-    throw new Error('Missing release.json: a license is required to create release.json');
-  }
-  return license;
 }
 
 async function executeSourceRelease(options: PublishOptions, directory: string): Promise<unknown> {

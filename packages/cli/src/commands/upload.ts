@@ -10,11 +10,14 @@ import {
   requireFreshToken,
   type NetworkCommandOptions
 } from './network-options.js';
+import { ensureReleaseManifest } from './release-manifest.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
 export interface UploadOptions extends NetworkCommandOptions {
   directory?: string;
+  license?: string;
+  noInput?: boolean;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -36,8 +39,9 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
     }
   }
   if (!(await fileExists(`${directory}/release.json`))) {
+    await ensureReleaseManifest(options, directory);
     throw new Error(
-      'Invalid skill source: release.json is required to upload a server-hosted skill source; use esl init @scope/name to create a source skeleton'
+      'Created release.json in the source directory; commit it and push to esl/main, then run esl upload --directory . again to upload'
     );
   }
   const sourceValidation = await validateSkillSourceDirectory(directory);

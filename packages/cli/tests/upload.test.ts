@@ -77,7 +77,7 @@ describe('esl upload', () => {
     );
   });
 
-  it('rejects a directory without release.json before any network or git side effects', async () => {
+  it('creates a minimal release.json when missing and guides the user to commit before uploading', async () => {
     fs.rmSync(path.join(skillDir, 'release.json'));
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn();
@@ -87,10 +87,39 @@ describe('esl upload', () => {
         directory: skillDir,
         server: 'http://localhost:3000',
         homeDir,
+        license: 'Apache-2.0',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow('release.json');
+    ).rejects.toThrow('Created release.json in the source directory; commit it and push to esl/main');
+
+    const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
+    expect(created).toEqual({
+      schemaVersion: 1,
+      license: 'Apache-2.0',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails without --no-input when a license is needed and none is provided', async () => {
+    fs.rmSync(path.join(skillDir, 'release.json'));
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        noInput: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('a license is required to create release.json');
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).not.toHaveBeenCalled();

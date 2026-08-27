@@ -275,8 +275,11 @@ esl validate ./my-skill
 将本地源码目录首次创建为 Server-hosted Skill Source，并推上服务器（生成 Skill ID 与 `esl` remote）：
 ```bash
 esl upload --directory ./my-skill
+
+# 目录缺 release.json 时自动补清单，可指定许可证
+esl upload --directory ./my-skill --license Apache-2.0
 ```
-发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。
+发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。若 `upload` 自动补了 `release.json`，先 commit + push 再重跑 `upload`。
 
 ### 4. 发布技能 (Publish)
 将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：
