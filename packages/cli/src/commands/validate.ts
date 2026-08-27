@@ -1,10 +1,7 @@
-import { fileExists, validateSkillDirectory, validateSkillSourceDirectory } from '@esl/core';
-import path from 'node:path';
+import { validateSkillSourceDirectory } from '@esl/core';
 
 export async function executeValidate(directory = process.cwd()): Promise<{ valid: boolean; errors: string[] }> {
-  const result = (await fileExists(path.join(directory, 'release.json')))
-    ? await validateSkillSourceDirectory(directory)
-    : await validateSkillDirectory(directory);
+  const result = await validateSkillSourceDirectory(directory);
   if (result.success) {
     return { valid: true, errors: [] };
   }

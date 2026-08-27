@@ -21,23 +21,6 @@ describe('esl validate', () => {
     await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
   });
 
-  it('reports valid package-form skills', async () => {
-    const skillDir = path.join(tmpDir, 'pkg-skill');
-    fs.mkdirSync(skillDir);
-    fs.writeFileSync(
-      path.join(skillDir, 'skill.json'),
-      JSON.stringify({
-        name: '@myorg/pkg-skill',
-        version: '0.1.0',
-        description: 'Pkg skill',
-        author: 'tester'
-      })
-    );
-    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: pkg-skill\ndescription: Pkg skill.\n---\n');
-
-    await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
-  });
-
   it('reports invalid source-form skills', async () => {
     const skillDir = path.join(tmpDir, 'bad-skill');
     fs.mkdirSync(skillDir);
@@ -53,6 +36,24 @@ describe('esl validate', () => {
     const result = await executeValidate(tmpDir);
 
     expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining('skill.json')]));
+    expect(result.errors.join('\n')).toContain('release.json');
+  });
+
+  it('does not require skill.json for a source-form directory', async () => {
+    const skillDir = path.join(tmpDir, 'src-skill');
+    fs.mkdirSync(skillDir);
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: src-skill\ndescription: Src skill.\n---\n');
+
+    await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
   });
 });
