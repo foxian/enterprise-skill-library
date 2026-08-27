@@ -68,7 +68,7 @@ describe('esl install (project-level)', () => {
     expect(fs.readFileSync(adaptedSkillMd, 'utf8')).toContain('name: myorg:my-local-skill');
   });
 
-  it('implicitly imports a local skill missing skill.json during install', async () => {
+  it('installs a local skill missing skill.json with @local identity and leaves the source untouched', async () => {
     const unpreparedSkillDir = path.join(projectDir, 'unprepared-skill');
     fs.mkdirSync(unpreparedSkillDir);
     fs.writeFileSync(
@@ -85,6 +85,11 @@ describe('esl install (project-level)', () => {
     const expectedDir = path.join(projectDir, '.skills', '@local', 'unprepared-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(expectedDir, 'skill.json'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(expectedDir, 'skill.json'), 'utf8')).name).toBe(
+      '@local/unprepared-skill'
+    );
+    expect(fs.existsSync(path.join(unpreparedSkillDir, 'skill.json'))).toBe(false);
 
     const skillsJson = await loadSkillsJson(projectDir);
     expect(skillsJson.skills['@local/unprepared-skill']).toBe(`file:${unpreparedSkillDir}`);

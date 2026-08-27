@@ -18,7 +18,6 @@ import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
-import { executeImport } from '../commands/import.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
@@ -50,9 +49,10 @@ export function createProgram(): Command {
   program
     .command('init')
     .argument('<skill-name>')
+    .option('--license <spdx>', 'release.json license (default MIT)')
     .addHelpText('after', example('$ esl init my-skill'))
-    .action(async (skillName: string) => {
-      const targetDir = await executeInit(skillName);
+    .action(async (skillName: string, options: { license?: string }) => {
+      const targetDir = await executeInit(skillName, { license: options.license });
       console.log(`Skill initialized at ${targetDir}`);
     });
 
@@ -260,7 +260,7 @@ export function createProgram(): Command {
     .addHelpText('after', example('$ esl repair-tag @platform-ai/reviewer 1.0.0'))
     .action(async (identity: string, version: string, options: { server?: string }) => {
       const repaired = await executeRepairTag(identity, { ...options, version });
-      console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${version}`}`);
+console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${version}`}`);
     });
 
   program
@@ -269,26 +269,12 @@ export function createProgram(): Command {
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
+    .option('--license <spdx>', 'SPDX license for a missing release.json')
     .option('-f, --force', 'publish without confirmation')
     .addHelpText('after', example('$ esl publish'))
-    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; force?: boolean }) => {
-      await executePublish({ ...options, version, noInput: program.opts().input === false });
+    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; force?: boolean }) => {
+await executePublish({ ...options, version, noInput: program.opts().input === false });
       console.log('Skill published');
-    });
-
-  program
-    .command('import')
-    .description('Import an existing local skill directory into the current project')
-    .argument('<path>', 'existing skill directory')
-    .option('--namespace <namespace>', 'skill namespace', 'local')
-    .option('--no-adapt', 'Skip automatic adapt after install')
-    .addHelpText('after', example('$ esl import ./my-skill --namespace cnfox'))
-    .action(async (sourcePath: string, options: { namespace?: string; adapt?: boolean }) => {
-      const result = await executeImport(sourcePath, {
-        namespace: options.namespace,
-        noAdapt: options.adapt === false
-      });
-      console.log(`Skill ${result.skillName} imported at ${result.targetDir}`);
     });
 
   program

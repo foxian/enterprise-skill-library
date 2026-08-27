@@ -17,7 +17,6 @@ describe('esl program', () => {
         'validate',
         'version',
         'install',
-        'import',
         'adapt',
         'list',
         'use',

@@ -10,14 +10,16 @@ import {
   adaptGlobal,
   adaptProject,
   copySkillDirectory,
+  createMinimalSkillManifest,
   evaluateCompatibility,
+  fileExists,
   isBuiltinIdentity,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
-  prepareSkillImport,
   removeDirectory,
   resolveLocalStorePaths,
   validateSkillDirectory,
+  validateSkillMd,
   preparePublishedSkillPackage
 } from '@esl/core';
 import {
@@ -64,27 +66,49 @@ async function installFromLocalPath(
   options: InstallOptions
 ): Promise<string> {
   const resolved = path.resolve(sourcePath);
-  let validation = await validateSkillDirectory(resolved);
-  if (!validation.success) {
-    try {
-      await prepareSkillImport(resolved);
-      validation = await validateSkillDirectory(resolved);
-    } catch {
-      // If implicit import fails, throw original validation error
+  const skillJsonPath = path.join(resolved, 'skill.json');
+
+  let identity: string;
+  let version: string;
+  let needsGeneratedSkillJson = false;
+  let generatedDescription = '';
+
+  const packageValidation = await validateSkillDirectory(resolved);
+  if (packageValidation.success) {
+    identity = packageValidation.data.skillJson.name;
+    version = packageValidation.data.skillJson.version;
+  } else {
+    if (await fileExists(skillJsonPath)) {
+      throw new Error(`Invalid skill package at ${resolved}: ${packageValidation.errors.join(', ')}`);
     }
+    if (!(await fileExists(path.join(resolved, 'SKILL.md')))) {
+      throw new Error(`Invalid skill package at ${resolved}: ${packageValidation.errors.join(', ')}`);
+    }
+    const skillMdValidation = validateSkillMd(await fs.readFile(path.join(resolved, 'SKILL.md'), 'utf8'));
+    if (!skillMdValidation.success) {
+      throw new Error(`Invalid skill package at ${resolved}: ${skillMdValidation.errors.join(', ')}`);
+    }
+    identity = `@local/${skillMdValidation.data.name}`;
+    version = '0.1.0';
+    needsGeneratedSkillJson = true;
+    generatedDescription = skillMdValidation.data.description;
   }
 
-  if (!validation.success) {
-    throw new Error(`Invalid skill package at ${resolved}: ${validation.errors.join(', ')}`);
-  }
-
-  const { skillJson } = validation.data;
   const installRoot = options.global ? resolveLocalStorePaths(options).root : projectRoot;
-  const targetDir = options.global ? installTargetDir(skillJson.name, options) : projectSkillsDir(projectRoot, skillJson.name);
+  const targetDir = options.global ? installTargetDir(identity, options) : projectSkillsDir(projectRoot, identity);
   await copySkillDirectory(resolved, targetDir);
-  await addSkillDependency(installRoot, skillJson.name, `file:${resolved}`);
-  await addLockEntry(installRoot, skillJson.name, {
-    version: skillJson.version,
+  if (needsGeneratedSkillJson) {
+    const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
+    const skillJson = createMinimalSkillManifest({
+      name: identity,
+      description: generatedDescription,
+      author
+    });
+    await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+  }
+  await addSkillDependency(installRoot, identity, `file:${resolved}`);
+  await addLockEntry(installRoot, identity, {
+    version,
     resolved: `file:${resolved}`,
     integrity: ''
   });

@@ -15,27 +15,44 @@ describe('esl init', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('creates a minimal runtime skill package', async () => {
+  it('creates a source skeleton with SKILL.md and release.json but no skill.json', async () => {
     const targetDir = await executeInit('@myorg/my-skill', {
       cwd: tmpDir,
       runGitInit: false
     });
 
     expect(targetDir).toBe(path.join(tmpDir, 'my-skill'));
-    expect(fs.existsSync(path.join(targetDir, 'skill.json'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(targetDir, 'release.json'))).toBe(true);
+    expect(fs.existsSync(path.join(targetDir, 'skill.json'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'scripts'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'references'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'assets'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'resources'))).toBe(false);
 
-    const skillJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'skill.json'), 'utf8'));
-    expect(skillJson.name).toBe('@myorg/my-skill');
-    expect(skillJson.version).toBe('0.1.0');
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson).toEqual({
+      schemaVersion: 1,
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
 
     const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
     expect(skillMd).toContain('name: my-skill');
     expect(skillMd).toContain('description: Use when');
+  });
+
+  it('uses the provided --license override', async () => {
+    const targetDir = await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      license: 'Apache-2.0'
+    });
+
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson.license).toBe('Apache-2.0');
   });
 
   it('rejects invalid skill names', async () => {

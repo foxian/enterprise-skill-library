@@ -15,13 +15,41 @@ describe('esl validate', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('reports valid generated skill packages', async () => {
+  it('reports valid generated source-form skills', async () => {
     const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
 
     await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
   });
 
-  it('reports invalid skill packages', async () => {
+  it('reports valid package-form skills', async () => {
+    const skillDir = path.join(tmpDir, 'pkg-skill');
+    fs.mkdirSync(skillDir);
+    fs.writeFileSync(
+      path.join(skillDir, 'skill.json'),
+      JSON.stringify({
+        name: '@myorg/pkg-skill',
+        version: '0.1.0',
+        description: 'Pkg skill',
+        author: 'tester'
+      })
+    );
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: pkg-skill\ndescription: Pkg skill.\n---\n');
+
+    await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
+  });
+
+  it('reports invalid source-form skills', async () => {
+    const skillDir = path.join(tmpDir, 'bad-skill');
+    fs.mkdirSync(skillDir);
+    fs.writeFileSync(path.join(skillDir, 'release.json'), '{}');
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: bad-skill\ndescription: Bad.\n---\n');
+
+    const result = await executeValidate(skillDir);
+    expect(result.valid).toBe(false);
+    expect(result.errors.join('\n')).toContain('schemaVersion');
+  });
+
+  it('reports invalid directories with no manifest', async () => {
     const result = await executeValidate(tmpDir);
 
     expect(result.valid).toBe(false);

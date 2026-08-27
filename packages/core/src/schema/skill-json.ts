@@ -52,3 +52,11 @@ export function parseSkillName(name: string): { scope: string; skillName: string
   const [scope, skillName] = name.slice(1).split('/');
   return { scope, skillName };
 }
+
+export function createMinimalSkillManifest(input: {
+  name: string;
+  description: string;
+  author: string;
+}): SkillJson {
+  return { name: input.name, version: '0.1.0', description: input.description, author: input.author, keywords: [] };
+}

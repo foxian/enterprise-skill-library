@@ -3,6 +3,15 @@ import path from 'node:path';
 
 const EXCLUDED_DIRS = new Set(['.git']);
 
+export async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function copyRecursive(src: string, dest: string): Promise<void> {
   await fs.mkdir(dest, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });

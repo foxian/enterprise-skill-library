@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  createMinimalReleaseManifest,
   validateReleaseManifest,
   validateSkillSourceDirectory
 } from '../src/index.js';
@@ -58,5 +59,18 @@ describe('Release Manifest', () => {
     if (!result.success) {
       expect(result.errors.join('\n')).toContain('license');
     }
+  });
+
+  it('builds a minimal release manifest that passes validation', () => {
+    const manifest = createMinimalReleaseManifest('MIT');
+
+    expect(manifest).toEqual({
+      schemaVersion: 1,
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(validateReleaseManifest(manifest).success).toBe(true);
   });
 });

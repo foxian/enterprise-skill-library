@@ -18,12 +18,13 @@ describe('esl publish', () => {
     skillDir = path.join(tmpRoot, 'code-review');
     fs.mkdirSync(skillDir);
     fs.writeFileSync(
-      path.join(skillDir, 'skill.json'),
+      path.join(skillDir, 'release.json'),
       JSON.stringify({
-        name: '@alice/code-review',
-        version: '0.1.0',
-        description: 'Code review skill',
-        author: 'alice'
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
       })
     );
     fs.writeFileSync(
@@ -43,256 +44,58 @@ description: Use when reviewing code changes.
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('pushes to the clone URL returned by the ESL Server', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
-      })
-    });
-    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-
-    await executePublish({
-      directory: skillDir,
-      server: 'http://localhost:3000',
-      homeDir,
-      force: true,
-      customFetch: fetchImpl as any,
-      execFileAsync: execFileAsync as any
-    });
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(execFileAsync).toHaveBeenCalledTimes(4);
-
-    const remoteArgs = execFileAsync.mock.calls[0][1] as string[];
-    expect(remoteArgs[0]).toBe('remote');
-    expect(remoteArgs[1]).toBe('add');
-    expect(remoteArgs[2]).toBe('esl');
-    expect(remoteArgs[3]).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
-    expect(remoteArgs[3]).not.toContain('gitea-token');
-
-    const pushArgSets = (execFileAsync.mock.calls.map((call) => call[1]) as string[][]).filter((args) =>
-      args.includes('push')
-    );
-    expect(pushArgSets).toHaveLength(2);
-    for (const args of pushArgSets) {
-      expect(args.some((arg) => arg.includes('http.extraHeader') && arg.includes('gitea-token'))).toBe(true);
-    }
-  });
-
-  it('updates an existing esl remote before publishing another release from the same repository', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
-      })
-    });
-    const remoteExists = new Error('error: remote esl already exists.');
-    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
-      if (args.join(' ') === 'remote add esl http://localhost:3000/git/esl-skills/alice_code-review.git') {
-        throw remoteExists;
-      }
-      return { stdout: '', stderr: '' };
-    });
-
-    await executePublish({
-      directory: skillDir,
-      server: 'http://localhost:3000',
-      homeDir,
-      force: true,
-      customFetch: fetchImpl as any,
-      execFileAsync: execFileAsync as any
-    });
-
-    expect(execFileAsync).toHaveBeenCalledWith(
-      'git',
-      ['remote', 'set-url', 'esl', 'http://localhost:3000/git/esl-skills/alice_code-review.git'],
-      { cwd: skillDir }
-    );
-    expect(execFileAsync).toHaveBeenCalledWith('git', expect.arrayContaining(['push', 'esl', 'HEAD:main']), {
-      cwd: skillDir
-    });
-  });
-
-  it('rejects local namespace skills before registry or git side effects', async () => {
-    fs.writeFileSync(
-      path.join(skillDir, 'skill.json'),
-      JSON.stringify({
-        name: '@local/code-review',
-        version: '0.1.0',
-        description: 'Code review skill',
-        author: 'alice'
-      })
-    );
+  it('creates a minimal release.json when missing and guides the user to commit before publishing', async () => {
+    fs.rmSync(path.join(skillDir, 'release.json'));
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn();
 
     await expect(
       executePublish({
         directory: skillDir,
+        version: '1.0.0',
         server: 'http://localhost:3000',
         homeDir,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any
-      })
-    ).rejects.toThrow('@local/* skills use the local namespace and must be renamed to a stable namespace before publishing');
-
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(execFileAsync).not.toHaveBeenCalled();
-  });
-
-  it('fails when the ESL Server omits cloneUrl', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ name: '@alice/code-review' })
-    });
-
-    await expect(
-      executePublish({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
+        license: 'Apache-2.0',
         force: true,
         customFetch: fetchImpl as any,
-        execFileAsync: vi.fn() as any
-      })
-    ).rejects.toThrow('API response did not include cloneUrl');
-  });
-
-  it('prompts for confirmation before pushing', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git'
-      })
-    });
-    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
-    const confirmInput = vi.fn().mockResolvedValue(true);
-
-    await executePublish({
-      directory: skillDir,
-      server: 'http://localhost:3000',
-      homeDir,
-      confirmInput,
-      customFetch: fetchImpl as any,
-      execFileAsync: execFileAsync as any
-    });
-
-    expect(confirmInput).toHaveBeenCalledTimes(1);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it('cancels when confirmation is declined', async () => {
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-    const confirmInput = vi.fn().mockResolvedValue(false);
-
-    await expect(
-      executePublish({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        confirmInput,
-        customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow('Publish cancelled');
+    ).rejects.toThrow('Created release.json in the source directory; commit it and push to esl/main');
 
+    const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
+    expect(created).toEqual({
+      schemaVersion: 1,
+      license: 'Apache-2.0',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails fast when --no-input is set without --force', async () => {
+  it('fails without --no-input when a license is needed and none is provided', async () => {
+    fs.rmSync(path.join(skillDir, 'release.json'));
     const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
 
     await expect(
       executePublish({
         directory: skillDir,
+        version: '1.0.0',
         server: 'http://localhost:3000',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
-        execFileAsync: vi.fn() as any
-      })
-    ).rejects.toThrow('Publishing requires confirmation; pass --force to skip it');
-
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('fails fast when the login has expired', async () => {
-    await saveCredentials(
-      { token: 'gitea-token', loginAt: new Date(Date.now() - 31 * 24 * 3_600_000).toISOString() },
-      { homeDir }
-    );
-    const fetchImpl = vi.fn();
-
-    await expect(
-      executePublish({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        force: true,
-        customFetch: fetchImpl as any,
-        execFileAsync: vi.fn() as any
-      })
-    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
-
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('fails fast when login is missing', async () => {
-    await saveCredentials({ token: null, loginAt: null }, { homeDir });
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-
-    await expect(
-      executePublish({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        force: true,
-        customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow('Missing token; run esl login or pass --token');
-
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(execFileAsync).not.toHaveBeenCalled();
-  });
-
-  it('fails fast when no ESL Server is configured', async () => {
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-
-    await expect(
-      executePublish({
-        directory: skillDir,
-        homeDir,
-        force: true,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any
-      })
-    ).rejects.toThrow('Missing server; run esl login or pass --server');
+    ).rejects.toThrow('a license is required to create release.json');
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
   it('publishes a release manifest from a clean HEAD already on esl/main without pushing source', async () => {
-    fs.rmSync(path.join(skillDir, 'skill.json'));
-    fs.writeFileSync(
-      path.join(skillDir, 'release.json'),
-      JSON.stringify({
-        schemaVersion: 1,
-        license: 'MIT',
-        keywords: [],
-        compatibility: {},
-        dependencies: {}
-      })
-    );
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -333,17 +136,6 @@ description: Use when reviewing code changes.
   });
 
   it('rejects a dirty release worktree before calling the server', async () => {
-    fs.rmSync(path.join(skillDir, 'skill.json'));
-    fs.writeFileSync(
-      path.join(skillDir, 'release.json'),
-      JSON.stringify({
-        schemaVersion: 1,
-        license: 'MIT',
-        keywords: [],
-        compatibility: {},
-        dependencies: {}
-      })
-    );
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: ' M SKILL.md\n', stderr: '' });
 
@@ -358,6 +150,193 @@ description: Use when reviewing code changes.
         execFileAsync: execFileAsync as any
       })
     ).rejects.toThrow('working tree is not clean');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('guides the user to esl upload when the directory has no esl remote', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        throw new Error('No such remote: esl');
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('no esl remote; run esl upload first');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a source whose esl remote infers a local namespace', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/local/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('@local/* skills use the local namespace and must be renamed to a stable namespace');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a HEAD that differs from esl/main', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'def456\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('local HEAD must be pushed and equal to esl/main');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('requires a version for source-form releases', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn();
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        force: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Release version is required');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+  it('prompts for confirmation before publishing', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@platform-ai/code-review',
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        packageUrl: '/api/packages/sk_123/1.0.0/sha.json'
+      })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+    const confirmInput = vi.fn().mockResolvedValue(true);
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      confirmInput,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(confirmInput).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels when confirmation is declined', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+    const confirmInput = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        confirmInput,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Publish cancelled');
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('push'))).toBe(false);
+  });
+
+  it('fails fast when --no-input is set without --force', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await expect(
+      executePublish({
+        directory: skillDir,
+        version: '1.0.0',
+        server: 'http://localhost:3000',
+        homeDir,
+        noInput: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Publishing requires confirmation; pass --force to skip it');
+
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

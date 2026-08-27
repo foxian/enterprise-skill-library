@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
-import { isBuiltinIdentity, validateSkillDirectory, validateSkillSourceDirectory, parseSkillName } from '@esl/core';
+import { fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -26,55 +27,29 @@ export interface UploadedSkill {
 
 export async function executeUpload(options: UploadOptions = {}): Promise<UploadedSkill> {
   const directory = options.directory ?? process.cwd();
-  if (await fileExists(`${directory}/release.json`)) {
-    const sourceValidation = await validateSkillSourceDirectory(directory);
-    if (!sourceValidation.success) {
-      throw new Error(`Invalid skill source: ${sourceValidation.errors.join(', ')}`);
+  const skillJsonPath = path.join(directory, 'skill.json');
+  if (await fileExists(skillJsonPath)) {
+    const raw = await fs.readFile(skillJsonPath, 'utf8');
+    const parsed = JSON.parse(raw) as { name?: string };
+    if (parsed.name && isBuiltinIdentity(parsed.name)) {
+      throw new Error('Built-in skills cannot be uploaded; they are bundled with the ESL CLI');
     }
-    return uploadSource(options, directory, sourceValidation.data.skillMd.name, sourceValidation.data.skillMd.description);
   }
-  const validation = await validateSkillDirectory(directory);
-  if (!validation.success) {
-    throw new Error(`Invalid skill package: ${validation.errors.join(', ')}`);
+  if (!(await fileExists(`${directory}/release.json`))) {
+    throw new Error(
+      'Invalid skill source: release.json is required to upload a server-hosted skill source; use esl init @scope/name to create a source skeleton'
+    );
   }
-
-  const { skillJson } = validation.data;
-  if (isBuiltinIdentity(skillJson.name)) {
-    throw new Error('Built-in skills cannot be uploaded; they are bundled with the ESL CLI');
+  const sourceValidation = await validateSkillSourceDirectory(directory);
+  if (!sourceValidation.success) {
+    throw new Error(`Invalid skill source: ${sourceValidation.errors.join(', ')}`);
   }
-  const { skillName } = parseSkillName(skillJson.name);
-  const authToken = await requireFreshToken(options);
-  const server = options.server;
-  if (!server) {
-    throw new Error('Missing server; run esl login or pass --server');
-  }
-  const fetchImpl = options.customFetch ?? fetch;
-  const response = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills/upload'), {
-    method: 'POST',
-    headers: {
-      Authorization: `token ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      name: skillName,
-      description: skillJson.description
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to upload skill source: ${await response.text()}`);
-  }
-
-  const uploaded = (await response.json()) as UploadedSkill;
-  if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {
-    throw new Error('Failed to upload skill source: API response is incomplete');
-  }
-
-  const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const authHeader = gitAuthHeaderConfig(authToken);
-  await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
-  await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
-  return uploaded;
+  return uploadSource(
+    options,
+    directory,
+    sourceValidation.data.skillMd.name,
+    sourceValidation.data.skillMd.description
+  );
 }
 
 async function uploadSource(
@@ -107,15 +82,6 @@ async function uploadSource(
   await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
   await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   return uploaded;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function ensureEslRemote(

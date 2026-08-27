@@ -2,13 +2,14 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parseSkillName, validateSkillDirectory } from '@esl/core';
+import { createMinimalReleaseManifest, parseSkillName, validateSkillSourceDirectory } from '@esl/core';
 
 const execFileAsync = promisify(execFile);
 
 export interface InitOptions {
   cwd?: string;
   runGitInit?: boolean;
+  license?: string;
 }
 
 export async function executeInit(skillName: string, options: InitOptions = {}): Promise<string> {
@@ -28,15 +29,9 @@ export async function executeInit(skillName: string, options: InitOptions = {}):
 
   await fs.mkdir(targetDir, { recursive: true });
 
-  const skillJson = {
-    name: skillName,
-    version: '0.1.0',
-    description: `Runtime skill package for ${folderName}`,
-    author: process.env.USER ?? process.env.USERNAME ?? 'anonymous',
-    keywords: []
-  };
+  const releaseJson = createMinimalReleaseManifest(options.license ?? 'MIT');
 
-  await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+  await fs.writeFile(path.join(targetDir, 'release.json'), `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
   await fs.writeFile(
     path.join(targetDir, 'SKILL.md'),
     `---
@@ -51,9 +46,9 @@ Write concise agent instructions here. Move long reference material into referen
     'utf8'
   );
 
-  const validation = await validateSkillDirectory(targetDir);
+  const validation = await validateSkillSourceDirectory(targetDir);
   if (!validation.success) {
-    throw new Error(`Generated invalid skill package: ${validation.errors.join(', ')}`);
+    throw new Error(`Generated invalid skill source: ${validation.errors.join(', ')}`);
   }
 
   if (runGitInit) {

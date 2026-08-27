@@ -7,7 +7,6 @@ export * from './schema/compatibility.js';
 export * from './schema/validation-result.js';
 export * from './skill/builtin-package.js';
 export * from './skill/directory-validator.js';
-export * from './skill/import-skill.js';
 export * from './skill/published-package.js';
 export * from './skill/skill-md.js';
 export * from './store/file-copy.js';

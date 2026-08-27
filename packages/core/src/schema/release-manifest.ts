@@ -29,6 +29,10 @@ export const ReleaseManifestSchema = z.object({
 
 export type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
 
+export function createMinimalReleaseManifest(license: string): ReleaseManifest {
+  return { schemaVersion: 1, license, keywords: [], compatibility: {}, dependencies: {} };
+}
+
 export function validateReleaseManifest(data: unknown): ValidationResult<ReleaseManifest> {
   const result = ReleaseManifestSchema.safeParse(data);
   if (result.success) return { success: true, data: result.data };
