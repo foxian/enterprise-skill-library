@@ -35,27 +35,50 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     const name = `@${repoOwner}/${shortName}`;
-    if (repository.getSkill(name)) {
-      return reply.status(409).send({ error: 'Skill already exists; use source and Git push to update it' });
+    const existing = repository.getSkill(name);
+    if (existing) {
+      if (existing.status !== 'active-unreleased' || existing.createdBy !== user.username) {
+        return reply.status(409).send({ error: 'Skill already exists; use source and Git push to update it' });
+      }
+      // An interrupted first Source Upload: the same creator may resume against
+      // the Active Unreleased Skill Source instead of hitting a duplicate error.
+      return reply
+        .status(200)
+        .send(withCloneUrl(request, { ...existing, versions: repository.getVersions(name) }));
     }
 
-    const gitRepo = await giteaService.createOrganizationRepo(repoOwner, shortName, true);
-    if (typeof giteaService.addRepositoryCollaborator === 'function') {
-      await giteaService.addRepositoryCollaborator(repoOwner, shortName, user.username, 'write');
+    let gitRepo: { full_name: string } | undefined;
+    let skill: ReturnType<SkillRepository['createServerSkill']> | undefined;
+    try {
+      gitRepo = await giteaService.createOrganizationRepo(repoOwner, shortName, true);
+      if (typeof giteaService.addRepositoryCollaborator === 'function') {
+        await giteaService.addRepositoryCollaborator(repoOwner, shortName, user.username, 'write');
+      }
+      skill = repository.createServerSkill({
+        name,
+        scope: repoOwner,
+        skillName: shortName,
+        description: body.description,
+        createdBy: user.username,
+        owner: user.username,
+        maintainers: [user.username],
+        visibility: 'private',
+        gitRepoPath: gitRepo.full_name,
+        status: 'active-unreleased'
+      });
+    } catch (error) {
+      // The Git repository may already have been created; best-effort remove the
+      // orphan so the same skill name can be uploaded again.
+      if (gitRepo && typeof giteaService.deleteRepo === 'function') {
+        try {
+          await giteaService.deleteRepo(repoOwner, shortName);
+        } catch {
+          // Best-effort cleanup; the original failure is the one to surface.
+        }
+      }
+      throw error;
     }
-    const skill = repository.createServerSkill({
-      name,
-      scope: repoOwner,
-      skillName: shortName,
-      description: body.description,
-      createdBy: user.username,
-      owner: user.username,
-      maintainers: [user.username],
-      visibility: 'private',
-      gitRepoPath: gitRepo.full_name,
-      status: 'active-unreleased'
-    });
-    return reply.status(201).send(withCloneUrl(request, { ...skill, versions: repository.getVersions(name) }));
+    return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
   });
 
   app.post('/api/skills', async (request, reply) => {

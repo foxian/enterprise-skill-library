@@ -161,6 +161,25 @@ describe('GiteaService', () => {
     });
   });
 
+  it('deletes a repository via the Gitea API', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.deleteRepo('platform-ai', 'reviewer');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/repos/platform-ai/reviewer', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('treats a missing repository as already deleted', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.deleteRepo('platform-ai', 'missing-skill')).resolves.toBeUndefined();
+  });
+
   it('reports whether the Gitea backend is ready', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

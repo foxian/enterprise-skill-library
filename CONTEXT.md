@@ -48,7 +48,10 @@ Manifest（`skill.json`），后者只作为安装副本或 Published Skill Pack
 ## Source Upload
 
 从本地技能首次创建 Server-hosted Skill Source 的操作。它创建 Skill ID 和
-服务器 Git 仓库，不用于覆盖已存在的服务器源码。
+服务器 Git 仓库，不用于覆盖已存在的服务器源码。同一创建者对被中断的首次
+Source Upload 可续传：对 Active Unreleased Skill Source 重传视为续传同一
+源，不重复建仓；已发布或由他人创建的源仍拒绝续传。后续提交属于 Source
+Update，不属于 Source Upload。
 
 ## Source Update
 

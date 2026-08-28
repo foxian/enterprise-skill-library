@@ -307,6 +307,18 @@ export class GiteaService {
     }
   }
 
+  async deleteRepo(owner: string, name: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
+      method: 'DELETE',
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok && res.status !== 404) {
+      const err = await res.text();
+      throw new Error(`Failed to delete Gitea repository: ${err}`);
+    }
+  }
+
   async addRepositoryCollaborator(
     owner: string,
     repository: string,

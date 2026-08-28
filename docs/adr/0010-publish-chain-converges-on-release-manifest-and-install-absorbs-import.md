@@ -7,7 +7,7 @@ ESL 存在两套本地清单（`skill.json` 与 `release.json`）且历史命令
 具体决策如下：
 
 - **清单职责二分**：`release.json` 是发布链清单，只被 `upload` / `publish` 与服务器发布流程消费；`skill.json` 是本地/安装清单，只在两种生成物中存在——本地安装时的技能包副本，以及服务器发布时生成的 Published Skill Package（由服务器写入，`packages/server/src/routes/skills.ts:256-263`）。Server-hosted Skill Source 与 Local Skill Source 均不包含 `skill.json`，发布输入只有 `SKILL.md` 与 `release.json`。
-- **发布链冻结包形态分支**：`publish` / `upload` 只接受源码形态（目录含 `release.json`），不再支持「本地 skill.json 包直接推成源码」的旧路径。两者在缺失 `release.json` 时都自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认——它无法推断，不设默认猜测；`keywords` / `compatibility` / `dependencies` 为空集合），落盘到源码目录，然后提示先 commit + push、再重跑命令，因为服务器发布时以源码 commit 的 `release.json` 为准（`skills.ts:210-216`），仅内存生成会被忽略。
+- **发布链冻结包形态分支**：`publish` / `upload` 只接受源码形态（目录含 `release.json`），不再支持「本地 skill.json 包直接推成源码」的旧路径。两者在缺失 `release.json` 时都自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认——它无法推断，不设默认猜测；`keywords` / `compatibility` / `dependencies` 为空集合），落盘到源码目录，然后提示先 commit + push、再重跑命令，因为服务器发布时以源码 commit 的 `release.json` 为准（`skills.ts:210-216`），仅内存生成会被忽略。（upload 侧已由 ADR-0012 取代：自动提交、一次完成，不再提示重跑；publish 仍保持该行为。）
 - **`publish` 不自动 `upload`**：补全 `release.json` 后，若目录尚无 `esl` remote，`publish` 报清晰错误并提示先执行 `esl upload`。发布只发布当前已推送且等于 `esl/main` 的 `HEAD`（`publish.ts:104-107`），不隐式 push 源码、不自动建仓、不自动从登录用户推断身份（与 Local Namespace publish guard 一致）。
 - **`init` 只生成源码骨架**：`esl init` 生成 `SKILL.md` 与 `release.json`，不再生成 `skill.json`。`release.json` 的 `license` 用常见默认（如 MIT）并允许 `--license` 覆盖，避免首次 `publish` 被交互式打断。
 - **本地安装只认 Skill Manifest 且清单在副本生成**：`install` 统一负责把技能装进 `.skills`，其来源由参数自动判断——服务端身份来自 `@org/name`、内置身份固定 `@builtin/name`、本地路径一律 `@local/<name>`；三者的 namespace 均确定，因此 `install` **不提供 namespace 参数**，也不从登录用户推断身份。本地裸目录（只有 `SKILL.md`）安装时，`install` 在**安装副本**里补最小 `skill.json`，源目录不动。

@@ -279,7 +279,7 @@ esl upload --directory ./my-skill
 # 目录缺 release.json 时自动补清单，可指定许可证
 esl upload --directory ./my-skill --license Apache-2.0
 ```
-发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。若 `upload` 自动补了 `release.json`，先 commit + push 再重跑 `upload`。
+发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。`upload` 会自动完成 git 前置：目录不是 git 仓库时自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit，因此一条命令即可从零上传；目录中不想纳入源码的文件请先写进 `.gitignore`。
 
 ### 4. 发布技能 (Publish)
 将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：
