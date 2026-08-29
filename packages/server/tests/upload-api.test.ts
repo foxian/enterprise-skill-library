@@ -105,4 +105,18 @@ describe('Skill Source Upload API', () => {
     expect(response.statusCode).toBe(500);
     expect(gitea.deleteRepo).toHaveBeenCalledWith('platform-ai', 'reviewer');
   });
+
+  it('accepts publish-sized request bodies instead of the 1MB Fastify default', async () => {
+    // Publish sends the full source tree in the request body; a 2MB body must
+    // reach route handling (401 auth) rather than being rejected as 413.
+    const bigDescription = 'x'.repeat(2 * 1024 * 1024);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      payload: { name: 'big-skill', description: bigDescription }
+    });
+
+    expect(response.statusCode).not.toBe(413);
+    expect(response.statusCode).toBe(401);
+  });
 });

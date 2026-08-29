@@ -180,6 +180,49 @@ describe('GiteaService', () => {
     await expect(gitea.deleteRepo('platform-ai', 'missing-skill')).resolves.toBeUndefined();
   });
 
+  it('reads file contents from individual file endpoints when the directory listing omits them', async () => {
+    const b64 = (s: string) => Buffer.from(s).toString('base64');
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { name: 'SKILL.md', path: 'SKILL.md', type: 'file' },
+          { name: 'assets', path: 'assets', type: 'dir' }
+        ]
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: b64('---\nname: demo\n---\n'), encoding: 'base64' })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ name: 'logo.png', path: 'assets/logo.png', type: 'file' }]
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: b64('PNGDATA'), encoding: 'base64' })
+      });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    const files = await gitea.readSourceTree('esl-skills', 'demo', 'abc123');
+
+    expect(files).toEqual({
+      'SKILL.md': '---\nname: demo\n---\n',
+      'assets/logo.png': 'PNGDATA'
+    });
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      'http://gitea:3000/api/v1/repos/esl-skills/demo/contents/SKILL.md?ref=abc123',
+      { headers: { Authorization: 'token admin-token' } }
+    );
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      4,
+      'http://gitea:3000/api/v1/repos/esl-skills/demo/contents/assets/logo.png?ref=abc123',
+      { headers: { Authorization: 'token admin-token' } }
+    );
+  });
+
   it('reports whether the Gitea backend is ready', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,

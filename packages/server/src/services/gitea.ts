@@ -417,6 +417,27 @@ export class GiteaService {
 
   async readSourceTree(owner: string, repository: string, ref: string): Promise<Record<string, string>> {
     const files: Record<string, string> = {};
+    const readFileContent = async (entry: GiteaContentEntry): Promise<string> => {
+      if (entry.content) {
+        return entry.encoding === 'base64'
+          ? Buffer.from(entry.content.replace(/\s/g, ''), 'base64').toString('utf8')
+          : entry.content;
+      }
+      // The contents directory listing omits file contents; fetch each file
+      // individually to get its content.
+      const res = await this.customFetch(
+        `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/${entry.path}?ref=${encodeURIComponent(ref)}`,
+        { headers: { Authorization: `token ${this.adminToken}` } }
+      );
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(`Failed to read source file ${entry.path}: ${error}`);
+      }
+      const file = (await res.json()) as { content?: string; encoding?: string };
+      return file.encoding === 'base64'
+        ? Buffer.from((file.content ?? '').replace(/\s/g, ''), 'base64').toString('utf8')
+        : (file.content ?? '');
+    };
     const visit = async (directory: string): Promise<void> => {
       const suffix = directory ? `/${directory}` : '';
       const response = await this.customFetch(
@@ -432,10 +453,7 @@ export class GiteaService {
         if (entry.type === 'dir') {
           await visit(entry.path);
         } else {
-          const content = entry.content ?? '';
-          files[entry.path] = entry.encoding === 'base64'
-            ? Buffer.from(content.replace(/\s/g, ''), 'base64').toString('utf8')
-            : content;
+          files[entry.path] = await readFileContent(entry);
         }
       }
     };

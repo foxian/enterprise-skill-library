@@ -15,7 +15,9 @@ export interface AppOptions {
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
-  const app = Fastify({ logger: false });
+  // bodyLimit matches the nginx client_max_body_size so publish requests carrying
+  // the full source tree are not rejected by the 1MB Fastify default.
+  const app = Fastify({ logger: false, bodyLimit: 200 * 1024 * 1024 });
   const db = initDatabase(options.dbPath);
   const repository = new SkillRepository(db);
   const adminRepository = new AdminRepository(db, options.bootstrapAdminToken ?? 'bootstrap-token');
