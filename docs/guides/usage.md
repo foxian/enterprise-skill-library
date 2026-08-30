@@ -287,6 +287,7 @@ esl upload --directory ./my-skill --message "fix: correct the dead-link regex"
 ```bash
 esl status
 ```
+> **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录（`esl upload` 会提示 `server source no longer exists`），摘掉死链 remote 后重新登记即可：`git remote remove esl` → `esl upload --directory .`（服务端全新创建）。
 
 ### 4. 发布技能 (Publish)
 将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：

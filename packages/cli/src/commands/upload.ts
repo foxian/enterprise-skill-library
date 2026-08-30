@@ -208,6 +208,9 @@ async function uploadSource(
   try {
     await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   } catch (error) {
+    if (isSourceGone(error)) {
+      throw new Error(orphanedSourceGuidance((error as Error).message));
+    }
     // The source is already registered on the server; the push is the only
     // remaining step, so tell the user exactly how to finish it.
     throw new Error(
@@ -215,6 +218,19 @@ async function uploadSource(
     );
   }
   return uploaded;
+}
+
+function orphanedSourceGuidance(detail: string): string {
+  return (
+    `The server source no longer exists; the local esl remote points at a deleted repository. ` +
+    `Run "git remote remove esl" then "esl upload --directory ." to register a fresh source. ` +
+    `(${detail})`
+  );
+}
+
+function isSourceGone(error: unknown): boolean {
+  const message = (error as Error).message ?? '';
+  return /not found|404|does not exist/i.test(message);
 }
 
 function skillNameFromRemote(remoteUrl: string): string {
@@ -242,7 +258,10 @@ async function syncSource(
   // Refresh the server-side ref so we can compare and rebase onto it.
   try {
     await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
-  } catch {
+  } catch (error) {
+    if (isSourceGone(error)) {
+      throw new Error(orphanedSourceGuidance((error as Error).message));
+    }
     return 'needs-push'; // remote unreachable or empty; let the push surface the real error
   }
   let remoteHead: string;

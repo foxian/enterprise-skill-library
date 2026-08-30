@@ -504,4 +504,54 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['add', '-A'], { cwd: skillDir });
     expect(execFileAsync).toHaveBeenCalledWith('git', ['rebase', '--continue'], { cwd: skillDir });
   });
+
+  it('guides the user to re-register when the fetch reports the server source is gone', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+      }
+      if (args.includes('fetch')) {
+        return Promise.reject(new Error('remote: Repository not found.'));
+      }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/server source no longer exists/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a deleted server source when the push reports not found', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
+      if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
+      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
+      if (args.includes('push')) {
+        return Promise.reject(new Error('fatal: repository not found'));
+      }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/server source no longer exists/);
+  });
 });
