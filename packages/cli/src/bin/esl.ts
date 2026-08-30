@@ -28,6 +28,7 @@ import { executeUpload } from '../commands/upload.js';
 import { executeStatus } from '../commands/status.js';
 import { executeRename } from '../commands/rename.js';
 import { executeDelete } from '../commands/delete.js';
+import { executeNotes } from '../commands/notes.js';
 import { executeRepairTag } from '../commands/repair-tag.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
@@ -326,6 +327,19 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean }) => {
 await executePublish({ ...options, version, noInput: program.opts().input === false });
       console.log('Skill published');
+    });
+
+  program
+    .command('notes')
+    .description('Update the release notes of a published version')
+    .argument('<skill-name>')
+    .argument('<version>')
+    .requiredOption('--message <text>', 'new release notes')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl notes @platform-ai/reviewer 1.1.0 --message "Revised notes"'))
+    .action(async (identity: string, version: string, options: { message: string; server?: string }) => {
+      const updated = await executeNotes(identity, version, options);
+      console.log(`Release notes updated: ${updated.skillName} ${updated.version}`);
     });
 
   program

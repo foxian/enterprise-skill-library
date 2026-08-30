@@ -11,6 +11,7 @@ Status: accepted
   1. **release 记录（DB）**：`skill_releases` 新增 `notes` 列，publish 时写入；GET skill 的 `releases` 数组随之带 `notes`，供 `esl info`、升级检查等消费者链路消费。
   2. **release tag message（git）**：`v<version>` annotated tag 的 message 用版本说明（无说明时回退到原 `Release @scope/name version`）。
 - **删除随技能级联**：`esl delete` 的 `deleteSkill` 已级联删除 `skill_releases` 整行（含 notes）。
+- **发布后说明可编辑**：`POST /api/skills/:scope/:skillName/releases/:version/notes`（维护者权限）+ CLI `esl notes <identity> <version> --message "..."` 更新 `skill_releases.notes`。说明是元数据、不在不可变发布包内，编辑不违反 ADR-0007 的不可变承诺；release tag 的 message 是发布时刻快照，不随之更改。
 
 ## Considered Options
 

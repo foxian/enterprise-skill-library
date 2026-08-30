@@ -237,4 +237,39 @@ describe('API Server Database', () => {
     expect(repo.getReleases('@alice/debugger')[0]?.notes).toBe('- fix: dead-link regex\n- feat: docx batch');
     db.close();
   });
+
+  it('updates release notes after publishing', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+
+    const skill = repo.createServerSkill({
+      name: '@alice/debugger',
+      scope: 'alice',
+      skillName: 'debugger',
+      description: 'Debugging helper',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'esl-skills/debugger'
+    });
+    repo.createRelease({
+      skillId: skill.skillId!,
+      skillName: '@alice/debugger',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: path.join(tmpDir, 'pkg.json'),
+      checksum: 'sha256-abc',
+      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      dependencyLock: {},
+      createdBy: 'alice',
+      notes: 'original note'
+    });
+
+    const updated = repo.updateReleaseNotes('@alice/debugger', '1.0.0', 'revised note');
+    expect(updated?.notes).toBe('revised note');
+    expect(repo.getRelease('@alice/debugger', '1.0.0')?.notes).toBe('revised note');
+    expect(repo.updateReleaseNotes('@alice/debugger', '9.9.9', 'x')).toBeUndefined();
+    db.close();
+  });
 });

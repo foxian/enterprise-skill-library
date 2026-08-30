@@ -280,6 +280,18 @@ export class SkillRepository {
     return this.getRelease(release.skillName, release.version)!;
   }
 
+  updateReleaseNotes(skillName: string, version: string, notes: string): SkillReleaseRecord | undefined {
+    const result = this.db.prepare(`
+      UPDATE skill_releases
+      SET notes = ?
+      WHERE skill_name = ? AND version = ?
+    `).run(notes, skillName, version);
+    if (result.changes === 0) {
+      return undefined;
+    }
+    return this.getRelease(skillName, version);
+  }
+
   getRelease(skillName: string, version: string): SkillReleaseRecord | undefined {
     const row = this.db.prepare(`
       SELECT

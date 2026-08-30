@@ -300,7 +300,11 @@ esl publish 0.1.0 --message "fix: dead-link regex; feat: docx batch"
 # 跳过交互确认（脚本 / 非交互）
 esl publish 0.1.0 --force
 ```
-> 不传 `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。
+> 不传 `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
+
+```bash
+esl notes @platform-ai/reviewer 1.1.0 --message "修订后的版本说明"
+```
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
 > `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认）并落盘。若尚无 `esl` remote 会报错并提示先 `esl upload`。
 > `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。

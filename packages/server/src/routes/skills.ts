@@ -412,6 +412,26 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
   });
 
+  app.post('/api/skills/:scope/:skillName/releases/:version/notes', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string; version: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill || !skill.maintainers.includes(user.username)) {
+      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    }
+    const version = decodeURIComponent(params.version);
+    const body = request.body as { message?: string };
+    if (typeof body.message !== 'string') {
+      return reply.status(400).send({ error: 'Release notes message is required' });
+    }
+    const updated = repository.updateReleaseNotes(name, version, body.message);
+    if (!updated) {
+      return reply.status(404).send({ error: 'Skill Release not found' });
+    }
+    return reply.send(updated);
+  });
+
   app.post('/api/skills/:scope/:skillName/archive', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;

@@ -373,4 +373,97 @@ describe('Skill Release API', () => {
     const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
     expect(info.json().releases[0].notes).toBe('- fix: dead-link regex\n- feat: docx batch');
   });
+
+  it('lets a maintainer update the release notes after publishing', async () => {
+    gitea.readSourceTree = vi.fn().mockResolvedValue({
+      'SKILL.md': '---\nname: reviewer\n---\n',
+      'release.json': JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases',
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        releaseManifest: {
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        },
+        notes: 'original note'
+      }
+    });
+
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/notes',
+      headers: { authorization: 'token alice-token' },
+      payload: { message: 'revised note' }
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(update.json().notes).toBe('revised note');
+    const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    expect(info.json().releases[0].notes).toBe('revised note');
+  });
+
+  it('rejects updating release notes by a non-maintainer', async () => {
+    gitea.readSourceTree = vi.fn().mockResolvedValue({
+      'SKILL.md': '---\nname: reviewer\n---\n',
+      'release.json': JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases',
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        releaseManifest: {
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        }
+      }
+    });
+    gitea.validateToken.mockResolvedValue({ username: 'bob' });
+
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/notes',
+      headers: { authorization: 'token bob-token' },
+      payload: { message: 'revised' }
+    });
+
+    expect(update.statusCode).toBe(403);
+  });
 });
