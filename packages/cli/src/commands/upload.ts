@@ -12,7 +12,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { ensureReleaseManifest } from './release-manifest.js';
-import { isInteractive, readText } from '../prompt.js';
+import { confirm, isInteractive, readText } from '../prompt.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -23,6 +23,7 @@ export interface UploadOptions extends NetworkCommandOptions {
   license?: string;
   message?: string;
   noInput?: boolean;
+  confirmInput?: () => Promise<boolean>;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -202,14 +203,21 @@ async function uploadSource(
     await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
   }
 
-  if ((await syncSource(execFileAsync, directory, authHeader)) === 'up-to-date') {
-    return { ...uploaded, alreadyUpToDate: true };
+  try {
+    if ((await syncSource(execFileAsync, directory, authHeader)) === 'up-to-date') {
+      return { ...uploaded, alreadyUpToDate: true };
+    }
+  } catch (error) {
+    if (isSourceGone(error)) {
+      return handleOrphanedSource(execFileAsync, directory, options, (error as Error).message, skillName, description);
+    }
+    throw error;
   }
   try {
     await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   } catch (error) {
     if (isSourceGone(error)) {
-      throw new Error(orphanedSourceGuidance((error as Error).message));
+      return handleOrphanedSource(execFileAsync, directory, options, (error as Error).message, skillName, description);
     }
     // The source is already registered on the server; the push is the only
     // remaining step, so tell the user exactly how to finish it.
@@ -218,6 +226,35 @@ async function uploadSource(
     );
   }
   return uploaded;
+}
+
+async function handleOrphanedSource(
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string,
+  options: UploadOptions,
+  detail: string,
+  skillName: string,
+  description: string
+): Promise<UploadedSkill> {
+  if (options.noInput) {
+    throw new Error(orphanedSourceGuidance(detail));
+  }
+  let reset: boolean;
+  if (options.confirmInput) {
+    reset = await options.confirmInput();
+  } else if (isInteractive()) {
+    reset = await confirm(
+      'The server source was deleted; the local esl remote points at a removed repository (orphan). ' +
+        'Remove the esl remote and re-register this source? [y/N] '
+    );
+  } else {
+    throw new Error(orphanedSourceGuidance(detail));
+  }
+  if (!reset) {
+    throw new Error(orphanedSourceGuidance(detail));
+  }
+  await execFileAsync('git', ['remote', 'remove', 'esl'], { cwd: directory });
+  return uploadSource(options, directory, skillName, description);
 }
 
 function orphanedSourceGuidance(detail: string): string {
@@ -260,7 +297,7 @@ async function syncSource(
     await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
   } catch (error) {
     if (isSourceGone(error)) {
-      throw new Error(orphanedSourceGuidance((error as Error).message));
+      throw error; // orphaned source: let the caller prompt or guide
     }
     return 'needs-push'; // remote unreachable or empty; let the push surface the real error
   }

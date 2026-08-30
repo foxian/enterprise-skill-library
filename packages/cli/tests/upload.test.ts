@@ -554,4 +554,73 @@ describe('esl upload', () => {
       })
     ).rejects.toThrow(/server source no longer exists/);
   });
+
+  it('removes the stale esl remote and re-registers when the orphan reset is confirmed', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    let hasRemote = true;
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return hasRemote
+          ? Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' })
+          : Promise.reject(new Error('no such remote'));
+      }
+      if (args[0] === 'remote' && args[1] === 'remove') {
+        hasRemote = false;
+        return Promise.resolve({ stdout: '', stderr: '' });
+      }
+      if (args[0] === 'remote' && args[1] === 'add') return Promise.resolve({ stdout: '', stderr: '' });
+      if (args.includes('fetch')) {
+        return hasRemote
+          ? Promise.reject(new Error('remote: Repository not found.'))
+          : Promise.resolve({ stdout: '', stderr: '' });
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
+      if (args[0] === 'rev-parse' && args.includes('--verify')) {
+        return hasRemote
+          ? Promise.resolve({ stdout: 'remote\n', stderr: '' })
+          : Promise.reject(new Error('no esl/main ref yet'));
+      }
+      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      confirmInput: async () => true,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+    expect(fetchImpl).toHaveBeenCalled();
+  });
+
+  it('keeps the guidance when the orphan reset is declined', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+      }
+      if (args.includes('fetch')) {
+        return Promise.reject(new Error('remote: Repository not found.'));
+      }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        confirmInput: async () => false,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/server source no longer exists/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+  });
 });
