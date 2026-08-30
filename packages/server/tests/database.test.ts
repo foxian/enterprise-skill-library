@@ -164,4 +164,77 @@ describe('API Server Database', () => {
     });
     db.close();
   });
+
+  it('completely deletes a skill and all its related rows', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+
+    const skill = repo.createServerSkill({
+      name: '@alice/debugger',
+      scope: 'alice',
+      skillName: 'debugger',
+      description: 'Debugging helper',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'esl-skills/debugger',
+      status: 'active-published'
+    });
+    repo.addVersion('@alice/debugger', '1.0.0');
+    repo.createRelease({
+      skillId: skill.skillId!,
+      skillName: '@alice/debugger',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: path.join(tmpDir, 'pkg.json'),
+      checksum: 'sha256-abc',
+      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      dependencyLock: {},
+      createdBy: 'alice'
+    });
+
+    const result = repo.deleteSkill('@alice/debugger');
+
+    expect(result.skillId).toBe(skill.skillId);
+    expect(result.releases).toBe(1);
+    expect(repo.getSkill('@alice/debugger')).toBeUndefined();
+    expect(repo.getReleases('@alice/debugger')).toEqual([]);
+    expect(repo.getVersions('@alice/debugger')).toEqual([]);
+    db.close();
+  });
+
+  it('persists release notes on a release and returns them', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+
+    const skill = repo.createServerSkill({
+      name: '@alice/debugger',
+      scope: 'alice',
+      skillName: 'debugger',
+      description: 'Debugging helper',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'esl-skills/debugger'
+    });
+    repo.createRelease({
+      skillId: skill.skillId!,
+      skillName: '@alice/debugger',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: path.join(tmpDir, 'pkg.json'),
+      checksum: 'sha256-abc',
+      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      dependencyLock: {},
+      createdBy: 'alice',
+      notes: '- fix: dead-link regex\n- feat: docx batch'
+    });
+
+    const release = repo.getRelease('@alice/debugger', '1.0.0');
+    expect(release?.notes).toBe('- fix: dead-link regex\n- feat: docx batch');
+    expect(repo.getReleases('@alice/debugger')[0]?.notes).toBe('- fix: dead-link regex\n- feat: docx batch');
+    db.close();
+  });
 });

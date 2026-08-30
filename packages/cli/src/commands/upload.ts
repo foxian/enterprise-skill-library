@@ -12,12 +12,16 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { ensureReleaseManifest } from './release-manifest.js';
+import { isInteractive, readText } from '../prompt.js';
 
 const defaultExecFileAsync = promisify(execFile);
+
+const DEFAULT_COMMIT_MESSAGE = 'chore: commit skill source for esl upload';
 
 export interface UploadOptions extends NetworkCommandOptions {
   directory?: string;
   license?: string;
+  message?: string;
   noInput?: boolean;
   execFileAsync?: typeof defaultExecFileAsync;
 }
@@ -27,6 +31,7 @@ export interface UploadedSkill {
   skillId: string;
   cloneUrl: string;
   status?: string;
+  alreadyUpToDate?: boolean;
 }
 
 export async function executeUpload(options: UploadOptions = {}): Promise<UploadedSkill> {
@@ -47,7 +52,8 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
   if (!sourceValidation.success) {
     throw new Error(`Invalid skill source: ${sourceValidation.errors.join(', ')}`);
   }
-  await prepareSourceGit(execFileAsync, directory);
+  const message = await resolveUploadMessage(options);
+  await prepareSourceGit(execFileAsync, directory, message);
   return uploadSource(
     options,
     directory,
@@ -69,9 +75,20 @@ const DEFAULT_GITIGNORE = [
   ''
 ].join('\n');
 
+async function resolveUploadMessage(options: UploadOptions): Promise<string> {
+  if (options.message) {
+    return options.message;
+  }
+  if (options.noInput || !isInteractive()) {
+    return '';
+  }
+  return (await readText('Describe this upload (optional, press Enter to skip): ')).trim();
+}
+
 async function prepareSourceGit(
   execFileAsync: typeof defaultExecFileAsync,
-  directory: string
+  directory: string,
+  message: string
 ): Promise<void> {
   // Initialize the repository when the skill directory is not already one.
   try {
@@ -98,12 +115,34 @@ async function prepareSourceGit(
     await execFileAsync('git', ['config', 'user.email', 'esl@local'], { cwd: directory });
   }
 
-  // Commit uncommitted changes so HEAD matches the source being uploaded.
-  const status = await execFileAsync('git', ['status', '--porcelain'], { cwd: directory });
-  if (status.stdout.trim()) {
+  // If a previous upload hit a merge conflict and left a rebase in progress,
+  // the user has resolved the marked files: continue that rebase instead of
+  // creating a new commit on top of the conflicted state.
+  if (await isRebaseInProgress(directory)) {
     await execFileAsync('git', ['add', '-A'], { cwd: directory });
-    await execFileAsync('git', ['commit', '-m', 'chore: commit skill source for esl upload'], { cwd: directory });
+    try {
+      await execFileAsync('git', ['rebase', '--continue'], { cwd: directory });
+    } catch (error) {
+      throw new Error(
+        `Still have unresolved source conflicts; resolve the marked files then re-run "esl upload": ${(error as Error).message}`
+      );
+    }
+  } else {
+    // Commit uncommitted changes so HEAD matches the source being uploaded,
+    // using the user-provided upload message as the commit message when given.
+    const status = await execFileAsync('git', ['status', '--porcelain'], { cwd: directory });
+    if (status.stdout.trim()) {
+      await execFileAsync('git', ['add', '-A'], { cwd: directory });
+      await execFileAsync('git', ['commit', '-m', message || DEFAULT_COMMIT_MESSAGE], { cwd: directory });
+    }
   }
+}
+
+async function isRebaseInProgress(directory: string): Promise<boolean> {
+  return (
+    (await fileExists(path.join(directory, '.git', 'rebase-merge'))) ||
+    (await fileExists(path.join(directory, '.git', 'rebase-apply')))
+  );
 }
 
 async function readGitConfig(
@@ -127,25 +166,45 @@ async function uploadSource(
 ): Promise<UploadedSkill> {
   const authToken = await requireFreshToken(options);
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
-  const fetchImpl = options.customFetch ?? fetch;
-  const response = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills/upload'), {
-    method: 'POST',
-    headers: {
-      Authorization: `token ${authToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ name: skillName, description })
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to upload skill source: ${await response.text()}`);
-  }
-  const uploaded = (await response.json()) as UploadedSkill;
-  if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {
-    throw new Error('Failed to upload skill source: API response is incomplete');
-  }
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
   const authHeader = gitAuthHeaderConfig(authToken);
-  await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
+
+  let uploaded: UploadedSkill;
+  if (await hasEslRemote(execFileAsync, directory)) {
+    // Already server-hosted: skip the registration call and sync straight
+    // against the existing source.
+    const remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
+    const remoteShortName = remoteUrl.match(/[^/]+(?=\.git)/)?.[0] ?? '';
+    if (remoteShortName && remoteShortName !== skillName) {
+      throw new Error(
+        `Local skill name "${skillName}" does not match the source repository "${remoteShortName}"; ` +
+          'renames must go through "esl rename", not by editing SKILL.md'
+      );
+    }
+    uploaded = { name: skillNameFromRemote(remoteUrl), skillId: '', cloneUrl: remoteUrl };
+  } else {
+    const fetchImpl = options.customFetch ?? fetch;
+    const response = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills/upload'), {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: skillName, description })
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to upload skill source: ${await response.text()}`);
+    }
+    uploaded = (await response.json()) as UploadedSkill;
+    if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {
+      throw new Error('Failed to upload skill source: API response is incomplete');
+    }
+    await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
+  }
+
+  if ((await syncSource(execFileAsync, directory, authHeader)) === 'up-to-date') {
+    return { ...uploaded, alreadyUpToDate: true };
+  }
   try {
     await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   } catch (error) {
@@ -156,6 +215,64 @@ async function uploadSource(
     );
   }
   return uploaded;
+}
+
+function skillNameFromRemote(remoteUrl: string): string {
+  const match = remoteUrl.match(/\/git\/(.+?)(?:\.git)?\/?$/);
+  return match ? `@${match[1]}` : 'source';
+}
+
+async function hasEslRemote(
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string
+): Promise<boolean> {
+  try {
+    const res = await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory });
+    return res.stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function syncSource(
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string,
+  authHeader: string
+): Promise<'up-to-date' | 'needs-push'> {
+  // Refresh the server-side ref so we can compare and rebase onto it.
+  try {
+    await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
+  } catch {
+    return 'needs-push'; // remote unreachable or empty; let the push surface the real error
+  }
+  let remoteHead: string;
+  try {
+    remoteHead = (await execFileAsync('git', ['rev-parse', '--verify', 'esl/main'], { cwd: directory })).stdout.trim();
+  } catch {
+    return 'needs-push'; // the server source has no commits yet (first push)
+  }
+  const localHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: directory })).stdout.trim();
+  if (localHead === remoteHead) {
+    return 'up-to-date';
+  }
+  const behind = parseInt(
+    (await execFileAsync('git', ['rev-list', '--count', 'HEAD..esl/main'], { cwd: directory })).stdout.trim() || '0',
+    10
+  );
+  if (behind > 0) {
+    // Rebase local commits onto the server source. On a content conflict the
+    // rebase is left in progress so the user can resolve the marked files and
+    // re-run upload to finish the merge and push.
+    try {
+      await execFileAsync('git', ['rebase', 'esl/main'], { cwd: directory });
+    } catch {
+      throw new Error(
+        `Source update conflict: the server source advanced by ${behind} commit(s) and your local edits overlap. ` +
+          'Conflicted files are marked in your editor; resolve them, then re-run "esl upload" to finish the merge and push.'
+      );
+    }
+  }
+  return 'needs-push';
 }
 
 async function ensureEslRemote(

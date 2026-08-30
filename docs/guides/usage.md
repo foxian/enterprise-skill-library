@@ -272,14 +272,21 @@ esl validate ./my-skill
 ```
 
 ### 3. 上传源码 (Upload)
-将本地源码目录首次创建为 Server-hosted Skill Source，并推上服务器（生成 Skill ID 与 `esl` remote）：
+把本地源码提交并推送到服务器成为 Server-hosted Skill Source（首次创建 Skill ID 与 `esl` remote，之后对已托管源直接同步）：
 ```bash
 esl upload --directory ./my-skill
 
 # 目录缺 release.json 时自动补清单，可指定许可证
 esl upload --directory ./my-skill --license Apache-2.0
+
+# 用一句话说明本次上传内容（作为源码提交说明）
+esl upload --directory ./my-skill --message "fix: correct the dead-link regex"
 ```
-发布（`publish`）前必须先 `upload`，且本地 `HEAD` 已推送并等于 `esl/main`。`upload` 会自动完成 git 前置：目录不是 git 仓库时自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit，因此一条命令即可从零上传；目录中不想纳入源码的文件请先写进 `.gitignore`。
+`upload` 自动完成 git 前置：非 git 仓库自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit；已托管源推前自动 rebase 到服务器最新，冲突时保留现场并提示解决后重跑。本地已与服务器一致时报告 `already up to date`。查看本地与服务器源的差异状态：
+
+```bash
+esl status
+```
 
 ### 4. 发布技能 (Publish)
 将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：
@@ -287,9 +294,13 @@ esl upload --directory ./my-skill --license Apache-2.0
 cd my-skill
 esl publish 0.1.0
 
+# 指定版本说明（作为发布说明与 release tag 说明）
+esl publish 0.1.0 --message "fix: dead-link regex; feat: docx batch"
+
 # 跳过交互确认（脚本 / 非交互）
 esl publish 0.1.0 --force
 ```
+> 不传 `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
 > `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认）并落盘。若尚无 `esl` remote 会报错并提示先 `esl upload`。
 > `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。

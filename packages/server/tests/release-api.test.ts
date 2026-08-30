@@ -323,4 +323,54 @@ describe('Skill Release API', () => {
     expect(repair.json().error).toContain('points to');
     expect(gitea.createReleaseTag).toHaveBeenCalledTimes(1);
   });
+
+  it('stores the release notes and uses them as the release tag message', async () => {
+    gitea.readSourceTree = vi.fn().mockResolvedValue({
+      'SKILL.md': '---\nname: reviewer\n---\n',
+      'release.json': JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases',
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        releaseManifest: {
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        },
+        notes: '- fix: dead-link regex\n- feat: docx batch'
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().notes).toBe('- fix: dead-link regex\n- feat: docx batch');
+    expect(gitea.createReleaseTag).toHaveBeenCalledWith(
+      'platform-ai',
+      'reviewer',
+      'v1.0.0',
+      'abc123',
+      '- fix: dead-link regex\n- feat: docx batch'
+    );
+
+    const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    expect(info.json().releases[0].notes).toBe('- fix: dead-link regex\n- feat: docx batch');
+  });
 });

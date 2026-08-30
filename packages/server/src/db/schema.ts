@@ -50,6 +50,7 @@ export const databaseSchema = `
     checksum TEXT NOT NULL,
     release_manifest_json TEXT NOT NULL,
     dependency_lock_json TEXT NOT NULL DEFAULT '{}',
+    notes TEXT NOT NULL DEFAULT '',
     created_by TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(skill_id, version),

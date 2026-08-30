@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
-import { confirm, isInteractive } from '../prompt.js';
+import { confirm, isInteractive, readText } from '../prompt.js';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -22,7 +22,9 @@ export interface PublishOptions extends NetworkCommandOptions {
   force?: boolean;
   noInput?: boolean;
   license?: string;
+  message?: string;
   confirmInput?: () => Promise<boolean>;
+  noteInput?: (collected: string) => Promise<string>;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -75,6 +77,7 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
   if (head !== remoteHead) {
     throw new Error('Cannot publish: local HEAD must be pushed and equal to esl/main');
   }
+  const notes = await resolveReleaseNotes(options, directory);
   const fetchImpl = options.customFetch ?? fetch;
   const { server } = await resolveNetworkConfig(options);
   const authToken = await requireFreshToken(options);
@@ -88,7 +91,8 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
       version,
       sourceCommit: head,
       releaseManifest: validation.data.releaseManifest,
-      files: await collectSourceFiles(directory)
+      files: await collectSourceFiles(directory),
+      notes
     })
   });
   if (!response.ok) {
@@ -122,6 +126,46 @@ async function git(
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
   const result = await execFileAsync('git', args, { cwd: directory });
   return result.stdout;
+}
+
+async function resolveReleaseNotes(options: PublishOptions, directory: string): Promise<string> {
+  if (options.message) {
+    return options.message;
+  }
+  const collected = await collectChangesSinceLastTag(options, directory);
+  if (options.noInput || options.noteInput) {
+    if (options.noteInput) {
+      return (await options.noteInput(collected)).trim() || collected;
+    }
+    return collected;
+  }
+  if (!isInteractive()) {
+    return collected;
+  }
+  if (collected) {
+    console.log(`\nChanges since the last release:\n${collected}\n`);
+  }
+  const answer = (await readText(collected ? 'Release note (Enter to use the above): ' : 'Release note (optional): ')).trim();
+  return answer || collected;
+}
+
+async function collectChangesSinceLastTag(options: PublishOptions, directory: string): Promise<string> {
+  let lastTag = '';
+  try {
+    lastTag = (await git(options, directory, ['describe', '--tags', '--abbrev=0'])).trim();
+  } catch {
+    lastTag = '';
+  }
+  try {
+    const range = lastTag ? `${lastTag}..HEAD` : 'HEAD';
+    const subjects = (await git(options, directory, ['log', range, '--format=%s'])).trim();
+    if (!subjects) {
+      return '';
+    }
+    return subjects.split('\n').map((subject) => `- ${subject.trim()}`).join('\n');
+  } catch {
+    return '';
+  }
 }
 
 function inferIdentityFromRemote(remoteUrl: string): string {

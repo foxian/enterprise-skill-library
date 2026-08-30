@@ -313,6 +313,141 @@ description: Use when reviewing code changes.
     expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('push'))).toBe(false);
   });
 
+  it('sends the --message text as the release notes', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ name: '@platform-ai/code-review', version: '1.0.0' })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      message: 'fix: dead-link regex',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/releases'),
+      expect.objectContaining({ body: expect.stringContaining('"notes":"fix: dead-link regex"') })
+    );
+  });
+
+  it('auto-collects the commit messages since the last release tag as the notes', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ name: '@platform-ai/code-review', version: '1.0.0' })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      if (args[0] === 'describe') return { stdout: 'v1.0.0\n', stderr: '' };
+      if (args[0] === 'log') return { stdout: 'fix: dead-link regex\nfeat: docx batch\n', stderr: '' };
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/releases'),
+      expect.objectContaining({
+        body: expect.stringContaining('"notes":"- fix: dead-link regex\\n- feat: docx batch"')
+      })
+    );
+  });
+
+  it('lets an interactive note input override the collected notes', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ name: '@platform-ai/code-review', version: '1.0.0' })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      if (args[0] === 'describe') return { stdout: 'v1.0.0\n', stderr: '' };
+      if (args[0] === 'log') return { stdout: 'fix: dead-link regex\n', stderr: '' };
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      noteInput: async () => 'custom manual note',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/releases'),
+      expect.objectContaining({ body: expect.stringContaining('"notes":"custom manual note"') })
+    );
+  });
+
+  it('falls back to the collected notes when the note input is empty', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ name: '@platform-ai/code-review', version: '1.0.0' })
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {
+      if (args[0] === 'status') return { stdout: '', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'rev-parse' && args[1] === 'esl/main') return { stdout: 'abc123\n', stderr: '' };
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return { stdout: 'http://localhost:3000/git/platform-ai/code-review.git\n', stderr: '' };
+      }
+      if (args[0] === 'describe') return { stdout: 'v1.0.0\n', stderr: '' };
+      if (args[0] === 'log') return { stdout: 'fix: dead-link regex\n', stderr: '' };
+      throw new Error(`unexpected git command: ${args.join(' ')}`);
+    });
+
+    await executePublish({
+      directory: skillDir,
+      version: '1.0.0',
+      server: 'http://localhost:3000',
+      homeDir,
+      force: true,
+      noteInput: async () => '',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/releases'),
+      expect.objectContaining({ body: expect.stringContaining('"notes":"- fix: dead-link regex"') })
+    );
+  });
+
   it('fails fast when --no-input is set without --force', async () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation(async (_file: string, args: string[]) => {

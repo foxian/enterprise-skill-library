@@ -25,7 +25,9 @@ import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeUpload } from '../commands/upload.js';
+import { executeStatus } from '../commands/status.js';
 import { executeRename } from '../commands/rename.js';
+import { executeDelete } from '../commands/delete.js';
 import { executeRepairTag } from '../commands/repair-tag.js';
 import { executeSearch } from '../commands/search.js';
 import { executeUpdate } from '../commands/update.js';
@@ -230,14 +232,45 @@ export function createProgram(): Command {
 
 program
     .command('upload')
-    .description('Upload a local skill as a server-hosted source')
+    .description('Commit, push and (on first use) register a local skill source')
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--license <spdx>', 'SPDX license for a missing release.json')
+    .option('--message <text>', 'description of this upload, used as the source commit message')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl upload --directory ./my-skill'))
-    .action(async (options: { directory: string; license?: string; server?: string }) => {
+    .addHelpText('after', example('$ esl upload --directory ./my-skill --message "fix: correct the regex"'))
+    .action(async (options: { directory: string; license?: string; message?: string; server?: string }) => {
       const uploaded = await executeUpload({ ...options, noInput: program.opts().input === false });
-      console.log(`Skill source uploaded: ${uploaded.name} (${uploaded.skillId})`);
+      if ('alreadyUpToDate' in uploaded && uploaded.alreadyUpToDate) {
+        console.log(`Skill source is already up to date: ${uploaded.name}`);
+        return;
+      }
+      console.log(
+        uploaded.skillId
+          ? `Skill source uploaded: ${uploaded.name} (${uploaded.skillId})`
+          : `Skill source synced: ${uploaded.name}`
+      );
+    });
+
+  program
+    .command('status')
+    .description('Show the state of the local skill source vs the server')
+    .option('--directory <path>', 'skill directory', process.cwd())
+    .addHelpText('after', example('$ esl status'))
+    .action(async (options: { directory: string }) => {
+      const status = await executeStatus({ ...options });
+      if (!status.serverHosted) {
+        console.log('Not yet a server-hosted skill source; run "esl upload --directory ." to register it');
+        return;
+      }
+      const lines = [
+        status.clean ? 'Working tree: clean' : 'Working tree: has uncommitted changes',
+        `Local ahead of server: ${status.ahead} commit(s) not pushed`,
+        `Local behind server: ${status.behind} commit(s)`
+      ];
+      if (status.lastCommit) {
+        lines.push(`Last commit: ${status.lastCommit}`);
+      }
+      console.log(lines.join('\n'));
     });
 
   program
@@ -250,6 +283,22 @@ program
     .action(async (identity: string, newName: string, options: { server?: string }) => {
       const renamed = await executeRename(identity, { ...options, newName });
       console.log(`Skill renamed: ${(renamed as { name?: string }).name ?? newName}`);
+    });
+
+  program
+    .command('delete')
+    .description('Completely delete a server-hosted skill (platform administrator only)')
+    .argument('<skill-name>')
+    .option('--server <url>', 'ESL Server URL')
+    .option('--yes', 'skip the confirmation prompt')
+    .addHelpText('after', example('$ esl delete @platform-ai/reviewer --yes'))
+    .action(async (identity: string, options: { server?: string; yes?: boolean }) => {
+      const deleted = await executeDelete(identity, { ...options, noInput: program.opts().input === false });
+      console.log(
+        deleted.releasesRemoved
+          ? `Skill deleted: ${deleted.name} (${deleted.releasesRemoved} release(s) removed)`
+          : `Skill deleted: ${deleted.name}`
+      );
     });
 
   program
@@ -271,9 +320,10 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('--license <spdx>', 'SPDX license for a missing release.json')
+    .option('--message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
-    .addHelpText('after', example('$ esl publish'))
-    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; force?: boolean }) => {
+    .addHelpText('after', example('$ esl publish 1.1.0 --message "fix: dead-link regex"'))
+    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean }) => {
 await executePublish({ ...options, version, noInput: program.opts().input === false });
       console.log('Skill published');
     });

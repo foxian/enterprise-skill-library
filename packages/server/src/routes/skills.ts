@@ -219,6 +219,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       sourceCommit?: string;
       releaseManifest?: unknown;
       files?: Record<string, string>;
+      notes?: string;
     };
     if (!body.version || !semver.valid(body.version)) {
       return reply.status(400).send({ error: 'Release version must be valid SemVer' });
@@ -310,6 +311,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         checksum,
         releaseManifest: manifest.data,
         dependencyLock,
+        notes: body.notes,
         createdBy: user.username
       });
     } catch (error) {
@@ -327,7 +329,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           skill.skillName,
           releaseTag,
           body.sourceCommit,
-          `Release ${name} ${body.version}`
+          body.notes?.trim() || `Release ${name} ${body.version}`
         );
       } catch {
         tagPending = true;
@@ -446,6 +448,35 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     repository.restoreSkill(name);
     return reply.send(repository.getSkill(name));
+  });
+
+  app.post('/api/skills/:scope/:skillName/delete', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    if (!(await authorizePlatformAdministrator(request, adminRepository, giteaService))) {
+      return reply.status(403).send({ error: 'Forbidden: platform administrator required' });
+    }
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    const body = (request.body ?? {}) as { confirm?: string };
+    if (body.confirm !== name) {
+      return reply.status(400).send({ error: 'Deletion requires confirm matching the skill identity' });
+    }
+    if (typeof giteaService.deleteRepo === 'function') {
+      try {
+        await giteaService.deleteRepo(repoOwner, skill.skillName);
+      } catch {
+        // Best-effort: an orphan Git repository may remain, but the skill record
+        // and its artifacts must still be removed.
+      }
+    }
+    if (skill.skillId) {
+      await fs.rm(path.join(packageRoot, skill.skillId), { recursive: true, force: true });
+    }
+    const deleted = repository.deleteSkill(name);
+    return reply.send({ deleted: true, name, skillId: deleted.skillId, releasesRemoved: deleted.releases });
   });
 
   app.get('/api/skills/*', async (request, reply) => {

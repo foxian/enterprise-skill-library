@@ -12,6 +12,7 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, 'skill_id', 'TEXT');
   ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
+  ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
   db.exec(`
     UPDATE skills
     SET created_by = author
@@ -20,10 +21,10 @@ export function initDatabase(dbPath: string): Database.Database {
   return db;
 }
 
-function ensureColumn(db: Database.Database, column: string, definition: string): void {
-  const columns = db.pragma('table_info(skills)') as { name: string }[];
+function ensureColumn(db: Database.Database, column: string, definition: string, table = 'skills'): void {
+  const columns = db.pragma(`table_info(${table})`) as { name: string }[];
   if (!columns.some((entry) => entry.name === column)) {
-    db.exec(`ALTER TABLE skills ADD COLUMN ${column} ${definition}`);
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
 
@@ -50,6 +51,7 @@ export interface SkillReleaseRecord {
   checksum: string;
   releaseManifest: unknown;
   dependencyLock: unknown;
+  notes?: string;
   createdBy: string;
 }
 
@@ -121,6 +123,29 @@ export class SkillRepository {
 
   restoreSkill(name: string): void {
     this.db.prepare(`UPDATE skills SET status = 'active-unreleased', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
+  }
+
+  deleteSkill(name: string): { skillId?: string; releases: number } {
+    const skill = this.getSkill(name);
+    if (!skill) throw new Error(`Skill not found: ${name}`);
+    const skillId = skill.skillId;
+    const count = this.db.prepare(`
+      SELECT COUNT(*) AS n
+      FROM skill_releases
+      WHERE skill_name = ? OR skill_id = ?
+    `).get(name, skillId ?? '') as { n: number };
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM skill_releases WHERE skill_name = ? OR skill_id = ?`).run(name, skillId ?? '');
+      this.db.prepare(`DELETE FROM skill_versions WHERE skill_name = ?`).run(name);
+      this.db.prepare(`DELETE FROM skill_tags WHERE skill_name = ?`).run(name);
+      this.db.prepare(`
+        DELETE FROM skill_identity_redirects
+        WHERE skill_id = ? OR current_name = ? OR old_name = ?
+      `).run(skillId ?? '', name, name);
+      this.db.prepare(`DELETE FROM skills WHERE name = ?`).run(name);
+    });
+    transaction();
+    return { skillId, releases: count.n };
   }
 
   renameSkill(currentName: string, nextName: string, nextSkillName: string, nextGitRepoPath?: string): SkillRecord {
@@ -238,8 +263,8 @@ export class SkillRepository {
     this.db.prepare(`
       INSERT INTO skill_releases (
         skill_id, skill_name, version, source_commit, package_path, checksum,
-        release_manifest_json, dependency_lock_json, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        release_manifest_json, dependency_lock_json, notes, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       release.skillId,
       release.skillName,
@@ -249,6 +274,7 @@ export class SkillRepository {
       release.checksum,
       JSON.stringify(release.releaseManifest),
       JSON.stringify(release.dependencyLock),
+      release.notes ?? '',
       release.createdBy
     );
     return this.getRelease(release.skillName, release.version)!;
@@ -265,6 +291,7 @@ export class SkillRepository {
         checksum,
         release_manifest_json AS releaseManifestJson,
         dependency_lock_json AS dependencyLockJson,
+        notes,
         created_by AS createdBy
       FROM skill_releases
       WHERE skill_name = ? AND version = ?
@@ -291,6 +318,7 @@ export class SkillRepository {
         checksum,
         release_manifest_json AS releaseManifestJson,
         dependency_lock_json AS dependencyLockJson,
+        notes,
         created_by AS createdBy
       FROM skill_releases
       WHERE skill_name = ?

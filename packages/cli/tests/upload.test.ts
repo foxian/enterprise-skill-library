@@ -38,12 +38,51 @@ describe('esl upload', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  function gitMock(opts: { inRepo?: boolean; dirty?: string; userName?: string; userEmail?: string } = {}) {
-    const { inRepo = true, dirty = '', userName = '', userEmail = '' } = opts;
+  function gitMock(
+    opts: {
+      inRepo?: boolean;
+      dirty?: string;
+      userName?: string;
+      userEmail?: string;
+      localHead?: string;
+      remoteHead?: string | null;
+      behind?: number;
+      rebaseConflict?: boolean;
+      remoteUrl?: string | null;
+    } = {}
+  ) {
+    const {
+      inRepo = true,
+      dirty = '',
+      userName = '',
+      userEmail = '',
+      localHead = 'local-head',
+      remoteHead = 'remote-head',
+      behind = 0,
+      rebaseConflict = false,
+      remoteUrl = 'http://localhost:3000/git/platform-ai/reviewer.git'
+    } = opts;
     return vi.fn().mockImplementation((cmd: string, args: string[]) => {
-      if (args.includes('rev-parse')) {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        if (remoteUrl === null) return Promise.reject(new Error('no such remote'));
+        return Promise.resolve({ stdout: `${remoteUrl}\n`, stderr: '' });
+      }
+      if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) {
         if (inRepo) return Promise.resolve({ stdout: 'true\n', stderr: '' });
         return Promise.reject(new Error('fatal: not a git repository'));
+      }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return Promise.resolve({ stdout: `${localHead}\n`, stderr: '' });
+      }
+      if (args[0] === 'rev-parse' && args.includes('--verify')) {
+        if (remoteHead === null) return Promise.reject(new Error('fatal: ambiguous argument'));
+        return Promise.resolve({ stdout: `${remoteHead}\n`, stderr: '' });
+      }
+      if (args[0] === 'rev-list') {
+        return Promise.resolve({ stdout: `${behind}\n`, stderr: '' });
+      }
+      if (args[0] === 'rebase' && args[1] === 'esl/main' && rebaseConflict) {
+        return Promise.reject(new Error('CONFLICT (content): Merge conflict in SKILL.md'));
       }
       if (args[0] === 'config' && args[1] === 'user.name') {
         if (args.length === 2) {
@@ -79,7 +118,12 @@ describe('esl upload', () => {
         cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
       })
     });
-    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
+      if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
+      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
 
     const result = await executeUpload({
       directory: skillDir,
@@ -166,7 +210,7 @@ describe('esl upload', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('resumes an interrupted upload when the esl remote already points at the server source', async () => {
+  it('syncs directly to the existing source without a registration call when the esl remote is present', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -176,12 +220,12 @@ describe('esl upload', () => {
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
-      if (args[0] === 'remote' && args[1] === 'add') {
-        return Promise.reject(new Error('fatal: remote esl already exists.'));
-      }
       if (args[0] === 'remote' && args[1] === 'get-url') {
         return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
       }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
+      if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
+      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
       return Promise.resolve({ stdout: '', stderr: '' });
     });
 
@@ -193,7 +237,8 @@ describe('esl upload', () => {
       execFileAsync: execFileAsync as any
     });
 
-    expect(result).toMatchObject({ name: '@platform-ai/reviewer', skillId: 'sk_01J00000000000000000000000' });
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
       ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
@@ -201,7 +246,7 @@ describe('esl upload', () => {
     );
   });
 
-  it('fails with recovery guidance when the esl remote points at a different source', async () => {
+  it('blocks the upload when the local skill name does not match the existing source repository', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -211,9 +256,6 @@ describe('esl upload', () => {
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
-      if (args[0] === 'remote' && args[1] === 'add') {
-        return Promise.reject(new Error('fatal: remote esl already exists.'));
-      }
       if (args[0] === 'remote' && args[1] === 'get-url') {
         return Promise.resolve({ stdout: 'http://localhost:3000/git/other/skill.git\n', stderr: '' });
       }
@@ -228,7 +270,7 @@ describe('esl upload', () => {
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow(/git remote remove esl/);
+    ).rejects.toThrow(/does not match the source repository/);
     expect(execFileAsync).not.toHaveBeenCalledWith(
       'git',
       ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
@@ -249,6 +291,9 @@ describe('esl upload', () => {
       if (args.includes('push')) {
         return Promise.reject(new Error('fatal: unable to access'));
       }
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
+      if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
+      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
       return Promise.resolve({ stdout: '', stderr: '' });
     });
 
@@ -288,7 +333,7 @@ describe('esl upload', () => {
 
   it('initializes a git repository and writes a base .gitignore when the skill directory is not a repository', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
-    const execFileAsync = gitMock({ inRepo: false });
+    const execFileAsync = gitMock({ inRepo: false, remoteUrl: null });
 
     const result = await executeUpload({
       directory: skillDir,
@@ -358,5 +403,105 @@ describe('esl upload', () => {
 
     expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.name', 'esl upload'], { cwd: skillDir });
     expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'esl@local'], { cwd: skillDir });
+  });
+
+  it('uses the --message text as the auto-commit message', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ dirty: ' M SKILL.md\n' });
+
+    await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      message: 'fix: correct the dead-link regex',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['commit', '-m', 'fix: correct the dead-link regex'],
+      { cwd: skillDir }
+    );
+  });
+
+  it('reports already up to date instead of pushing when local HEAD matches the server source', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ localHead: 'same-sha', remoteHead: 'same-sha' });
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(result.alreadyUpToDate).toBe(true);
+    expect(execFileAsync).not.toHaveBeenCalledWith(
+      'git',
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+      { cwd: skillDir }
+    );
+  });
+
+  it('rebases local commits onto the server source before pushing when behind', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ behind: 2 });
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['rebase', 'esl/main'], { cwd: skillDir });
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+      { cwd: skillDir }
+    );
+  });
+
+  it('stops with clear guidance when the auto-rebase hits a conflict', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ behind: 1, rebaseConflict: true });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/resolve them, then re-run "esl upload"/);
+    expect(execFileAsync).not.toHaveBeenCalledWith(
+      'git',
+      expect.arrayContaining(['push']),
+      { cwd: skillDir }
+    );
+  });
+
+  it('continues an in-progress rebase instead of creating a new commit', async () => {
+    fs.mkdirSync(path.join(skillDir, '.git', 'rebase-merge'), { recursive: true });
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({});
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['add', '-A'], { cwd: skillDir });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['rebase', '--continue'], { cwd: skillDir });
   });
 });

@@ -47,16 +47,18 @@ Manifest（`skill.json`），后者只作为安装副本或 Published Skill Pack
 
 ## Source Upload
 
-从本地技能首次创建 Server-hosted Skill Source 的操作。它创建 Skill ID 和
-服务器 Git 仓库，不用于覆盖已存在的服务器源码。同一创建者对被中断的首次
-Source Upload 可续传：对 Active Unreleased Skill Source 重传视为续传同一
-源，不重复建仓；已发布或由他人创建的源仍拒绝续传。后续提交属于 Source
-Update，不属于 Source Upload。
+把本地技能源码提交并推送到服务器成为 Server-hosted Skill Source 的
+esl 化操作：首次创建 Skill ID 与服务器 Git 仓库，之后对已托管源（已有
+esl remote）直接同步、跳过登记。它自动完成 git 前置（init、.gitignore、
+提交，说明可用 --message 指定），已托管源推前自动 rebase 到服务器最新并
+处理冲突，`HEAD` 与服务器源一致时报告已是最新。改名不通过修改
+SKILL.md 完成（见 Skill Rename）。
 
 ## Source Update
 
 Maintainer 将对 Server-hosted Skill Source 的后续 Git 提交推送到服务器的
-操作。它不创建 Skill Release。
+操作。它不创建 Skill Release。可通过 `esl upload`（esl 化，含自动提交与
+rebase）或裸 `git push esl main` 完成。
 
 ## Source Checkout
 
@@ -78,9 +80,16 @@ Server-hosted Skill Source。它可以被授权用户下载源码，但不能作
 
 被明确停用或废弃的 Server-hosted Skill。它不再接受源码修改或新的
 Skill Release；其 Skill ID、Git 历史、历史 Skill Release、Published Skill
-Package、安装记录和名称重定向仍然保留。初期不允许物理删除；未来如需清理，
-必须通过带审计、备份和恢复窗口的受控治理流程。恢复 Archived Skill 仅允许
+Package、安装记录和名称重定向仍然保留。恢复 Archived Skill 仅允许
 ESL Platform Administrator 执行。
+
+## Deleted Skill
+
+被 ESL Platform Administrator 完全删除的 Server-hosted Skill，用于彻底清理
+（与 Archived Skill 的保留式停用相对）。删除是物理的、不可恢复的：移除其
+Git 仓库、Published Skill Package 与全部 DB 记录（含 Release、版本、Tag 与
+名称重定向），Skill Identity 随即不可用且不可复用。只允许 ESL Platform
+Administrator 执行，删除前要求显式确认。
 
 ## Unreleased Skill Source
 
