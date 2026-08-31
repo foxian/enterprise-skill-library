@@ -23,9 +23,11 @@ describe('esl program', () => {
         'source',
         'update',
         'uninstall',
-        'admin'
+        'share'
       ])
     );
+    expect(commandNames).not.toContain('admin');
+    expect(commandNames).not.toContain('delete');
   });
 
   it('registers the whoami command', () => {
@@ -53,22 +55,6 @@ describe('esl program', () => {
     const adaptCommand = program.commands.find((command) => command.name() === 'adapt');
 
     expect(adaptCommand?.options.map((option) => option.long)).toEqual(expect.arrayContaining(['--prune']));
-  });
-
-  it('registers the first admin command surface', () => {
-    const program = createProgram();
-    const admin = program.commands.find((command) => command.name() === 'admin');
-    const bootstrap = admin?.commands.find((command) => command.name() === 'bootstrap');
-    const user = admin?.commands.find((command) => command.name() === 'user');
-    const account = admin?.commands.find((command) => command.name() === 'account');
-
-    expect(bootstrap?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['status']));
-    expect(user?.commands.map((command) => command.name())).toEqual(
-      expect.arrayContaining(['create', 'token', 'disable', 'set-password'])
-    );
-    expect(user?.commands.find((command) => command.name() === 'token')?.commands).toHaveLength(0);
-    expect(account?.commands.map((command) => command.name())).toEqual(expect.arrayContaining(['change-password']));
-    expect(admin?.commands.map((command) => command.name())).not.toContain('gitea');
   });
 
   it('registers the top-level account command surface', () => {

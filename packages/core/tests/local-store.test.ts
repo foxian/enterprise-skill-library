@@ -40,6 +40,7 @@ describe('local store', () => {
     expect(JSON.parse(fs.readFileSync(paths.configJson, 'utf8'))).toEqual({
       server: null,
       username: null,
+      org: null,
       tools: []
     });
     expect(JSON.parse(fs.readFileSync(paths.credentialsJson, 'utf8'))).toEqual({
@@ -75,6 +76,7 @@ describe('local store', () => {
     const config = {
       server: 'http://skills.company.com',
       username: 'zhangsan',
+      org: null,
       tools: []
     };
 

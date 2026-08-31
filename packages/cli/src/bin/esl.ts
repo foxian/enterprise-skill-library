@@ -5,15 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readHidden, readStdinText } from '../prompt.js';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
-import {
-  executeBootstrapStatus,
-  executeChangeOwnPassword,
-  executeCreateUser,
-  executeDisableUser,
-  executeAdministratorAccountPasswordChange,
-  executeIssueUserToken,
-  executeSetUserPassword
-} from '../commands/admin.js';
+import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
@@ -27,10 +19,10 @@ import { executePublish } from '../commands/publish.js';
 import { executeUpload } from '../commands/upload.js';
 import { executeStatus } from '../commands/status.js';
 import { executeRename } from '../commands/rename.js';
-import { executeDelete } from '../commands/delete.js';
 import { executeNotes } from '../commands/notes.js';
 import { executeRepairTag } from '../commands/repair-tag.js';
 import { executeSearch } from '../commands/search.js';
+import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
 import { executeValidate } from '../commands/validate.js';
@@ -62,16 +54,18 @@ export function createProgram(): Command {
   program
     .command('login')
     .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
+    .option('--org <orgname>', 'ESL organization (assembles the Gitea username as orgname_username)')
     .option('--server <url>', 'ESL Server URL (defaults to the saved server)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
-    .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
-    .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
+    .addHelpText('after', example('$ esl login --server http://localhost:3000 --org acme --username alice'))
+    .action(async (options: { server?: string; username?: string; org?: string; passwordFile?: string; tokenFile?: string }) => {
       await executeLogin({
         ...options,
         noInput: program.opts().input === false,
         readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readUsername: process.stdin.isTTY ? undefined : () => readStdinText()
+        readUsername: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readOrg: process.stdin.isTTY ? undefined : () => readStdinText()
       });
       console.log(`Logged in as ${options.username ?? 'you'}`);
     });
@@ -116,87 +110,6 @@ export function createProgram(): Command {
         readPassword: readHidden
       });
       console.log('Password changed');
-    });
-
-  const admin = program.command('admin').description('Manage ESL platform administration');
-  admin.addHelpText('after', example('$ esl admin user create alice'));
-
-  const bootstrap = admin.command('bootstrap');
-  bootstrap
-    .command('status')
-    .option('--server <url>', 'ESL Server URL')
-    .action(async (options: { server?: string }) => {
-      const status = await executeBootstrapStatus(options);
-      console.log(status.ready ? 'Bootstrap ready' : 'Bootstrap not ready');
-      if (status.gitea) console.log(`Gitea: ${status.gitea}`);
-      if (status.adminToken) console.log(`Admin token: ${status.adminToken}`);
-      if (status.repoOwner) console.log(`Repo owner: ${status.repoOwner}`);
-    });
-
-  const adminUser = admin.command('user');
-  adminUser
-    .command('create')
-    .argument('<username>')
-    .option('--server <url>', 'ESL Server URL')
-    .option('--password-file <path>', 'Use a custom initial password from a file')
-    .option('--random', 'Generate a random initial password')
-    .addHelpText('after', example('$ esl admin user create alice'))
-    .action(async (username: string, options: { server?: string; passwordFile?: string; random?: boolean }) => {
-      const result = await executeCreateUser(username, options);
-      console.log(`User ${username} created`);
-      if (result.password) {
-        console.log(`Initial password: ${result.password}`);
-      }
-    });
-
-  adminUser
-    .command('token')
-    .argument('<username>')
-    .option('--server <url>', 'ESL Server URL')
-    .action(async (username: string, options: { server?: string }) => {
-      const token = await executeIssueUserToken(username, options);
-      console.log(token);
-    });
-
-  adminUser
-    .command('disable')
-    .argument('<username>')
-    .option('--server <url>', 'ESL Server URL')
-    .action(async (username: string, options: { server?: string }) => {
-      await executeDisableUser(username, options);
-      console.log(`User ${username} disabled`);
-    });
-
-  adminUser
-    .command('set-password')
-    .argument('<username>')
-    .option('--server <url>', 'ESL Server URL')
-    .option('--password-file <path>', 'Use a custom new password from a file')
-    .option('--random', 'Generate a random new password')
-    .addHelpText('after', example('$ esl admin user set-password alice'))
-    .action(async (username: string, options: { server?: string; passwordFile?: string; random?: boolean }) => {
-      const result = await executeSetUserPassword(username, options);
-      console.log(`Password for ${username} reset`);
-      if (result.password) {
-        console.log(`New password: ${result.password}`);
-      }
-    });
-
-  const account = admin.command('account').description('Manage the ESL administrator account');
-  account
-    .command('change-password')
-    .description('Change the configured ESL administrator account password')
-    .option('--password-file <path>', 'Read the new ESL administrator account password from a file')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl admin account change-password --server http://localhost:3000'))
-    .action(async (options: { passwordFile?: string; server?: string }) => {
-      await executeAdministratorAccountPasswordChange({
-        ...options,
-        noInput: program.opts().input === false,
-        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readPassword: readHidden
-      });
-      console.log('Administrator account password changed');
     });
 
   program
@@ -287,19 +200,19 @@ program
     });
 
   program
-    .command('delete')
-    .description('Completely delete a server-hosted skill (platform administrator only)')
+    .command('share')
+    .description('Share a skill with your organization, a team, or a member')
     .argument('<skill-name>')
+    .option('--all', 'share with the whole organization (read; add --write for edit)')
+    .option('--team <name>', 'share with a team (keeps the team permission level)')
+    .option('--user <username>', 'share with a member (read; add --write for edit)')
+    .option('--write', 'grant edit (write) permission where applicable')
+    .option('--reset', 'reset to private (only you keep access)')
     .option('--server <url>', 'ESL Server URL')
-    .option('--yes', 'skip the confirmation prompt')
-    .addHelpText('after', example('$ esl delete @platform-ai/reviewer --yes'))
-    .action(async (identity: string, options: { server?: string; yes?: boolean }) => {
-      const deleted = await executeDelete(identity, { ...options, noInput: program.opts().input === false });
-      console.log(
-        deleted.releasesRemoved
-          ? `Skill deleted: ${deleted.name} (${deleted.releasesRemoved} release(s) removed)`
-          : `Skill deleted: ${deleted.name}`
-      );
+    .addHelpText('after', example('$ esl share @acme/code-review --all'))
+    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; reset?: boolean; server?: string }) => {
+      await executeShare(identity, options);
+      console.log('Skill sharing updated');
     });
 
   program

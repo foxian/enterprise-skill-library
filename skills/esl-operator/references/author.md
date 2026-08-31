@@ -1,7 +1,7 @@
 # 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
 
 只读命令（直接跑）：`validate`。
-写命令（先回显、确认再跑）：`init` `version` `source` `upload` `publish`。
+写命令（先回显、确认再跑）：`init` `version` `source` `upload` `publish` `share`。
 
 ## 初始化新技能
 `esl init @ns/name [--license SPDX]` —— 在当前目录下生成技能文件夹（短名为目录名），含 `SKILL.md`（带 frontmatter）与 `release.json`。`release.json` 的 `schemaVersion` 为 `1`，`license` 默认 `MIT` 可用 `--license` 覆盖。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。
@@ -30,3 +30,10 @@
 
 ## 拉别人源码做二次开发
 `esl source @ns/name [./dir]` —— 克隆远端 Git 源码到本地（默认当前目录），可改可修。这拿的是源码仓库，不是 Published Package。
+
+## 共享与权限
+`esl share @ns/skill-name --all [--write]` —— 共享给全组织使用（只读）或协作（`--write`）。
+`esl share @ns/skill-name --team <team>` —— 共享给指定团队，权限继承该团队配置的 Read/Write 级别（`--write` 对团队无额外效果）。
+`esl share @ns/skill-name --user <username> [--write]` —— 授权给单个成员只读或读写。
+`esl share @ns/skill-name --reset` —— 重置为仅自己可见（撤销全部团队挂载与协作者授权）。
+四个目标互斥，一次只能选一个；执行前按写命令规则先回显完整命令、等用户确认。只有技能 Owner 或组织管理员能改权限，403 时提示无权而非重试。

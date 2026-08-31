@@ -11,6 +11,7 @@
 
 旗标：
 - `--username <name>`：指定用户名（仍会交互提示密码）
+- `--org <orgname>`：指定所属组织；登录时把 Gitea 用户名组装为 `<orgname>_<username>`，组织信息随登录状态保存（`whoami` 会显示 `Organization`）。组织成员登录应带上它；交互式登录也会提示（可留空跳过）
 - `--server <url>`：本次覆盖已配置地址
 - `--token-file <path>`：用用户 token 文件登录（管理员签发）
 - `--password-file <path>`：用密码文件登录（脚本 / CI）

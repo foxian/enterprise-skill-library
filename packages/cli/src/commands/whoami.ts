@@ -4,6 +4,7 @@ import { resolveLoginTtlMs } from './network-options.js';
 export interface WhoamiResult {
   loggedIn: boolean;
   username: string | null;
+  org: string | null;
   server: string | null;
   loginAt: string | null;
   expiresAt: string | null;
@@ -22,6 +23,7 @@ export async function executeWhoami(options: LocalStoreOptions = {}): Promise<Wh
   return {
     loggedIn: Boolean(token),
     username: config.username ?? null,
+    org: config.org ?? null,
     server: config.server ?? null,
     loginAt,
     expiresAt: loginAt && !Number.isNaN(loginAtMs) ? new Date(loginAtMs + resolveLoginTtlMs()).toISOString() : null,
@@ -36,6 +38,9 @@ export function formatWhoami(result: WhoamiResult): string {
   const lines: string[] = [];
   if (result.username) {
     lines.push(`Username: ${result.username}`);
+  }
+  if (result.org) {
+    lines.push(`Organization: ${result.org}`);
   }
   if (result.server) {
     lines.push(`Server: ${result.server}`);

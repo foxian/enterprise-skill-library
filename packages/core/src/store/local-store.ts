@@ -13,6 +13,7 @@ export interface LocalStorePaths {
 export interface EslConfig {
   server: string | null;
   username: string | null;
+  org: string | null;
   tools: string[];
 }
 
@@ -53,6 +54,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await writeJsonIfMissing(paths.configJson, {
     server: null,
     username: null,
+    org: null,
     tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {

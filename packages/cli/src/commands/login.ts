@@ -7,11 +7,13 @@ import { fetchWithTimeout } from './network-options.js';
 export interface LoginOptions extends LocalStoreOptions {
   server?: string;
   username?: string;
+  org?: string;
   passwordFile?: string;
   tokenFile?: string;
   noInput?: boolean;
   readInput?: () => Promise<string>;
   readUsername?: (prompt: string) => Promise<string>;
+  readOrg?: (prompt: string) => Promise<string>;
   customFetch?: typeof fetch;
 }
 
@@ -21,18 +23,36 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
 
   const server = await resolveServer({ server: options.server, homeDir: options.homeDir });
   const username = await resolveUsername(options);
-  const token = await resolveLoginToken(options, server, username, fetchImpl);
+  const org = await resolveOrg(options);
+  const token = await resolveLoginToken(options, server, org ? `${org}_${username}` : username, fetchImpl);
 
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
       server,
-      username
+      username,
+      org: org ?? null
     },
     { homeDir: options.homeDir }
   );
 
   return token;
+}
+
+async function resolveOrg(options: LoginOptions): Promise<string | undefined> {
+  if (options.org) {
+    return options.org.trim();
+  }
+  if (options.noInput) {
+    return undefined;
+  }
+  if (options.readOrg) {
+    return (await options.readOrg('Organization (optional): ')).trim() || undefined;
+  }
+  if (!isInteractive()) {
+    return undefined;
+  }
+  return (await readText('Organization (optional, press enter to skip): ')).trim() || undefined;
 }
 
 async function resolveUsername(options: LoginOptions): Promise<string> {
