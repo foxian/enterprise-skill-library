@@ -180,6 +180,22 @@ export class GiteaService {
     }
   }
 
+  async enableUser(username: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prohibit_login: false })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to enable Gitea user: ${err}`);
+    }
+  }
+
   async changeUserPassword(username: string, password: string): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
@@ -518,6 +534,19 @@ export class GiteaService {
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`Failed to list Gitea organization members: ${err}`);
+    }
+
+    return (await res.json()) as GiteaUser[];
+  }
+
+  async listTeamMembers(teamId: number): Promise<GiteaUser[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/members`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea team members: ${err}`);
     }
 
     return (await res.json()) as GiteaUser[];

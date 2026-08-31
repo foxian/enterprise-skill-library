@@ -30,8 +30,12 @@ describe('organization console API', () => {
         .mockResolvedValue([{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }]),
       createUser: vi.fn().mockResolvedValue(undefined),
       disableUser: vi.fn().mockResolvedValue(undefined),
+      enableUser: vi.fn().mockResolvedValue(undefined),
       changeUserPassword: vi.fn().mockResolvedValue(undefined),
       listTeams: vi.fn().mockResolvedValue(defaultTeams),
+      listTeamMembers: vi
+        .fn()
+        .mockResolvedValue([{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }]),
       createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'frontend', permission: 'read' }),
       deleteTeam: vi.fn().mockResolvedValue(undefined),
       addTeamMember: vi.fn().mockResolvedValue(undefined),
@@ -298,5 +302,53 @@ describe('organization console API', () => {
     });
     expect(leave.statusCode).toBe(200);
     expect(mockGitea.removeTeamMember).toHaveBeenCalledWith(7, 'acme_bob');
+  });
+
+  it('enables a member by restoring login and rejoining only default teams', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/members/bob/enable',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ username: 'acme_bob', enabled: true });
+    expect(mockGitea.enableUser).toHaveBeenCalledWith('acme_bob');
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(2, 'acme_bob');
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(3, 'acme_bob');
+    expect(mockGitea.addTeamMember).not.toHaveBeenCalledWith(1, 'acme_bob');
+    expect(mockGitea.addTeamMember).not.toHaveBeenCalledWith(7, 'acme_bob');
+  });
+
+  it('lists the members of an organization team', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/teams/7/members',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }]);
+    expect(mockGitea.listTeamMembers).toHaveBeenCalledWith(7);
+  });
+
+  it('rejects listing members of a team outside the organization', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/teams/999/members',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockGitea.listTeamMembers).not.toHaveBeenCalledWith(999);
   });
 });

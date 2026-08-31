@@ -365,6 +365,38 @@ describe('GiteaService', () => {
     });
   });
 
+  it('enables a user via the Gitea admin API', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.enableUser('alice');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/admin/users/alice', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prohibit_login: false })
+    });
+  });
+
+  it('lists team members via the Gitea team API', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listTeamMembers(7)).resolves.toEqual([
+      { id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }
+    ]);
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
   it('changes a user password via the Gitea admin API', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);

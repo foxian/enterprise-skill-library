@@ -54,6 +54,21 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return { username: giteaUsername, disabled: true };
   });
 
+  app.post('/api/orgs/members/:username/enable', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService);
+    if (!org) return;
+    const username = decodeURIComponent((request.params as { username: string }).username);
+    const giteaUsername = `${org}_${username}`;
+    // 对称于 disable：恢复登录能力并重新加入两个默认全员团队。
+    await giteaService.enableUser(giteaUsername);
+    for (const team of await giteaService.listTeams(org)) {
+      if (DEFAULT_TEAM_NAMES.has(team.name)) {
+        await giteaService.addTeamMember(team.id, giteaUsername);
+      }
+    }
+    return { username: giteaUsername, enabled: true };
+  });
+
   app.post('/api/orgs/members/:username/password', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService);
     if (!org) return;
@@ -101,6 +116,16 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     }
     await giteaService.deleteTeam(teamId);
     return { deleted: true };
+  });
+
+  app.get('/api/orgs/teams/:teamId/members', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService);
+    if (!org) return;
+    const teamId = Number((request.params as { teamId: string }).teamId);
+    if (!(await orgHasTeam(giteaService, org, teamId))) {
+      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+    }
+    return giteaService.listTeamMembers(teamId);
   });
 
   app.post('/api/orgs/teams/:teamId/members', async (request, reply) => {
