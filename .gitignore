@@ -17,6 +17,8 @@ packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
 # ESL managed (do not edit)
 .skills/
+.skills.json
+.skills-lock.json
 .claude/skills/
 .agents/skills/
 .trae/skills/
