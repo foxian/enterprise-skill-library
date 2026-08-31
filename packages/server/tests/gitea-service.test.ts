@@ -21,6 +21,15 @@ describe('GiteaService', () => {
     );
   });
 
+  it('does not hide a failed collaborator grant', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 422, text: async () => 'user not found' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(
+      gitea.addCollaborator('platform-ai', 'reviewer', 'ghost', 'write')
+    ).rejects.toThrow('Failed to configure Gitea repository collaborator: user not found');
+  });
+
   it('updates repository archived state', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
