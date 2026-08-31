@@ -10,7 +10,7 @@ describe('Skill Source Upload API', () => {
   let gitea: {
     validateToken: ReturnType<typeof vi.fn>;
     createOrganizationRepo: ReturnType<typeof vi.fn>;
-    addRepositoryCollaborator: ReturnType<typeof vi.fn>;
+    addCollaborator: ReturnType<typeof vi.fn>;
     deleteRepo: ReturnType<typeof vi.fn>;
     createReleaseTag: ReturnType<typeof vi.fn>;
     getReleaseTag: ReturnType<typeof vi.fn>;
@@ -22,7 +22,7 @@ describe('Skill Source Upload API', () => {
     gitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
-      addRepositoryCollaborator: vi.fn().mockResolvedValue(undefined),
+      addCollaborator: vi.fn().mockResolvedValue(undefined),
       deleteRepo: vi.fn().mockResolvedValue(undefined),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
       getReleaseTag: vi.fn().mockResolvedValue(null),
@@ -99,7 +99,7 @@ describe('Skill Source Upload API', () => {
   });
 
   it('deletes the orphaned repository when provisioning fails after creation', async () => {
-    gitea.addRepositoryCollaborator.mockRejectedValue(new Error('collaborator failed'));
+    gitea.addCollaborator.mockRejectedValue(new Error('collaborator failed'));
 
     const response = await upload();
     expect(response.statusCode).toBe(500);

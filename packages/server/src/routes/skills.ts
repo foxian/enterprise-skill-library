@@ -51,8 +51,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let skill: ReturnType<SkillRepository['createServerSkill']> | undefined;
     try {
       gitRepo = await giteaService.createOrganizationRepo(repoOwner, shortName, true);
-      if (typeof giteaService.addRepositoryCollaborator === 'function') {
-        await giteaService.addRepositoryCollaborator(repoOwner, shortName, user.username, 'write');
+      if (typeof giteaService.addCollaborator === 'function') {
+        await giteaService.addCollaborator(repoOwner, shortName, user.username, 'write');
       }
       skill = repository.createServerSkill({
         name,
@@ -192,9 +192,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user || !skill) {
       return reply.status(404).send({ error: 'Skill not found' });
     }
-    if (typeof giteaService.addRepositoryCollaborator === 'function') {
+    if (typeof giteaService.addCollaborator === 'function') {
       try {
-        await giteaService.addRepositoryCollaborator(repoOwner, skill.skillName, user.username, 'read');
+        await giteaService.addCollaborator(repoOwner, skill.skillName, user.username, 'read');
       } catch (error) {
         return reply.status(409).send({ error: (error as Error).message });
       }

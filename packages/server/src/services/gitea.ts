@@ -25,6 +25,17 @@ export interface GiteaTag {
   target: string;
 }
 
+export interface GiteaOrg {
+  id: number;
+  name: string;
+}
+
+export interface GiteaTeam {
+  id: number;
+  name: string;
+  permission: 'read' | 'write';
+}
+
 export class GiteaService {
   constructor(
     private baseUrl: string,
@@ -319,7 +330,148 @@ export class GiteaService {
     }
   }
 
-  async addRepositoryCollaborator(
+  async createOrg(name: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username: name })
+    });
+
+    if (!res.ok && res.status !== 409) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea organization: ${err}`);
+    }
+  }
+
+  async deleteOrg(name: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${name}`, {
+      method: 'DELETE',
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok && res.status !== 404) {
+      const err = await res.text();
+      throw new Error(`Failed to delete Gitea organization: ${err}`);
+    }
+  }
+
+  async listOrgs(): Promise<GiteaOrg[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/orgs`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea organizations: ${err}`);
+    }
+
+    const body = (await res.json()) as Array<{ id: number; name: string }>;
+    return body.map((org) => ({ id: org.id, name: org.name }));
+  }
+
+  async createTeam(org: string, name: string, permission: 'read' | 'write'): Promise<GiteaTeam> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name, permission })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to create Gitea team: ${err}`);
+    }
+
+    const body = (await res.json()) as { id: number; name: string; permission: 'read' | 'write' };
+    return { id: body.id, name: body.name, permission: body.permission };
+  }
+
+  async deleteTeam(teamId: number): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok && res.status !== 404) {
+      const err = await res.text();
+      throw new Error(`Failed to delete Gitea team: ${err}`);
+    }
+  }
+
+  async listTeams(org: string): Promise<GiteaTeam[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea teams: ${err}`);
+    }
+
+    const body = (await res.json()) as Array<{ id: number; name: string; permission: 'read' | 'write' }>;
+    return body.map((team) => ({ id: team.id, name: team.name, permission: team.permission }));
+  }
+
+  async addTeamMember(teamId: number, username: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to add Gitea team member: ${err}`);
+    }
+  }
+
+  async removeTeamMember(teamId: number, username: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to remove Gitea team member: ${err}`);
+    }
+  }
+
+  async addTeamRepo(teamId: number, owner: string, repo: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
+      method: 'PUT',
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to add Gitea team repository: ${err}`);
+    }
+  }
+
+  async removeTeamRepo(teamId: number, owner: string, repo: string): Promise<void> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
+      method: 'DELETE',
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to remove Gitea team repository: ${err}`);
+    }
+  }
+
+  async addCollaborator(
     owner: string,
     repository: string,
     username: string,
@@ -340,6 +492,34 @@ export class GiteaService {
       const err = await res.text();
       throw new Error(`Failed to configure Gitea repository collaborator: ${err}`);
     }
+  }
+
+  async removeCollaborator(owner: string, repository: string, username: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to remove Gitea repository collaborator: ${err}`);
+    }
+  }
+
+  async listCollaborators(owner: string, repository: string): Promise<GiteaUser[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea repository collaborators: ${err}`);
+    }
+
+    return (await res.json()) as GiteaUser[];
   }
 
   async setRepositoryArchived(owner: string, repository: string, archived: boolean): Promise<void> {

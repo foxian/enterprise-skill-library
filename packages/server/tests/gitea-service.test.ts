@@ -6,7 +6,7 @@ describe('GiteaService', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
 
-    await gitea.addRepositoryCollaborator('platform-ai', 'reviewer', 'alice', 'write');
+    await gitea.addCollaborator('platform-ai', 'reviewer', 'alice', 'write');
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://gitea:3000/api/v1/repos/platform-ai/reviewer/collaborators/alice',
@@ -475,5 +475,282 @@ describe('GiteaService', () => {
 
     await expect(gitea.changeAdminPassword('new-password')).rejects.toThrow(/admin username required/);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('creates a Gitea organization for a tenant', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.createOrg('acme');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs', {
+      method: 'POST',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username: 'acme' })
+    });
+  });
+
+  it('throws when creating a Gitea organization fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createOrg('acme')).rejects.toThrow('Failed to create Gitea organization: boom');
+  });
+
+  it('deletes a Gitea organization', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.deleteOrg('acme');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when deleting a Gitea organization fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.deleteOrg('acme')).rejects.toThrow('Failed to delete Gitea organization: boom');
+  });
+
+  it('lists Gitea organizations', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 1, name: 'acme' }, { id: 2, name: 'platform-ai' }]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listOrgs()).resolves.toEqual([
+      { id: 1, name: 'acme' },
+      { id: 2, name: 'platform-ai' }
+    ]);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/admin/orgs', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when listing Gitea organizations fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listOrgs()).rejects.toThrow('Failed to list Gitea organizations: boom');
+  });
+
+  it('creates a Gitea organization team with a repository permission level', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 7, name: 'all-readers', permission: 'read' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createTeam('acme', 'all-readers', 'read')).resolves.toEqual({
+      id: 7,
+      name: 'all-readers',
+      permission: 'read'
+    });
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/teams', {
+      method: 'POST',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: 'all-readers', permission: 'read' })
+    });
+  });
+
+  it('throws when creating a Gitea team fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 422, text: async () => 'invalid' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createTeam('acme', 'all-readers', 'read')).rejects.toThrow(
+      'Failed to create Gitea team: invalid'
+    );
+  });
+
+  it('deletes a Gitea team by id', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.deleteTeam(7);
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when deleting a Gitea team fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.deleteTeam(7)).rejects.toThrow('Failed to delete Gitea team: boom');
+  });
+
+  it('lists the teams of a Gitea organization', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { id: 7, name: 'all-readers', permission: 'read' },
+        { id: 8, name: 'all-writers', permission: 'write' }
+      ]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listTeams('acme')).resolves.toEqual([
+      { id: 7, name: 'all-readers', permission: 'read' },
+      { id: 8, name: 'all-writers', permission: 'write' }
+    ]);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/teams', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when listing Gitea teams fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listTeams('acme')).rejects.toThrow('Failed to list Gitea teams: boom');
+  });
+
+  it('adds a member to a Gitea team', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.addTeamMember(7, 'acme_bravo');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members/acme_bravo', {
+      method: 'PUT',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when adding a Gitea team member fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => 'no user' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.addTeamMember(7, 'acme_bravo')).rejects.toThrow(
+      'Failed to add Gitea team member: no user'
+    );
+  });
+
+  it('removes a member from a Gitea team', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.removeTeamMember(7, 'acme_bravo');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members/acme_bravo', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when removing a Gitea team member fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.removeTeamMember(7, 'acme_bravo')).rejects.toThrow(
+      'Failed to remove Gitea team member: boom'
+    );
+  });
+
+  it('mounts a repository onto a Gitea team', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.addTeamRepo(7, 'acme', 'reviewer');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/repos/acme/reviewer', {
+      method: 'PUT',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when adding a Gitea team repository fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => 'forbidden' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.addTeamRepo(7, 'acme', 'reviewer')).rejects.toThrow(
+      'Failed to add Gitea team repository: forbidden'
+    );
+  });
+
+  it('removes a repository from a Gitea team', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.removeTeamRepo(7, 'acme', 'reviewer');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/repos/acme/reviewer', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when removing a Gitea team repository fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.removeTeamRepo(7, 'acme', 'reviewer')).rejects.toThrow(
+      'Failed to remove Gitea team repository: boom'
+    );
+  });
+
+  it('removes a repository collaborator', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.removeCollaborator('acme', 'reviewer', 'alice');
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://gitea:3000/api/v1/repos/acme/reviewer/collaborators/alice',
+      {
+        method: 'DELETE',
+        headers: { Authorization: 'token admin-token' }
+      }
+    );
+  });
+
+  it('throws when removing a repository collaborator fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.removeCollaborator('acme', 'reviewer', 'alice')).rejects.toThrow(
+      'Failed to remove Gitea repository collaborator: boom'
+    );
+  });
+
+  it('lists repository collaborators', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { id: 2, username: 'acme_alice', email: 'acme_alice@local.esl' },
+        { id: 3, username: 'acme_bravo', email: 'acme_bravo@local.esl' }
+      ]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listCollaborators('acme', 'reviewer')).resolves.toEqual([
+      { id: 2, username: 'acme_alice', email: 'acme_alice@local.esl' },
+      { id: 3, username: 'acme_bravo', email: 'acme_bravo@local.esl' }
+    ]);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/repos/acme/reviewer/collaborators', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when listing repository collaborators fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listCollaborators('acme', 'reviewer')).rejects.toThrow(
+      'Failed to list Gitea repository collaborators: boom'
+    );
   });
 });

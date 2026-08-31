@@ -102,7 +102,7 @@ describe('Fastify Server API', () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'consumer' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
-      addRepositoryCollaborator: vi.fn().mockResolvedValue(undefined)
+      addCollaborator: vi.fn().mockResolvedValue(undefined)
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
     await app.inject({
@@ -120,7 +120,7 @@ describe('Fastify Server API', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().cloneUrl).toBe('http://localhost:3000/git/platform-ai/reviewer.git');
-    expect(mockGitea.addRepositoryCollaborator).toHaveBeenCalledWith(
+    expect(mockGitea.addCollaborator).toHaveBeenCalledWith(
       'platform-ai',
       'reviewer',
       'consumer',
