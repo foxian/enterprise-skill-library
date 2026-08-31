@@ -83,7 +83,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       orgs.map(async (org) => ({
         name: org.name,
         memberCount: (await giteaService.listOrgMembers(org.name)).length,
-        skillCount: skillRepository.countSkillsByScope(org.name)
+        skillCount: skillRepository.countSkillsByScope(org.name),
+        createdAt: org.created
       }))
     );
   });

@@ -28,6 +28,7 @@ export interface GiteaTag {
 export interface GiteaOrg {
   id: number;
   name: string;
+  created?: string;
 }
 
 export interface GiteaTeam {
@@ -368,8 +369,8 @@ export class GiteaService {
       throw new Error(`Failed to list Gitea organizations: ${err}`);
     }
 
-    const body = (await res.json()) as Array<{ id: number; name: string }>;
-    return body.map((org) => ({ id: org.id, name: org.name }));
+    const body = (await res.json()) as Array<{ id: number; name: string; created?: string }>;
+    return body.map((org) => ({ id: org.id, name: org.name, created: org.created }));
   }
 
   async createTeam(org: string, name: string, permission: 'read' | 'write'): Promise<GiteaTeam> {
