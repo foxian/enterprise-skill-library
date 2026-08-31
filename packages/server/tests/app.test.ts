@@ -58,7 +58,7 @@ describe('Fastify Server API', () => {
     const getRes = await app.inject({
       method: 'GET',
       url: '/api/skills/@alice/code-review',
-      headers: { host: 'localhost:3000' }
+      headers: { host: 'localhost:3000', authorization: 'token valid-token' }
     });
 
     expect(getRes.statusCode).toBe(200);
@@ -219,7 +219,7 @@ describe('Fastify Server API', () => {
       'reviewer-pro',
       'reviewer'
     );
-    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer', headers: { authorization: 'token alice-token' } })).statusCode).toBe(200);
   });
 
   it('archives a skill and only a platform administrator can restore it', async () => {

@@ -565,6 +565,61 @@ export class GiteaService {
     return (await res.json()) as GiteaUser[];
   }
 
+  async listRepoTeams(owner: string, repository: string): Promise<GiteaTeam[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/teams`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea repository teams: ${err}`);
+    }
+
+    const body = (await res.json()) as Array<{ id: number; name: string; permission: GiteaTeam['permission'] }>;
+    return body.map((team) => ({ id: team.id, name: team.name, permission: team.permission }));
+  }
+
+  async isTeamMember(teamId: number, username: string): Promise<boolean> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
+      { headers: { Authorization: `token ${this.adminToken}` } }
+    );
+
+    if (res.ok) return true;
+    if (res.status === 404) return false;
+
+    const err = await res.text();
+    throw new Error(`Failed to check Gitea team membership: ${err}`);
+  }
+
+  async isCollaborator(owner: string, repository: string, username: string): Promise<boolean> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
+      { headers: { Authorization: `token ${this.adminToken}` } }
+    );
+
+    if (res.ok) return true;
+    if (res.status === 404) return false;
+
+    const err = await res.text();
+    throw new Error(`Failed to check Gitea collaborator status: ${err}`);
+  }
+
+  async getCollaboratorPermission(owner: string, repository: string, username: string): Promise<string> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}/permission`,
+      { headers: { Authorization: `token ${this.adminToken}` } }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to get Gitea collaborator permission: ${err}`);
+    }
+
+    const body = (await res.json()) as { permission: string };
+    return body.permission;
+  }
+
   async setRepositoryArchived(owner: string, repository: string, archived: boolean): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}`, {
       method: 'PATCH',

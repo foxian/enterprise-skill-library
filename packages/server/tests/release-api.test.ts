@@ -121,7 +121,8 @@ describe('Skill Release API', () => {
       headers: {
         host: 'api:3000',
         'x-forwarded-host': 'localhost:3000',
-        'x-forwarded-proto': 'http'
+        'x-forwarded-proto': 'http',
+        authorization: 'token alice-token'
       }
     });
 
@@ -370,7 +371,11 @@ describe('Skill Release API', () => {
       '- fix: dead-link regex\n- feat: docx batch'
     );
 
-    const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
     expect(info.json().releases[0].notes).toBe('- fix: dead-link regex\n- feat: docx batch');
   });
 
@@ -418,7 +423,11 @@ describe('Skill Release API', () => {
 
     expect(update.statusCode).toBe(200);
     expect(update.json().notes).toBe('revised note');
-    const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
     expect(info.json().releases[0].notes).toBe('revised note');
   });
 

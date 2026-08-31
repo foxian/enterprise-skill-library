@@ -817,4 +817,86 @@ describe('GiteaService', () => {
       'Failed to remove Gitea organization member: boom'
     );
   });
+
+  it('lists the teams that have access to a repository', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 7, name: 'frontend', permission: 'read' }]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listRepoTeams('acme', 'reviewer')).resolves.toEqual([
+      { id: 7, name: 'frontend', permission: 'read' }
+    ]);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/repos/acme/reviewer/teams', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when listing repository teams fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listRepoTeams('acme', 'reviewer')).rejects.toThrow(
+      'Failed to list Gitea repository teams: boom'
+    );
+  });
+
+  it('checks whether a user belongs to a team', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.isTeamMember(7, 'acme_bob')).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members/acme_bob', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('returns false when a user is not a team member', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.isTeamMember(7, 'acme_bob')).resolves.toBe(false);
+  });
+
+  it('checks whether a user is a repository collaborator', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.isCollaborator('acme', 'reviewer', 'acme_bob')).resolves.toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://gitea:3000/api/v1/repos/acme/reviewer/collaborators/acme_bob',
+      { headers: { Authorization: 'token admin-token' } }
+    );
+  });
+
+  it('returns false when a user is not a collaborator', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.isCollaborator('acme', 'reviewer', 'acme_bob')).resolves.toBe(false);
+  });
+
+  it('reads the collaborator permission level', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ permission: 'write' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.getCollaboratorPermission('acme', 'reviewer', 'acme_bob')).resolves.toBe('write');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://gitea:3000/api/v1/repos/acme/reviewer/collaborators/acme_bob/permission',
+      { headers: { Authorization: 'token admin-token' } }
+    );
+  });
+
+  it('throws when reading the collaborator permission level fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.getCollaboratorPermission('acme', 'reviewer', 'acme_bob')).rejects.toThrow(
+      'Failed to get Gitea collaborator permission: boom'
+    );
+  });
 });

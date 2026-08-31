@@ -42,7 +42,11 @@ describe('Skill Delete API', () => {
       headers: { authorization: 'token alice-token' },
       payload: { name: 'reviewer', description: 'Review code' }
     });
-    const info = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
     return (info.json() as { skillId: string }).skillId;
   }
 
@@ -91,7 +95,11 @@ describe('Skill Delete API', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toContain('confirm');
-    const stillThere = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    const stillThere = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
     expect(stillThere.statusCode).toBe(200);
   });
 

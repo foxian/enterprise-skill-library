@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import semver from 'semver';
-import type { AdminRepository, SkillRepository } from '../db/database.js';
+import type { AdminRepository, SkillRecord, SkillRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 
 export interface SkillsRouteOptions {
@@ -129,7 +129,111 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
   app.get('/api/skills/search', async (request) => {
     const { q = '' } = request.query as { q?: string };
-    return repository.searchSkills(q);
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return [];
+    }
+    const accessible: SkillRecord[] = [];
+    for (const skill of repository.searchSkills(q)) {
+      if (await hasReadAccess(giteaService, skill, user.username)) {
+        accessible.push(skill);
+      }
+    }
+    return accessible;
+  });
+
+  app.get('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    if (!canManageSkill(skill, user.username)) {
+      return reply.status(403).send({ error: 'Forbidden: skill owner or organization administrator required' });
+    }
+    return getPermissionMatrix(giteaService, skill);
+  });
+
+  app.post('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    if (!canManageSkill(skill, user.username)) {
+      return reply.status(403).send({ error: 'Forbidden: skill owner or organization administrator required' });
+    }
+
+    const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
+    switch (body.action) {
+      case 'share_all_read':
+      case 'share_all_write': {
+        const teamName = body.action === 'share_all_read' ? 'all-readers' : 'all-writers';
+        const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === teamName);
+        if (!team) {
+          return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
+        }
+        await giteaService.addTeamRepo(team.id, skill.scope, skill.skillName);
+        break;
+      }
+      case 'add_team':
+      case 'remove_team': {
+        if (!body.team) {
+          return reply.status(400).send({ error: 'Team name is required' });
+        }
+        const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === body.team);
+        if (!team) {
+          return reply.status(404).send({ error: 'Team not found in organization' });
+        }
+        if (body.action === 'add_team') {
+          await giteaService.addTeamRepo(team.id, skill.scope, skill.skillName);
+        } else {
+          await giteaService.removeTeamRepo(team.id, skill.scope, skill.skillName);
+        }
+        break;
+      }
+      case 'add_member': {
+        if (!body.username || (body.permission !== 'read' && body.permission !== 'write')) {
+          return reply.status(400).send({ error: 'Username and a read or write permission are required' });
+        }
+        await giteaService.addCollaborator(skill.scope, skill.skillName, body.username, body.permission);
+        break;
+      }
+      case 'remove_member': {
+        if (!body.username) {
+          return reply.status(400).send({ error: 'Username is required' });
+        }
+        await giteaService.removeCollaborator(skill.scope, skill.skillName, body.username);
+        break;
+      }
+      case 'reset_to_private': {
+        if (typeof giteaService.listRepoTeams === 'function') {
+          for (const team of await giteaService.listRepoTeams(skill.scope, skill.skillName)) {
+            await giteaService.removeTeamRepo(team.id, skill.scope, skill.skillName);
+          }
+        }
+        if (typeof giteaService.listCollaborators === 'function') {
+          for (const member of await giteaService.listCollaborators(skill.scope, skill.skillName)) {
+            if (member.username === skill.owner) continue;
+            await giteaService.removeCollaborator(skill.scope, skill.skillName, member.username);
+          }
+        }
+        break;
+      }
+      default:
+        return reply.status(400).send({ error: 'Unknown permission action' });
+    }
+    return getPermissionMatrix(giteaService, skill);
   });
 
   app.post('/api/skills/:scope/:skillName/rename', async (request, reply) => {
@@ -403,6 +507,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (![params.skillId, params.version, params.checksum].every((value) => /^[A-Za-z0-9._-]+$/.test(value))) {
       return reply.status(400).send({ error: 'Invalid Published Skill Package path' });
     }
+    const skill = repository.getSkillById(params.skillId);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    if (!(await hasReadAccess(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: read access required' });
+    }
     const packagePath = path.join(packageRoot, params.skillId, params.version, params.checksum);
     try {
       const bytes = await fs.readFile(packagePath);
@@ -515,6 +626,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!skill) {
       return reply.status(404).send({ error: 'Skill not found' });
     }
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!(await hasReadAccess(giteaService, skill, user?.username))) {
+      return reply.status(403).send({ error: 'Forbidden: read access required' });
+    }
 
     const releases = repository.getReleases(name);
     const latest = releases[0];
@@ -566,6 +681,65 @@ function resolveDependencyLock(
     visit(name, range);
   }
   return lock;
+}
+
+async function hasReadAccess(
+  giteaService: GiteaService,
+  skill: SkillRecord,
+  username: string | undefined
+): Promise<boolean> {
+  if (!username) return false;
+  if (username === `${skill.scope}_admin`) return true;
+  const hasPermissionSupport =
+    typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
+  if (!hasPermissionSupport) {
+    // Git backends without permission APIs cannot be filtered; keep legacy behavior.
+    return true;
+  }
+  if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
+    for (const team of await giteaService.listRepoTeams(skill.scope, skill.skillName)) {
+      if (await giteaService.isTeamMember(team.id, username)) {
+        return true;
+      }
+    }
+  }
+  if (typeof giteaService.isCollaborator === 'function') {
+    return giteaService.isCollaborator(skill.scope, skill.skillName, username);
+  }
+  return false;
+}
+
+function canManageSkill(skill: SkillRecord, username: string): boolean {
+  return (
+    skill.owner === username || skill.maintainers.includes(username) || username === `${skill.scope}_admin`
+  );
+}
+
+async function getPermissionMatrix(giteaService: GiteaService, skill: SkillRecord) {
+  const repoTeams =
+    typeof giteaService.listRepoTeams === 'function'
+      ? await giteaService.listRepoTeams(skill.scope, skill.skillName)
+      : [];
+  const members =
+    typeof giteaService.listCollaborators === 'function'
+      ? await giteaService.listCollaborators(skill.scope, skill.skillName)
+      : [];
+  const memberViews = [];
+  for (const member of members) {
+    const permission =
+      typeof giteaService.getCollaboratorPermission === 'function'
+        ? await giteaService.getCollaboratorPermission(skill.scope, skill.skillName, member.username)
+        : 'read';
+    memberViews.push({ username: member.username, permission });
+  }
+  return {
+    scope: skill.scope,
+    skillName: skill.skillName,
+    sharedAllRead: repoTeams.some((team) => team.name === 'all-readers'),
+    sharedAllWrite: repoTeams.some((team) => team.name === 'all-writers'),
+    teams: repoTeams.filter((team) => !['all-readers', 'all-writers', 'Owners'].includes(team.name)),
+    members: memberViews
+  };
 }
 
 async function authorizePlatformAdministrator(
