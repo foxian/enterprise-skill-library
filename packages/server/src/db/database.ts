@@ -242,6 +242,17 @@ export class SkillRepository {
     return (stmt.all(skillName) as { version: string }[]).map((row) => row.version);
   }
 
+  countSkillsByScope(scope: string): number {
+    const stmt = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM skills
+      WHERE scope = ?
+        AND status != 'archived'
+    `);
+    const row = stmt.get(scope) as { count: number };
+    return row.count;
+  }
+
   searchSkills(query: string): SkillRecord[] {
     const stmt = this.db.prepare(`
       SELECT
@@ -562,6 +573,25 @@ export class OrgApplicationRepository {
     `);
     stmt.run(status, orgName);
     return this.getApplication(orgName);
+  }
+
+  getApplicationById(id: number): OrgApplicationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
+      FROM org_applications
+      WHERE id = ?
+    `).get(id) as Parameters<OrgApplicationRepository['deserialize']>[0] | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
+  updateApplicationStatusById(id: number, status: OrgApplicationStatus): OrgApplicationRecord | undefined {
+    const stmt = this.db.prepare(`
+      UPDATE org_applications
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    stmt.run(status, id);
+    return this.getApplicationById(id);
   }
 
   deleteApplication(orgName: string): boolean {

@@ -753,4 +753,47 @@ describe('GiteaService', () => {
       'Failed to list Gitea repository collaborators: boom'
     );
   });
+
+  it('lists the members of a Gitea organization', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }]
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listOrgMembers('acme')).resolves.toEqual([
+      { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }
+    ]);
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/members', {
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when listing Gitea organization members fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listOrgMembers('acme')).rejects.toThrow(
+      'Failed to list Gitea organization members: boom'
+    );
+  });
+
+  it('deletes a Gitea user account', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.deleteUser('acme_bob');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/admin/users/acme_bob?purge=true', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when deleting a Gitea user account fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.deleteUser('acme_bob')).rejects.toThrow('Failed to delete Gitea user: boom');
+  });
 });

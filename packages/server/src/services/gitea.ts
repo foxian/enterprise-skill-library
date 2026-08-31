@@ -509,6 +509,34 @@ export class GiteaService {
     }
   }
 
+  async listOrgMembers(org: string): Promise<GiteaUser[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/members`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea organization members: ${err}`);
+    }
+
+    return (await res.json()) as GiteaUser[];
+  }
+
+  async deleteUser(username: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to delete Gitea user: ${err}`);
+    }
+  }
+
   async listCollaborators(owner: string, repository: string): Promise<GiteaUser[]> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators`, {
       headers: { Authorization: `token ${this.adminToken}` }
