@@ -796,4 +796,25 @@ describe('GiteaService', () => {
 
     await expect(gitea.deleteUser('acme_bob')).rejects.toThrow('Failed to delete Gitea user: boom');
   });
+
+  it('removes a member from a Gitea organization', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.removeOrgMember('acme', 'acme_bob');
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/members/acme_bob', {
+      method: 'DELETE',
+      headers: { Authorization: 'token admin-token' }
+    });
+  });
+
+  it('throws when removing a Gitea organization member fails', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.removeOrgMember('acme', 'acme_bob')).rejects.toThrow(
+      'Failed to remove Gitea organization member: boom'
+    );
+  });
 });

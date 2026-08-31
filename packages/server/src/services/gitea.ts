@@ -522,6 +522,21 @@ export class GiteaService {
     return (await res.json()) as GiteaUser[];
   }
 
+  async removeOrgMember(org: string, username: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/orgs/${org}/members/${encodeURIComponent(username)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to remove Gitea organization member: ${err}`);
+    }
+  }
+
   async deleteUser(username: string): Promise<void> {
     const res = await this.customFetch(
       `${this.baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`,

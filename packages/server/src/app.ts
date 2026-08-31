@@ -4,6 +4,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOrgRoutes } from './routes/orgs.js';
 import { registerOrgAdminRoutes } from './routes/org-admin.js';
+import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import type { GiteaService } from './services/gitea.js';
 import path from 'node:path';
@@ -41,6 +42,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     orgApplicationRepository,
     platformSettingsRepository,
     skillRepository: repository
+  });
+  registerOrgConsoleRoutes(app, {
+    giteaService: options.giteaService
   });
   registerAdminRoutes(app, {
     repository: adminRepository,
