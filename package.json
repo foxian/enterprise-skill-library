@@ -6,6 +6,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
+    "deploy:web": "npm run build --workspace @esl/web && docker compose up -d server",
     "smoke:git-backend-maintenance-entry": "node scripts/check-git-backend-maintenance-entry.mjs",
     "test": "npm run build --workspace @esl/core && vitest run && npm test --workspace @esl/web"
   },

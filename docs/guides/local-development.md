@@ -41,6 +41,30 @@ console (built from `packages/web`) is served under `/admin` — open
 `http://localhost:3000/admin` in a browser after `npm run build`, which also
 produces the web static bundle mounted into the nginx container.
 
+## Redeploy the Web Console
+
+The frontend is not baked into any image: `packages/web/dist` is bind-mounted
+into the nginx container. Rebuild and redeploy it with:
+
+```powershell
+npm run deploy:web
+```
+
+This runs `vite build` (which updates files inside `dist` in place —
+`emptyOutDir: false` keeps the directory inode stable so the container's mount
+never goes stale) and recreates the `server` container. Only the recreated
+container re-reads `docker-compose.yml`, so use `docker compose up -d server`,
+never `docker compose restart`, after changing compose config or mounts. The
+same caveat applies to single-file mounts such as `docker/nginx.conf`.
+
+Because `dist` is no longer emptied on build, hashed assets from previous
+builds accumulate; delete unused `dist/assets/*` files occasionally.
+
+API server code is baked into the `api` image. Changes under
+`packages/server` require `docker compose build api && docker compose up -d api`.
+The Dockerfile copies workspace manifests before the dependency-install layer,
+so code-only changes reuse the cached `npm install` layer.
+
 `gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
 
 `GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the ESL Administrator Account password; log in as the configured administrator account and use `esl admin account change-password` for explicit rotation.
