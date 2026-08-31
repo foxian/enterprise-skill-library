@@ -42,7 +42,10 @@ under `/api`, and Git HTTP traffic is routed under `/git`.
 
 `GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the ESL Administrator Account password; log in as the configured administrator account and use `esl admin account change-password` for explicit rotation.
 
-The API validates the internal token and ensures `GITEA_REPO_OWNER` before it starts listening.
+The API validates the internal token before it starts listening. Skill source
+repositories live under tenant organizations mapped from Gitea organizations
+(see `docs/adr/0016`); the server no longer asserts a fixed platform
+organization at startup.
 
 ## Admin Commands
 

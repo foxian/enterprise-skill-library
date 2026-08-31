@@ -22,17 +22,6 @@ describe('server config', () => {
     });
   });
 
-  it('loads the configured repository owner', () => {
-    const config = loadServerConfig({
-      DATABASE_PATH: '/tmp/esl.db',
-      GITEA_URL: 'http://gitea:3000',
-      GITEA_ADMIN_TOKEN: 'admin-token',
-      GITEA_REPO_OWNER: 'platform-skills'
-    } as NodeJS.ProcessEnv);
-
-    expect(config.repoOwner).toBe('platform-skills');
-  });
-
   it('loads the configured bootstrap administrator token', () => {
     const config = loadServerConfig({
       DATABASE_PATH: '/tmp/esl.db',

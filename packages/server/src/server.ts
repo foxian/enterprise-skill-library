@@ -59,7 +59,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
   if (!(await validateToken(adminToken))) {
     throw new Error('Invalid Gitea admin token');
   }
-  await giteaService.ensureOrganization(config.repoOwner);
   const app = buildApp({
     dbPath: config.databasePath,
     giteaService,

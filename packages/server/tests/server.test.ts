@@ -13,15 +13,13 @@ describe('server runtime', () => {
         GITEA_URL: 'http://gitea:3000',
         GITEA_ADMIN_TOKEN: 'admin-token',
         GITEA_ADMIN_TOKEN_FILE: '/bootstrap/gitea-admin-token',
-        GITEA_REPO_OWNER: 'platform-skills',
         ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
       } as NodeJS.ProcessEnv,
       listen,
       readFile,
       giteaServiceFactory: () => ({
         validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
-        validateAdminToken: async () => true,
-        ensureOrganization: async () => undefined
+        validateAdminToken: async () => true
       }) as any
     });
 
@@ -44,7 +42,6 @@ describe('server runtime', () => {
         DATABASE_PATH: ':memory:',
         GITEA_URL: 'http://gitea:3000',
         GITEA_ADMIN_TOKEN_FILE: '/bootstrap/gitea-admin-token',
-        GITEA_REPO_OWNER: 'platform-skills',
         ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
       } as NodeJS.ProcessEnv,
       listen,
@@ -74,9 +71,6 @@ describe('server runtime', () => {
       validateAdminToken: vi.fn().mockImplementation(async () => {
         events.push('validate');
         return true;
-      }),
-      ensureOrganization: vi.fn().mockImplementation(async () => {
-        events.push('ensure');
       })
     };
 
@@ -91,37 +85,7 @@ describe('server runtime', () => {
     });
 
     expect(giteaService.validateToken).toHaveBeenCalledWith('admin-token');
-    expect(events).toEqual(['validate', 'ensure', 'listen']);
-    await app.close();
-  });
-
-  it('ensures the repo owner organization before listening', async () => {
-    const events: string[] = [];
-    const listen = vi.fn().mockImplementation(async () => {
-      events.push('listen');
-      return 'http://127.0.0.1:3999';
-    });
-    const ensureOrganization = vi.fn().mockImplementation(async () => {
-      events.push('ensure');
-    });
-
-    const app = await startServer({
-      env: {
-        DATABASE_PATH: ':memory:',
-        GITEA_URL: 'http://gitea:3000',
-        GITEA_ADMIN_TOKEN: 'admin-token',
-        GITEA_REPO_OWNER: 'platform-skills'
-      } as NodeJS.ProcessEnv,
-      listen,
-      giteaServiceFactory: () => ({
-        validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
-        validateAdminToken: async () => true,
-        ensureOrganization
-      }) as any
-    });
-
-    expect(ensureOrganization).toHaveBeenCalledWith('platform-skills');
-    expect(events).toEqual(['ensure', 'listen']);
+    expect(events).toEqual(['validate', 'listen']);
     await app.close();
   });
 
@@ -138,8 +102,7 @@ describe('server runtime', () => {
         listen,
         giteaServiceFactory: () => ({
           validateToken: async () => null,
-          validateAdminToken: async () => false,
-          ensureOrganization: vi.fn()
+          validateAdminToken: async () => false
         }) as any
       })
     ).rejects.toThrow('Invalid Gitea admin token');

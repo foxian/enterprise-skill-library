@@ -39,7 +39,9 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     giteaAdminTokenFile,
     giteaAdminUsername: env.GITEA_ADMIN_USERNAME ?? 'eslroot',
     giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
-    repoOwner: env.GITEA_REPO_OWNER ?? 'esl-skills',
+    // Transitional fixed namespace for Server-hosted Skill Sources; per-org
+    // scopes arrive with the multi-tenant upload flow (docs/adr/0016).
+    repoOwner: 'esl-skills',
     bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token'
   };
 }
