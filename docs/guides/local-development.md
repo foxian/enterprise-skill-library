@@ -47,35 +47,21 @@ repositories live under tenant organizations mapped from Gitea organizations
 (see `docs/adr/0016`); the server no longer asserts a fixed platform
 organization at startup.
 
-## Admin Commands
-
-After logging in with the bootstrap token, the platform administrator can manage the first user onboarding loop through ESL:
+## Login
 
 ```powershell
 npm exec -- esl login --server http://localhost:3000 --username eslroot --token-file .\bootstrap-token.txt
-npm exec -- esl admin bootstrap status
-npm exec -- esl admin user create alice
-npm exec -- esl admin user token alice
-npm exec -- esl admin user disable alice
 ```
-
-`esl admin user create alice` now generates a random initial password and prints
-it exactly once so the user can log in with `esl login`. To reset a user's
-password later, use `esl admin user set-password alice`. A Skill User can change
-their own password with `esl account change-password`.
 
 The server URL and username are optional on `esl login`: set the server once
 with `npm exec -- esl config set-server http://localhost:3000`, then `esl login`
-prompts for username and password interactively. Check the current login with
-`npm exec -- esl whoami`.
+prompts for username and password interactively. Organization members pass
+`--org <orgname>` so the Gitea username is assembled as `<orgname>_<username>`.
+Check the current login with `npm exec -- esl whoami`.
 
-Changing the ESL Administrator Account password requires an account login, not
-the Bootstrap Token:
-
-```powershell
-npm exec -- esl login --server http://localhost:3000 --username eslroot
-npm exec -- esl admin account change-password --password-file .\new-password.txt
-```
+Organization and member management moved to the Web admin console; the CLI
+keeps only developer-facing commands. A Skill User can change their own
+password with `esl account change-password`.
 
 ## Local Skill Namespace
 

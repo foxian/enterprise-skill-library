@@ -24,6 +24,7 @@ describe('organization console API', () => {
         if (token === 'other-admin-token') return { id: 2, username: 'other_admin', email: 'other_admin@local.esl' };
         return null;
       }),
+      organizationExists: vi.fn().mockResolvedValue(true),
       listOrgMembers: vi
         .fn()
         .mockResolvedValue([{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }]),
@@ -73,6 +74,20 @@ describe('organization console API', () => {
       });
       expect(response.statusCode).toBe(403);
     }
+  });
+
+  it('rejects an administrator whose organization does not exist', async () => {
+    const mockGitea = orgAdminGitea();
+    mockGitea.organizationExists.mockResolvedValue(false);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/members',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 
   it('lists the members of the administrator organization', async () => {

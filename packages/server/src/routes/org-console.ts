@@ -154,7 +154,7 @@ async function requireOrgAdministrator(
     return null;
   }
   const org = user.username.replace(/_admin$/, '');
-  if (org === user.username) {
+  if (org === user.username || !(await giteaService.organizationExists(org))) {
     reply.status(403).send({ error: 'Forbidden: organization administrator token required' });
     return null;
   }

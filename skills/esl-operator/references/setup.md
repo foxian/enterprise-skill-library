@@ -4,7 +4,7 @@
 `esl config set-server <url>` —— 设 ESL Server 地址。本地 Docker 默认 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
 
 ## 查看登录状态
-`esl whoami` —— 输出当前用户名 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
+`esl whoami` —— 输出当前用户名 / 所属组织 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
 
 ## 登录
 `esl login` —— 交互式（推荐）：依次提示 `Username:` 与隐藏的密码。登录成功后 token 写入本机所有者只读文件，默认 30 天有效；可用环境变量 `ESL_LOGIN_TTL_HOURS`（单位：小时）调整 TTL。
