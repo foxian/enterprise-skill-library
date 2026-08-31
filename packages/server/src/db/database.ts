@@ -18,6 +18,10 @@ export function initDatabase(dbPath: string): Database.Database {
     SET created_by = author
     WHERE created_by = ''
   `);
+  db.exec(`
+    INSERT OR IGNORE INTO platform_settings (key, value)
+    VALUES ('org_registration_mode', 'auto')
+  `);
   return db;
 }
 
@@ -484,6 +488,125 @@ export class AdminRepository {
     return row
       ? { username: row.username, disabled: row.disabled === 1, platformAdmin: row.platformAdmin === 1 }
       : undefined;
+  }
+}
+
+export type OrgApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface OrgApplicationRecord {
+  orgName: string;
+  adminDisplayName: string;
+  hashedPassword: string;
+  status: OrgApplicationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export class OrgApplicationRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  createApplication(input: {
+    orgName: string;
+    adminDisplayName: string;
+    hashedPassword: string;
+  }): OrgApplicationRecord {
+    const stmt = this.db.prepare(`
+      INSERT INTO org_applications (org_name, admin_display_name, hashed_password, status)
+      VALUES (?, ?, ?, 'pending')
+    `);
+    stmt.run(input.orgName, input.adminDisplayName, input.hashedPassword);
+    return this.getApplication(input.orgName)!;
+  }
+
+  getApplication(orgName: string): OrgApplicationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+      FROM org_applications
+      WHERE org_name = ?
+    `).get(orgName) as {
+      org_name: string;
+      admin_display_name: string;
+      hashed_password: string;
+      status: OrgApplicationStatus;
+      created_at: string;
+      updated_at: string;
+    } | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
+  listApplications(status?: OrgApplicationStatus): OrgApplicationRecord[] {
+    const rows = (
+      status
+        ? this.db.prepare(`
+            SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            FROM org_applications
+            WHERE status = ?
+            ORDER BY id ASC
+          `).all(status)
+        : this.db.prepare(`
+            SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            FROM org_applications
+            ORDER BY id ASC
+          `).all()
+    ) as Parameters<OrgApplicationRepository['deserialize']>[0][];
+    return rows.map((row) => this.deserialize(row));
+  }
+
+  updateApplicationStatus(orgName: string, status: OrgApplicationStatus): OrgApplicationRecord | undefined {
+    const stmt = this.db.prepare(`
+      UPDATE org_applications
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE org_name = ?
+    `);
+    stmt.run(status, orgName);
+    return this.getApplication(orgName);
+  }
+
+  deleteApplication(orgName: string): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM org_applications
+      WHERE org_name = ?
+    `);
+    return stmt.run(orgName).changes > 0;
+  }
+
+  private deserialize(row: {
+    org_name: string;
+    admin_display_name: string;
+    hashed_password: string;
+    status: OrgApplicationStatus;
+    created_at: string;
+    updated_at: string;
+  }): OrgApplicationRecord {
+    return {
+      orgName: row.org_name,
+      adminDisplayName: row.admin_display_name,
+      hashedPassword: row.hashed_password,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+}
+
+export class PlatformSettingsRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  getSetting(key: string): string | undefined {
+    const row = this.db.prepare(`
+      SELECT value
+      FROM platform_settings
+      WHERE key = ?
+    `).get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO platform_settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(key, value);
   }
 }
 

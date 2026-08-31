@@ -72,4 +72,20 @@ export const databaseSchema = `
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (username) REFERENCES admin_users(username) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS org_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_name TEXT NOT NULL UNIQUE,
+    admin_display_name TEXT NOT NULL,
+    hashed_password TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS platform_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `;
