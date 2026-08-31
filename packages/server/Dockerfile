@@ -19,4 +19,8 @@ RUN npm run build --workspace @esl/core && npm run build --workspace @esl/server
 
 EXPOSE 3000
 
+# 健康检查用 node 内置 fetch（slim 镜像无 curl）；server 容器据此等 api 真正就绪
+HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://localhost:'+(process.env.PORT||'3000')+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["npm", "run", "start", "--workspace", "@esl/server"]

@@ -1,6 +1,7 @@
 services:
   gitea:
     image: gitea/gitea:1.22
+    restart: unless-stopped
     volumes:
       - ${ESL_DATA_DIR:-./data}/gitea:/data
       - ./docker/gitea-custom-hooks:/data/gitea/custom/hooks:ro
@@ -32,6 +33,7 @@ services:
       dockerfile: packages/server/Dockerfile
       args:
         NPM_PROXY: ${NPM_PROXY:-}
+    restart: unless-stopped
     environment:
       PORT: "3000"
       # Container-internal path: /data is the bind-mount destination
@@ -50,6 +52,7 @@ services:
 
   server:
     image: nginx:1.27-alpine
+    restart: unless-stopped
     ports:
       - "3000:80"
     volumes:
@@ -57,7 +60,8 @@ services:
       # packages/web 的构建产物（先在宿主机执行 npm run build --workspace @esl/web）
       - ./packages/web/dist:/usr/share/nginx/html/admin:ro
     depends_on:
+      # 等 api 健康检查通过再启动，消除冷启动 502 窗口
       api:
-        condition: service_started
+        condition: service_healthy
       gitea:
         condition: service_started
