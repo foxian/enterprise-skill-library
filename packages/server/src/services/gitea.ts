@@ -33,7 +33,7 @@ export interface GiteaOrg {
 export interface GiteaTeam {
   id: number;
   name: string;
-  permission: 'read' | 'write';
+  permission: 'read' | 'write' | 'admin';
 }
 
 export class GiteaService {
@@ -387,7 +387,7 @@ export class GiteaService {
       throw new Error(`Failed to create Gitea team: ${err}`);
     }
 
-    const body = (await res.json()) as { id: number; name: string; permission: 'read' | 'write' };
+    const body = (await res.json()) as { id: number; name: string; permission: GiteaTeam['permission'] };
     return { id: body.id, name: body.name, permission: body.permission };
   }
 
@@ -413,7 +413,7 @@ export class GiteaService {
       throw new Error(`Failed to list Gitea teams: ${err}`);
     }
 
-    const body = (await res.json()) as Array<{ id: number; name: string; permission: 'read' | 'write' }>;
+    const body = (await res.json()) as Array<{ id: number; name: string; permission: GiteaTeam['permission'] }>;
     return body.map((team) => ({ id: team.id, name: team.name, permission: team.permission }));
   }
 

@@ -326,6 +326,7 @@ describe('API Server Database', () => {
     });
     expect(created.status).toBe('pending');
     expect(applications.getApplication('acme')).toEqual({
+      id: created.id,
       orgName: 'acme',
       adminDisplayName: 'Acme Admin',
       hashedPassword: 'hash-of-password',

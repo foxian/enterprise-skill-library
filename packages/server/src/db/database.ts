@@ -494,6 +494,7 @@ export class AdminRepository {
 export type OrgApplicationStatus = 'pending' | 'approved' | 'rejected';
 
 export interface OrgApplicationRecord {
+  id: number;
   orgName: string;
   adminDisplayName: string;
   hashedPassword: string;
@@ -520,10 +521,11 @@ export class OrgApplicationRepository {
 
   getApplication(orgName: string): OrgApplicationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+      SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
       FROM org_applications
       WHERE org_name = ?
     `).get(orgName) as {
+      id: number;
       org_name: string;
       admin_display_name: string;
       hashed_password: string;
@@ -538,13 +540,13 @@ export class OrgApplicationRepository {
     const rows = (
       status
         ? this.db.prepare(`
-            SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
             FROM org_applications
             WHERE status = ?
             ORDER BY id ASC
           `).all(status)
         : this.db.prepare(`
-            SELECT org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
             FROM org_applications
             ORDER BY id ASC
           `).all()
@@ -571,6 +573,7 @@ export class OrgApplicationRepository {
   }
 
   private deserialize(row: {
+    id: number;
     org_name: string;
     admin_display_name: string;
     hashed_password: string;
@@ -579,6 +582,7 @@ export class OrgApplicationRepository {
     updated_at: string;
   }): OrgApplicationRecord {
     return {
+      id: row.id,
       orgName: row.org_name,
       adminDisplayName: row.admin_display_name,
       hashedPassword: row.hashed_password,
