@@ -4,6 +4,9 @@ packages/*/dist/
 .worktrees/
 .env
 
+# Local data directory (default ESL bind-mount location)
+data/
+
 # Smoke-test runtime artifacts (may contain real credentials)
 .scratch/smoke-workspace/
 .scratch/docker-smoke.env

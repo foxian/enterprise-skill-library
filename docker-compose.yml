@@ -2,7 +2,7 @@ services:
   gitea:
     image: gitea/gitea:1.22
     volumes:
-      - gitea-data:/data
+      - ${ESL_DATA_DIR:-./data}/gitea:/data
       - ./docker/gitea-custom-hooks:/data/gitea/custom/hooks:ro
     environment:
       GITEA__database__DB_TYPE: sqlite3
@@ -17,8 +17,8 @@ services:
     depends_on:
       - gitea
     volumes:
-      - gitea-data:/data
-      - bootstrap-secrets:/bootstrap
+      - ${ESL_DATA_DIR:-./data}/gitea:/data
+      - ${ESL_DATA_DIR:-./data}/secrets:/bootstrap
       - ./docker/gitea-bootstrap.sh:/bootstrap/gitea-bootstrap.sh:ro
     environment:
       GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-eslroot}
@@ -34,6 +34,7 @@ services:
         NPM_PROXY: ${NPM_PROXY:-}
     environment:
       PORT: "3000"
+      # Container-internal path: /data is the bind-mount destination
       DATABASE_PATH: /data/esl.db
       GITEA_URL: http://gitea:3000
       GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
@@ -42,8 +43,8 @@ services:
       GITEA_REPO_OWNER: ${GITEA_REPO_OWNER:-esl-skills}
       ESL_BOOTSTRAP_ADMIN_TOKEN: ${ESL_BOOTSTRAP_ADMIN_TOKEN:-bootstrap-token}
     volumes:
-      - api-data:/data
-      - bootstrap-secrets:/bootstrap:ro
+      - ${ESL_DATA_DIR:-./data}/api:/data
+      - ${ESL_DATA_DIR:-./data}/secrets:/bootstrap:ro
     depends_on:
       gitea-bootstrap:
         condition: service_completed_successfully
@@ -59,8 +60,3 @@ services:
         condition: service_started
       gitea:
         condition: service_started
-
-volumes:
-  gitea-data:
-  bootstrap-secrets:
-  api-data:
