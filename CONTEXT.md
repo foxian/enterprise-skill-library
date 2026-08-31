@@ -143,10 +143,21 @@ Skill Release 失效；后续发布重试可以在确认 commit 一致后补建�
 
 _Avoid_: Skill Release，用于指代 Git tag 时。
 
-## Platform Organization
+## Tenant Organization
 
-ESL 初始化时配置的唯一组织。它是全部 Skill User 的共享源码仓库空间，并为
-每个 Server-hosted Skill Identity 提供 Namespace；正常运行期间不得变更。
+ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一个 Organization。它为该组织内的所有 Server-hosted Skill Identity 提供唯一的 Namespace（`@scope/skill-name` 中的 scope 段）。组织间技能与源码完全私有隔离。
+
+## Organization Admin
+
+组织创建时自动生成的管理账号（Gitea 用户名为 `<orgname>_admin`），担任该 Gitea Organization 的 Owner 角色。拥有组织内成员、团队、权限矩阵以及全部技能的最高管理与治理权。
+
+## Organization Team
+
+组织内部创建的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的仓库访问级别（Read 或 Write）。组织初始化时自动创建两个默认全员团队：`all-readers` 与 `all-writers`。
+
+## Super Administrator
+
+ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。
 
 ## Local Scope
 
