@@ -1,0 +1,44 @@
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+#app {
+  color: #303133;
+}
+
+.console-shell {
+  height: 100vh;
+}
+
+.console-shell .el-aside {
+  border-right: 1px solid #e4e7ed;
+}
+
+.console-brand {
+  height: 60px;
+  line-height: 60px;
+  text-align: center;
+  font-weight: 600;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.console-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}

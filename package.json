@@ -5,9 +5,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run build --workspace @esl/cli",
+    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
     "smoke:git-backend-maintenance-entry": "node scripts/check-git-backend-maintenance-entry.mjs",
-    "test": "npm run build --workspace @esl/core && vitest run"
+    "test": "npm run build --workspace @esl/core && vitest run && npm test --workspace @esl/web"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

@@ -54,6 +54,8 @@ services:
       - "3000:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      # packages/web 的构建产物（先在宿主机执行 npm run build --workspace @esl/web）
+      - ./packages/web/dist:/usr/share/nginx/html/admin:ro
     depends_on:
       api:
         condition: service_started

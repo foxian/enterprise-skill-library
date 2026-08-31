@@ -36,7 +36,10 @@ docker compose up --build
 Gitea runs as ESL's internal Git backend. The local Docker runtime locks Gitea installation and disables public registration so normal setup and user onboarding happen through ESL instead of the Gitea UI.
 
 The user-facing ESL Server is `http://localhost:3000`. API routes are served
-under `/api`, and Git HTTP traffic is routed under `/git`.
+under `/api`, Git HTTP traffic is routed under `/git`, and the Web admin
+console (built from `packages/web`) is served under `/admin` — open
+`http://localhost:3000/admin` in a browser after `npm run build`, which also
+produces the web static bundle mounted into the nginx container.
 
 `gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
 
