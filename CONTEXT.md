@@ -151,6 +151,34 @@ ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一
 
 将已接受的组织注册申请变为可使用 Tenant Organization 的可恢复跨系统工作流。只有 Gitea Organization、Organization Admin、Owner 关系与两个默认 Organization Team 都完成后，Tenant Organization 才可用。
 
+## Provisioning Credential
+
+为完成 Tenant Organization Provisioning 而暂时保存的申请人凭据密文。它只能由服务端使用，开通成功、申请终止或凭据不再需要时必须删除，不能作为普通查询结果或日志内容暴露。
+
+## Provisioning State
+
+描述跨系统资源开通进度的持久化状态，包括 `pending`、`provisioning`、`active` 和 `failed`；只有 `active` 的 Tenant Organization 对正常用户可用。
+
+## Provisioning Lease
+
+执行器为处理 Provisioning State 而持有的短期租约，用于防止多个执行器同时推进同一项跨系统变更。租约过期后，未完成的工作可被其他执行器重新领取。
+
+## Resource Provenance
+
+跨系统资源与本次 ESL 操作之间的可验证归属关系。只有能够确认由当前操作创建、且未被外部资源依赖的资源，才允许自动补偿删除。
+
+## Operation
+
+一次需要跨越 ESL 数据库与 Git Backend 的可恢复变更记录。它包含操作类型、目标资源、幂等键、当前状态、Provisioning Lease、重试次数和脱敏失败原因，但不取代 Git Backend 作为成员、团队和仓库权限的事实来源。
+
+## Organization Deletion State
+
+Tenant Organization 删除任务的生命周期状态，包括 `deleting`、完成和 `delete_failed`。处于 `deleting` 或 `delete_failed` 的组织禁止正常登录及资产变更，直到删除完成或由 ESL Platform Administrator 恢复处理。
+
+## Operation Idempotency Key
+
+用于识别同一跨系统操作的稳定业务键。组织申请使用规范化组织名，审批和删除分别使用申请标识或组织名与操作类型组合；重复请求返回既有 Operation 状态，不重复调用 Git Backend。
+
 ## Skill User Password Policy
 
 ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行中的 Gitea 配置。ESL 在客户端与服务端提前执行同一规则，Gitea 保留最终校验权。
