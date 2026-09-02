@@ -94,6 +94,9 @@ export const databaseSchema = `
     FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE SET NULL
   );
 
+  CREATE INDEX IF NOT EXISTS tenant_organizations_status_index
+    ON tenant_organizations (status, updated_at);
+
   CREATE TABLE IF NOT EXISTS operations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     idempotency_key TEXT NOT NULL UNIQUE,
