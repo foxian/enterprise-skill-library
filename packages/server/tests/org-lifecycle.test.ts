@@ -27,6 +27,7 @@ describe('organization application lifecycle', () => {
       organizationExists: vi.fn().mockResolvedValue(false),
       createOrg: vi.fn().mockResolvedValue(undefined),
       createUser: vi.fn().mockResolvedValue(undefined),
+      listOrgMembers: vi.fn().mockResolvedValue([]),
       listTeams: vi
         .fn()
         .mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
@@ -187,6 +188,51 @@ describe('organization application lifecycle', () => {
       status: 'failed'
     });
     db.close();
+  });
+
+  it('can retry provisioning without recreating resources that already exist', async () => {
+    const mockGitea = autoModeGitea();
+    mockGitea.createTeam
+      .mockResolvedValueOnce({ id: 2, name: 'all-readers', permission: 'read' })
+      .mockRejectedValueOnce(new Error('temporary failure'));
+    mockGitea.organizationExists.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
+    mockGitea.listOrgMembers.mockResolvedValueOnce([]).mockResolvedValue([
+      { id: 1, username: 'acme_admin', email: 'acme_admin@local.esl' }
+    ]);
+    mockGitea.listTeams.mockResolvedValueOnce([{ id: 1, name: 'Owners', permission: 'owner' }]).mockResolvedValue([
+      { id: 1, name: 'Owners', permission: 'owner' },
+      { id: 2, name: 'all-readers', permission: 'read' },
+      { id: 3, name: 'all-writers', permission: 'write' }
+    ]);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', adminDisplayName: 'Admin', password: 'initial-password' }
+    });
+    expect(response.statusCode).toBe(201);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const db = initDatabase(dbPath);
+    db.prepare(`UPDATE operations SET next_retry_at = NULL, status = 'failed' WHERE kind = 'organization.provision'`).run();
+    db.close();
+    await app.close();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mockGitea.createOrg).toHaveBeenCalledTimes(1);
+    expect(mockGitea.createUser).toHaveBeenCalledTimes(1);
+    expect(mockGitea.createTeam).toHaveBeenCalledTimes(2);
   });
 
   it('requires orgName, admin display name, and password', async () => {

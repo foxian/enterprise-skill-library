@@ -46,12 +46,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const payload = operation.payload as {
       orgName: string;
       applicationId: number;
-      encryptedPassword?: string;
     };
-    if (!payload.encryptedPassword || !options.applicationEncryptionKey) {
+    const application = orgApplicationRepository.getApplicationById(payload.applicationId);
+    if (!application?.encryptedPassword || !options.applicationEncryptionKey) {
       throw new Error('Organization provisioning secret is unavailable');
     }
-    const password = decryptApplicationSecret(payload.encryptedPassword, options.applicationEncryptionKey);
+    const password = decryptApplicationSecret(application.encryptedPassword, options.applicationEncryptionKey);
     try {
       await initializeTenantOrganization(options.giteaService, payload.orgName, password);
       tenantOrganizationRepository.transition(payload.orgName, 'active');
@@ -64,6 +64,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
         message,
         details: {}
       });
+      if (operation.attempts >= operation.maxAttempts) {
+        orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
+      }
       throw error;
     }
   });
@@ -82,7 +85,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       }
       await options.giteaService.deleteOrg(payload.orgName);
       repository.deleteSkillsByScope(payload.orgName);
-      tenantOrganizationRepository.transition(payload.orgName, 'cancelled');
+      tenantOrganizationRepository.transition(payload.orgName, 'deleted');
     } catch (error) {
       tenantOrganizationRepository.transition(payload.orgName, 'delete_failed', {
         code: 'DELETE_FAILED',

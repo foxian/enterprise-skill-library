@@ -276,6 +276,9 @@ describe('super administrator org console API', () => {
     // 删除组织应同步清空平台库中的技能记录
     const after = initDatabase(dbPath);
     expect(new SkillRepository(after).getSkill('@acme/reviewer')).toBeUndefined();
+    expect(after.prepare('SELECT status FROM tenant_organizations WHERE org_name = ?').get('acme')).toEqual({
+      status: 'deleted'
+    });
     after.close();
   });
 

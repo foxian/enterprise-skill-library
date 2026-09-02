@@ -261,4 +261,19 @@ describe('Operation persistence', () => {
     expect(repository.transition('acme', 'active')?.status).toBe('active');
     expect(repository.get('acme')).toMatchObject({ orgName: 'acme', status: 'active' });
   });
+
+  it('does not persist provisioning credentials in the operation payload', () => {
+    db = initDatabase(dbPath);
+    const operations = new OperationRepository(db);
+    const operation = operations.createOperation({
+      idempotencyKey: 'organization.provision:1',
+      kind: 'organization.provision',
+      payload: { orgName: 'acme', applicationId: 1 }
+    });
+
+    expect(JSON.stringify(operation.payload)).not.toContain('initial-password');
+    expect(db.prepare('SELECT payload_json FROM operations WHERE id = ?').get(operation.id)).toEqual({
+      payload_json: '{"orgName":"acme","applicationId":1}'
+    });
+  });
 });

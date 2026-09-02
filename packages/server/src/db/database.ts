@@ -993,7 +993,8 @@ export type TenantOrganizationStatus =
   | 'cancelled'
   | 'expired'
   | 'deleting'
-  | 'delete_failed';
+  | 'delete_failed'
+  | 'deleted';
 
 export interface TenantOrganizationRecord {
   orgName: string;

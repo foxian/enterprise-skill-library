@@ -87,7 +87,7 @@ export const databaseSchema = `
   CREATE TABLE IF NOT EXISTS tenant_organizations (
     org_name TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'provisioning'
-      CHECK (status IN ('pending', 'provisioning', 'active', 'failed', 'rejected', 'cancelled', 'expired', 'deleting', 'delete_failed')),
+      CHECK (status IN ('pending', 'provisioning', 'active', 'failed', 'rejected', 'cancelled', 'expired', 'deleting', 'delete_failed', 'deleted')),
     operation_id INTEGER,
     last_error_json TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

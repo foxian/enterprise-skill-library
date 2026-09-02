@@ -68,8 +68,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       kind: 'organization.provision',
       payload: {
         orgName: application.orgName,
-        applicationId: id,
-        encryptedPassword: application.encryptedPassword
+        applicationId: id
       }
     });
     const tenant = options.tenantOrganizationRepository.get(application.orgName);

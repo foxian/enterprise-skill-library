@@ -65,8 +65,7 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
         kind: 'organization.provision',
         payload: {
           orgName,
-          applicationId: application.id,
-          encryptedPassword: application.encryptedPassword
+          applicationId: application.id
         }
       });
       options.tenantOrganizationRepository.create({
