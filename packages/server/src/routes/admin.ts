@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { validatePassword } from '@esl/core';
 import crypto from 'node:crypto';
 import type { AdminRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
@@ -7,6 +8,7 @@ export interface AdminRouteOptions {
   repository: AdminRepository;
   giteaService: GiteaService;
   repoOwner: string;
+  passwordMinLength?: number;
 }
 
 export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOptions): void {
@@ -21,6 +23,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (!(await authorize(request, reply, repository, giteaService))) return;
     const { username, password } = request.body as { username: string; password?: string };
     const initialPassword = password ? password : generateRandomPassword();
+    const passwordValidation = validatePassword(initialPassword, options.passwordMinLength);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+    }
     await giteaService.createUser(username, initialPassword);
     const user = repository.createUser(username);
     const result: { username: string; disabled: boolean; password?: string } = {
@@ -59,6 +65,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const { username } = request.params as { username: string };
     const { password } = request.body as { password?: string };
     const resolvedPassword = password ? password : generateRandomPassword();
+    const passwordValidation = validatePassword(resolvedPassword, options.passwordMinLength);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+    }
     await giteaService.changeUserPassword(username, resolvedPassword);
     const result: { username: string; password?: string } = { username };
     if (!password) {
@@ -70,6 +80,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
   app.post('/api/admin/account/password', async (request, reply) => {
     if (!(await authorizeAdministratorAccount(request, reply, giteaService))) return;
     const { password } = request.body as { password: string };
+    const passwordValidation = validatePassword(password, options.passwordMinLength);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+    }
     await giteaService.changeAdminPassword(password);
     return { passwordChanged: true };
   });

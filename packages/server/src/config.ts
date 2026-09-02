@@ -1,3 +1,5 @@
+import { DEFAULT_PASSWORD_MIN_LENGTH } from '@esl/core';
+
 export interface ServerConfig {
   port: number;
   databasePath: string;
@@ -8,6 +10,7 @@ export interface ServerConfig {
   giteaAdminPassword?: string;
   repoOwner: string;
   bootstrapAdminToken: string;
+  passwordMinLength: number;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -30,6 +33,10 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   if (!giteaAdminToken && !giteaAdminTokenFile) {
     throw new Error('Missing required environment variable: GITEA_ADMIN_TOKEN or GITEA_ADMIN_TOKEN_FILE');
   }
+  const passwordMinLength = Number.parseInt(env.ESL_PASSWORD_MIN_LENGTH ?? String(DEFAULT_PASSWORD_MIN_LENGTH), 10);
+  if (!Number.isInteger(passwordMinLength) || passwordMinLength < 1) {
+    throw new Error(`Invalid ESL_PASSWORD_MIN_LENGTH: ${env.ESL_PASSWORD_MIN_LENGTH}`);
+  }
 
   return {
     port,
@@ -42,6 +49,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     // Transitional fixed namespace for Server-hosted Skill Sources; per-org
     // scopes arrive with the multi-tenant upload flow (docs/adr/0016).
     repoOwner: 'esl-skills',
-    bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token'
+    bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token',
+    passwordMinLength
   };
 }

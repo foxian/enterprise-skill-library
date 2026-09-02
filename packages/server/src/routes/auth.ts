@@ -1,10 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { validatePassword } from '@esl/core';
 import type { AdminRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
   giteaService: GiteaService;
+  passwordMinLength?: number;
 }
 
 export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptions): void {
@@ -34,6 +36,10 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     const { oldPassword, newPassword } = request.body as { oldPassword?: string; newPassword?: string };
     if (!oldPassword || !newPassword) {
       return reply.status(400).send({ error: 'Current and new passwords are required' });
+    }
+    const passwordValidation = validatePassword(newPassword, options.passwordMinLength);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
     }
 
     const username = await resolveTokenUsername(request, reply, giteaService);

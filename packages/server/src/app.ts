@@ -15,6 +15,7 @@ export interface AppOptions {
   giteaService: GiteaService;
   repoOwner: string;
   bootstrapAdminToken?: string;
+  passwordMinLength?: number;
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -30,12 +31,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   registerAuthRoutes(app, {
     repository: adminRepository,
-    giteaService: options.giteaService
+    giteaService: options.giteaService,
+    passwordMinLength: options.passwordMinLength
   });
   registerOrgRoutes(app, {
     giteaService: options.giteaService,
     orgApplicationRepository,
-    platformSettingsRepository
+    platformSettingsRepository,
+    passwordMinLength: options.passwordMinLength
   });
   registerOrgAdminRoutes(app, {
     giteaService: options.giteaService,
@@ -44,12 +47,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     skillRepository: repository
   });
   registerOrgConsoleRoutes(app, {
-    giteaService: options.giteaService
+    giteaService: options.giteaService,
+    passwordMinLength: options.passwordMinLength
   });
   registerAdminRoutes(app, {
     repository: adminRepository,
     giteaService: options.giteaService,
-    repoOwner: options.repoOwner
+    repoOwner: options.repoOwner,
+    passwordMinLength: options.passwordMinLength
   });
   registerSkillsRoutes(app, {
     repository,

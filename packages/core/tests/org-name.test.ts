@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { validateOrgName } from '../src/index.js';
+import {
+  buildGiteaUsername,
+  validateMemberUsername,
+  validateOrgName,
+  validatePassword
+} from '../src/index.js';
 
 describe('organization name validation', () => {
   it('accepts valid organization names', () => {
@@ -36,5 +41,38 @@ describe('organization name validation', () => {
     if (!result.success) {
       expect(result.errors.join(' ')).toMatch(/lowercase letters, digits, and hyphens/);
     }
+  });
+});
+
+describe('account and password policy', () => {
+  it('accepts passwords at or above the configured minimum length', () => {
+    expect(validatePassword('a'.repeat(12), 12).success).toBe(true);
+    expect(validatePassword('a'.repeat(20), 12).success).toBe(true);
+  });
+
+  it('rejects passwords below the configured minimum length', () => {
+    const result = validatePassword('a'.repeat(11), 12);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errors.join(' ')).toContain('at least 12 characters');
+    }
+  });
+
+  it('validates local member usernames with the organization naming alphabet', () => {
+    expect(validateMemberUsername('alice').success).toBe(true);
+    expect(validateMemberUsername('platform-ai').success).toBe(true);
+    expect(validateMemberUsername('admin').success).toBe(false);
+    expect(validateMemberUsername('Alice').success).toBe(false);
+    expect(validateMemberUsername('alice_user').success).toBe(false);
+  });
+
+  it('builds the canonical Gitea username for organization members', () => {
+    expect(buildGiteaUsername('acme', 'alice')).toBe('acme_alice');
+    expect(buildGiteaUsername('acme', 'admin')).toBe('acme_admin');
+  });
+
+  it('rejects a canonical Gitea username longer than 255 characters', () => {
+    const result = buildGiteaUsername('a'.repeat(39), 'b'.repeat(216));
+    expect(result).toBeNull();
   });
 });

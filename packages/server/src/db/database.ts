@@ -647,6 +647,329 @@ export class OrgApplicationRepository {
   }
 }
 
+export type OperationStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'permanently_failed';
+
+export interface OperationError {
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+}
+
+export interface OperationRecord {
+  id: number;
+  idempotencyKey: string;
+  kind: string;
+  status: OperationStatus;
+  payload: unknown;
+  attempts: number;
+  maxAttempts: number;
+  nextRetryAt: string | null;
+  leaseOwner: string | null;
+  leaseUntil: string | null;
+  error: OperationError | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateOperationInput {
+  idempotencyKey: string;
+  kind: string;
+  payload: unknown;
+  maxAttempts?: number;
+}
+
+export interface OperationRepositoryOptions {
+  now?: () => Date;
+  leaseDurationMs?: number;
+  retryBaseDelayMs?: number;
+}
+
+interface OperationRow {
+  id: number;
+  idempotency_key: string;
+  kind: string;
+  status: OperationStatus;
+  payload_json: string;
+  attempts: number;
+  max_attempts: number;
+  next_retry_at: string | null;
+  lease_owner: string | null;
+  lease_until: string | null;
+  error_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export class OperationRepository {
+  private readonly now: () => Date;
+  private readonly leaseDurationMs: number;
+  private readonly retryBaseDelayMs: number;
+
+  constructor(
+    private readonly db: Database.Database,
+    options: OperationRepositoryOptions = {}
+  ) {
+    this.now = options.now ?? (() => new Date());
+    this.leaseDurationMs = options.leaseDurationMs ?? 60_000;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 1_000;
+  }
+
+  createOperation(input: CreateOperationInput): OperationRecord {
+    const maxAttempts = input.maxAttempts ?? 5;
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+      throw new Error('maxAttempts must be a positive integer');
+    }
+    const payloadJson = JSON.stringify(input.payload) ?? 'null';
+    const transaction = this.db.transaction(() => {
+      const existing = this.getOperationByIdempotencyKey(input.idempotencyKey);
+      if (existing) {
+        if (existing.kind !== input.kind || JSON.stringify(existing.payload) !== payloadJson) {
+          throw new Error('Idempotency key already belongs to another operation');
+        }
+        return existing;
+      }
+
+      const now = this.nowIso();
+      const result = this.db.prepare(`
+        INSERT INTO operations (
+          idempotency_key, kind, payload_json, max_attempts, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(input.idempotencyKey, input.kind, payloadJson, maxAttempts, now, now);
+      return this.getOperation(Number(result.lastInsertRowid))!;
+    });
+    return transaction() as OperationRecord;
+  }
+
+  getOperation(id: number): OperationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, idempotency_key, kind, status, payload_json, attempts, max_attempts,
+             next_retry_at, lease_owner, lease_until, error_json, created_at, updated_at
+      FROM operations
+      WHERE id = ?
+    `).get(id) as OperationRow | undefined;
+    return row ? deserializeOperation(row) : undefined;
+  }
+
+  getOperationByIdempotencyKey(idempotencyKey: string): OperationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, idempotency_key, kind, status, payload_json, attempts, max_attempts,
+             next_retry_at, lease_owner, lease_until, error_json, created_at, updated_at
+      FROM operations
+      WHERE idempotency_key = ?
+    `).get(idempotencyKey) as OperationRow | undefined;
+    return row ? deserializeOperation(row) : undefined;
+  }
+
+  claimOperation(id: number, leaseOwner: string): OperationRecord | undefined {
+    const transaction = this.db.transaction(() => this.claimOperationInTransaction(id, leaseOwner));
+    return transaction() as OperationRecord | undefined;
+  }
+
+  claimNextOperation(leaseOwner: string): OperationRecord | undefined {
+    const now = this.nowIso();
+    const transaction = this.db.transaction(() => {
+      this.expireExhaustedLease(now);
+      const row = this.db.prepare(`
+        SELECT id
+        FROM operations
+        WHERE attempts < max_attempts
+          AND (
+            (status IN ('pending', 'failed') AND (next_retry_at IS NULL OR next_retry_at <= ?))
+            OR (status = 'running' AND lease_until <= ?)
+          )
+        ORDER BY id ASC
+        LIMIT 1
+      `).get(now, now) as { id: number } | undefined;
+      return row ? this.claimOperationInTransaction(row.id, leaseOwner) : undefined;
+    });
+    return transaction() as OperationRecord | undefined;
+  }
+
+  completeOperation(id: number, leaseOwner: string): OperationRecord | undefined {
+    const transaction = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE operations
+        SET status = 'succeeded', next_retry_at = NULL, lease_owner = NULL,
+            lease_until = NULL, error_json = NULL, updated_at = ?
+        WHERE id = ? AND status = 'running' AND lease_owner = ? AND lease_until > ?
+      `).run(this.nowIso(), id, leaseOwner, this.nowIso());
+      return result.changes > 0 ? this.getOperation(id) : undefined;
+    });
+    return transaction() as OperationRecord | undefined;
+  }
+
+  failOperation(id: number, leaseOwner: string, error: unknown): OperationRecord | undefined {
+    const safeError = sanitizeOperationError(error);
+    const transaction = this.db.transaction(() => {
+      const current = this.db.prepare(`
+        SELECT attempts, max_attempts
+        FROM operations
+        WHERE id = ? AND status = 'running' AND lease_owner = ? AND lease_until > ?
+      `).get(id, leaseOwner, this.nowIso()) as { attempts: number; max_attempts: number } | undefined;
+      if (!current) return undefined;
+
+      const now = this.now();
+      const permanentlyFailed = current.attempts >= current.max_attempts;
+      const nextRetryAt = permanentlyFailed
+        ? null
+        : new Date(now.getTime() + this.retryBaseDelayMs * 2 ** (current.attempts - 1)).toISOString();
+      this.db.prepare(`
+        UPDATE operations
+        SET status = ?, next_retry_at = ?, lease_owner = NULL, lease_until = NULL,
+            error_json = ?, updated_at = ?
+        WHERE id = ? AND status = 'running' AND lease_owner = ?
+      `).run(
+        permanentlyFailed ? 'permanently_failed' : 'failed',
+        nextRetryAt,
+        JSON.stringify(safeError),
+        now.toISOString(),
+        id,
+        leaseOwner
+      );
+      return this.getOperation(id);
+    });
+    return transaction() as OperationRecord | undefined;
+  }
+
+  retryOperation(id: number): OperationRecord | undefined {
+    const transaction = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE operations
+        SET status = 'pending', attempts = 0, next_retry_at = NULL,
+            lease_owner = NULL, lease_until = NULL, error_json = NULL,
+            updated_at = ?
+        WHERE id = ? AND status IN ('failed', 'permanently_failed')
+      `).run(this.nowIso(), id);
+      return result.changes > 0 ? this.getOperation(id) : undefined;
+    });
+    return transaction() as OperationRecord | undefined;
+  }
+
+  renewLease(id: number, leaseOwner: string): OperationRecord | undefined {
+    const transaction = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE operations
+        SET lease_until = ?, updated_at = ?
+        WHERE id = ? AND status = 'running' AND lease_owner = ? AND lease_until > ?
+      `).run(this.leaseUntilIso(), this.nowIso(), id, leaseOwner, this.nowIso());
+      return result.changes > 0 ? this.getOperation(id) : undefined;
+    });
+    return transaction() as OperationRecord | undefined;
+  }
+
+  private claimOperationInTransaction(id: number, leaseOwner: string): OperationRecord | undefined {
+    const now = this.nowIso();
+    this.expireExhaustedLease(now, id);
+    const result = this.db.prepare(`
+      UPDATE operations
+      SET status = 'running', attempts = attempts + 1, next_retry_at = NULL,
+          lease_owner = ?, lease_until = ?, error_json = NULL, updated_at = ?
+      WHERE id = ?
+        AND attempts < max_attempts
+        AND (
+          (status IN ('pending', 'failed') AND (next_retry_at IS NULL OR next_retry_at <= ?))
+          OR (status = 'running' AND lease_until <= ?)
+        )
+    `).run(leaseOwner, this.leaseUntilIso(), now, id, now, now);
+    return result.changes > 0 ? this.getOperation(id) : undefined;
+  }
+
+  private expireExhaustedLease(now: string, id?: number): void {
+    this.db.prepare(`
+      UPDATE operations
+      SET status = 'permanently_failed', next_retry_at = NULL,
+          lease_owner = NULL, lease_until = NULL,
+          error_json = ?, updated_at = ?
+      WHERE status = 'running'
+        AND attempts >= max_attempts
+        AND lease_until <= ?
+        AND (? IS NULL OR id = ?)
+    `).run(
+      JSON.stringify({
+        code: 'LEASE_EXPIRED',
+        message: 'Operation lease expired after the final attempt',
+        details: {}
+      }),
+      now,
+      now,
+      id ?? null,
+      id ?? null
+    );
+  }
+
+  private nowIso(): string {
+    return this.now().toISOString();
+  }
+
+  private leaseUntilIso(): string {
+    return new Date(this.now().getTime() + this.leaseDurationMs).toISOString();
+  }
+}
+
+export interface OperationAuditRecord {
+  id: number;
+  operationId: number;
+  event: string;
+  actor: string | null;
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+
+export class OperationAuditRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  record(input: {
+    operationId: number;
+    event: string;
+    actor?: string;
+    details?: unknown;
+  }): OperationAuditRecord {
+    const details = sanitizeDetails(input.details);
+    const transaction = this.db.transaction(() => {
+      const now = new Date().toISOString();
+      const result = this.db.prepare(`
+        INSERT INTO operation_audits (operation_id, event, actor, details_json, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(input.operationId, input.event, input.actor ?? null, JSON.stringify(details), now);
+      return this.getById(Number(result.lastInsertRowid))!;
+    });
+    return transaction() as OperationAuditRecord;
+  }
+
+  getById(id: number): OperationAuditRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, operation_id, event, actor, details_json, created_at
+      FROM operation_audits
+      WHERE id = ?
+    `).get(id) as {
+      id: number;
+      operation_id: number;
+      event: string;
+      actor: string | null;
+      details_json: string;
+      created_at: string;
+    } | undefined;
+    return row ? deserializeOperationAudit(row) : undefined;
+  }
+
+  listByOperation(operationId: number): OperationAuditRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, operation_id, event, actor, details_json, created_at
+      FROM operation_audits
+      WHERE operation_id = ?
+      ORDER BY id ASC
+    `).all(operationId) as {
+      id: number;
+      operation_id: number;
+      event: string;
+      actor: string | null;
+      details_json: string;
+      created_at: string;
+    }[];
+    return rows.map(deserializeOperationAudit);
+  }
+}
+
 export class PlatformSettingsRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -693,6 +1016,91 @@ function deserializeSkill(
   if (row.skillId) skill.skillId = row.skillId;
   if (row.skillId && row.status) skill.status = row.status;
   return skill;
+}
+
+function deserializeOperation(row: OperationRow): OperationRecord {
+  return {
+    id: row.id,
+    idempotencyKey: row.idempotency_key,
+    kind: row.kind,
+    status: row.status,
+    payload: JSON.parse(row.payload_json) as unknown,
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    nextRetryAt: row.next_retry_at,
+    leaseOwner: row.lease_owner,
+    leaseUntil: row.lease_until,
+    error: row.error_json ? (JSON.parse(row.error_json) as OperationError) : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function deserializeOperationAudit(row: {
+  id: number;
+  operation_id: number;
+  event: string;
+  actor: string | null;
+  details_json: string;
+  created_at: string;
+}): OperationAuditRecord {
+  return {
+    id: row.id,
+    operationId: row.operation_id,
+    event: row.event,
+    actor: row.actor,
+    details: JSON.parse(row.details_json) as Record<string, unknown>,
+    createdAt: row.created_at
+  };
+}
+
+function sanitizeOperationError(error: unknown): OperationError {
+  const source = error instanceof Error
+    ? { code: 'OPERATION_FAILED', message: error.message }
+    : isRecord(error)
+      ? error
+      : { message: String(error) };
+  const code = typeof source.code === 'string' && /^[A-Z0-9_.:-]+$/.test(source.code)
+    ? source.code
+    : 'OPERATION_FAILED';
+  const message = typeof source.message === 'string' ? sanitizeText(source.message) : 'Operation failed';
+  return {
+    code,
+    message: message || 'Operation failed',
+    details: sanitizeDetails(source.details)
+  };
+}
+
+function sanitizeDetails(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (isSensitiveKey(key)) continue;
+    sanitized[key] = sanitizeDetailValue(entry);
+  }
+  return sanitized;
+}
+
+function sanitizeDetailValue(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeText(value);
+  if (Array.isArray(value)) return value.map(sanitizeDetailValue);
+  if (isRecord(value)) return sanitizeDetails(value);
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+  return undefined;
+}
+
+function sanitizeText(value: string): string {
+  return value
+    .replace(/(authorization\s*[:=]\s*)Bearer\s+[^\s,;]+/gi, '$1Bearer [REDACTED]')
+    .replace(/((?:password|token|secret|credential|api[_ -]?key)\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]');
+}
+
+function isSensitiveKey(key: string): boolean {
+  return /password|token|secret|authorization|credential|api[_ -]?key|cookie|stack/i.test(key);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function createSkillId(): string {

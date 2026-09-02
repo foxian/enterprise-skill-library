@@ -63,7 +63,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
     dbPath: config.databasePath,
     giteaService,
     repoOwner: config.repoOwner,
-    bootstrapAdminToken: config.bootstrapAdminToken
+    bootstrapAdminToken: config.bootstrapAdminToken,
+    passwordMinLength: config.passwordMinLength
   });
 
   const listen = options.listen?.bind(app) ?? app.listen.bind(app);

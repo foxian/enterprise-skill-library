@@ -350,6 +350,23 @@ describe('Fastify Server API', () => {
     expect(mockGitea.createUser).toHaveBeenCalledWith('alice', body.password);
   });
 
+  it('rejects an administrator-created password below the shared minimum', async () => {
+    const mockGitea = {
+      createUser: vi.fn().mockResolvedValue(undefined)
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills', passwordMinLength: 12 });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { authorization: 'token bootstrap-token' },
+      payload: { username: 'alice', password: 'short' }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockGitea.createUser).not.toHaveBeenCalled();
+  });
+
   it('creates a user with an administrator-supplied initial password without echoing it', async () => {
     const mockGitea = {
       createUser: vi.fn().mockResolvedValue(undefined)

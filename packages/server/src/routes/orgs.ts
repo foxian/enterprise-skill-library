@@ -1,4 +1,4 @@
-import { validateOrgName } from '@esl/core';
+import { validateOrgName, validatePassword } from '@esl/core';
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { OrgApplicationRepository, PlatformSettingsRepository } from '../db/database.js';
@@ -9,6 +9,7 @@ export interface OrgRouteOptions {
   giteaService: GiteaService;
   orgApplicationRepository: OrgApplicationRepository;
   platformSettingsRepository: PlatformSettingsRepository;
+  passwordMinLength?: number;
 }
 
 export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions): void {
@@ -27,6 +28,10 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     const validation = validateOrgName(orgName);
     if (!validation.success) {
       return reply.status(400).send({ error: validation.errors.join(', ') });
+    }
+    const passwordValidation = validatePassword(password, options.passwordMinLength);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
     }
 
     if (await giteaService.organizationExists(orgName)) {

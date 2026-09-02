@@ -18,7 +18,8 @@ describe('server config', () => {
       giteaAdminUsername: 'eslroot',
       giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
-      bootstrapAdminToken: 'bootstrap-token'
+      bootstrapAdminToken: 'bootstrap-token',
+      passwordMinLength: 12
     });
   });
 
@@ -31,6 +32,17 @@ describe('server config', () => {
     } as NodeJS.ProcessEnv);
 
     expect(config.bootstrapAdminToken).toBe('configured-bootstrap-token');
+  });
+
+  it('loads the shared password minimum length', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token',
+      ESL_PASSWORD_MIN_LENGTH: '16'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.passwordMinLength).toBe(16);
   });
 
   it('loads the configured Gitea admin token file and preserves direct token precedence', () => {
