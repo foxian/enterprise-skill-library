@@ -87,7 +87,6 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="admin-display-name"]', 'Alice');
     await setField(wrapper, '[data-test="password"]', 'secret');
     await setField(wrapper, '[data-test="confirm-password"]', 'different');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -103,7 +102,6 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="admin-display-name"]', 'Alice');
     await setField(wrapper, '[data-test="password"]', 'secret');
     await setField(wrapper, '[data-test="confirm-password"]', 'secret');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -113,7 +111,7 @@ describe('RegisterView', () => {
     expect(fetchMock.calls[0].url).toBe('/api/orgs/apply');
     expect(JSON.parse(String(fetchMock.calls[0].init.body))).toEqual({
       orgName: 'acme',
-      adminDisplayName: 'Alice',
+      adminDisplayName: 'admin',
       password: 'secret'
     });
     expect(wrapper.find('[data-test="register-result"]').text()).toContain('等待审批');
@@ -124,7 +122,6 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="admin-display-name"]', 'Alice');
     await setField(wrapper, '[data-test="password"]', 'secret');
     await setField(wrapper, '[data-test="confirm-password"]', 'secret');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -134,12 +131,24 @@ describe('RegisterView', () => {
     expect(wrapper.find('[data-test="register-result"]').text()).toContain('组织已开通');
   });
 
+  it('管理员账号只读默认 admin，并预览组装后的登录账号', async () => {
+    wrapper = await mountRegister();
+
+    const accountInput = wrapper.find('[data-test="admin-account"]').element as HTMLInputElement;
+    expect(accountInput.value).toBe('admin');
+    expect(accountInput.disabled).toBe(true);
+    expect(wrapper.find('[data-test="admin-account-preview"]').text()).toContain('组织名_admin');
+
+    await setField(wrapper, '[data-test="org-name"]', 'acme');
+
+    expect(wrapper.find('[data-test="admin-account-preview"]').text()).toContain('acme_admin');
+  });
+
   it('重名申请被拒绝时展示服务端错误', async () => {
     setFetchImpl(mockFetch(409, { error: 'Organization name is already taken' }).impl);
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="admin-display-name"]', 'Alice');
     await setField(wrapper, '[data-test="password"]', 'secret');
     await setField(wrapper, '[data-test="confirm-password"]', 'secret');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');

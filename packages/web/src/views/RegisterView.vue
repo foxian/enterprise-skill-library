@@ -7,8 +7,11 @@
           <el-input v-model="orgName" data-test="org-name" placeholder="小写字母、数字与连字符" />
           <div v-if="orgNameError" class="field-error" data-test="org-name-error">{{ orgNameError }}</div>
         </el-form-item>
-        <el-form-item label="管理员名称" required>
-          <el-input v-model="adminDisplayName" data-test="admin-display-name" placeholder="组织管理员显示名" />
+        <el-form-item label="管理员账号">
+          <el-input model-value="admin" disabled data-test="admin-account" />
+          <div class="field-hint" data-test="admin-account-preview">
+            登录账号：{{ orgName ? `${orgName}_admin` : '组织名_admin' }}
+          </div>
         </el-form-item>
         <el-form-item label="密码" required>
           <el-input v-model="password" data-test="password" type="password" show-password />
@@ -49,12 +52,14 @@ import { validateOrgName } from '@esl/core/dist/org/org-name.js';
 import { apiRequest } from '../api/client';
 
 const orgName = ref('');
-const adminDisplayName = ref('');
 const password = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
 const submittedStatus = ref<'pending' | 'approved' | ''>('');
+
+// 服务端固定创建 <组织名>_admin 管理员账号，申请单统一以 admin 作为管理员标识
+const ADMIN_ACCOUNT = 'admin';
 
 // 复用核心包的组织命名规则，保证前后端校验一致
 const orgNameError = computed(() => {
@@ -67,8 +72,8 @@ const orgNameError = computed(() => {
 
 async function submit(): Promise<void> {
   errorMessage.value = '';
-  if (!orgName.value || !adminDisplayName.value || !password.value) {
-    errorMessage.value = '请完整填写组织名、管理员名称与密码';
+  if (!orgName.value || !password.value) {
+    errorMessage.value = '请完整填写组织名与密码';
     return;
   }
   const validation = validateOrgName(orgName.value);
@@ -86,7 +91,7 @@ async function submit(): Promise<void> {
       method: 'POST',
       body: {
         orgName: orgName.value,
-        adminDisplayName: adminDisplayName.value,
+        adminDisplayName: ADMIN_ACCOUNT,
         password: password.value
       }
     });
@@ -132,5 +137,11 @@ async function submit(): Promise<void> {
   color: var(--el-color-danger);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.field-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 </style>
