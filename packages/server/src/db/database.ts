@@ -249,6 +249,28 @@ export class SkillRepository {
     return row ? deserializeSkill(row) : undefined;
   }
 
+  // Resource Provenance 查询:确认 Git Backend 仓库由 ESL 技能登记创建。
+  getSkillByGitRepoPath(gitRepoPath: string): SkillRecord | undefined {
+    const stmt = this.db.prepare(`
+      SELECT
+        name,
+        skill_id AS skillId,
+        scope,
+        skill_name AS skillName,
+        description,
+        created_by AS createdBy,
+        owner,
+        maintainers_json AS maintainersJson,
+        visibility,
+        status,
+        git_repo_path AS gitRepoPath
+      FROM skills
+      WHERE git_repo_path = ?
+    `);
+    const row = stmt.get(gitRepoPath) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string }) | undefined;
+    return row ? deserializeSkill(row) : undefined;
+  }
+
   addVersion(skillName: string, version: string, readme?: string): void {
     const stmt = this.db.prepare(`
       INSERT INTO skill_versions (skill_name, version, readme)
@@ -774,6 +796,18 @@ export class OperationRepository {
     return row ? deserializeOperation(row) : undefined;
   }
 
+  // Resource Provenance 查询:确认存在为指定组织创建成员账号的 member.create 操作。
+  hasMemberCreateOperation(orgName: string, username: string): boolean {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS n
+      FROM operations
+      WHERE kind = 'member.create'
+        AND json_extract(payload_json, '$.orgName') = ?
+        AND json_extract(payload_json, '$.username') = ?
+    `).get(orgName, username) as { n: number };
+    return row.n > 0;
+  }
+
   claimOperation(id: number, leaseOwner: string): OperationRecord | undefined {
     const transaction = this.db.transaction(() => this.claimOperationInTransaction(id, leaseOwner));
     return transaction() as OperationRecord | undefined;
@@ -1086,6 +1120,18 @@ export class TenantOrganizationRepository {
     });
     return transaction() as TenantOrganizationRecord | undefined;
   }
+
+  setOperationId(orgName: string, operationId: number | null): TenantOrganizationRecord | undefined {
+    const transaction = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE tenant_organizations
+        SET operation_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE org_name = ?
+      `).run(operationId, orgName);
+      return result.changes > 0 ? this.get(orgName) : undefined;
+    });
+    return transaction() as TenantOrganizationRecord | undefined;
+  }
 }
 
 export class PlatformSettingsRepository {
@@ -1172,7 +1218,9 @@ function deserializeOperationAudit(row: {
   };
 }
 
-function sanitizeOperationError(error: unknown): OperationError {
+// Operation 错误统一经此脱敏后落库(operations.error_json 与
+// tenant_organizations.last_error_json 共用),确保失败原因不泄露凭据。
+export function sanitizeOperationError(error: unknown): OperationError {
   const source = error instanceof Error
     ? { code: 'OPERATION_FAILED', message: error.message }
     : isRecord(error)

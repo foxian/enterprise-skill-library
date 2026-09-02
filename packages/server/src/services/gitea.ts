@@ -606,7 +606,8 @@ export class GiteaService {
       }
     );
 
-    if (!res.ok) {
+    // 容忍 404:可恢复清理流程重试时,账号可能已被上一次尝试删除。
+    if (!res.ok && res.status !== 404) {
       const err = await res.text();
       throw new Error(`Failed to delete Gitea user: ${err}`);
     }

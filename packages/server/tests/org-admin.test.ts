@@ -6,9 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import {
   initDatabase,
+  OperationRepository,
   OrgApplicationRepository,
   PlatformSettingsRepository,
-  SkillRepository
+  SkillRepository,
+  TenantOrganizationRepository
 } from '../src/db/database.js';
 
 describe('super administrator org console API', () => {
@@ -234,6 +236,7 @@ describe('super administrator org console API', () => {
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
     const headers = { authorization: 'token super-token' };
     const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'active' });
     new SkillRepository(db).createServerSkill({
       name: '@acme/reviewer',
       scope: 'acme',
@@ -245,6 +248,12 @@ describe('super administrator org console API', () => {
       visibility: 'private',
       gitRepoPath: 'acme/reviewer',
       status: 'active-published'
+    });
+    // 组织专属账号的删除要求具备 member.create 的 Resource Provenance。
+    new OperationRepository(db).createOperation({
+      idempotencyKey: 'member.create:acme:acme_bob',
+      kind: 'member.create',
+      payload: { orgName: 'acme', username: 'acme_bob' }
     });
     db.close();
 
@@ -264,7 +273,7 @@ describe('super administrator org console API', () => {
       headers,
       payload: { confirm: 'acme' }
     });
-    expect(matched.statusCode).toBe(200);
+    expect(matched.statusCode).toBe(202);
     expect(matched.json()).toMatchObject({ status: 'deleting', orgName: 'acme' });
     await new Promise((resolve) => setImmediate(resolve));
     expect(mockGitea.listOrgRepos).toHaveBeenCalledWith('acme');

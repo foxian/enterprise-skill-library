@@ -19,6 +19,7 @@ import type { GiteaService } from './services/gitea.js';
 import path from 'node:path';
 import { OperationExecutor } from './services/operation-executor.js';
 import { initializeTenantOrganization } from './services/org-init.js';
+import { runOrganizationDeletion } from './services/org-delete.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
 
 export interface AppOptions {
@@ -74,28 +75,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   operationExecutor.register('organization.delete', async (operation) => {
     const payload = operation.payload as { orgName: string };
-    try {
-      const members = await options.giteaService.listOrgMembers(payload.orgName);
-      const repos = await options.giteaService.listOrgRepos(payload.orgName);
-      for (const repo of repos) {
-        await options.giteaService.deleteRepo(payload.orgName, repo.name);
-      }
-      for (const member of members) {
-        if (member.username.startsWith(`${payload.orgName}_`)) {
-          await options.giteaService.deleteUser(member.username);
-        }
-      }
-      await options.giteaService.deleteOrg(payload.orgName);
-      repository.deleteSkillsByScope(payload.orgName);
-      tenantOrganizationRepository.transition(payload.orgName, 'deleted');
-    } catch (error) {
-      tenantOrganizationRepository.transition(payload.orgName, 'delete_failed', {
-        code: 'DELETE_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-        details: {}
-      });
-      throw error;
-    }
+    await runOrganizationDeletion(
+      {
+        giteaService: options.giteaService,
+        skillRepository: repository,
+        operationRepository,
+        tenantOrganizationRepository,
+        orgApplicationRepository
+      },
+      payload.orgName
+    );
   });
   operationExecutor.register('member.create', async (operation) => {
     const payload = operation.payload as { orgName: string; username: string };
@@ -142,8 +131,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   app.addHook('preHandler', async (request, reply) => {
-    if (request.url.startsWith('/api/skills/')) {
-      const scope = decodeURIComponent(request.url.split('/')[3]?.split('?')[0] ?? '');
+    const routePath = request.url.split('?')[0];
+    if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
+      // 技能 Identity 形如 @scope/skill-name,scope 段即租户组织名;
+      // POST /api/skills 的 Identity 在请求体中而非 URL。
+      const urlSegment = decodeURIComponent(routePath.split('/')[3] ?? '');
+      const bodyName = (request.body as { name?: string } | undefined)?.name ?? '';
+      const scope = (urlSegment || bodyName).replace(/^@/, '').split('/')[0];
       const tenant = tenantOrganizationRepository.get(scope);
       if (tenant && tenant.status !== 'active') {
         return reply.status(409).send({
@@ -152,11 +146,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
         });
       }
     }
-    if (request.url === '/api/auth/login') {
+    if (routePath === '/api/auth/login') {
       const username = (request.body as { username?: string } | undefined)?.username ?? '';
-      const suffix = '_admin';
-      if (username.endsWith(suffix)) {
-        const tenant = tenantOrganizationRepository.get(username.slice(0, -suffix.length));
+      const separator = username.indexOf('_');
+      // 组织账号统一为 <org>_<name>,组织未激活时禁止其成员与组织管理员登录。
+      if (separator > 0) {
+        const tenant = tenantOrganizationRepository.get(username.slice(0, separator));
         if (tenant && tenant.status !== 'active') {
           return reply.status(409).send({
             error: `Organization is not active: ${tenant.orgName}`,
@@ -197,6 +192,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     operationRepository,
     operationSecretRepository,
     operationExecutor,
+    tenantOrganizationRepository,
     applicationEncryptionKey: options.applicationEncryptionKey
   });
   registerAdminRoutes(app, {

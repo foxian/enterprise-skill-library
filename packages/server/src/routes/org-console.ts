@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
 import { buildGiteaUsername, validateMemberUsername, validatePassword } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { OperationRepository, OperationSecretRepository } from '../db/database.js';
+import type {
+  OperationRepository,
+  OperationSecretRepository,
+  TenantOrganizationRepository
+} from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import { encryptApplicationSecret } from '../services/application-secret.js';
@@ -12,22 +16,23 @@ export interface OrgConsoleRouteOptions {
   operationRepository: OperationRepository;
   operationSecretRepository: OperationSecretRepository;
   operationExecutor: OperationExecutor;
+  tenantOrganizationRepository: TenantOrganizationRepository;
   applicationEncryptionKey?: string;
 }
 
 const DEFAULT_TEAM_NAMES = new Set(['all-readers', 'all-writers']);
 
 export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConsoleRouteOptions): void {
-  const { giteaService } = options;
+  const { giteaService, tenantOrganizationRepository } = options;
 
   app.get('/api/orgs/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     return giteaService.listOrgMembers(org);
   });
 
   app.post('/api/orgs/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const { username = '', password = '' } = request.body as { username?: string; password?: string };
     const usernameValidation = validateMemberUsername(username);
@@ -60,7 +65,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.post('/api/orgs/members/:username/disable', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const username = decodeURIComponent((request.params as { username: string }).username);
     const giteaUsername = buildGiteaUsername(org, username);
@@ -77,7 +82,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.post('/api/orgs/members/:username/enable', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const username = decodeURIComponent((request.params as { username: string }).username);
     const giteaUsername = buildGiteaUsername(org, username);
@@ -94,7 +99,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.post('/api/orgs/members/:username/password', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const username = decodeURIComponent((request.params as { username: string }).username);
     const { password = '' } = request.body as { password?: string };
@@ -124,13 +129,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.get('/api/orgs/teams', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     return giteaService.listTeams(org);
   });
 
   app.post('/api/orgs/teams', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const { name = '', permission = '' } = request.body as { name?: string; permission?: string };
     if (!/^[a-z0-9-]{1,64}$/.test(name)) {
@@ -144,7 +149,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.delete('/api/orgs/teams/:teamId', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
@@ -159,7 +164,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.get('/api/orgs/teams/:teamId/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     if (!(await orgHasTeam(giteaService, org, teamId))) {
@@ -169,7 +174,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.post('/api/orgs/teams/:teamId/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const { username = '' } = request.body as { username?: string };
@@ -189,7 +194,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.delete('/api/orgs/teams/:teamId/members/:username', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const username = decodeURIComponent((request.params as { username: string }).username);
@@ -209,7 +214,8 @@ async function orgHasTeam(giteaService: GiteaService, org: string, teamId: numbe
 async function requireOrgAdministrator(
   request: FastifyRequest,
   reply: FastifyReply,
-  giteaService: GiteaService
+  giteaService: GiteaService,
+  tenantOrganizationRepository: TenantOrganizationRepository
 ): Promise<string | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
@@ -225,6 +231,12 @@ async function requireOrgAdministrator(
   const org = user.username.replace(/_admin$/, '');
   if (org === user.username || !(await giteaService.organizationExists(org))) {
     reply.status(403).send({ error: 'Forbidden: organization administrator token required' });
+    return null;
+  }
+  // 处理中的组织(开通、失败、删除中、删除失败)禁止一切组织管理操作。
+  const tenant = tenantOrganizationRepository.get(org);
+  if (tenant && tenant.status !== 'active') {
+    reply.status(409).send({ error: `Organization is not active: ${org}`, status: tenant.status });
     return null;
   }
   return org;

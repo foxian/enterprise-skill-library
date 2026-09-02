@@ -139,22 +139,29 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (confirm !== orgName) {
       return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
     }
-    if (!(await giteaService.organizationExists(orgName))) {
-      return reply.status(404).send({ error: 'Organization not found' });
+    // 只有 ESL 开通的组织(具备 Resource Provenance)才允许自动删除;
+    // 未登记的组织(含平台组织)一律拒绝,防止误删外部资源。
+    const tenant = options.tenantOrganizationRepository.get(orgName);
+    if (!tenant) {
+      return reply.status(404).send({ error: 'Organization not found or not managed by ESL' });
+    }
+    // 幂等键为组织名 + 删除:重复请求返回既有 Operation 状态,
+    // 不重复执行删除副作用。
+    const existing = options.operationRepository.getOperationByIdempotencyKey(
+      `organization.delete:${orgName}`
+    );
+    if (existing) {
+      return { status: existing.status, orgName, operationId: existing.id };
     }
     const operation = options.operationRepository.createOperation({
       idempotencyKey: `organization.delete:${orgName}`,
       kind: 'organization.delete',
       payload: { orgName }
     });
-    const tenant = options.tenantOrganizationRepository.get(orgName);
-    if (tenant) {
-      options.tenantOrganizationRepository.transition(orgName, 'deleting');
-    } else {
-      options.tenantOrganizationRepository.create({ orgName, status: 'deleting', operationId: operation.id });
-    }
+    options.tenantOrganizationRepository.transition(orgName, 'deleting');
+    options.tenantOrganizationRepository.setOperationId(orgName, operation.id);
     void options.operationExecutor.process(operation.id);
-    return { status: 'deleting', orgName, operationId: operation.id };
+    return reply.status(202).send({ status: 'deleting', orgName, operationId: operation.id });
   });
 
   app.post('/api/admin/operations/:id/retry', async (request, reply) => {
