@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { initDatabase } from '../src/db/database.js';
 
 describe('organization console API', () => {
+  const applicationEncryptionKey = 'a'.repeat(64);
   let tmpDir: string;
   let dbPath: string;
   let app: FastifyInstance | undefined;
@@ -109,9 +111,14 @@ describe('organization console API', () => {
     expect(mockGitea.listOrgMembers).toHaveBeenCalledWith('acme');
   });
 
-  it('creates a member with the assembled Gitea username and joins default teams', async () => {
+  it('submits member creation as a recoverable operation', async () => {
     const mockGitea = orgAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -120,16 +127,49 @@ describe('organization console API', () => {
       payload: { username: 'bob', password: 'initial-password' }
     });
 
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toEqual({ username: 'acme_bob' });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      status: 'pending',
+      username: 'acme_bob',
+      operationId: expect.any(Number)
+    });
     expect(mockGitea.createUser).toHaveBeenCalledWith('acme_bob', 'initial-password');
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(2, 'acme_bob');
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(3, 'acme_bob');
   });
 
+  it('returns the existing member creation operation for a repeated request', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const request = {
+      method: 'POST' as const,
+      url: '/api/orgs/members',
+      headers: { authorization: 'token acme-admin-token' },
+      payload: { username: 'bob', password: 'initial-password' }
+    };
+    const first = await app.inject(request);
+    const second = await app.inject(request);
+
+    expect(first.statusCode).toBe(202);
+    expect(second.statusCode).toBe(202);
+    expect(second.json().operationId).toBe(first.json().operationId);
+    expect(mockGitea.createUser).toHaveBeenCalledTimes(1);
+  });
+
   it('generates an initial password when adding a member without one', async () => {
     const mockGitea = orgAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -138,16 +178,69 @@ describe('organization console API', () => {
       payload: { username: 'bob' }
     });
 
-    expect(response.statusCode).toBe(201);
+    expect(response.statusCode).toBe(202);
     const body = response.json();
+    expect(body.status).toBe('pending');
+    expect(typeof body.operationId).toBe('number');
     expect(body.username).toBe('acme_bob');
     expect(typeof body.password).toBe('string');
     expect(mockGitea.createUser).toHaveBeenCalledWith('acme_bob', body.password);
   });
 
+  it('retries a failed member creation after restart without storing its password in the operation payload', async () => {
+    const mockGitea = orgAdminGitea();
+    mockGitea.createUser.mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValue(undefined);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/members',
+      headers: { authorization: 'token acme-admin-token' },
+      payload: { username: 'bob', password: 'initial-password' }
+    });
+
+    expect(response.statusCode).toBe(202);
+    await new Promise((resolve) => setImmediate(resolve));
+    const operationId = response.json().operationId;
+    const db = initDatabase(dbPath);
+    expect(db.prepare('SELECT payload_json FROM operations WHERE id = ?').get(operationId)).toEqual({
+      payload_json: '{"orgName":"acme","username":"acme_bob"}'
+    });
+    expect(db.prepare('SELECT encrypted_secret FROM operation_secrets WHERE operation_id = ?').get(operationId)).not.toEqual(
+      expect.objectContaining({ encrypted_secret: expect.stringContaining('initial-password') })
+    );
+    db.prepare(`UPDATE operations SET next_retry_at = NULL, status = 'failed' WHERE id = ?`).run(operationId);
+    db.close();
+
+    await app.close();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockGitea.createUser).toHaveBeenCalledTimes(2);
+    expect(mockGitea.createUser).toHaveBeenLastCalledWith('acme_bob', 'initial-password');
+    const completedDb = initDatabase(dbPath);
+    expect(completedDb.prepare('SELECT encrypted_secret FROM operation_secrets WHERE operation_id = ?').get(operationId)).toBeUndefined();
+    completedDb.close();
+  });
+
   it('disables a member by removing them from all teams and the organization', async () => {
     const mockGitea = orgAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -155,8 +248,12 @@ describe('organization console API', () => {
       headers: { authorization: 'token acme-admin-token' }
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ username: 'acme_bob', disabled: true });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      status: 'pending',
+      username: 'acme_bob',
+      operationId: expect.any(Number)
+    });
     expect(mockGitea.disableUser).toHaveBeenCalledWith('acme_bob');
     for (const team of defaultTeams) {
       expect(mockGitea.removeTeamMember).toHaveBeenCalledWith(team.id, 'acme_bob');
@@ -166,7 +263,12 @@ describe('organization console API', () => {
 
   it('resets a member password', async () => {
     const mockGitea = orgAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -175,7 +277,12 @@ describe('organization console API', () => {
       payload: { password: 'reset-password' }
     });
 
-    expect(response.statusCode).toBe(200);
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      status: 'pending',
+      username: 'acme_bob',
+      operationId: expect.any(Number)
+    });
     expect(mockGitea.changeUserPassword).toHaveBeenCalledWith('acme_bob', 'reset-password');
   });
 
@@ -314,8 +421,12 @@ describe('organization console API', () => {
       headers: { authorization: 'token acme-admin-token' }
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ username: 'acme_bob', enabled: true });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({
+      status: 'pending',
+      username: 'acme_bob',
+      operationId: expect.any(Number)
+    });
     expect(mockGitea.enableUser).toHaveBeenCalledWith('acme_bob');
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(2, 'acme_bob');
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(3, 'acme_bob');

@@ -3,6 +3,7 @@ import {
   AdminRepository,
   initDatabase,
   OperationRepository,
+  OperationSecretRepository,
   OrgApplicationRepository,
   PlatformSettingsRepository,
   SkillRepository,
@@ -40,6 +41,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
   const operationRepository = new OperationRepository(db);
+  const operationSecretRepository = new OperationSecretRepository(db);
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const operationExecutor = new OperationExecutor(operationRepository);
   operationExecutor.register('organization.provision', async (operation) => {
@@ -95,7 +97,48 @@ export function buildApp(options: AppOptions): FastifyInstance {
       throw error;
     }
   });
+  operationExecutor.register('member.create', async (operation) => {
+    const payload = operation.payload as { orgName: string; username: string };
+    const password = readOperationSecret(operation.id);
+    await options.giteaService.createUser(payload.username, password);
+    for (const team of await options.giteaService.listTeams(payload.orgName)) {
+      if (team.name === 'all-readers' || team.name === 'all-writers') {
+        await options.giteaService.addTeamMember(team.id, payload.username);
+      }
+    }
+    operationSecretRepository.clear(operation.id);
+  });
+  operationExecutor.register('member.disable', async (operation) => {
+    const payload = operation.payload as { orgName: string; username: string };
+    await options.giteaService.disableUser(payload.username);
+    for (const team of await options.giteaService.listTeams(payload.orgName)) {
+      await options.giteaService.removeTeamMember(team.id, payload.username);
+    }
+    await options.giteaService.removeOrgMember(payload.orgName, payload.username);
+  });
+  operationExecutor.register('member.enable', async (operation) => {
+    const payload = operation.payload as { orgName: string; username: string };
+    await options.giteaService.enableUser(payload.username);
+    for (const team of await options.giteaService.listTeams(payload.orgName)) {
+      if (team.name === 'all-readers' || team.name === 'all-writers') {
+        await options.giteaService.addTeamMember(team.id, payload.username);
+      }
+    }
+  });
+  operationExecutor.register('member.password', async (operation) => {
+    const payload = operation.payload as { username: string };
+    await options.giteaService.changeUserPassword(payload.username, readOperationSecret(operation.id));
+    operationSecretRepository.clear(operation.id);
+  });
   void operationExecutor.processPending();
+
+  function readOperationSecret(operationId: number): string {
+    const encryptedSecret = operationSecretRepository.get(operationId);
+    if (!encryptedSecret || !options.applicationEncryptionKey) {
+      throw new Error('Member operation secret is unavailable');
+    }
+    return decryptApplicationSecret(encryptedSecret, options.applicationEncryptionKey);
+  }
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   app.addHook('preHandler', async (request, reply) => {
@@ -150,7 +193,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,
-    passwordMinLength: options.passwordMinLength
+    passwordMinLength: options.passwordMinLength,
+    operationRepository,
+    operationSecretRepository,
+    operationExecutor,
+    applicationEncryptionKey: options.applicationEncryptionKey
   });
   registerAdminRoutes(app, {
     repository: adminRepository,

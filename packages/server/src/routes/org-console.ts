@@ -1,11 +1,18 @@
 import crypto from 'node:crypto';
 import { buildGiteaUsername, validateMemberUsername, validatePassword } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { OperationRepository, OperationSecretRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
+import type { OperationExecutor } from '../services/operation-executor.js';
+import { encryptApplicationSecret } from '../services/application-secret.js';
 
 export interface OrgConsoleRouteOptions {
   giteaService: GiteaService;
   passwordMinLength?: number;
+  operationRepository: OperationRepository;
+  operationSecretRepository: OperationSecretRepository;
+  operationExecutor: OperationExecutor;
+  applicationEncryptionKey?: string;
 }
 
 const DEFAULT_TEAM_NAMES = new Set(['all-readers', 'all-writers']);
@@ -36,17 +43,20 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!giteaUsername) {
       return reply.status(400).send({ error: 'Member username produces a Gitea username that is too long' });
     }
-    await giteaService.createUser(giteaUsername, initialPassword);
-    for (const team of await giteaService.listTeams(org)) {
-      if (DEFAULT_TEAM_NAMES.has(team.name)) {
-        await giteaService.addTeamMember(team.id, giteaUsername);
-      }
+    const operation = createMemberOperation(options, 'create', org, giteaUsername, initialPassword);
+    if (!operation) {
+      return reply.status(503).send({ error: 'Member operation secret storage is unavailable' });
     }
-    const result: { username: string; password?: string } = { username: giteaUsername };
+    void options.operationExecutor.process(operation.id);
+    const result: { status: string; username: string; operationId: number; password?: string } = {
+      status: 'pending',
+      username: giteaUsername,
+      operationId: operation.id
+    };
     if (!password) {
       result.password = initialPassword;
     }
-    return reply.status(201).send(result);
+    return reply.status(202).send(result);
   });
 
   app.post('/api/orgs/members/:username/disable', async (request, reply) => {
@@ -57,13 +67,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!giteaUsername) {
       return reply.status(400).send({ error: 'Member username produces a Gitea username that is too long' });
     }
-    // prohibit_login also invalidates the member's existing access tokens.
-    await giteaService.disableUser(giteaUsername);
-    for (const team of await giteaService.listTeams(org)) {
-      await giteaService.removeTeamMember(team.id, giteaUsername);
-    }
-    await giteaService.removeOrgMember(org, giteaUsername);
-    return { username: giteaUsername, disabled: true };
+    const operation = options.operationRepository.createOperation({
+      idempotencyKey: operationIdempotencyKey(request, 'disable', org, giteaUsername),
+      kind: 'member.disable',
+      payload: { orgName: org, username: giteaUsername }
+    });
+    void options.operationExecutor.process(operation.id);
+    return reply.status(202).send({ status: 'pending', username: giteaUsername, operationId: operation.id });
   });
 
   app.post('/api/orgs/members/:username/enable', async (request, reply) => {
@@ -74,14 +84,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!giteaUsername) {
       return reply.status(400).send({ error: 'Member username produces a Gitea username that is too long' });
     }
-    // 对称于 disable：恢复登录能力并重新加入两个默认全员团队。
-    await giteaService.enableUser(giteaUsername);
-    for (const team of await giteaService.listTeams(org)) {
-      if (DEFAULT_TEAM_NAMES.has(team.name)) {
-        await giteaService.addTeamMember(team.id, giteaUsername);
-      }
-    }
-    return { username: giteaUsername, enabled: true };
+    const operation = options.operationRepository.createOperation({
+      idempotencyKey: operationIdempotencyKey(request, 'enable', org, giteaUsername),
+      kind: 'member.enable',
+      payload: { orgName: org, username: giteaUsername }
+    });
+    void options.operationExecutor.process(operation.id);
+    return reply.status(202).send({ status: 'pending', username: giteaUsername, operationId: operation.id });
   });
 
   app.post('/api/orgs/members/:username/password', async (request, reply) => {
@@ -98,12 +107,20 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!giteaUsername) {
       return reply.status(400).send({ error: 'Member username produces a Gitea username that is too long' });
     }
-    await giteaService.changeUserPassword(giteaUsername, resolvedPassword);
-    const result: { username: string; password?: string } = { username: giteaUsername };
+    const operation = createMemberOperation(options, 'password', org, giteaUsername, resolvedPassword, request);
+    if (!operation) {
+      return reply.status(503).send({ error: 'Member operation secret storage is unavailable' });
+    }
+    void options.operationExecutor.process(operation.id);
+    const result: { status: string; username: string; operationId: number; password?: string } = {
+      status: 'pending',
+      username: giteaUsername,
+      operationId: operation.id
+    };
     if (!password) {
       result.password = resolvedPassword;
     }
-    return result;
+    return reply.status(202).send(result);
   });
 
   app.get('/api/orgs/teams', async (request, reply) => {
@@ -215,4 +232,39 @@ async function requireOrgAdministrator(
 
 function generateRandomPassword(): string {
   return crypto.randomBytes(18).toString('base64url');
+}
+
+function createMemberOperation(
+  options: OrgConsoleRouteOptions,
+  action: 'create' | 'password',
+  org: string,
+  username: string,
+  password: string,
+  request?: FastifyRequest
+) {
+  if (!options.applicationEncryptionKey) return undefined;
+  const operation = options.operationRepository.createOperation({
+    idempotencyKey:
+      action === 'create'
+        ? `member.create:${org}:${username}`
+        : operationIdempotencyKey(request, 'password', org, username),
+    kind: `member.${action}`,
+    payload: action === 'create' ? { orgName: org, username } : { username }
+  });
+  options.operationSecretRepository.createIfAbsent(
+    operation.id,
+    encryptApplicationSecret(password, options.applicationEncryptionKey)
+  );
+  return operation;
+}
+
+function operationIdempotencyKey(
+  request: FastifyRequest | undefined,
+  action: string,
+  org: string,
+  username: string
+): string {
+  const supplied = request?.headers['idempotency-key'];
+  const key = Array.isArray(supplied) ? supplied[0] : supplied;
+  return key ? `member.${action}:${org}:${username}:${key}` : `member.${action}:${org}:${username}:${crypto.randomUUID()}`;
 }

@@ -920,6 +920,30 @@ export class OperationRepository {
   }
 }
 
+export class OperationSecretRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  createIfAbsent(operationId: number, encryptedSecret: string): boolean {
+    const result = this.db.prepare(`
+      INSERT OR IGNORE INTO operation_secrets (operation_id, encrypted_secret)
+      VALUES (?, ?)
+    `).run(operationId, encryptedSecret);
+    return result.changes > 0;
+  }
+
+  get(operationId: number): string | undefined {
+    return (this.db.prepare(`
+      SELECT encrypted_secret
+      FROM operation_secrets
+      WHERE operation_id = ?
+    `).get(operationId) as { encrypted_secret: string } | undefined)?.encrypted_secret;
+  }
+
+  clear(operationId: number): void {
+    this.db.prepare(`DELETE FROM operation_secrets WHERE operation_id = ?`).run(operationId);
+  }
+}
+
 export interface OperationAuditRecord {
   id: number;
   operationId: number;

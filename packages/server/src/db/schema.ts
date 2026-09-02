@@ -117,6 +117,13 @@ export const databaseSchema = `
   CREATE INDEX IF NOT EXISTS operations_claim_index
     ON operations (status, next_retry_at, lease_until, id);
 
+  CREATE TABLE IF NOT EXISTS operation_secrets (
+    operation_id INTEGER PRIMARY KEY,
+    encrypted_secret TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS operation_audits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     operation_id INTEGER NOT NULL,
