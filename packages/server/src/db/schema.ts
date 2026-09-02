@@ -83,6 +83,17 @@ export const databaseSchema = `
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS tenant_organizations (
+    org_name TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'provisioning'
+      CHECK (status IN ('pending', 'provisioning', 'active', 'failed', 'rejected', 'cancelled', 'expired', 'deleting', 'delete_failed')),
+    operation_id INTEGER,
+    last_error_json TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (operation_id) REFERENCES operations(id) ON DELETE SET NULL
+  );
+
   CREATE TABLE IF NOT EXISTS operations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     idempotency_key TEXT NOT NULL UNIQUE,

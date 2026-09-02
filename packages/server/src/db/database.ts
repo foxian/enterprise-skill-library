@@ -970,6 +970,85 @@ export class OperationAuditRepository {
   }
 }
 
+export type TenantOrganizationStatus =
+  | 'pending'
+  | 'provisioning'
+  | 'active'
+  | 'failed'
+  | 'rejected'
+  | 'cancelled'
+  | 'expired'
+  | 'deleting'
+  | 'delete_failed';
+
+export interface TenantOrganizationRecord {
+  orgName: string;
+  status: TenantOrganizationStatus;
+  operationId: number | null;
+  lastError: OperationError | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export class TenantOrganizationRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  create(input: {
+    orgName: string;
+    status?: TenantOrganizationStatus;
+    operationId?: number;
+  }): TenantOrganizationRecord {
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO tenant_organizations (org_name, status, operation_id)
+        VALUES (?, ?, ?)
+      `).run(input.orgName, input.status ?? 'provisioning', input.operationId ?? null);
+      return this.get(input.orgName)!;
+    });
+    return transaction() as TenantOrganizationRecord;
+  }
+
+  get(orgName: string): TenantOrganizationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT org_name, status, operation_id, last_error_json, created_at, updated_at
+      FROM tenant_organizations
+      WHERE org_name = ?
+    `).get(orgName) as {
+      org_name: string;
+      status: TenantOrganizationStatus;
+      operation_id: number | null;
+      last_error_json: string | null;
+      created_at: string;
+      updated_at: string;
+    } | undefined;
+    if (!row) return undefined;
+    return {
+      orgName: row.org_name,
+      status: row.status,
+      operationId: row.operation_id,
+      lastError: row.last_error_json ? (JSON.parse(row.last_error_json) as OperationError) : null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  transition(
+    orgName: string,
+    status: TenantOrganizationStatus,
+    error?: OperationError
+  ): TenantOrganizationRecord | undefined {
+    const transaction = this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE tenant_organizations
+        SET status = ?, last_error_json = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE org_name = ?
+      `).run(status, error ? JSON.stringify(error) : null, orgName);
+      return result.changes > 0 ? this.get(orgName) : undefined;
+    });
+    return transaction() as TenantOrganizationRecord | undefined;
+  }
+}
+
 export class PlatformSettingsRepository {
   constructor(private readonly db: Database.Database) {}
 

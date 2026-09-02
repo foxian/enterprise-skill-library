@@ -5,7 +5,8 @@ import path from 'node:path';
 import {
   initDatabase,
   OperationAuditRepository,
-  OperationRepository
+  OperationRepository,
+  TenantOrganizationRepository
 } from '../src/db/database.js';
 
 describe('Operation persistence', () => {
@@ -233,5 +234,31 @@ describe('Operation persistence', () => {
     });
     expect(JSON.stringify(audit)).not.toContain('must-not-be-stored');
     expect(audits.listByOperation(operation.id)).toEqual([audit]);
+  });
+
+  it('creates tenant organizations with an explicit lifecycle status', () => {
+    db = initDatabase(dbPath);
+    expect((db.pragma('table_info(tenant_organizations)') as { name: string }[]).map((column) => column.name)).toEqual(
+      expect.arrayContaining(['org_name', 'status', 'operation_id', 'last_error_json'])
+    );
+  });
+
+  it('persists tenant lifecycle transitions in a local SQLite transaction', () => {
+    db = initDatabase(dbPath);
+    const repository = new TenantOrganizationRepository(db);
+    const operation = new OperationRepository(db).createOperation({
+      idempotencyKey: 'org:acme:provision',
+      kind: 'organization.provision',
+      payload: { orgName: 'acme' }
+    });
+    const created = repository.create({
+      orgName: 'acme',
+      status: 'provisioning',
+      operationId: operation.id
+    });
+
+    expect(created).toMatchObject({ orgName: 'acme', status: 'provisioning', operationId: operation.id });
+    expect(repository.transition('acme', 'active')?.status).toBe('active');
+    expect(repository.get('acme')).toMatchObject({ orgName: 'acme', status: 'active' });
   });
 });
