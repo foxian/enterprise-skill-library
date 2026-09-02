@@ -4,6 +4,7 @@
       <h2>组织注册审批</h2>
       <el-select v-model="statusFilter" data-test="status-filter" style="width: 160px">
         <el-option label="待审批" value="pending" />
+        <el-option label="开通中" value="provisioning" />
         <el-option label="已批准" value="approved" />
         <el-option label="已拒绝" value="rejected" />
         <el-option label="全部" value="all" />
@@ -34,10 +35,13 @@
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
   </div>
 
-  <el-dialog v-model="resultDialogVisible" title="批准成功" width="440px">
+  <el-dialog v-model="resultDialogVisible" title="组织开通" width="440px">
     <p>组织 <strong>{{ handledOrgName }}</strong> 已初始化。</p>
-    <p>组织管理员初始密码（仅展示一次，请立即交付）：</p>
-    <el-input :model-value="initialPassword" readonly data-test="initial-password" />
+    <template v-if="initialPassword">
+      <p>组织管理员初始密码（仅展示一次，请立即交付）：</p>
+      <el-input :model-value="initialPassword" readonly data-test="initial-password" />
+    </template>
+    <p v-else>组织已进入后台开通流程，可在列表中查看最新状态。</p>
     <template #footer>
       <el-button type="primary" data-test="initial-password-close" @click="resultDialogVisible = false">
         我已保存
@@ -79,12 +83,13 @@ function formatTime(value: string): string {
 }
 
 function statusText(status: string): string {
-  return { pending: '待审批', approved: '已批准', rejected: '已拒绝' }[status] ?? status;
+  return { pending: '待审批', provisioning: '开通中', approved: '已批准', rejected: '已拒绝' }[status] ?? status;
 }
 
 function statusTagType(status: string): 'warning' | 'success' | 'info' {
   const mapping: Record<string, 'warning' | 'success' | 'info'> = {
     pending: 'warning',
+    provisioning: 'warning',
     approved: 'success',
     rejected: 'info'
   };
@@ -105,12 +110,12 @@ async function loadApplications(): Promise<void> {
 
 async function approve(application: ApplicationView): Promise<void> {
   try {
-    const result = await apiRequest<{ status: string; orgName: string; initialPassword: string }>(
+    const result = await apiRequest<{ status: string; orgName: string; initialPassword?: string }>(
       `/api/admin/orgs/applications/${application.id}/approve`,
       { method: 'POST' }
     );
     handledOrgName.value = result.orgName;
-    initialPassword.value = result.initialPassword;
+    initialPassword.value = result.initialPassword ?? '';
     resultDialogVisible.value = true;
     await loadApplications();
   } catch (error) {

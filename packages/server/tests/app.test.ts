@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { GiteaService } from '../src/services/gitea.js';
+import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
 
 describe('Fastify Server API', () => {
   let tmpDir: string;
@@ -348,6 +349,26 @@ describe('Fastify Server API', () => {
     expect(body.password).not.toBe('');
     expect(mockGitea.createUser).toHaveBeenCalledTimes(1);
     expect(mockGitea.createUser).toHaveBeenCalledWith('alice', body.password);
+  });
+
+  it('blocks skill access while a tenant is provisioning', async () => {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'provisioning' });
+    db.close();
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'acme_admin' })
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/missing',
+      headers: { authorization: 'token token' }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ status: 'provisioning' });
+    expect(mockGitea.validateToken).not.toHaveBeenCalled();
   });
 
   it('rejects an administrator-created password below the shared minimum', async () => {

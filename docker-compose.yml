@@ -38,6 +38,8 @@ services:
       PORT: "3000"
       # Container-internal path: /data is the bind-mount destination
       DATABASE_PATH: /data/esl.db
+      ESL_PASSWORD_MIN_LENGTH: ${ESL_PASSWORD_MIN_LENGTH:-12}
+      ESL_APPLICATION_ENCRYPTION_KEY: ${ESL_APPLICATION_ENCRYPTION_KEY}
       GITEA_URL: http://gitea:3000
       GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
       GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-eslroot}

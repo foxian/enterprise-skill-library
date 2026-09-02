@@ -23,10 +23,12 @@
         <el-result
           v-if="submittedStatus"
           :icon="submittedStatus === 'approved' ? 'success' : 'info'"
-          :title="submittedStatus === 'approved' ? '组织已开通' : '申请已提交，等待审批'"
+          :title="submittedStatus === 'approved' ? '组织已开通' : submittedStatus === 'provisioning' ? '组织正在开通' : '申请已提交，等待审批'"
           :sub-title="submittedStatus === 'approved'
-            ? '组织已自动初始化，请使用组织管理员账号（用户名 admin）登录。'
-            : '平台管理员审批通过后，组织管理员初始密码将另行下发。'"
+            ? '组织已初始化，请使用组织管理员账号登录。'
+            : submittedStatus === 'provisioning'
+              ? '组织资源正在后台初始化，完成后即可登录。'
+              : '平台管理员审批通过后，组织将进入后台开通流程。'"
           data-test="register-result"
         />
         <el-button
@@ -56,7 +58,7 @@ const password = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
-const submittedStatus = ref<'pending' | 'approved' | ''>('');
+const submittedStatus = ref<'pending' | 'provisioning' | 'approved' | ''>('');
 
 // 服务端固定创建 <组织名>_admin 管理员账号，申请单统一以 admin 作为管理员标识
 const ADMIN_ACCOUNT = 'admin';
@@ -87,7 +89,7 @@ async function submit(): Promise<void> {
   }
   loading.value = true;
   try {
-    const result = await apiRequest<{ status: 'pending' | 'approved' }>('/api/orgs/apply', {
+    const result = await apiRequest<{ status: 'pending' | 'provisioning' | 'approved' }>('/api/orgs/apply', {
       method: 'POST',
       body: {
         orgName: orgName.value,

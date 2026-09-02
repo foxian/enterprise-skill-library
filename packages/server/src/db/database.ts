@@ -13,6 +13,7 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'skill_id', 'TEXT');
   ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
   ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
+  ensureColumn(db, 'encrypted_password', 'TEXT', 'org_applications');
   db.exec(`
     UPDATE skills
     SET created_by = author
@@ -533,6 +534,7 @@ export interface OrgApplicationRecord {
   orgName: string;
   adminDisplayName: string;
   hashedPassword: string;
+  encryptedPassword?: string;
   status: OrgApplicationStatus;
   createdAt: string;
   updatedAt: string;
@@ -544,19 +546,20 @@ export class OrgApplicationRepository {
   createApplication(input: {
     orgName: string;
     adminDisplayName: string;
-    hashedPassword: string;
+    hashedPassword?: string;
+    encryptedPassword?: string;
   }): OrgApplicationRecord {
     const stmt = this.db.prepare(`
-      INSERT INTO org_applications (org_name, admin_display_name, hashed_password, status)
-      VALUES (?, ?, ?, 'pending')
+      INSERT INTO org_applications (org_name, admin_display_name, hashed_password, encrypted_password, status)
+      VALUES (?, ?, ?, ?, 'pending')
     `);
-    stmt.run(input.orgName, input.adminDisplayName, input.hashedPassword);
+    stmt.run(input.orgName, input.adminDisplayName, input.hashedPassword ?? '', input.encryptedPassword ?? null);
     return this.getApplication(input.orgName)!;
   }
 
   getApplication(orgName: string): OrgApplicationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
+      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
       FROM org_applications
       WHERE org_name = ?
     `).get(orgName) as {
@@ -564,6 +567,7 @@ export class OrgApplicationRepository {
       org_name: string;
       admin_display_name: string;
       hashed_password: string;
+      encrypted_password: string | null;
       status: OrgApplicationStatus;
       created_at: string;
       updated_at: string;
@@ -575,13 +579,13 @@ export class OrgApplicationRepository {
     const rows = (
       status
         ? this.db.prepare(`
-            SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
             FROM org_applications
             WHERE status = ?
             ORDER BY id ASC
           `).all(status)
         : this.db.prepare(`
-            SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
+            SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
             FROM org_applications
             ORDER BY id ASC
           `).all()
@@ -601,7 +605,7 @@ export class OrgApplicationRepository {
 
   getApplicationById(id: number): OrgApplicationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, org_name, admin_display_name, hashed_password, status, created_at, updated_at
+      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
       FROM org_applications
       WHERE id = ?
     `).get(id) as Parameters<OrgApplicationRepository['deserialize']>[0] | undefined;
@@ -618,6 +622,14 @@ export class OrgApplicationRepository {
     return this.getApplicationById(id);
   }
 
+  clearEncryptedPasswordById(id: number): boolean {
+    return this.db.prepare(`
+      UPDATE org_applications
+      SET encrypted_password = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(id).changes > 0;
+  }
+
   deleteApplication(orgName: string): boolean {
     const stmt = this.db.prepare(`
       DELETE FROM org_applications
@@ -631,6 +643,7 @@ export class OrgApplicationRepository {
     org_name: string;
     admin_display_name: string;
     hashed_password: string;
+    encrypted_password: string | null;
     status: OrgApplicationStatus;
     created_at: string;
     updated_at: string;
@@ -640,6 +653,7 @@ export class OrgApplicationRepository {
       orgName: row.org_name,
       adminDisplayName: row.admin_display_name,
       hashedPassword: row.hashed_password,
+      ...(row.encrypted_password ? { encryptedPassword: row.encrypted_password } : {}),
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at

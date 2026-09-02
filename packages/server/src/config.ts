@@ -11,6 +11,7 @@ export interface ServerConfig {
   repoOwner: string;
   bootstrapAdminToken: string;
   passwordMinLength: number;
+  applicationEncryptionKey?: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -50,6 +51,9 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     // scopes arrive with the multi-tenant upload flow (docs/adr/0016).
     repoOwner: 'esl-skills',
     bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token',
-    passwordMinLength
+    passwordMinLength,
+    ...(env.ESL_APPLICATION_ENCRYPTION_KEY
+      ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
+      : {})
   };
 }

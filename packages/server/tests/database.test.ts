@@ -355,6 +355,22 @@ describe('API Server Database', () => {
     db.close();
   });
 
+  it('stores an application password as encrypted material and can clear it', () => {
+    const db = initDatabase(dbPath);
+    const applications = new OrgApplicationRepository(db);
+    const created = applications.createApplication({
+      orgName: 'encrypted-org',
+      adminDisplayName: 'Encrypted Admin',
+      encryptedPassword: 'v1:encrypted'
+    });
+
+    expect(created.encryptedPassword).toBe('v1:encrypted');
+    expect(created.hashedPassword).toBe('');
+    expect(applications.clearEncryptedPasswordById(created.id)).toBe(true);
+    expect(applications.getApplicationById(created.id)?.encryptedPassword).toBeUndefined();
+    db.close();
+  });
+
   it('rejects an org application status outside the allowed domain', () => {
     const db = initDatabase(dbPath);
     const applications = new OrgApplicationRepository(db);

@@ -1,15 +1,24 @@
 import { validateOrgName, validatePassword } from '@esl/core';
-import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { OrgApplicationRepository, PlatformSettingsRepository } from '../db/database.js';
+import type {
+  OperationRepository,
+  OrgApplicationRepository,
+  PlatformSettingsRepository,
+  TenantOrganizationRepository
+} from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
-import { initializeTenantOrganization } from '../services/org-init.js';
+import type { OperationExecutor } from '../services/operation-executor.js';
+import { encryptApplicationSecret } from '../services/application-secret.js';
 
 export interface OrgRouteOptions {
   giteaService: GiteaService;
   orgApplicationRepository: OrgApplicationRepository;
   platformSettingsRepository: PlatformSettingsRepository;
   passwordMinLength?: number;
+  applicationEncryptionKey?: string;
+  operationRepository: OperationRepository;
+  tenantOrganizationRepository: TenantOrganizationRepository;
+  operationExecutor: OperationExecutor;
 }
 
 export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions): void {
@@ -39,22 +48,40 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     }
 
     const mode = platformSettingsRepository.getSetting('org_registration_mode') ?? 'auto';
-    if (mode === 'auto') {
-      try {
-        await initializeTenantOrganization(giteaService, orgName, password);
-      } catch (error) {
-        return reply.status(409).send({ error: `Organization initialization failed: ${(error as Error).message}` });
-      }
-      return reply.status(201).send({ status: 'approved' });
+    if (!options.applicationEncryptionKey) {
+      return reply.status(503).send({
+        error: 'Organization registration is unavailable without application encryption key'
+      });
     }
 
     try {
       const application = orgApplicationRepository.createApplication({
         orgName,
         adminDisplayName,
-        hashedPassword: hashPassword(password)
+        encryptedPassword: encryptApplicationSecret(password, options.applicationEncryptionKey)
       });
-      return reply.status(201).send({ status: 'pending', applicationId: application.id });
+      const operation = options.operationRepository.createOperation({
+        idempotencyKey: `organization.provision:${application.id}`,
+        kind: 'organization.provision',
+        payload: {
+          orgName,
+          applicationId: application.id,
+          encryptedPassword: application.encryptedPassword
+        }
+      });
+      options.tenantOrganizationRepository.create({
+        orgName,
+        status: mode === 'manual' ? 'pending' : 'provisioning',
+        operationId: operation.id
+      });
+      if (mode === 'auto') {
+        void options.operationExecutor.process(operation.id);
+      }
+      return reply.status(201).send(
+        mode === 'manual'
+          ? { status: 'pending', applicationId: application.id }
+          : { status: 'provisioning', operationId: operation.id }
+      );
     } catch (error) {
       if (String(error).toLowerCase().includes('unique')) {
         return reply.status(409).send({ error: 'An application for this organization already exists' });
@@ -62,10 +89,4 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
       throw error;
     }
   });
-}
-
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `scrypt:${salt}:${derived}`;
 }

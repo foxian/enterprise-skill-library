@@ -45,6 +45,17 @@ describe('server config', () => {
     expect(config.passwordMinLength).toBe(16);
   });
 
+  it('loads the application encryption key', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token',
+      ESL_APPLICATION_ENCRYPTION_KEY: 'a'.repeat(64)
+    } as NodeJS.ProcessEnv);
+
+    expect(config.applicationEncryptionKey).toBe('a'.repeat(64));
+  });
+
   it('loads the configured Gitea admin token file and preserves direct token precedence', () => {
     const config = loadServerConfig({
       DATABASE_PATH: '/tmp/esl.db',

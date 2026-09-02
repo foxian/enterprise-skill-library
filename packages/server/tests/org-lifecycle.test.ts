@@ -7,6 +7,7 @@ import { buildApp } from '../src/app.js';
 import { initDatabase, PlatformSettingsRepository } from '../src/db/database.js';
 
 describe('organization application lifecycle', () => {
+  const applicationEncryptionKey = 'a'.repeat(64);
   let tmpDir: string;
   let dbPath: string;
   let app: FastifyInstance | undefined;
@@ -36,7 +37,12 @@ describe('organization application lifecycle', () => {
 
   it('initializes the Gitea organization immediately in auto mode', async () => {
     const mockGitea = autoModeGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -49,7 +55,8 @@ describe('organization application lifecycle', () => {
     });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toEqual({ status: 'approved' });
+    expect(response.json().status).toBe('provisioning');
+    expect(typeof response.json().operationId).toBe('number');
     expect(mockGitea.createOrg).toHaveBeenCalledWith('acme');
     expect(mockGitea.createUser).toHaveBeenCalledWith('acme_admin', 'initial-password');
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(1, 'acme_admin');
@@ -63,7 +70,12 @@ describe('organization application lifecycle', () => {
     settingsDb.close();
 
     const mockGitea = autoModeGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -85,7 +97,12 @@ describe('organization application lifecycle', () => {
 
   it('rejects invalid organization names before touching Gitea', async () => {
     const mockGitea = autoModeGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     for (const orgName of ['acme_corp', 'Acme', 'a', '-acme', 'acme-', 'admin', 'a'.repeat(40)]) {
       const response = await app.inject({
@@ -101,7 +118,12 @@ describe('organization application lifecycle', () => {
   it('rejects an application when the organization name is already taken', async () => {
     const mockGitea = autoModeGitea();
     mockGitea.organizationExists.mockResolvedValue(true);
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -119,7 +141,12 @@ describe('organization application lifecycle', () => {
     settingsDb.close();
 
     const mockGitea = autoModeGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const first = await app.inject({
       method: 'POST',
@@ -136,10 +163,15 @@ describe('organization application lifecycle', () => {
     expect(second.statusCode).toBe(409);
   });
 
-  it('reports initialization failure when the Gitea setup chain fails in auto mode', async () => {
+  it('records initialization failure after the auto-mode request is accepted', async () => {
     const mockGitea = autoModeGitea();
     mockGitea.createUser.mockRejectedValue(new Error('password too short'));
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',
@@ -147,13 +179,24 @@ describe('organization application lifecycle', () => {
       body: { orgName: 'acme', adminDisplayName: 'Admin', password: 'initial-password' }
     });
 
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('password too short');
+    expect(response.statusCode).toBe(201);
+    expect(response.json().status).toBe('provisioning');
+    await new Promise((resolve) => setImmediate(resolve));
+    const db = initDatabase(dbPath);
+    expect(db.prepare('SELECT status FROM tenant_organizations WHERE org_name = ?').get('acme')).toEqual({
+      status: 'failed'
+    });
+    db.close();
   });
 
   it('requires orgName, admin display name, and password', async () => {
     const mockGitea = autoModeGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
 
     const response = await app.inject({
       method: 'POST',

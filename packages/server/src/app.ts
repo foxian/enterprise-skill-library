@@ -1,5 +1,13 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { AdminRepository, initDatabase, OrgApplicationRepository, PlatformSettingsRepository, SkillRepository } from './db/database.js';
+import {
+  AdminRepository,
+  initDatabase,
+  OperationRepository,
+  OrgApplicationRepository,
+  PlatformSettingsRepository,
+  SkillRepository,
+  TenantOrganizationRepository
+} from './db/database.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOrgRoutes } from './routes/orgs.js';
@@ -8,6 +16,9 @@ import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import type { GiteaService } from './services/gitea.js';
 import path from 'node:path';
+import { OperationExecutor } from './services/operation-executor.js';
+import { initializeTenantOrganization } from './services/org-init.js';
+import { decryptApplicationSecret } from './services/application-secret.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -16,6 +27,7 @@ export interface AppOptions {
   repoOwner: string;
   bootstrapAdminToken?: string;
   passwordMinLength?: number;
+  applicationEncryptionKey?: string;
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -27,8 +39,87 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const adminRepository = new AdminRepository(db, options.bootstrapAdminToken ?? 'bootstrap-token');
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
+  const operationRepository = new OperationRepository(db);
+  const tenantOrganizationRepository = new TenantOrganizationRepository(db);
+  const operationExecutor = new OperationExecutor(operationRepository);
+  operationExecutor.register('organization.provision', async (operation) => {
+    const payload = operation.payload as {
+      orgName: string;
+      applicationId: number;
+      encryptedPassword?: string;
+    };
+    if (!payload.encryptedPassword || !options.applicationEncryptionKey) {
+      throw new Error('Organization provisioning secret is unavailable');
+    }
+    const password = decryptApplicationSecret(payload.encryptedPassword, options.applicationEncryptionKey);
+    try {
+      await initializeTenantOrganization(options.giteaService, payload.orgName, password);
+      tenantOrganizationRepository.transition(payload.orgName, 'active');
+      orgApplicationRepository.updateApplicationStatusById(payload.applicationId, 'approved');
+      orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      tenantOrganizationRepository.transition(payload.orgName, 'failed', {
+        code: 'PROVISIONING_FAILED',
+        message,
+        details: {}
+      });
+      throw error;
+    }
+  });
+  operationExecutor.register('organization.delete', async (operation) => {
+    const payload = operation.payload as { orgName: string };
+    try {
+      const members = await options.giteaService.listOrgMembers(payload.orgName);
+      const repos = await options.giteaService.listOrgRepos(payload.orgName);
+      for (const repo of repos) {
+        await options.giteaService.deleteRepo(payload.orgName, repo.name);
+      }
+      for (const member of members) {
+        if (member.username.startsWith(`${payload.orgName}_`)) {
+          await options.giteaService.deleteUser(member.username);
+        }
+      }
+      await options.giteaService.deleteOrg(payload.orgName);
+      repository.deleteSkillsByScope(payload.orgName);
+      tenantOrganizationRepository.transition(payload.orgName, 'cancelled');
+    } catch (error) {
+      tenantOrganizationRepository.transition(payload.orgName, 'delete_failed', {
+        code: 'DELETE_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+        details: {}
+      });
+      throw error;
+    }
+  });
+  void operationExecutor.processPending();
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
+  app.addHook('preHandler', async (request, reply) => {
+    if (request.url.startsWith('/api/skills/')) {
+      const scope = decodeURIComponent(request.url.split('/')[3]?.split('?')[0] ?? '');
+      const tenant = tenantOrganizationRepository.get(scope);
+      if (tenant && tenant.status !== 'active') {
+        return reply.status(409).send({
+          error: `Organization is not active: ${scope}`,
+          status: tenant.status
+        });
+      }
+    }
+    if (request.url === '/api/auth/login') {
+      const username = (request.body as { username?: string } | undefined)?.username ?? '';
+      const suffix = '_admin';
+      if (username.endsWith(suffix)) {
+        const tenant = tenantOrganizationRepository.get(username.slice(0, -suffix.length));
+        if (tenant && tenant.status !== 'active') {
+          return reply.status(409).send({
+            error: `Organization is not active: ${tenant.orgName}`,
+            status: tenant.status
+          });
+        }
+      }
+    }
+  });
   registerAuthRoutes(app, {
     repository: adminRepository,
     giteaService: options.giteaService,
@@ -38,13 +129,21 @@ export function buildApp(options: AppOptions): FastifyInstance {
     giteaService: options.giteaService,
     orgApplicationRepository,
     platformSettingsRepository,
-    passwordMinLength: options.passwordMinLength
+    passwordMinLength: options.passwordMinLength,
+    applicationEncryptionKey: options.applicationEncryptionKey,
+    operationRepository,
+    tenantOrganizationRepository,
+    operationExecutor
   });
   registerOrgAdminRoutes(app, {
     giteaService: options.giteaService,
     orgApplicationRepository,
     platformSettingsRepository,
-    skillRepository: repository
+    skillRepository: repository,
+    operationRepository,
+    tenantOrganizationRepository,
+    operationExecutor,
+    applicationEncryptionKey: options.applicationEncryptionKey
   });
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,

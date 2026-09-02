@@ -265,7 +265,8 @@ describe('super administrator org console API', () => {
       payload: { confirm: 'acme' }
     });
     expect(matched.statusCode).toBe(200);
-    expect(matched.json()).toEqual({ deleted: true, orgName: 'acme' });
+    expect(matched.json()).toMatchObject({ status: 'deleting', orgName: 'acme' });
+    await new Promise((resolve) => setImmediate(resolve));
     expect(mockGitea.listOrgRepos).toHaveBeenCalledWith('acme');
     expect(mockGitea.deleteRepo).toHaveBeenCalledWith('acme', 'reviewer');
     expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_admin');
