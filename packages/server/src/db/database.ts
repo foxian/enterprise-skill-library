@@ -152,6 +152,30 @@ export class SkillRepository {
     return { skillId, releases: count.n };
   }
 
+  // 删除整个组织的全部技能及其关联数据（组织删除时调用）。
+  deleteSkillsByScope(scope: string): number {
+    const names = (
+      this.db.prepare(`SELECT name FROM skills WHERE scope = ?`).all(scope) as { name: string }[]
+    ).map((row) => row.name);
+    const transaction = this.db.transaction(() => {
+      for (const name of names) {
+        const skillId = (this.db.prepare(`SELECT skill_id AS skillId FROM skills WHERE name = ?`).get(name) as
+          | { skillId?: string }
+          | undefined)?.skillId;
+        this.db.prepare(`DELETE FROM skill_releases WHERE skill_name = ? OR skill_id = ?`).run(name, skillId ?? '');
+        this.db.prepare(`DELETE FROM skill_versions WHERE skill_name = ?`).run(name);
+        this.db.prepare(`DELETE FROM skill_tags WHERE skill_name = ?`).run(name);
+        this.db.prepare(`
+          DELETE FROM skill_identity_redirects
+          WHERE skill_id = ? OR current_name = ? OR old_name = ?
+        `).run(skillId ?? '', name, name);
+        this.db.prepare(`DELETE FROM skills WHERE name = ?`).run(name);
+      }
+    });
+    transaction();
+    return names.length;
+  }
+
   renameSkill(currentName: string, nextName: string, nextSkillName: string, nextGitRepoPath?: string): SkillRecord {
     const skill = this.getSkill(currentName);
     if (!skill?.skillId) throw new Error('Skill cannot be renamed without a Skill ID');

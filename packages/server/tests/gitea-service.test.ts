@@ -370,7 +370,7 @@ describe('GiteaService', () => {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prohibit_login: true })
+      body: JSON.stringify({ login_name: 'alice', prohibit_login: true })
     });
   });
 
@@ -386,7 +386,7 @@ describe('GiteaService', () => {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prohibit_login: false })
+      body: JSON.stringify({ login_name: 'alice', prohibit_login: false })
     });
   });
 
@@ -595,13 +595,17 @@ describe('GiteaService', () => {
       name: 'all-readers',
       permission: 'read'
     });
+    const expectedUnitsMap = Object.fromEntries(
+      ['repo.actions', 'repo.issues', 'repo.ext_issues', 'repo.wiki', 'repo.ext_wiki', 'repo.pulls',
+        'repo.releases', 'repo.projects', 'repo.packages', 'repo.code'].map((unit) => [unit, 'read'])
+    );
     expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/teams', {
       method: 'POST',
       headers: {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name: 'all-readers', permission: 'read' })
+      body: JSON.stringify({ name: 'all-readers', permission: 'read', units_map: expectedUnitsMap })
     });
   });
 

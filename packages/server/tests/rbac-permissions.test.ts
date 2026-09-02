@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import { buildApp } from '../src/app.js';
 import { initDatabase, SkillRepository } from '../src/db/database.js';
 
 const orgTeams = [
-  { id: 1, name: 'Owners', permission: 'admin' },
+  { id: 1, name: 'Owners', permission: 'owner' },
   { id: 2, name: 'all-readers', permission: 'read' },
   { id: 3, name: 'all-writers', permission: 'write' },
   { id: 7, name: 'frontend', permission: 'read' }
@@ -341,8 +342,11 @@ describe('skill RBAC permissions', () => {
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const db = initDatabase(dbPath);
-    const reviewer = new SkillRepository(db).getSkill('@acme/reviewer');
-    const secret = new SkillRepository(db).getSkill('@acme/secret');
+    const repository = new SkillRepository(db);
+    const reviewer = repository.getSkill('@acme/reviewer');
+    const secret = repository.getSkill('@acme/secret');
+    assert.ok(reviewer);
+    assert.ok(secret);
     db.close();
 
     const info = await app.inject({

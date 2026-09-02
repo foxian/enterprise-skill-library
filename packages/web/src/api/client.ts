@@ -24,7 +24,11 @@ export interface RequestOptions {
 
 export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const auth = useAuthStore();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // 仅在有请求体时声明 JSON，避免无 body 的 POST/DELETE 被 Fastify 以空 JSON body 拒绝
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (auth.token) {
     headers.Authorization = `token ${auth.token}`;
   }

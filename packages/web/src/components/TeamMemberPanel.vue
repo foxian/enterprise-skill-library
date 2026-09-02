@@ -25,6 +25,7 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
+import { useAuthStore } from '../stores/auth';
 
 interface TeamView {
   id: number;
@@ -40,6 +41,11 @@ interface GiteaUserView {
 
 const props = defineProps<{ team: TeamView }>();
 const emit = defineEmits<{ (event: 'changed'): void }>();
+const auth = useAuthStore();
+
+function shortUsername(username: string): string {
+  return username.startsWith(`${auth.org}_`) ? username.slice(auth.org!.length + 1) : username;
+}
 
 const username = ref('');
 const members = ref<GiteaUserView[]>([]);
@@ -73,7 +79,7 @@ async function addMember(): Promise<void> {
 async function removeMember(member: GiteaUserView): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest(`/api/orgs/teams/${props.team.id}/members/${encodeURIComponent(member.username)}`, {
+    await apiRequest(`/api/orgs/teams/${props.team.id}/members/${encodeURIComponent(shortUsername(member.username))}`, {
       method: 'DELETE'
     });
     ElMessage.success(`已移除 ${member.username}`);

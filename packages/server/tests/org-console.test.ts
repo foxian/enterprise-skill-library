@@ -11,7 +11,7 @@ describe('organization console API', () => {
   let app: FastifyInstance | undefined;
 
   const defaultTeams = [
-    { id: 1, name: 'Owners', permission: 'admin' },
+    { id: 1, name: 'Owners', permission: 'owner' },
     { id: 2, name: 'all-readers', permission: 'read' },
     { id: 3, name: 'all-writers', permission: 'write' },
     { id: 7, name: 'frontend', permission: 'read' }

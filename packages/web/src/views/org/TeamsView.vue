@@ -98,7 +98,7 @@ function isDefaultTeam(name: string): boolean {
 }
 
 function permissionText(permission: string): string {
-  return permission === 'write' ? '读写' : permission === 'admin' ? '管理' : '只读';
+  return permission === 'write' ? '读写' : permission === 'owner' || permission === 'admin' ? '管理' : '只读';
 }
 
 async function loadTeams(): Promise<void> {

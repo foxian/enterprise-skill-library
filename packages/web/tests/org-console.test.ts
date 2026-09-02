@@ -25,7 +25,7 @@ async function setDocInput(testId: string, value: string): Promise<void> {
 
 const members = [{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }];
 const teams = [
-  { id: 1, name: 'Owners', permission: 'admin' },
+  { id: 1, name: 'Owners', permission: 'owner' },
   { id: 2, name: 'all-readers', permission: 'read' },
   { id: 3, name: 'all-writers', permission: 'write' },
   { id: 7, name: 'frontend', permission: 'read' }
@@ -260,7 +260,7 @@ describe('TeamsView 团队管理', () => {
     await doc('team-remove-acme_bob').trigger('click');
     await flushPromises();
     expect(
-      requests.some((request) => request.method === 'DELETE' && request.url === '/api/orgs/teams/7/members/acme_bob')
+      requests.some((request) => request.method === 'DELETE' && request.url === '/api/orgs/teams/7/members/bob')
     ).toBe(true);
 
     // 移除后父列表刷新，展开行折叠；重新展开再添加成员

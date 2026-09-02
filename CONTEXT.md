@@ -147,6 +147,14 @@ _Avoid_: Skill Release，用于指代 Git tag 时。
 
 ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一个 Organization。它为该组织内的所有 Server-hosted Skill Identity 提供唯一的 Namespace（`@scope/skill-name` 中的 scope 段）。组织间技能与源码完全私有隔离。
 
+## Tenant Organization Provisioning
+
+将已接受的组织注册申请变为可使用 Tenant Organization 的可恢复跨系统工作流。只有 Gitea Organization、Organization Admin、Owner 关系与两个默认 Organization Team 都完成后，Tenant Organization 才可用。
+
+## Skill User Password Policy
+
+ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行中的 Gitea 配置。ESL 在客户端与服务端提前执行同一规则，Gitea 保留最终校验权。
+
 ## Organization Admin
 
 组织创建时自动生成的管理账号（Gitea 用户名为 `<orgname>_admin`），担任该 Gitea Organization 的 Owner 角色。拥有组织内成员、团队、权限矩阵以及全部技能的最高管理与治理权。
@@ -158,6 +166,11 @@ ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一
 ## Super Administrator
 
 ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。
+
+## Web Console
+
+管理后台的 Web 界面入口，位于 `/admin/` 路径下。它以浏览器方式承载三类角色：Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）与普通成员（`/admin/member/`），并通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由账号命名约定推导：无组织账号即超级管理员，组织内用户名为 `admin` 即组织管理员，其余为普通成员。
+_Avoid_: 管理后台，当指代 Web 界面时。
 
 ## Local Scope
 

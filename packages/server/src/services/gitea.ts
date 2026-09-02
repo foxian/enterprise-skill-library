@@ -34,7 +34,7 @@ export interface GiteaOrg {
 export interface GiteaTeam {
   id: number;
   name: string;
-  permission: 'read' | 'write' | 'admin';
+  permission: 'read' | 'write' | 'admin' | 'owner';
 }
 
 export class GiteaService {
@@ -171,7 +171,7 @@ export class GiteaService {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prohibit_login: true })
+      body: JSON.stringify({ login_name: username, prohibit_login: true })
     });
 
     if (!res.ok) {
@@ -187,7 +187,7 @@ export class GiteaService {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prohibit_login: false })
+      body: JSON.stringify({ login_name: username, prohibit_login: false })
     });
 
     if (!res.ok) {
@@ -363,6 +363,19 @@ export class GiteaService {
     }
   }
 
+  async listOrgRepos(org: string): Promise<GiteaRepo[]> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/repos`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea organization repositories: ${err}`);
+    }
+
+    return (await res.json()) as GiteaRepo[];
+  }
+
   async deleteOrg(name: string): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${name}`, {
       method: 'DELETE',
@@ -390,13 +403,30 @@ export class GiteaService {
   }
 
   async createTeam(org: string, name: string, permission: 'read' | 'write'): Promise<GiteaTeam> {
+    // Gitea 1.22 创建团队时必须提供 units_map，否则报 "units permission should not be empty"。
+    // 将全部仓库单元都授予该权限级别，使新团队默认具备对组织仓库的读写访问。
+    const units = [
+      'repo.actions',
+      'repo.issues',
+      'repo.ext_issues',
+      'repo.wiki',
+      'repo.ext_wiki',
+      'repo.pulls',
+      'repo.releases',
+      'repo.projects',
+      'repo.packages',
+      'repo.code'
+    ];
+    const unitsMap: Record<string, 'read' | 'write'> = Object.fromEntries(
+      units.map((unit) => [unit, permission])
+    );
     const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, permission })
+      body: JSON.stringify({ name, permission, units_map: unitsMap })
     });
 
     if (!res.ok) {

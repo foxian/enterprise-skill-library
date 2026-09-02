@@ -100,9 +100,19 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       return reply.status(404).send({ error: 'Organization not found' });
     }
     const members = await giteaService.listOrgMembers(orgName);
+    // 先清空组织名下的全部仓库，否则 Gitea 拒绝删除组织（user still has ownership of repositories）。
+    const repos = await giteaService.listOrgRepos(orgName);
+    for (const repo of repos) {
+      await giteaService.deleteRepo(orgName, repo.name);
+    }
     for (const member of members) {
+      // 只删除组织专属账号（<org>_ 前缀），跳过平台超管等外部账号：
+      // 平台超管使用超管 token 创建组织时会成为组织 owner，不应随组织删除。
+      if (!member.username.startsWith(`${orgName}_`)) continue;
       await giteaService.deleteUser(member.username);
     }
+    // 清空该组织在平台库中的技能记录，避免残留引用已删除 Gitea 仓库的技能导致搜索接口 500。
+    skillRepository.deleteSkillsByScope(orgName);
     await giteaService.deleteOrg(orgName);
     return { deleted: true, orgName };
   });

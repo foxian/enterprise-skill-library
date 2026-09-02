@@ -24,7 +24,7 @@ describe('Fastify Server API', () => {
   it('registers and retrieves a skill', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'zhangsan' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/alice_code-review' })
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'alice/alice_code-review' })
     };
 
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -43,12 +43,12 @@ describe('Fastify Server API', () => {
 
     expect(createRes.statusCode).toBe(201);
     expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith(
-      'esl-skills',
+      'alice',
       'alice_code-review',
       false
     );
-    expect(createRes.json().gitRepoPath).toBe('esl-skills/alice_code-review');
-    expect(createRes.json().cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
+    expect(createRes.json().gitRepoPath).toBe('alice/alice_code-review');
+    expect(createRes.json().cloneUrl).toBe('http://localhost:3000/git/alice/alice_code-review.git');
     expect(createRes.json()).toMatchObject({
       createdBy: 'zhangsan',
       owner: 'platform',
@@ -64,8 +64,8 @@ describe('Fastify Server API', () => {
     expect(getRes.statusCode).toBe(200);
     const body = getRes.json();
     expect(body.name).toBe('@alice/code-review');
-    expect(body.gitRepoPath).toBe('esl-skills/alice_code-review');
-    expect(body.cloneUrl).toBe('http://localhost:3000/git/esl-skills/alice_code-review.git');
+    expect(body.gitRepoPath).toBe('alice/alice_code-review');
+    expect(body.cloneUrl).toBe('http://localhost:3000/git/alice/alice_code-review.git');
   });
 
   it('uploads a server-hosted skill without creating a release', async () => {

@@ -96,7 +96,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         version: string;
         visibility?: string;
       };
-      return createSkill(request, reply, repository, giteaService, repoOwner, eslUser.username, {
+      return createSkill(request, reply, repository, giteaService, eslUser.username, {
         name,
         description,
         version,
@@ -119,7 +119,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       version: string;
       visibility?: string;
     };
-    return createSkill(request, reply, repository, giteaService, repoOwner, user.username, {
+    return createSkill(request, reply, repository, giteaService, user.username, {
       name,
       description,
       version,
@@ -175,6 +175,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
+    const repo = skillRepo(skill);
     switch (body.action) {
       case 'share_all_read':
       case 'share_all_write': {
@@ -183,7 +184,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         if (!team) {
           return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
         }
-        await giteaService.addTeamRepo(team.id, skill.scope, skill.skillName);
+        await giteaService.addTeamRepo(team.id, repo.owner, repo.name);
         break;
       }
       case 'add_team':
@@ -196,9 +197,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           return reply.status(404).send({ error: 'Team not found in organization' });
         }
         if (body.action === 'add_team') {
-          await giteaService.addTeamRepo(team.id, skill.scope, skill.skillName);
+          await giteaService.addTeamRepo(team.id, repo.owner, repo.name);
         } else {
-          await giteaService.removeTeamRepo(team.id, skill.scope, skill.skillName);
+          await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
         }
         break;
       }
@@ -206,26 +207,26 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         if (!body.username || (body.permission !== 'read' && body.permission !== 'write')) {
           return reply.status(400).send({ error: 'Username and a read or write permission are required' });
         }
-        await giteaService.addCollaborator(skill.scope, skill.skillName, body.username, body.permission);
+        await giteaService.addCollaborator(repo.owner, repo.name, body.username, body.permission);
         break;
       }
       case 'remove_member': {
         if (!body.username) {
           return reply.status(400).send({ error: 'Username is required' });
         }
-        await giteaService.removeCollaborator(skill.scope, skill.skillName, body.username);
+        await giteaService.removeCollaborator(repo.owner, repo.name, body.username);
         break;
       }
       case 'reset_to_private': {
         if (typeof giteaService.listRepoTeams === 'function') {
-          for (const team of await giteaService.listRepoTeams(skill.scope, skill.skillName)) {
-            await giteaService.removeTeamRepo(team.id, skill.scope, skill.skillName);
+          for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
+            await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
           }
         }
         if (typeof giteaService.listCollaborators === 'function') {
-          for (const member of await giteaService.listCollaborators(skill.scope, skill.skillName)) {
+          for (const member of await giteaService.listCollaborators(repo.owner, repo.name)) {
             if (member.username === skill.owner) continue;
-            await giteaService.removeCollaborator(skill.scope, skill.skillName, member.username);
+            await giteaService.removeCollaborator(repo.owner, repo.name, member.username);
           }
         }
         break;
@@ -248,7 +249,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!/^[a-z0-9-]{1,64}$/.test(nextShortName)) {
       return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
     }
-    const nextName = `@${repoOwner}/${nextShortName}`;
+    const repo = skillRepo(skill);
+    const nextName = `@${skill.scope}/${nextShortName}`;
     if (repository.getSkill(nextName)) {
       return reply.status(409).send({ error: 'Skill name already exists' });
     }
@@ -256,28 +258,28 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let repoRenamed = false;
     try {
       if (typeof giteaService.updateSkillName === 'function') {
-        await giteaService.updateSkillName(repoOwner, skill.skillName, nextShortName);
+        await giteaService.updateSkillName(repo.owner, repo.name, nextShortName);
         metadataUpdated = true;
       }
-      await giteaService.renameRepo(repoOwner, skill.skillName, nextShortName);
+      await giteaService.renameRepo(repo.owner, repo.name, nextShortName);
       repoRenamed = true;
       const renamed = repository.renameSkill(
         currentName,
         nextName,
         nextShortName,
-        `${repoOwner}/${nextShortName}`
+        `${repo.owner}/${nextShortName}`
       );
       return reply.send(withCloneUrl(request, { ...renamed, versions: repository.getVersions(nextName) }));
     } catch (error) {
       if (repoRenamed) {
         try {
-          await giteaService.renameRepo(repoOwner, nextShortName, skill.skillName);
+          await giteaService.renameRepo(repo.owner, nextShortName, repo.name);
         } catch {
         }
       }
       if (metadataUpdated && typeof giteaService.updateSkillName === 'function') {
         try {
-          await giteaService.updateSkillName(repoOwner, nextShortName, skill.skillName);
+          await giteaService.updateSkillName(repo.owner, nextShortName, repo.name);
         } catch {
         }
       }
@@ -298,7 +300,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     if (typeof giteaService.addCollaborator === 'function') {
       try {
-        await giteaService.addCollaborator(repoOwner, skill.skillName, user.username, 'read');
+        const repo = skillRepo(skill);
+        await giteaService.addCollaborator(repo.owner, repo.name, user.username, 'read');
       } catch (error) {
         return reply.status(409).send({ error: (error as Error).message });
       }
@@ -331,8 +334,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!body.sourceCommit) {
       return reply.status(400).send({ error: 'sourceCommit is required' });
     }
+    const repo = skillRepo(skill);
     const sourceFiles = typeof giteaService.readSourceTree === 'function'
-      ? await giteaService.readSourceTree(repoOwner, skill.skillName, body.sourceCommit)
+      ? await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit)
       : body.files ?? {};
     let sourceManifest: unknown = body.releaseManifest;
     if (sourceFiles['release.json']) {
@@ -355,7 +359,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const releaseTag = `v${body.version}`;
     let existingReleaseTag: { target: string } | null = null;
     if (typeof giteaService.getReleaseTag === 'function') {
-      existingReleaseTag = await giteaService.getReleaseTag(repoOwner, skill.skillName, releaseTag);
+      existingReleaseTag = await giteaService.getReleaseTag(repo.owner, repo.name, releaseTag);
       if (existingReleaseTag && existingReleaseTag.target !== body.sourceCommit) {
         return reply.status(409).send({
           error: `Release Tag ${releaseTag} points to ${existingReleaseTag.target}, expected ${body.sourceCommit}`
@@ -429,8 +433,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (typeof giteaService.createReleaseTag === 'function' && !existingReleaseTag) {
       try {
         await giteaService.createReleaseTag(
-          repoOwner,
-          skill.skillName,
+          repo.owner,
+          repo.name,
           releaseTag,
           body.sourceCommit,
           body.notes?.trim() || `Release ${name} ${body.version}`
@@ -466,7 +470,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     const tag = `v${release.version}`;
-    const existing = await giteaService.getReleaseTag(repoOwner, skill.skillName, tag);
+    const repo = skillRepo(skill);
+    const existing = await giteaService.getReleaseTag(repo.owner, repo.name, tag);
     if (existing) {
       if (existing.target !== release.sourceCommit) {
         return reply.status(409).send({
@@ -482,8 +487,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     try {
       await giteaService.createReleaseTag(
-        repoOwner,
-        skill.skillName,
+        repo.owner,
+        repo.name,
         tag,
         release.sourceCommit,
         `Release ${name} ${release.version}`
@@ -553,7 +558,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     if (typeof giteaService.setRepositoryArchived === 'function') {
       try {
-        await giteaService.setRepositoryArchived(repoOwner, skill.skillName, true);
+        const repo = skillRepo(skill);
+        await giteaService.setRepositoryArchived(repo.owner, repo.name, true);
       } catch (error) {
         return reply.status(409).send({ error: (error as Error).message });
       }
@@ -572,7 +578,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const restored = repository.getSkill(name);
     if (restored && typeof giteaService.setRepositoryArchived === 'function') {
       try {
-        await giteaService.setRepositoryArchived(repoOwner, restored.skillName, false);
+        const repo = skillRepo(restored);
+        await giteaService.setRepositoryArchived(repo.owner, repo.name, false);
       } catch (error) {
         return reply.status(409).send({ error: (error as Error).message });
       }
@@ -597,7 +604,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     if (typeof giteaService.deleteRepo === 'function') {
       try {
-        await giteaService.deleteRepo(repoOwner, skill.skillName);
+        const repo = skillRepo(skill);
+        await giteaService.deleteRepo(repo.owner, repo.name);
       } catch {
         // Best-effort: an orphan Git repository may remain, but the skill record
         // and its artifacts must still be removed.
@@ -612,7 +620,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
   app.get('/api/skills/*', async (request, reply) => {
     const rawName = (request.params as { '*': string })['*'];
-    const name = decodeURIComponent(rawName);
+    const unscoped = decodeURIComponent(rawName);
+    // 与其它技能路由保持一致：允许调用方省略 @ 前缀，统一解析为 "@scope/skillName"。
+    const name = `${unscoped.startsWith('@') ? '' : '@'}${unscoped}`;
     const skill = repository.getSkill(name);
     const redirect = repository.resolveRedirect(name);
     if (!skill && redirect) {
@@ -683,6 +693,17 @@ function resolveDependencyLock(
   return lock;
 }
 
+// 从技能记录的 gitRepoPath（如 "e2e223219/e2e223219_demo-skill"）解析 Gitea 仓库
+// 属主与仓库名。CLI 上传流的仓库为 "{repoOwner}/{skillName}"，而 API 创建的
+// 组织级技能仓库为 "{scope}/{scope}_{skillName}"，故不能直接用 scope/skillName 重建路径。
+function skillRepo(skill: SkillRecord): { owner: string; name: string } {
+  const slash = skill.gitRepoPath.indexOf('/');
+  return {
+    owner: skill.gitRepoPath.slice(0, slash),
+    name: skill.gitRepoPath.slice(slash + 1)
+  };
+}
+
 async function hasReadAccess(
   giteaService: GiteaService,
   skill: SkillRecord,
@@ -690,6 +711,8 @@ async function hasReadAccess(
 ): Promise<boolean> {
   if (!username) return false;
   if (username === `${skill.scope}_admin`) return true;
+  // 技能创建者/维护者拥有管理权，理应可读自己的仓库（API 创建流未自动添加 collaborator）
+  if (username === skill.owner || skill.maintainers.includes(username)) return true;
   const hasPermissionSupport =
     typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
   if (!hasPermissionSupport) {
@@ -697,14 +720,16 @@ async function hasReadAccess(
     return true;
   }
   if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
-    for (const team of await giteaService.listRepoTeams(skill.scope, skill.skillName)) {
+    const repo = skillRepo(skill);
+    for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
       if (await giteaService.isTeamMember(team.id, username)) {
         return true;
       }
     }
   }
   if (typeof giteaService.isCollaborator === 'function') {
-    return giteaService.isCollaborator(skill.scope, skill.skillName, username);
+    const repo = skillRepo(skill);
+    return giteaService.isCollaborator(repo.owner, repo.name, username);
   }
   return false;
 }
@@ -716,19 +741,20 @@ function canManageSkill(skill: SkillRecord, username: string): boolean {
 }
 
 async function getPermissionMatrix(giteaService: GiteaService, skill: SkillRecord) {
+  const repo = skillRepo(skill);
   const repoTeams =
     typeof giteaService.listRepoTeams === 'function'
-      ? await giteaService.listRepoTeams(skill.scope, skill.skillName)
+      ? await giteaService.listRepoTeams(repo.owner, repo.name)
       : [];
   const members =
     typeof giteaService.listCollaborators === 'function'
-      ? await giteaService.listCollaborators(skill.scope, skill.skillName)
+      ? await giteaService.listCollaborators(repo.owner, repo.name)
       : [];
   const memberViews = [];
   for (const member of members) {
     const permission =
       typeof giteaService.getCollaboratorPermission === 'function'
-        ? await giteaService.getCollaboratorPermission(skill.scope, skill.skillName, member.username)
+        ? await giteaService.getCollaboratorPermission(repo.owner, repo.name, member.username)
         : 'read';
     memberViews.push({ username: member.username, permission });
   }
@@ -774,7 +800,6 @@ async function createSkill(
   reply: FastifyReply,
   repository: SkillRepository,
   giteaService: GiteaService,
-  repoOwner: string,
   username: string,
   input: { name: string; description: string; version: string; visibility: string }
 ) {
@@ -783,8 +808,10 @@ async function createSkill(
   let skill = repository.getSkill(input.name);
   if (!skill) {
     const repoName = `${scope}_${skillName}`;
+    // 组织级技能的仓库须建在组织自己的 Gitea org 下，否则组织的团队
+    // （all-readers/all-writers/自定义团队）无法对其授权（Gitea 不允许跨组织授权）。
     const gitRepo = await giteaService.createOrganizationRepo(
-      repoOwner,
+      scope,
       repoName,
       input.visibility === 'private'
     );

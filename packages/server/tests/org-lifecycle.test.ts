@@ -28,7 +28,7 @@ describe('organization application lifecycle', () => {
       createUser: vi.fn().mockResolvedValue(undefined),
       listTeams: vi
         .fn()
-        .mockResolvedValue([{ id: 1, name: 'Owners', permission: 'admin' }]),
+        .mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
       addTeamMember: vi.fn().mockResolvedValue(undefined),
       createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' })
     };

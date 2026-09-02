@@ -24,7 +24,7 @@ describe('super administrator org console API', () => {
       organizationExists: vi.fn().mockResolvedValue(false),
       createOrg: vi.fn().mockResolvedValue(undefined),
       createUser: vi.fn().mockResolvedValue(undefined),
-      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'admin' }]),
+      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
       addTeamMember: vi.fn().mockResolvedValue(undefined),
       createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' }),
       listOrgs: vi.fn().mockResolvedValue([{ id: 1, name: 'acme' }]),
@@ -32,6 +32,10 @@ describe('super administrator org console API', () => {
         { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' },
         { id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }
       ]),
+      listOrgRepos: vi.fn().mockResolvedValue([
+        { id: 10, name: 'reviewer', full_name: 'acme/reviewer', clone_url: '', html_url: '' }
+      ]),
+      deleteRepo: vi.fn().mockResolvedValue(undefined),
       deleteUser: vi.fn().mockResolvedValue(undefined),
       deleteOrg: vi.fn().mockResolvedValue(undefined)
     };
@@ -229,6 +233,20 @@ describe('super administrator org console API', () => {
     const mockGitea = superAdminGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
     const headers = { authorization: 'token super-token' };
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createServerSkill({
+      name: '@acme/reviewer',
+      scope: 'acme',
+      skillName: 'reviewer',
+      description: 'Reviewer skill',
+      createdBy: 'acme_admin',
+      owner: 'acme_admin',
+      maintainers: ['acme_admin'],
+      visibility: 'private',
+      gitRepoPath: 'acme/reviewer',
+      status: 'active-published'
+    });
+    db.close();
 
     mockGitea.organizationExists.mockResolvedValue(true);
     const mismatch = await app.inject({
@@ -248,9 +266,16 @@ describe('super administrator org console API', () => {
     });
     expect(matched.statusCode).toBe(200);
     expect(matched.json()).toEqual({ deleted: true, orgName: 'acme' });
+    expect(mockGitea.listOrgRepos).toHaveBeenCalledWith('acme');
+    expect(mockGitea.deleteRepo).toHaveBeenCalledWith('acme', 'reviewer');
     expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_admin');
     expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_bob');
     expect(mockGitea.deleteOrg).toHaveBeenCalledWith('acme');
+
+    // 删除组织应同步清空平台库中的技能记录
+    const after = initDatabase(dbPath);
+    expect(new SkillRepository(after).getSkill('@acme/reviewer')).toBeUndefined();
+    after.close();
   });
 
   it('returns 404 when deleting an organization that does not exist', async () => {
