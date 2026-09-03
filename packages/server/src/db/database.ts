@@ -1153,6 +1153,29 @@ export class TenantOrganizationRepository {
     };
   }
 
+  listAll(): TenantOrganizationRecord[] {
+    const rows = this.db.prepare(`
+      SELECT org_name, status, operation_id, last_error_json, created_at, updated_at
+      FROM tenant_organizations
+      ORDER BY org_name ASC
+    `).all() as {
+      org_name: string;
+      status: TenantOrganizationStatus;
+      operation_id: number | null;
+      last_error_json: string | null;
+      created_at: string;
+      updated_at: string;
+    }[];
+    return rows.map((row) => ({
+      orgName: row.org_name,
+      status: row.status,
+      operationId: row.operation_id,
+      lastError: row.last_error_json ? (JSON.parse(row.last_error_json) as OperationError) : null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
   transition(
     orgName: string,
     status: TenantOrganizationStatus,

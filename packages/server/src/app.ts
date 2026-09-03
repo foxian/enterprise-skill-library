@@ -70,11 +70,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
         event: 'organization.provision.succeeded'
       });
     } catch (error) {
-      tenantOrganizationRepository.transition(payload.orgName, 'failed', sanitizeOperationError(error));
+      const failure = sanitizeOperationError(error);
+      tenantOrganizationRepository.transition(payload.orgName, 'failed', failure);
       operationAuditRepository.record({
         operationId: operation.id,
         event: 'organization.provision.failed',
-        details: sanitizeOperationError(error)
+        details: failure
       });
       if (operation.attempts >= operation.maxAttempts) {
         orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
@@ -111,6 +112,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // 状态变更类操作本身没有外部副作用,作为审计锚点与幂等键存在。
   operationExecutor.register('organization.cancel', () => {});
   operationExecutor.register('organization.reject', () => {});
+  operationExecutor.register('organization.expire', () => {});
   operationExecutor.register('member.create', async (operation) => {
     const payload = operation.payload as { orgName: string; username: string };
     const password = readOperationSecret(operation.id);
@@ -153,6 +155,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
     for (const application of orgApplicationRepository.expireStalePending(cutoff)) {
       tenantOrganizationRepository.transition(application.orgName, 'expired');
       orgApplicationRepository.clearEncryptedPasswordById(application.id);
+      // 过期没有外部副作用,Operation 仅承载幂等键与审计记录。
+      const operation = operationRepository.createOperation({
+        idempotencyKey: `organization.expire:${application.id}`,
+        kind: 'organization.expire',
+        payload: { orgName: application.orgName, applicationId: application.id }
+      });
+      operationAuditRepository.record({
+        operationId: operation.id,
+        event: 'organization.expire',
+        details: { orgName: application.orgName }
+      });
+      void operationExecutor.process(operation.id);
     }
   }
 

@@ -274,12 +274,35 @@ describe('organization application lifecycle', () => {
     });
     expect(apply.statusCode).toBe(201);
 
-    const status = await app.inject({ method: 'GET', url: '/api/orgs/applications/acme/status' });
+    // 申请密文仍存在,查询必须证明申请人身份
+    const missingPassword = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications/acme/status',
+      payload: {}
+    });
+    expect(missingPassword.statusCode).toBe(401);
+
+    const wrongPassword = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications/acme/status',
+      payload: { password: 'wrong-password' }
+    });
+    expect(wrongPassword.statusCode).toBe(403);
+
+    const status = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications/acme/status',
+      payload: { password: 'initial-password' }
+    });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toEqual({ orgName: 'acme', status: 'pending' });
     expect(JSON.stringify(status.json())).not.toContain('initial-password');
 
-    const missing = await app.inject({ method: 'GET', url: '/api/orgs/applications/ghost/status' });
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications/ghost/status',
+      payload: {}
+    });
     expect(missing.statusCode).toBe(404);
   });
 
@@ -384,6 +407,15 @@ describe('organization application lifecycle', () => {
     expect(db.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'old-org'`).get()).toEqual({
       status: 'expired'
     });
+    // 过期状态变更写入可查询审计记录
+    const audit = db.prepare(`
+      SELECT a.event, a.details_json
+      FROM operation_audits a
+      JOIN operations o ON o.id = a.operation_id
+      WHERE o.kind = 'organization.expire'
+    `).get() as { event: string; details_json: string };
+    expect(audit.event).toBe('organization.expire');
+    expect(JSON.parse(audit.details_json)).toEqual({ orgName: 'old-org' });
     // 新申请不受影响
     expect(db.prepare('SELECT status FROM org_applications WHERE org_name = ?').get('fresh-org')).toMatchObject({
       status: 'pending'

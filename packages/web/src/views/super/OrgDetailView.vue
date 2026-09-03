@@ -4,7 +4,7 @@
     <el-descriptions :column="3" border data-test="org-summary">
       <el-descriptions-item label="组织名">{{ summary?.name ?? orgName }}</el-descriptions-item>
       <el-descriptions-item label="生命周期">
-        <el-tag :type="statusTagType(summary?.status)" data-test="org-status">{{ statusText(summary?.status) }}</el-tag>
+        <el-tag :type="orgStatusTagType(summary?.status)" data-test="org-status">{{ orgStatusText(summary?.status) }}</el-tag>
       </el-descriptions-item>
       <el-descriptions-item label="成员数">{{ summary?.memberCount ?? '-' }}</el-descriptions-item>
       <el-descriptions-item label="技能数">{{ summary?.skillCount ?? '-' }}</el-descriptions-item>
@@ -20,9 +20,9 @@
       class="page-error"
       data-test="org-last-error"
     />
-    <div v-if="summary?.status === 'delete_failed'" class="retry-row">
+    <div v-if="summary?.status === 'delete_failed' || summary?.status === 'failed'" class="retry-row">
       <el-button type="warning" data-test="retry-operation" :loading="retrying" @click="retryOperation">
-        重试删除流程
+        重试处理流程
       </el-button>
     </div>
 
@@ -64,6 +64,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
+import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
 
 interface OrgSummary {
   name: string;
@@ -85,37 +86,6 @@ const dialogVisible = ref(false);
 const deleting = ref(false);
 const retrying = ref(false);
 const errorMessage = ref('');
-
-const STATUS_TEXT: Record<string, string> = {
-  pending: '待审批',
-  provisioning: '开通中',
-  active: '已激活',
-  failed: '开通失败',
-  rejected: '已拒绝',
-  cancelled: '已取消',
-  expired: '已过期',
-  deleting: '删除中',
-  delete_failed: '删除失败',
-  deleted: '已删除'
-};
-
-function statusText(status?: string | null): string {
-  if (!status) return '未纳管';
-  return STATUS_TEXT[status] ?? status;
-}
-
-function statusTagType(status?: string | null): 'success' | 'warning' | 'danger' | 'info' {
-  const mapping: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
-    active: 'success',
-    pending: 'warning',
-    provisioning: 'warning',
-    deleting: 'warning',
-    failed: 'danger',
-    delete_failed: 'danger'
-  };
-  if (!status) return 'info';
-  return mapping[status] ?? 'info';
-}
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString('zh-CN') : '-';

@@ -19,7 +19,7 @@
       </el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
+          <el-tag :type="orgStatusTagType(row.status)">{{ orgStatusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="200">
@@ -55,6 +55,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
+import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
 
 interface ApplicationView {
   id: number;
@@ -81,29 +82,6 @@ const filteredApplications = computed(() =>
 
 function formatTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
-}
-
-function statusText(status: string): string {
-  return {
-    pending: '待审批',
-    provisioning: '开通中',
-    approved: '已批准',
-    rejected: '已拒绝',
-    cancelled: '已取消',
-    expired: '已过期'
-  }[status] ?? status;
-}
-
-function statusTagType(status: string): 'warning' | 'success' | 'info' | 'danger' {
-  const mapping: Record<string, 'warning' | 'success' | 'info' | 'danger'> = {
-    pending: 'warning',
-    provisioning: 'warning',
-    approved: 'success',
-    rejected: 'info',
-    cancelled: 'info',
-    expired: 'info'
-  };
-  return mapping[status] ?? 'info';
 }
 
 async function loadApplications(): Promise<void> {

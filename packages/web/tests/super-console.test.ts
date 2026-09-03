@@ -212,6 +212,27 @@ describe('OrgDetailView 组织详情', () => {
     });
   }
 
+  it('开通失败的组织展示失败原因与重试入口', async () => {
+    const { requests } = mockOrgsApi({
+      status: 'failed',
+      operationId: 12,
+      lastError: { code: 'PROVISIONING_FAILED', message: 'password too short', details: {} }
+    });
+    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('password too short');
+    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(true);
+
+    requests.length = 0;
+    await wrapper.find('[data-test="retry-operation"]').trigger('click');
+    await flushPromises();
+
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
+      'POST /api/admin/operations/12/retry'
+    );
+  });
+
   it('删除失败的组织展示失败原因与重试入口', async () => {
     const { requests } = mockOrgsApi({
       status: 'delete_failed',

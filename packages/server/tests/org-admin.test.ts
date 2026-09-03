@@ -295,8 +295,8 @@ describe('super administrator org console API', () => {
   it('exposes lifecycle status, failure reason, and operation id with the org list', async () => {
     const db = initDatabase(dbPath);
     const operation = new OperationRepository(db).createOperation({
-      idempotencyKey: 'organization.delete:acme',
-      kind: 'organization.delete',
+      idempotencyKey: 'organization.provision:1',
+      kind: 'organization.provision',
       payload: { orgName: 'acme' }
     });
     // 置为退避中的失败态,避免 buildApp 启动时的 processPending 认领重跑
@@ -305,15 +305,17 @@ describe('super administrator org console API', () => {
       SET status = 'failed', next_retry_at = '2999-01-01T00:00:00.000Z'
       WHERE id = ?
     `).run(operation.id);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'delete_failed', operationId: operation.id });
-    new TenantOrganizationRepository(db).transition('acme', 'delete_failed', {
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'failed', operationId: operation.id });
+    new TenantOrganizationRepository(db).transition('acme', 'failed', {
       code: 'EXTERNAL_RESOURCE',
-      message: 'Automatic deletion stopped: resources without ESL provenance (repository acme/outsider)',
-      details: { resources: ['repository acme/outsider'] }
+      message: 'Organization already exists with external owners (external-human)',
+      details: { resources: ['owner external-human'] }
     });
     db.close();
 
     const mockGitea = superAdminGitea();
+    // 开通在 Gitea 建组织之前失败:Git Backend 列表中没有该组织
+    mockGitea.listOrgs.mockResolvedValue([]);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
@@ -327,7 +329,8 @@ describe('super administrator org console API', () => {
     expect(orgs).toHaveLength(1);
     expect(orgs[0]).toMatchObject({
       name: 'acme',
-      status: 'delete_failed',
+      memberCount: 0,
+      status: 'failed',
       operationId: operation.id,
       lastError: { code: 'EXTERNAL_RESOURCE' }
     });

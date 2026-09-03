@@ -111,6 +111,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     });
     const updated = orgApplicationRepository.updateApplicationStatusById(id, 'rejected');
     orgApplicationRepository.clearEncryptedPasswordById(id);
+    // 拒绝意味着该组织不会成立:无论租户此前处于何种状态都转入 rejected。
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
     if (tenant) {
       options.tenantOrganizationRepository.transition(application.orgName, 'rejected');
@@ -146,6 +147,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     });
     orgApplicationRepository.updateApplicationStatusById(id, 'cancelled');
     orgApplicationRepository.clearEncryptedPasswordById(id);
+    // 取消仅撤回尚未进入开通流程的申请;已进入 provisioning/failed 的组织
+    // 由管理员经审批重试或删除流程处理,不随申请取消而变更状态。
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
     if (tenant && tenant.status === 'pending') {
       options.tenantOrganizationRepository.transition(application.orgName, 'cancelled');
@@ -178,9 +181,11 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
   app.get('/api/admin/orgs', async (request, reply) => {
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     const orgs = await giteaService.listOrgs();
-    return Promise.all(
+    const tenants = options.tenantOrganizationRepository.listAll();
+    const tenantByName = new Map(tenants.map((tenant) => [tenant.orgName, tenant]));
+    const views = await Promise.all(
       orgs.map(async (org) => {
-        const tenant = options.tenantOrganizationRepository.get(org.name);
+        const tenant = tenantByName.get(org.name);
         return {
           name: org.name,
           memberCount: (await giteaService.listOrgMembers(org.name)).length,
@@ -192,6 +197,22 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         };
       })
     );
+    // 开通在 Gitea 建组织之前失败的组织不会出现在 Git Backend 列表中,
+    // 从租户状态表补充,保证失败原因与重试入口可达。
+    const listed = new Set(orgs.map((org) => org.name));
+    for (const tenant of tenants) {
+      if (listed.has(tenant.orgName) || tenant.status === 'deleted') continue;
+      views.push({
+        name: tenant.orgName,
+        memberCount: 0,
+        skillCount: skillRepository.countSkillsByScope(tenant.orgName),
+        createdAt: tenant.createdAt,
+        status: tenant.status,
+        lastError: tenant.lastError,
+        operationId: tenant.operationId
+      });
+    }
+    return views;
   });
 
   app.get('/api/admin/operations/:id/audits', async (request, reply) => {

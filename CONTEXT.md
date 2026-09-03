@@ -169,7 +169,7 @@ ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一
 
 ## Operation
 
-一次需要跨越 ESL 数据库与 Git Backend 的可恢复变更记录。它包含操作类型、目标资源、幂等键、当前状态、Provisioning Lease、重试次数和脱敏失败原因，但不取代 Git Backend 作为成员、团队和仓库权限的事实来源。
+一次需要跨越 ESL 数据库与 Git Backend 的可恢复变更记录。它包含操作类型、目标资源、幂等键、当前状态、Provisioning Lease、重试次数和脱敏失败原因，但不取代 Git Backend 作为成员、团队和仓库权限的事实来源。部分状态变更类操作（如申请拒绝、取消、过期）本身没有 Git Backend 副作用，仍以 Operation 承载幂等键并作为审计记录的锚点。
 
 ## Organization Deletion State
 

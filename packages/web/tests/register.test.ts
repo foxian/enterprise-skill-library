@@ -173,10 +173,11 @@ describe('RegisterView', () => {
     expect(wrapper.find('[data-test="register-result"]').exists()).toBe(false);
   });
 
-  it('申请人可按组织名查询申请状态', async () => {
-    const calls: Array<{ url: string }> = [];
-    setFetchImpl((async (url: string | URL) => {
-      calls.push({ url: String(url) });
+  it('申请人可按组织名与申请密码查询申请状态', async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    setFetchImpl((async (url: string | URL, init?: RequestInit) => {
+      const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
+      calls.push({ url: String(url), body });
       if (String(url) === '/api/orgs/applications/acme/status') {
         return new Response(JSON.stringify({ orgName: 'acme', status: 'provisioning' }), { status: 200 });
       }
@@ -185,10 +186,12 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="status-org-name"]', 'acme');
+    await setField(wrapper, '[data-test="status-password"]', 'initial-password-123');
     await wrapper.find('[data-test="status-query"]').trigger('click');
     await flushPromises();
 
-    expect(calls.map((call) => call.url)).toContain('/api/orgs/applications/acme/status');
+    const statusCall = calls.find((call) => call.url === '/api/orgs/applications/acme/status');
+    expect(statusCall?.body).toEqual({ password: 'initial-password-123' });
     expect(wrapper.find('[data-test="status-result"]').text()).toContain('开通中');
 
     await setField(wrapper, '[data-test="status-org-name"]', 'ghost');

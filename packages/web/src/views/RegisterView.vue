@@ -45,10 +45,14 @@
       <el-divider />
       <div class="status-lookup">
         <p class="status-lookup-title">查询申请状态</p>
+        <el-input v-model="statusOrgName" data-test="status-org-name" placeholder="申请的组织名" @keyup.enter="queryStatus" />
         <el-input
-          v-model="statusOrgName"
-          data-test="status-org-name"
-          placeholder="输入申请的组织名"
+          v-model="statusPassword"
+          data-test="status-password"
+          type="password"
+          show-password
+          placeholder="申请时设置的初始密码"
+          class="status-lookup-password"
           @keyup.enter="queryStatus"
         />
         <el-button class="status-lookup-button" data-test="status-query" @click="queryStatus">查询</el-button>
@@ -64,7 +68,8 @@ import { computed, ref } from 'vue';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
 import { validateOrgName } from '@esl/core/dist/org/org-name.js';
 import { validatePassword } from '@esl/core/dist/org/account-policy.js';
-import { apiRequest } from '../api/client';
+import { apiRequest, ApiError } from '../api/client';
+import { orgStatusText } from '../constants/org-status';
 
 const orgName = ref('');
 const password = ref('');
@@ -123,21 +128,10 @@ async function submit(): Promise<void> {
   }
 }
 
-// 申请人自助查询:只能看到申请状态本身,没有任何重试、取消或修复入口
-const STATUS_TEXT: Record<string, string> = {
-  pending: '待审批',
-  provisioning: '开通中',
-  active: '已激活',
-  failed: '开通失败',
-  rejected: '已拒绝',
-  cancelled: '已取消',
-  expired: '已过期',
-  deleting: '删除中',
-  delete_failed: '删除失败',
-  deleted: '已删除'
-};
-
+// 申请人自助查询:申请密文仍存在时必须提供申请时设置的初始密码,
+// 且只有查看入口,没有任何重试、取消或修复入口
 const statusOrgName = ref('');
+const statusPassword = ref('');
 const statusResult = ref('');
 
 async function queryStatus(): Promise<void> {
@@ -148,11 +142,16 @@ async function queryStatus(): Promise<void> {
   }
   try {
     const result = await apiRequest<{ orgName: string; status: string }>(
-      `/api/orgs/applications/${encodeURIComponent(statusOrgName.value)}/status`
+      `/api/orgs/applications/${encodeURIComponent(statusOrgName.value)}/status`,
+      { method: 'POST', body: { password: statusPassword.value || undefined } }
     );
-    statusResult.value = `组织 ${result.orgName} 的申请状态：${STATUS_TEXT[result.status] ?? result.status}`;
+    statusResult.value = `组织 ${result.orgName} 的申请状态：${orgStatusText(result.status)}`;
   } catch (error) {
-    statusResult.value = error instanceof Error ? `未找到该申请：${error.message}` : `未找到该申请：${String(error)}`;
+    if (error instanceof ApiError && error.status === 404) {
+      statusResult.value = '未找到该组织的申请记录';
+    } else {
+      statusResult.value = error instanceof Error ? error.message : String(error);
+    }
   }
 }
 </script>
@@ -202,6 +201,10 @@ async function queryStatus(): Promise<void> {
   margin: 0 0 8px;
   font-size: 13px;
   color: var(--el-text-color-secondary);
+}
+
+.status-lookup-password {
+  margin-top: 8px;
 }
 
 .status-lookup-button {

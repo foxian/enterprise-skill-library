@@ -8,7 +8,7 @@ import type {
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
-import { encryptApplicationSecret } from '../services/application-secret.js';
+import { decryptApplicationSecret, encryptApplicationSecret } from '../services/application-secret.js';
 
 export interface OrgRouteOptions {
   giteaService: GiteaService;
@@ -24,18 +24,26 @@ export interface OrgRouteOptions {
 export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions): void {
   const { giteaService, orgApplicationRepository, platformSettingsRepository } = options;
 
-  app.get('/api/orgs/applications/:orgName/status', async (request, reply) => {
-    // 申请人自助查询:只暴露申请与组织生命周期状态,不暴露任何凭据材料。
+  app.post('/api/orgs/applications/:orgName/status', async (request, reply) => {
+    // 申请人自助查询:只能看到申请与组织生命周期状态,不暴露任何凭据材料。
+    // 归属证明:申请密码密文仍存在时,必须提供申请时设置的初始密码。
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
     const tenant = options.tenantOrganizationRepository.get(orgName);
-    if (tenant) {
-      return { orgName, status: tenant.status };
-    }
     const application = orgApplicationRepository.getApplication(orgName);
-    if (application) {
-      return { orgName, status: application.status };
+    if (!tenant && !application) {
+      return reply.status(404).send({ error: 'Organization application not found' });
     }
-    return reply.status(404).send({ error: 'Organization application not found' });
+    if (application?.encryptedPassword && options.applicationEncryptionKey) {
+      const { password = '' } = (request.body ?? {}) as { password?: string };
+      if (!password) {
+        return reply.status(401).send({ error: 'Applicant password is required to query the application status' });
+      }
+      const expected = decryptApplicationSecret(application.encryptedPassword, options.applicationEncryptionKey);
+      if (password !== expected) {
+        return reply.status(403).send({ error: 'Applicant password does not match' });
+      }
+    }
+    return { orgName, status: tenant?.status ?? application!.status };
   });
 
   app.post('/api/orgs/apply', async (request, reply) => {
