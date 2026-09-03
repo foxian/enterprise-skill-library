@@ -4,8 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import semver from 'semver';
-import type { AdminRepository, SkillRecord, SkillRepository } from '../db/database.js';
+import type { AdminRepository, OperationRepository, SkillRecord, SkillRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
+import type { OperationExecutor } from '../services/operation-executor.js';
+import type { PermissionChangePayload } from '../services/skill-operations.js';
 
 export interface SkillsRouteOptions {
   repository: SkillRepository;
@@ -13,10 +15,12 @@ export interface SkillsRouteOptions {
   giteaService: GiteaService;
   repoOwner: string;
   packageRoot?: string;
+  operationRepository: OperationRepository;
+  operationExecutor: OperationExecutor;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
-  const { repository, adminRepository, giteaService, repoOwner } = options;
+  const { repository, adminRepository, giteaService, repoOwner, operationRepository, operationExecutor } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
   app.post('/api/skills/upload', async (request, reply) => {
@@ -96,7 +100,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         version: string;
         visibility?: string;
       };
-      return createSkill(request, reply, repository, giteaService, eslUser.username, {
+      return createSkill(request, reply, options, eslUser.username, {
         name,
         description,
         version,
@@ -119,7 +123,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       version: string;
       visibility?: string;
     };
-    return createSkill(request, reply, repository, giteaService, user.username, {
+    return createSkill(request, reply, options, user.username, {
       name,
       description,
       version,
@@ -176,6 +180,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
     const repo = skillRepo(skill);
+    // 路由侧只做无副作用的参数与目标校验,实际的 Gitea 变更经 Operation 执行,
+    // 失败时可查询、可重试;Gitea 始终是权限的事实来源。
+    let payload: PermissionChangePayload;
     switch (body.action) {
       case 'share_all_read':
       case 'share_all_write': {
@@ -184,7 +191,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         if (!team) {
           return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
         }
-        await giteaService.addTeamRepo(team.id, repo.owner, repo.name);
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, teamId: team.id };
         break;
       }
       case 'add_team':
@@ -196,43 +203,54 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         if (!team) {
           return reply.status(404).send({ error: 'Team not found in organization' });
         }
-        if (body.action === 'add_team') {
-          await giteaService.addTeamRepo(team.id, repo.owner, repo.name);
-        } else {
-          await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
-        }
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, teamId: team.id };
         break;
       }
       case 'add_member': {
         if (!body.username || (body.permission !== 'read' && body.permission !== 'write')) {
           return reply.status(400).send({ error: 'Username and a read or write permission are required' });
         }
-        await giteaService.addCollaborator(repo.owner, repo.name, body.username, body.permission);
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, username: body.username, permission: body.permission };
         break;
       }
       case 'remove_member': {
         if (!body.username) {
           return reply.status(400).send({ error: 'Username is required' });
         }
-        await giteaService.removeCollaborator(repo.owner, repo.name, body.username);
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, username: body.username };
         break;
       }
       case 'reset_to_private': {
-        if (typeof giteaService.listRepoTeams === 'function') {
-          for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
-            await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
-          }
-        }
-        if (typeof giteaService.listCollaborators === 'function') {
-          for (const member of await giteaService.listCollaborators(repo.owner, repo.name)) {
-            if (member.username === skill.owner) continue;
-            await giteaService.removeCollaborator(repo.owner, repo.name, member.username);
-          }
-        }
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, skillOwner: skill.owner };
         break;
       }
       default:
         return reply.status(400).send({ error: 'Unknown permission action' });
+    }
+
+    const suppliedKey = request.headers['idempotency-key'];
+    const clientKey = Array.isArray(suppliedKey) ? suppliedKey[0] : suppliedKey;
+    const idempotencyKey = `skill.permission:${name}:${body.action}:${clientKey ?? crypto.randomUUID()}`;
+    let operation = operationRepository.getOperationByIdempotencyKey(idempotencyKey);
+    if (!operation) {
+      operation = operationRepository.createOperation({
+        idempotencyKey,
+        kind: 'skill.permission',
+        payload
+      });
+    }
+    if (operation.status === 'failed' || operation.status === 'permanently_failed') {
+      operation = operationRepository.retryOperation(operation.id)!;
+    }
+    await operationExecutor.process(operation.id);
+    operation = operationRepository.getOperation(operation.id)!;
+    if (operation.status !== 'succeeded') {
+      return reply.status(409).send({
+        error: operation.error?.message ?? 'Permission change failed',
+        operationId: operation.id,
+        status: operation.status,
+        retryable: true
+      });
     }
     return getPermissionMatrix(giteaService, skill);
   });
@@ -798,38 +816,56 @@ async function authenticateSkillUser(
 async function createSkill(
   request: FastifyRequest,
   reply: FastifyReply,
-  repository: SkillRepository,
-  giteaService: GiteaService,
+  options: SkillsRouteOptions,
   username: string,
   input: { name: string; description: string; version: string; visibility: string }
 ) {
+  const { repository, giteaService, operationRepository, operationExecutor } = options;
   const { scope, skillName } = parseSkillName(input.name);
 
   let skill = repository.getSkill(input.name);
   if (!skill) {
-    const repoName = `${scope}_${skillName}`;
-    // 组织级技能的仓库须建在组织自己的 Gitea org 下，否则组织的团队
-    // （all-readers/all-writers/自定义团队）无法对其授权（Gitea 不允许跨组织授权）。
-    const gitRepo = await giteaService.createOrganizationRepo(
-      scope,
-      repoName,
-      input.visibility === 'private'
-    );
-    repository.createServerSkill({
-      name: input.name,
-      scope,
-      skillName,
-      description: input.description,
-      createdBy: username,
-      owner: 'platform',
-      maintainers: [username],
-      visibility: input.visibility,
-      gitRepoPath: gitRepo.full_name,
-      status: 'active-published'
-    });
+    // 技能仓库创建与 Skill Identity 登记接入统一 Operation 模型:
+    // 幂等键收敛重复请求,失败落库可查询、可重试,成功后正常返回发布结果。
+    const idempotencyKey = `skill.create:${input.name}`;
+    let operation = operationRepository.getOperationByIdempotencyKey(idempotencyKey);
+    if (!operation) {
+      operation = operationRepository.createOperation({
+        idempotencyKey,
+        kind: 'skill.create',
+        payload: {
+          name: input.name,
+          scope,
+          skillName,
+          description: input.description,
+          visibility: input.visibility,
+          username
+        }
+      });
+    }
+    if (operation.status === 'failed' || operation.status === 'permanently_failed') {
+      operation = operationRepository.retryOperation(operation.id)!;
+    }
+    await operationExecutor.process(operation.id);
+    operation = operationRepository.getOperation(operation.id)!;
+    if (operation.status !== 'succeeded') {
+      return reply.status(409).send({
+        error: operation.error?.message ?? 'Skill creation failed',
+        operationId: operation.id,
+        status: operation.status
+      });
+    }
     skill = repository.getSkill(input.name)!;
   }
 
+  // 幂等发布:同一版本重复请求收敛为当前状态,不重复登记
+  if (repository.getVersions(input.name).includes(input.version)) {
+    return reply.status(200).send(withCloneUrl(request, {
+      ...skill!,
+      versions: repository.getVersions(input.name),
+      publishedPackage: true
+    }));
+  }
   repository.addVersion(input.name, input.version);
   if (skill.status !== 'active-published' || !skill.skillId) {
     repository.markPublished(input.name);

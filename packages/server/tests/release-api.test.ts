@@ -175,6 +175,64 @@ describe('Skill Release API', () => {
     });
   });
 
+  it('keeps the release recoverable when the release tag push fails', async () => {
+    gitea.readSourceTree = vi.fn().mockResolvedValue({
+      'SKILL.md': '---\nname: reviewer\n---\n',
+      'release.json': JSON.stringify({
+        schemaVersion: 1,
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+
+    // Git Tag 推送失败:Release 已创建,不回滚,返回可恢复状态
+    gitea.createReleaseTag.mockRejectedValueOnce(new Error('Failed to create Gitea release tag: boom'));
+    const publish = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases',
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'abc123',
+        releaseManifest: {
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        }
+      }
+    });
+
+    expect(publish.statusCode).toBe(201);
+    expect(publish.json()).toMatchObject({ status: 'published', tagPending: true });
+
+    // 用户经 repair-tag 补建 Release Tag,恢复一致
+    const repair = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/repair-tag',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(repair.statusCode).toBe(200);
+    expect(repair.json()).toMatchObject({ repaired: true, tag: 'v1.0.0', sourceCommit: 'abc123' });
+
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(info.statusCode).toBe(200);
+    expect(info.json().releases).toHaveLength(1);
+  });
+
   it('rejects a duplicate release version without replacing the existing record', async () => {
     await app.inject({
       method: 'POST',

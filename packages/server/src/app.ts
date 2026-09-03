@@ -21,6 +21,8 @@ import path from 'node:path';
 import { OperationExecutor } from './services/operation-executor.js';
 import { initializeTenantOrganization } from './services/org-init.js';
 import { runOrganizationDeletion } from './services/org-delete.js';
+import { executePermissionChange, executeSkillCreation, type SkillCreationPayload } from './services/skill-operations.js';
+import type { PermissionChangePayload } from './services/skill-operations.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
 
@@ -113,6 +115,18 @@ export function buildApp(options: AppOptions): FastifyInstance {
   operationExecutor.register('organization.cancel', () => {});
   operationExecutor.register('organization.reject', () => {});
   operationExecutor.register('organization.expire', () => {});
+  operationExecutor.register('skill.create', async (operation) => {
+    await executeSkillCreation(
+      { giteaService: options.giteaService, skillRepository: repository },
+      operation.payload as SkillCreationPayload
+    );
+  });
+  operationExecutor.register('skill.permission', async (operation) => {
+    await executePermissionChange(
+      { giteaService: options.giteaService },
+      operation.payload as PermissionChangePayload
+    );
+  });
   operationExecutor.register('member.create', async (operation) => {
     const payload = operation.payload as { orgName: string; username: string };
     const password = readOperationSecret(operation.id);
@@ -179,6 +193,30 @@ export function buildApp(options: AppOptions): FastifyInstance {
   }
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
+  app.get('/api/operations/:id', async (request, reply) => {
+    // 供调用方查询自己触发的跨系统 Operation 状态(错误信息已脱敏)。
+    const authorization = request.headers.authorization;
+    const token = authorization?.startsWith('token ') ? authorization.replace('token ', '').trim() : '';
+    const authenticated = token
+      ? Boolean(adminRepository.validateUserToken(token) || (await options.giteaService.validateToken(token)))
+      : false;
+    if (!authenticated) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const id = Number((request.params as { id: string }).id);
+    const operation = operationRepository.getOperation(id);
+    if (!operation) {
+      return reply.status(404).send({ error: 'Operation not found' });
+    }
+    return {
+      id: operation.id,
+      kind: operation.kind,
+      status: operation.status,
+      error: operation.error,
+      createdAt: operation.createdAt,
+      updatedAt: operation.updatedAt
+    };
+  });
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
@@ -256,7 +294,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     adminRepository,
     giteaService: options.giteaService,
     repoOwner: options.repoOwner,
-    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
+    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
+    operationRepository,
+    operationExecutor
   });
   app.addHook('onClose', () => db.close());
 
