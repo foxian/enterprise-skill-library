@@ -306,7 +306,66 @@ describe('organization application lifecycle', () => {
     expect(missing.statusCode).toBe(404);
   });
 
-  it('requires orgName, admin display name, and password', async () => {
+  it('transitions a failed organization back to provisioning when provisioning is retried', async () => {
+    const mockGitea = {
+      ...autoModeGitea(),
+      validateAdminUserToken: vi.fn(async (token: string) =>
+        token === 'super-token' ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
+      )
+    };
+    let releaseWritersTeam: () => void = () => {};
+    const hangingWritersTeam = new Promise<void>((resolve) => {
+      releaseWritersTeam = resolve;
+    });
+    // 首次尝试:all-readers 成功、all-writers 失败;重试:重建 all-readers 后停在 all-writers
+    mockGitea.createTeam
+      .mockResolvedValueOnce({ id: 2, name: 'all-readers', permission: 'read' })
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({ id: 2, name: 'all-readers', permission: 'read' })
+      .mockReturnValueOnce(hangingWritersTeam as any);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const apply = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'initial-password' }
+    });
+    expect(apply.statusCode).toBe(201);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const db = initDatabase(dbPath);
+    const operationId = (db.prepare(`SELECT id FROM operations WHERE kind = 'organization.provision'`).get() as { id: number }).id;
+    db.close();
+    const retry = await app.inject({
+      method: 'POST',
+      url: `/api/admin/operations/${operationId}/retry`,
+      headers: { authorization: 'token super-token' }
+    });
+    expect(retry.statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 重试仅允许 failed -> provisioning(ADR-0017),开通完成后再进入 active
+    const during = initDatabase(dbPath);
+    expect(during.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+      status: 'provisioning'
+    });
+    during.close();
+
+    releaseWritersTeam();
+    await new Promise((resolve) => setImmediate(resolve));
+    const after = initDatabase(dbPath);
+    expect(after.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+      status: 'active'
+    });
+    after.close();
+  });
+
+  it('requires orgName and password', async () => {
     const mockGitea = autoModeGitea();
     app = await buildApp({
       dbPath,
@@ -323,6 +382,14 @@ describe('organization application lifecycle', () => {
 
     expect(response.statusCode).toBe(400);
     expect(mockGitea.createOrg).not.toHaveBeenCalled();
+
+    // adminDisplayName 无业务用途:不再要求,管理员身份固定为 admin
+    const withoutDisplayName = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'initial-password' }
+    });
+    expect(withoutDisplayName.statusCode).toBe(201);
   });
 
   it('refuses to take over an externally owned organization', async () => {

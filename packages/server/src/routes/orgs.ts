@@ -47,13 +47,15 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
   });
 
   app.post('/api/orgs/apply', async (request, reply) => {
-    const { orgName = '', adminDisplayName = '', password = '' } = request.body as {
+    // 管理员身份固定为 admin(ADR-0017):adminDisplayName 无业务用途,
+    // 兼容旧客户端仍可携带,但服务端不再要求也不采用。
+    const { orgName = '', password = '' } = request.body as {
       orgName?: string;
       adminDisplayName?: string;
       password?: string;
     };
-    if (!orgName || !adminDisplayName || !password) {
-      return reply.status(400).send({ error: 'orgName, adminDisplayName, and password are required' });
+    if (!orgName || !password) {
+      return reply.status(400).send({ error: 'orgName and password are required' });
     }
 
     const validation = validateOrgName(orgName);
@@ -79,7 +81,7 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     try {
       const application = orgApplicationRepository.createApplication({
         orgName,
-        adminDisplayName,
+        adminDisplayName: 'admin',
         encryptedPassword: encryptApplicationSecret(password, options.applicationEncryptionKey)
       });
       const operation = options.operationRepository.createOperation({

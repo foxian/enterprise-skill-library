@@ -273,6 +273,11 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       const payload = operation.payload as { orgName: string };
       options.tenantOrganizationRepository.transition(payload.orgName, 'deleting');
     }
+    if (operation.kind === 'organization.provision') {
+      // 重试只允许 failed -> provisioning(ADR-0017),开通完成后再进入 active。
+      const payload = operation.payload as { orgName: string };
+      options.tenantOrganizationRepository.transition(payload.orgName, 'provisioning');
+    }
     options.operationAuditRepository.record({
       operationId: id,
       event: 'operation.retry',
