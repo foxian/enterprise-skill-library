@@ -24,6 +24,20 @@ export interface OrgRouteOptions {
 export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions): void {
   const { giteaService, orgApplicationRepository, platformSettingsRepository } = options;
 
+  app.get('/api/orgs/applications/:orgName/status', async (request, reply) => {
+    // 申请人自助查询:只暴露申请与组织生命周期状态,不暴露任何凭据材料。
+    const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
+    const tenant = options.tenantOrganizationRepository.get(orgName);
+    if (tenant) {
+      return { orgName, status: tenant.status };
+    }
+    const application = orgApplicationRepository.getApplication(orgName);
+    if (application) {
+      return { orgName, status: application.status };
+    }
+    return reply.status(404).send({ error: 'Organization application not found' });
+  });
+
   app.post('/api/orgs/apply', async (request, reply) => {
     const { orgName = '', adminDisplayName = '', password = '' } = request.body as {
       orgName?: string;

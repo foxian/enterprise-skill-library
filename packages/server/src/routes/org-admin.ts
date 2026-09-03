@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   OrgApplicationRepository,
+  OperationAuditRepository,
   PlatformSettingsRepository,
   SkillRepository,
   OperationRepository,
   TenantOrganizationRepository
 } from '../db/database.js';
-import type { GiteaService } from '../services/gitea.js';
+import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import crypto from 'node:crypto';
 
@@ -16,6 +17,7 @@ export interface OrgAdminRouteOptions {
   platformSettingsRepository: PlatformSettingsRepository;
   skillRepository: SkillRepository;
   operationRepository: OperationRepository;
+  operationAuditRepository: OperationAuditRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
   operationExecutor: OperationExecutor;
   applicationEncryptionKey?: string;
@@ -29,7 +31,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
   });
 
   app.post('/api/admin/orgs/applications/:id/approve', async (request, reply) => {
-    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
     const id = Number((request.params as { id: string }).id);
     const application = orgApplicationRepository.getApplicationById(id);
     if (!application) {
@@ -79,12 +82,19 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         operationId: operation.id
       });
     }
+    options.operationAuditRepository.record({
+      operationId: operation.id,
+      event: 'organization.approve',
+      actor: admin.username,
+      details: { orgName: application.orgName }
+    });
     void options.operationExecutor.process(operation.id);
     return { status: 'provisioning', orgName: application.orgName, operationId: operation.id };
   });
 
   app.post('/api/admin/orgs/applications/:id/reject', async (request, reply) => {
-    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
     const id = Number((request.params as { id: string }).id);
     const application = orgApplicationRepository.getApplicationById(id);
     if (!application) {
@@ -93,6 +103,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (application.status !== 'pending') {
       return reply.status(409).send({ error: 'Organization application has already been processed' });
     }
+    // 拒绝没有外部副作用,Operation 仅作为幂等键与审计锚点。
+    const operation = options.operationRepository.createOperation({
+      idempotencyKey: `organization.reject:${id}`,
+      kind: 'organization.reject',
+      payload: { orgName: application.orgName, applicationId: id }
+    });
     const updated = orgApplicationRepository.updateApplicationStatusById(id, 'rejected');
     orgApplicationRepository.clearEncryptedPasswordById(id);
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
@@ -101,7 +117,47 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     } else {
       options.tenantOrganizationRepository.create({ orgName: application.orgName, status: 'rejected' });
     }
+    options.operationAuditRepository.record({
+      operationId: operation.id,
+      event: 'organization.reject',
+      actor: admin.username,
+      details: { orgName: application.orgName }
+    });
+    void options.operationExecutor.process(operation.id);
     return { status: 'rejected', orgName: updated?.orgName ?? application.orgName };
+  });
+
+  app.post('/api/admin/orgs/applications/:id/cancel', async (request, reply) => {
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
+    const id = Number((request.params as { id: string }).id);
+    const application = orgApplicationRepository.getApplicationById(id);
+    if (!application) {
+      return reply.status(404).send({ error: 'Organization application not found' });
+    }
+    if (application.status !== 'pending') {
+      return reply.status(409).send({ error: 'Only pending applications can be cancelled' });
+    }
+    // 取消没有外部副作用,Operation 仅作为幂等键与审计锚点。
+    const operation = options.operationRepository.createOperation({
+      idempotencyKey: `organization.cancel:${id}`,
+      kind: 'organization.cancel',
+      payload: { orgName: application.orgName, applicationId: id }
+    });
+    orgApplicationRepository.updateApplicationStatusById(id, 'cancelled');
+    orgApplicationRepository.clearEncryptedPasswordById(id);
+    const tenant = options.tenantOrganizationRepository.get(application.orgName);
+    if (tenant && tenant.status === 'pending') {
+      options.tenantOrganizationRepository.transition(application.orgName, 'cancelled');
+    }
+    options.operationAuditRepository.record({
+      operationId: operation.id,
+      event: 'organization.cancel',
+      actor: admin.username,
+      details: { orgName: application.orgName }
+    });
+    void options.operationExecutor.process(operation.id);
+    return { status: 'cancelled', orgName: application.orgName };
   });
 
   app.get('/api/admin/orgs/settings', async (request, reply) => {
@@ -123,17 +179,33 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     const orgs = await giteaService.listOrgs();
     return Promise.all(
-      orgs.map(async (org) => ({
-        name: org.name,
-        memberCount: (await giteaService.listOrgMembers(org.name)).length,
-        skillCount: skillRepository.countSkillsByScope(org.name),
-        createdAt: org.created
-      }))
+      orgs.map(async (org) => {
+        const tenant = options.tenantOrganizationRepository.get(org.name);
+        return {
+          name: org.name,
+          memberCount: (await giteaService.listOrgMembers(org.name)).length,
+          skillCount: skillRepository.countSkillsByScope(org.name),
+          createdAt: org.created,
+          status: tenant?.status ?? null,
+          lastError: tenant?.lastError ?? null,
+          operationId: tenant?.operationId ?? null
+        };
+      })
     );
   });
 
-  app.delete('/api/admin/orgs/:orgName', async (request, reply) => {
+  app.get('/api/admin/operations/:id/audits', async (request, reply) => {
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const id = Number((request.params as { id: string }).id);
+    if (!options.operationRepository.getOperation(id)) {
+      return reply.status(404).send({ error: 'Operation not found' });
+    }
+    return options.operationAuditRepository.listByOperation(id);
+  });
+
+  app.delete('/api/admin/orgs/:orgName', async (request, reply) => {
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
     const { confirm } = (request.body ?? {}) as { confirm?: string };
     if (confirm !== orgName) {
@@ -160,12 +232,19 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     });
     options.tenantOrganizationRepository.transition(orgName, 'deleting');
     options.tenantOrganizationRepository.setOperationId(orgName, operation.id);
+    options.operationAuditRepository.record({
+      operationId: operation.id,
+      event: 'organization.delete',
+      actor: admin.username,
+      details: { orgName }
+    });
     void options.operationExecutor.process(operation.id);
     return reply.status(202).send({ status: 'deleting', orgName, operationId: operation.id });
   });
 
   app.post('/api/admin/operations/:id/retry', async (request, reply) => {
-    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
     const id = Number((request.params as { id: string }).id);
     const operation = options.operationRepository.retryOperation(id);
     if (!operation) return reply.status(404).send({ error: 'Retryable operation not found' });
@@ -173,6 +252,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       const payload = operation.payload as { orgName: string };
       options.tenantOrganizationRepository.transition(payload.orgName, 'deleting');
     }
+    options.operationAuditRepository.record({
+      operationId: id,
+      event: 'operation.retry',
+      actor: admin.username,
+      details: { kind: operation.kind }
+    });
     void options.operationExecutor.process(id);
     return { status: 'pending', operationId: id };
   });
@@ -203,15 +288,15 @@ async function requireSuperAdministrator(
   request: FastifyRequest,
   reply: FastifyReply,
   giteaService: GiteaService
-): Promise<boolean> {
+): Promise<GiteaUser | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
     reply.status(401).send({ error: 'Unauthorized: missing token' });
-    return false;
+    return null;
   }
   const token = authorization.replace('token ', '').trim();
   const admin = await giteaService.validateAdminUserToken(token);
-  if (admin) return true;
+  if (admin) return admin;
   reply.status(403).send({ error: 'Forbidden: super administrator token required' });
-  return false;
+  return null;
 }

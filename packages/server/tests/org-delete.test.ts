@@ -463,7 +463,7 @@ describe('organization lifecycle access control', () => {
     db.close();
   }
 
-  for (const status of ['deleting', 'delete_failed']) {
+  for (const status of ['provisioning', 'failed', 'deleting', 'delete_failed']) {
     it(`rejects logins, skill operations, and org management while ${status}`, async () => {
       seedTenantWithStatus(status);
       const mockGitea = consoleGitea();

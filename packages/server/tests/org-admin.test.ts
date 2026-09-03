@@ -211,6 +211,181 @@ describe('super administrator org console API', () => {
     after.close();
   });
 
+  it('cancels a pending application, clears its credential, and writes audit records', async () => {
+    const applicationEncryptionKey = 'a'.repeat(64);
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'pending' });
+    new OrgApplicationRepository(db).createApplication({
+      orgName: 'acme',
+      adminDisplayName: 'Acme Admin',
+      encryptedPassword: encryptApplicationSecret('applicant-password-123', applicationEncryptionKey)
+    });
+    db.close();
+
+    const mockGitea = superAdminGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    const headers = { authorization: 'token super-token' };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/cancel',
+      headers
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'cancelled', orgName: 'acme' });
+
+    const after = initDatabase(dbPath);
+    expect(after.prepare('SELECT status, encrypted_password FROM org_applications WHERE id = 1').get()).toEqual({
+      status: 'cancelled',
+      encrypted_password: null
+    });
+    expect(after.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+      status: 'cancelled'
+    });
+    const operation = after.prepare(`SELECT id FROM operations WHERE idempotency_key = 'organization.cancel:1'`).get() as {
+      id: number;
+    };
+    expect(operation).toBeDefined();
+    const audits = after.prepare('SELECT event, actor FROM operation_audits WHERE operation_id = ?').all(operation.id);
+    expect(audits).toEqual([{ event: 'organization.cancel', actor: 'eslroot' }]);
+    after.close();
+
+    const repeat = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/cancel',
+      headers
+    });
+    expect(repeat.statusCode).toBe(409);
+  });
+
+  it('rejects non-pending applications and unknown ids on cancel', async () => {
+    const db = initDatabase(dbPath);
+    new OrgApplicationRepository(db).createApplication({
+      orgName: 'acme',
+      adminDisplayName: 'Acme Admin',
+      hashedPassword: 'hash-of-password'
+    });
+    db.prepare(`UPDATE org_applications SET status = 'approved' WHERE id = 1`).run();
+    db.close();
+
+    const mockGitea = superAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const headers = { authorization: 'token super-token' };
+
+    const processed = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/cancel',
+      headers
+    });
+    expect(processed.statusCode).toBe(409);
+
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/999/cancel',
+      headers
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('exposes lifecycle status, failure reason, and operation id with the org list', async () => {
+    const db = initDatabase(dbPath);
+    const operation = new OperationRepository(db).createOperation({
+      idempotencyKey: 'organization.delete:acme',
+      kind: 'organization.delete',
+      payload: { orgName: 'acme' }
+    });
+    // 置为退避中的失败态,避免 buildApp 启动时的 processPending 认领重跑
+    db.prepare(`
+      UPDATE operations
+      SET status = 'failed', next_retry_at = '2999-01-01T00:00:00.000Z'
+      WHERE id = ?
+    `).run(operation.id);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'delete_failed', operationId: operation.id });
+    new TenantOrganizationRepository(db).transition('acme', 'delete_failed', {
+      code: 'EXTERNAL_RESOURCE',
+      message: 'Automatic deletion stopped: resources without ESL provenance (repository acme/outsider)',
+      details: { resources: ['repository acme/outsider'] }
+    });
+    db.close();
+
+    const mockGitea = superAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/admin/orgs',
+      headers: { authorization: 'token super-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    const orgs = response.json();
+    expect(orgs).toHaveLength(1);
+    expect(orgs[0]).toMatchObject({
+      name: 'acme',
+      status: 'delete_failed',
+      operationId: operation.id,
+      lastError: { code: 'EXTERNAL_RESOURCE' }
+    });
+    expect(JSON.stringify(orgs)).not.toContain('applicant-password');
+  });
+
+  it('returns audit records for an operation to the platform administrator', async () => {
+    const db = initDatabase(dbPath);
+    new OrgApplicationRepository(db).createApplication({
+      orgName: 'acme',
+      adminDisplayName: 'Acme Admin',
+      hashedPassword: 'hash-of-password'
+    });
+    db.close();
+
+    const mockGitea = superAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const headers = { authorization: 'token super-token' };
+
+    const reject = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/reject',
+      headers
+    });
+    expect(reject.statusCode).toBe(200);
+
+    const dbAfter = initDatabase(dbPath);
+    const operation = dbAfter.prepare(`SELECT id FROM operations WHERE idempotency_key = 'organization.reject:1'`).get() as {
+      id: number;
+    };
+    expect(operation).toBeDefined();
+    dbAfter.close();
+
+    const audits = await app.inject({
+      method: 'GET',
+      url: `/api/admin/operations/${operation.id}/audits`,
+      headers
+    });
+    expect(audits.statusCode).toBe(200);
+    expect(audits.json()).toEqual([
+      expect.objectContaining({ event: 'organization.reject', actor: 'eslroot' })
+    ]);
+
+    const unauthorized = await app.inject({
+      method: 'GET',
+      url: `/api/admin/operations/${operation.id}/audits`,
+      headers: { authorization: 'token member-token' }
+    });
+    expect(unauthorized.statusCode).toBe(403);
+
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/api/admin/operations/999/audits',
+      headers
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it('reads and updates the registration mode setting', async () => {
     const mockGitea = superAdminGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -267,7 +442,17 @@ describe('super administrator org console API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([{ name: 'acme', memberCount: 2, skillCount: 1 }]);
+    expect(response.json()).toEqual([
+      {
+        name: 'acme',
+        memberCount: 2,
+        skillCount: 1,
+        createdAt: undefined,
+        status: null,
+        lastError: null,
+        operationId: null
+      }
+    ]);
   });
 
   it('deletes an organization with a matching confirm guard', async () => {

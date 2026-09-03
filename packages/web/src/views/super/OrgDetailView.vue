@@ -3,10 +3,28 @@
     <h2>组织详情：{{ orgName }}</h2>
     <el-descriptions :column="3" border data-test="org-summary">
       <el-descriptions-item label="组织名">{{ summary?.name ?? orgName }}</el-descriptions-item>
+      <el-descriptions-item label="生命周期">
+        <el-tag :type="statusTagType(summary?.status)" data-test="org-status">{{ statusText(summary?.status) }}</el-tag>
+      </el-descriptions-item>
       <el-descriptions-item label="成员数">{{ summary?.memberCount ?? '-' }}</el-descriptions-item>
       <el-descriptions-item label="技能数">{{ summary?.skillCount ?? '-' }}</el-descriptions-item>
       <el-descriptions-item label="创建时间">{{ formatTime(summary?.createdAt) }}</el-descriptions-item>
     </el-descriptions>
+
+    <el-alert
+      v-if="summary?.lastError"
+      type="error"
+      :title="`失败原因：${summary.lastError.message}`"
+      :description="`错误码：${summary.lastError.code}`"
+      :closable="false"
+      class="page-error"
+      data-test="org-last-error"
+    />
+    <div v-if="summary?.status === 'delete_failed'" class="retry-row">
+      <el-button type="warning" data-test="retry-operation" :loading="retrying" @click="retryOperation">
+        重试删除流程
+      </el-button>
+    </div>
 
     <el-card class="danger-zone" data-test="danger-zone">
       <template #header>危险操作</template>
@@ -52,6 +70,9 @@ interface OrgSummary {
   memberCount: number;
   skillCount: number;
   createdAt?: string;
+  status?: string | null;
+  lastError?: { code: string; message: string; details: Record<string, unknown> } | null;
+  operationId?: number | null;
 }
 
 const route = useRoute();
@@ -62,7 +83,39 @@ const summary = ref<OrgSummary | null>(null);
 const confirmInput = ref('');
 const dialogVisible = ref(false);
 const deleting = ref(false);
+const retrying = ref(false);
 const errorMessage = ref('');
+
+const STATUS_TEXT: Record<string, string> = {
+  pending: '待审批',
+  provisioning: '开通中',
+  active: '已激活',
+  failed: '开通失败',
+  rejected: '已拒绝',
+  cancelled: '已取消',
+  expired: '已过期',
+  deleting: '删除中',
+  delete_failed: '删除失败',
+  deleted: '已删除'
+};
+
+function statusText(status?: string | null): string {
+  if (!status) return '未纳管';
+  return STATUS_TEXT[status] ?? status;
+}
+
+function statusTagType(status?: string | null): 'success' | 'warning' | 'danger' | 'info' {
+  const mapping: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
+    active: 'success',
+    pending: 'warning',
+    provisioning: 'warning',
+    deleting: 'warning',
+    failed: 'danger',
+    delete_failed: 'danger'
+  };
+  if (!status) return 'info';
+  return mapping[status] ?? 'info';
+}
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString('zh-CN') : '-';
@@ -80,6 +133,20 @@ async function loadSummary(): Promise<void> {
 
 function confirmDelete(): void {
   dialogVisible.value = true;
+}
+
+async function retryOperation(): Promise<void> {
+  if (!summary.value?.operationId) return;
+  retrying.value = true;
+  try {
+    await apiRequest(`/api/admin/operations/${summary.value.operationId}/retry`, { method: 'POST' });
+    ElMessage.success('已重新提交处理流程');
+    await loadSummary();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    retrying.value = false;
+  }
 }
 
 async function deleteOrg(): Promise<void> {
@@ -107,6 +174,10 @@ watch(orgName, () => {
 </script>
 
 <style scoped>
+.retry-row {
+  margin: 12px 0;
+}
+
 .danger-zone {
   margin-top: 16px;
   border-color: var(--el-color-danger-light-7);

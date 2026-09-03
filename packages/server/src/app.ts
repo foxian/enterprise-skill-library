@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import {
   AdminRepository,
   initDatabase,
+  OperationAuditRepository,
   OperationRepository,
   OperationSecretRepository,
   OrgApplicationRepository,
@@ -46,6 +47,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const platformSettingsRepository = new PlatformSettingsRepository(db);
   const operationRepository = new OperationRepository(db);
   const operationSecretRepository = new OperationSecretRepository(db);
+  const operationAuditRepository = new OperationAuditRepository(db);
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const operationExecutor = new OperationExecutor(operationRepository);
   operationExecutor.register('organization.provision', async (operation) => {
@@ -63,8 +65,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
       tenantOrganizationRepository.transition(payload.orgName, 'active');
       orgApplicationRepository.updateApplicationStatusById(payload.applicationId, 'approved');
       orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
+      operationAuditRepository.record({
+        operationId: operation.id,
+        event: 'organization.provision.succeeded'
+      });
     } catch (error) {
       tenantOrganizationRepository.transition(payload.orgName, 'failed', sanitizeOperationError(error));
+      operationAuditRepository.record({
+        operationId: operation.id,
+        event: 'organization.provision.failed',
+        details: sanitizeOperationError(error)
+      });
       if (operation.attempts >= operation.maxAttempts) {
         orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
       }
@@ -73,17 +84,33 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   operationExecutor.register('organization.delete', async (operation) => {
     const payload = operation.payload as { orgName: string };
-    await runOrganizationDeletion(
-      {
-        giteaService: options.giteaService,
-        skillRepository: repository,
-        operationRepository,
-        tenantOrganizationRepository,
-        orgApplicationRepository
-      },
-      payload.orgName
-    );
+    try {
+      await runOrganizationDeletion(
+        {
+          giteaService: options.giteaService,
+          skillRepository: repository,
+          operationRepository,
+          tenantOrganizationRepository,
+          orgApplicationRepository
+        },
+        payload.orgName
+      );
+      operationAuditRepository.record({
+        operationId: operation.id,
+        event: 'organization.delete.succeeded'
+      });
+    } catch (error) {
+      operationAuditRepository.record({
+        operationId: operation.id,
+        event: 'organization.delete.failed',
+        details: sanitizeOperationError(error)
+      });
+      throw error;
+    }
   });
+  // 状态变更类操作本身没有外部副作用,作为审计锚点与幂等键存在。
+  operationExecutor.register('organization.cancel', () => {});
+  operationExecutor.register('organization.reject', () => {});
   operationExecutor.register('member.create', async (operation) => {
     const payload = operation.payload as { orgName: string; username: string };
     const password = readOperationSecret(operation.id);
@@ -190,6 +217,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     platformSettingsRepository,
     skillRepository: repository,
     operationRepository,
+    operationAuditRepository,
     tenantOrganizationRepository,
     operationExecutor,
     applicationEncryptionKey: options.applicationEncryptionKey

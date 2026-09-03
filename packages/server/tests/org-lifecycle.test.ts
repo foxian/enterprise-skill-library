@@ -254,6 +254,35 @@ describe('organization application lifecycle', () => {
     after.close();
   });
 
+  it('lets applicants query their own application status without exposing credentials', async () => {
+    const settingsDb = initDatabase(dbPath);
+    new PlatformSettingsRepository(settingsDb).setSetting('org_registration_mode', 'manual');
+    settingsDb.close();
+
+    const mockGitea = autoModeGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const apply = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', adminDisplayName: 'Admin', password: 'initial-password' }
+    });
+    expect(apply.statusCode).toBe(201);
+
+    const status = await app.inject({ method: 'GET', url: '/api/orgs/applications/acme/status' });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toEqual({ orgName: 'acme', status: 'pending' });
+    expect(JSON.stringify(status.json())).not.toContain('initial-password');
+
+    const missing = await app.inject({ method: 'GET', url: '/api/orgs/applications/ghost/status' });
+    expect(missing.statusCode).toBe(404);
+  });
+
   it('requires orgName, admin display name, and password', async () => {
     const mockGitea = autoModeGitea();
     app = await buildApp({

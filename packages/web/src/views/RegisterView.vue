@@ -42,6 +42,18 @@
           提交申请
         </el-button>
       </el-form>
+      <el-divider />
+      <div class="status-lookup">
+        <p class="status-lookup-title">查询申请状态</p>
+        <el-input
+          v-model="statusOrgName"
+          data-test="status-org-name"
+          placeholder="输入申请的组织名"
+          @keyup.enter="queryStatus"
+        />
+        <el-button class="status-lookup-button" data-test="status-query" @click="queryStatus">查询</el-button>
+        <div v-if="statusResult" class="status-lookup-result" data-test="status-result">{{ statusResult }}</div>
+      </div>
       <router-link to="/admin/login" class="auth-link" data-test="back-to-login">返回登录</router-link>
     </el-card>
   </div>
@@ -110,6 +122,39 @@ async function submit(): Promise<void> {
     loading.value = false;
   }
 }
+
+// 申请人自助查询:只能看到申请状态本身,没有任何重试、取消或修复入口
+const STATUS_TEXT: Record<string, string> = {
+  pending: '待审批',
+  provisioning: '开通中',
+  active: '已激活',
+  failed: '开通失败',
+  rejected: '已拒绝',
+  cancelled: '已取消',
+  expired: '已过期',
+  deleting: '删除中',
+  delete_failed: '删除失败',
+  deleted: '已删除'
+};
+
+const statusOrgName = ref('');
+const statusResult = ref('');
+
+async function queryStatus(): Promise<void> {
+  statusResult.value = '';
+  if (!statusOrgName.value) {
+    statusResult.value = '请输入申请的组织名';
+    return;
+  }
+  try {
+    const result = await apiRequest<{ orgName: string; status: string }>(
+      `/api/orgs/applications/${encodeURIComponent(statusOrgName.value)}/status`
+    );
+    statusResult.value = `组织 ${result.orgName} 的申请状态：${STATUS_TEXT[result.status] ?? result.status}`;
+  } catch (error) {
+    statusResult.value = error instanceof Error ? `未找到该申请：${error.message}` : `未找到该申请：${String(error)}`;
+  }
+}
 </script>
 
 <style scoped>
@@ -150,6 +195,24 @@ async function submit(): Promise<void> {
 .field-hint {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  line-height: 1.6;
+}
+
+.status-lookup-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.status-lookup-button {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.status-lookup-result {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
   line-height: 1.6;
 }
 </style>

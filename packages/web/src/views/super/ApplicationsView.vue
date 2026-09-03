@@ -22,10 +22,11 @@
           <el-tag :type="statusTagType(row.status)">{{ statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="操作" width="200">
         <template #default="{ row }">
           <template v-if="row.status === 'pending'">
             <el-button link type="success" :data-test="`approve-${row.id}`" @click="approve(row)">批准</el-button>
+            <el-button link type="warning" :data-test="`cancel-${row.id}`" @click="cancel(row)">取消</el-button>
             <el-button link type="danger" :data-test="`reject-${row.id}`" @click="reject(row)">拒绝</el-button>
           </template>
           <span v-else>-</span>
@@ -83,15 +84,24 @@ function formatTime(value: string): string {
 }
 
 function statusText(status: string): string {
-  return { pending: '待审批', provisioning: '开通中', approved: '已批准', rejected: '已拒绝' }[status] ?? status;
+  return {
+    pending: '待审批',
+    provisioning: '开通中',
+    approved: '已批准',
+    rejected: '已拒绝',
+    cancelled: '已取消',
+    expired: '已过期'
+  }[status] ?? status;
 }
 
-function statusTagType(status: string): 'warning' | 'success' | 'info' {
-  const mapping: Record<string, 'warning' | 'success' | 'info'> = {
+function statusTagType(status: string): 'warning' | 'success' | 'info' | 'danger' {
+  const mapping: Record<string, 'warning' | 'success' | 'info' | 'danger'> = {
     pending: 'warning',
     provisioning: 'warning',
     approved: 'success',
-    rejected: 'info'
+    rejected: 'info',
+    cancelled: 'info',
+    expired: 'info'
   };
   return mapping[status] ?? 'info';
 }
@@ -127,6 +137,16 @@ async function reject(application: ApplicationView): Promise<void> {
   try {
     await apiRequest(`/api/admin/orgs/applications/${application.id}/reject`, { method: 'POST' });
     ElMessage.success(`已拒绝 ${application.orgName} 的注册申请`);
+    await loadApplications();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function cancel(application: ApplicationView): Promise<void> {
+  try {
+    await apiRequest(`/api/admin/orgs/applications/${application.id}/cancel`, { method: 'POST' });
+    ElMessage.success(`已取消 ${application.orgName} 的注册申请`);
     await loadApplications();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);

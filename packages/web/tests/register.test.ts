@@ -172,4 +172,29 @@ describe('RegisterView', () => {
     expect(wrapper.find('[data-test="register-error"]').text()).toContain('already taken');
     expect(wrapper.find('[data-test="register-result"]').exists()).toBe(false);
   });
+
+  it('申请人可按组织名查询申请状态', async () => {
+    const calls: Array<{ url: string }> = [];
+    setFetchImpl((async (url: string | URL) => {
+      calls.push({ url: String(url) });
+      if (String(url) === '/api/orgs/applications/acme/status') {
+        return new Response(JSON.stringify({ orgName: 'acme', status: 'provisioning' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: 'Organization application not found' }), { status: 404 });
+    }) as typeof fetch);
+    wrapper = await mountRegister();
+
+    await setField(wrapper, '[data-test="status-org-name"]', 'acme');
+    await wrapper.find('[data-test="status-query"]').trigger('click');
+    await flushPromises();
+
+    expect(calls.map((call) => call.url)).toContain('/api/orgs/applications/acme/status');
+    expect(wrapper.find('[data-test="status-result"]').text()).toContain('开通中');
+
+    await setField(wrapper, '[data-test="status-org-name"]', 'ghost');
+    await wrapper.find('[data-test="status-query"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="status-result"]').text()).toContain('未找到');
+  });
 });

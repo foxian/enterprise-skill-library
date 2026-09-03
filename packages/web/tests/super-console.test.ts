@@ -4,6 +4,7 @@ import type { VueWrapper } from '@vue/test-utils';
 import { router } from '../src/router';
 import ApplicationsView from '../src/views/super/ApplicationsView.vue';
 import OrgDetailView from '../src/views/super/OrgDetailView.vue';
+import OrgsView from '../src/views/super/OrgsView.vue';
 import SettingsView from '../src/views/super/SettingsView.vue';
 import DashboardView from '../src/views/super/DashboardView.vue';
 import { mountConsoleView, resetConsole, useApiMock, type RecordedRequest } from './helpers';
@@ -101,6 +102,53 @@ describe('ApplicationsView 审批工作台', () => {
     );
   });
 
+  it('取消待审批申请后调用取消接口', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/admin/orgs/applications') {
+        return { status: 200, json: applications };
+      }
+      if (url === '/api/admin/orgs/applications/1/cancel') {
+        return { status: 200, json: { status: 'cancelled', orgName: 'alpha' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="cancel-1"]').trigger('click');
+    await flushPromises();
+
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
+      'POST /api/admin/orgs/applications/1/cancel'
+    );
+  });
+
+  it('取消与过期状态以中文标签区分展示', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/admin/orgs/applications') {
+        return {
+          status: 200,
+          json: [
+            ...applications,
+            { id: 3, orgName: 'gamma', adminDisplayName: 'Cara', status: 'cancelled', createdAt: '', updatedAt: '' },
+            { id: 4, orgName: 'delta', adminDisplayName: 'Dan', status: 'expired', createdAt: '', updatedAt: '' }
+          ]
+        };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    await flushPromises();
+
+    const vm = wrapper.vm as unknown as { statusFilter: string };
+    vm.statusFilter = 'all';
+    await flushPromises();
+
+    const text = wrapper.find('[data-test="applications-table"]').text();
+    expect(text).toContain('已取消');
+    expect(text).toContain('已过期');
+  });
+
   it('切换筛选可查看历史记录', async () => {
     useApiMock((_method, url) => {
       if (url === '/api/admin/orgs/applications') {
@@ -119,6 +167,79 @@ describe('ApplicationsView 审批工作台', () => {
     const text = wrapper.find('[data-test="applications-table"]').text();
     expect(text).toContain('beta');
     expect(text).not.toContain('alpha');
+  });
+});
+
+describe('OrgsView 组织生命周期状态展示', () => {
+  const lifecycleOrgs = [
+    { name: 'alpha', memberCount: 1, skillCount: 0, status: 'provisioning', lastError: null, operationId: 11 },
+    { name: 'beta', memberCount: 2, skillCount: 1, status: 'active', lastError: null, operationId: null },
+    { name: 'gamma', memberCount: 2, skillCount: 1, status: 'failed', lastError: { code: 'PROVISIONING_FAILED', message: 'password too short', details: {} }, operationId: 12 },
+    { name: 'delta', memberCount: 3, skillCount: 2, status: 'deleting', lastError: null, operationId: 13 },
+    { name: 'omega', memberCount: 3, skillCount: 2, status: 'delete_failed', lastError: { code: 'EXTERNAL_RESOURCE', message: 'external repo found', details: { resources: ['repository acme/outsider'] } }, operationId: 14 }
+  ];
+
+  it('区分展示开通中、已激活、失败、删除中与删除失败状态', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/admin/orgs') {
+        return { status: 200, json: lifecycleOrgs };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-status-alpha"]').text()).toContain('开通中');
+    expect(wrapper.find('[data-test="org-status-beta"]').text()).toContain('已激活');
+    expect(wrapper.find('[data-test="org-status-gamma"]').text()).toContain('开通失败');
+    expect(wrapper.find('[data-test="org-status-delta"]').text()).toContain('删除中');
+    expect(wrapper.find('[data-test="org-status-omega"]').text()).toContain('删除失败');
+  });
+});
+
+describe('OrgDetailView 组织详情', () => {
+  const orgs = [{ name: 'acme', memberCount: 3, skillCount: 2, createdAt: '2026-08-01T10:00:00Z' }];
+
+  function mockOrgsApi(extra: Record<string, unknown> = {}) {
+    return useApiMock((method, url) => {
+      if (url === '/api/admin/orgs' && method === 'GET') {
+        return { status: 200, json: orgs.map((org) => ({ ...org, status: null, lastError: null, operationId: null, ...extra })) };
+      }
+      if (url === '/api/admin/orgs/acme' && method === 'DELETE') {
+        return { status: 200, json: { deleted: true, orgName: 'acme' } };
+      }
+      return { status: 200, json: [] };
+    });
+  }
+
+  it('删除失败的组织展示失败原因与重试入口', async () => {
+    const { requests } = mockOrgsApi({
+      status: 'delete_failed',
+      operationId: 14,
+      lastError: { code: 'EXTERNAL_RESOURCE', message: 'external repo found', details: {} }
+    });
+    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('external repo found');
+    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(true);
+
+    requests.length = 0;
+    await wrapper.find('[data-test="retry-operation"]').trigger('click');
+    await flushPromises();
+
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
+      'POST /api/admin/operations/14/retry'
+    );
+  });
+
+  it('激活状态的组织不展示失败原因与重试入口', async () => {
+    mockOrgsApi({ status: 'active', operationId: null, lastError: null });
+    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(false);
   });
 });
 
