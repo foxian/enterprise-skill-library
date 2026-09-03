@@ -21,8 +21,8 @@ import path from 'node:path';
 import { OperationExecutor } from './services/operation-executor.js';
 import { initializeTenantOrganization } from './services/org-init.js';
 import { runOrganizationDeletion } from './services/org-delete.js';
-import { executePermissionChange, executeSkillCreation, type SkillCreationPayload } from './services/skill-operations.js';
-import type { PermissionChangePayload } from './services/skill-operations.js';
+import { executeSkillCreation, executePermissionChange } from './services/skill-operations.js';
+import type { PermissionChangePayload, SkillCreationPayload } from './services/skill-operations.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
 
@@ -194,19 +194,29 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   app.get('/api/operations/:id', async (request, reply) => {
-    // 供调用方查询自己触发的跨系统 Operation 状态(错误信息已脱敏)。
+    // 供调用方查询跨系统 Operation 状态(错误信息已脱敏)。
+    // 归属约束:携带发起者标识的操作仅发起者可查,其余仅平台管理员可查。
     const authorization = request.headers.authorization;
     const token = authorization?.startsWith('token ') ? authorization.replace('token ', '').trim() : '';
-    const authenticated = token
-      ? Boolean(adminRepository.validateUserToken(token) || (await options.giteaService.validateToken(token)))
-      : false;
-    if (!authenticated) {
+    const platformAdmin = token ? adminRepository.getPlatformAdminForToken(token) : null;
+    const eslUser = token ? adminRepository.validateUserToken(token) : null;
+    const giteaUser = eslUser ? null : await options.giteaService.validateToken(token);
+    const requester = platformAdmin?.username ?? eslUser?.username ?? giteaUser?.username ?? null;
+    if (!requester) {
       return reply.status(401).send({ error: 'Unauthorized: invalid token' });
     }
     const id = Number((request.params as { id: string }).id);
+    if (!Number.isInteger(id)) {
+      return reply.status(404).send({ error: 'Operation not found' });
+    }
     const operation = operationRepository.getOperation(id);
     if (!operation) {
       return reply.status(404).send({ error: 'Operation not found' });
+    }
+    const payload = operation.payload as { username?: string } | null;
+    const ownerUsername = typeof payload?.username === 'string' ? payload.username : null;
+    if (!platformAdmin && ownerUsername !== requester) {
+      return reply.status(403).send({ error: 'Forbidden: operation owner or platform administrator required' });
     }
     return {
       id: operation.id,

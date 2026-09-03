@@ -78,6 +78,27 @@ describe('executeSkillCreation Resource Provenance', () => {
     );
   });
 
+  it('does not compensate an adopted repository that this operation did not create', async () => {
+    const gitea = {
+      getRepo: vi.fn().mockResolvedValue({ full_name: 'acme/acme_demo' }),
+      createOrganizationRepo: vi.fn(),
+      deleteRepo: vi.fn()
+    };
+    const skillRepository = {
+      getSkill: vi.fn().mockReturnValue(undefined),
+      createServerSkill: vi.fn().mockImplementation(() => {
+        throw new Error('registration failed');
+      })
+    };
+
+    await expect(
+      executeSkillCreation({ giteaService: gitea as any, skillRepository: skillRepository as any }, payload)
+    ).rejects.toThrow('registration failed');
+
+    // 采纳的仓库不是本次操作创建的资源,不得自动补偿删除
+    expect(gitea.deleteRepo).not.toHaveBeenCalled();
+  });
+
   it('is a no-op when the skill identity is already registered', async () => {
     const gitea = {
       getRepo: vi.fn(),
@@ -180,6 +201,32 @@ describe('skill creation and permission operations', () => {
     expect(second.json().versions).toEqual(['1.0.0']);
   });
 
+  it('allows recreating a skill with the same name after it was completely deleted', async () => {
+    const mockGitea = skillCreationGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+
+    const request = {
+      method: 'POST' as const,
+      url: '/api/skills',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: '@acme/demo', description: 'Demo skill', version: '1.0.0' }
+    };
+    expect((await app.inject(request)).statusCode).toBe(201);
+
+    // 完全删除技能(级联清理其创建 Operation)
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/@acme/demo/delete',
+      headers: { authorization: 'token bootstrap-token' },
+      payload: { confirm: '@acme/demo' }
+    });
+
+    // 同名重建:幂等键不残留,创建流程重新执行
+    const recreated = await app.inject(request);
+    expect(recreated.statusCode).toBe(201);
+    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledTimes(2);
+  });
+
   it('exposes operation status for querying by the caller', async () => {
     const mockGitea = skillCreationGitea();
     mockGitea.createOrganizationRepo.mockRejectedValueOnce(new Error('temporary failure'));
@@ -208,12 +255,27 @@ describe('skill creation and permission operations', () => {
     const unauthenticated = await app.inject({ method: 'GET', url: '/api/operations/1' });
     expect(unauthenticated.statusCode).toBe(401);
 
+    // 无发起者标识的操作(如组织级 Operation)仅平台管理员可查
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: '/api/operations/1',
+      headers: { authorization: 'token other-user-token' }
+    });
+    expect([401, 403]).toContain(forbidden.statusCode);
+
     const missing = await app.inject({
       method: 'GET',
       url: '/api/operations/999',
       headers: { authorization: 'token alice-token' }
     });
     expect(missing.statusCode).toBe(404);
+
+    const invalidId = await app.inject({
+      method: 'GET',
+      url: '/api/operations/not-a-number',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(invalidId.statusCode).toBe(404);
   });
 });
 

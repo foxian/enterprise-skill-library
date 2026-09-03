@@ -230,20 +230,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     const suppliedKey = request.headers['idempotency-key'];
     const clientKey = Array.isArray(suppliedKey) ? suppliedKey[0] : suppliedKey;
-    const idempotencyKey = `skill.permission:${name}:${body.action}:${clientKey ?? crypto.randomUUID()}`;
-    let operation = operationRepository.getOperationByIdempotencyKey(idempotencyKey);
-    if (!operation) {
-      operation = operationRepository.createOperation({
-        idempotencyKey,
-        kind: 'skill.permission',
-        payload
-      });
-    }
-    if (operation.status === 'failed' || operation.status === 'permanently_failed') {
-      operation = operationRepository.retryOperation(operation.id)!;
-    }
-    await operationExecutor.process(operation.id);
-    operation = operationRepository.getOperation(operation.id)!;
+    const operation = await runIdempotentOperation(operationRepository, operationExecutor, {
+      idempotencyKey: `skill.permission:${name}:${body.action}:${clientKey ?? crypto.randomUUID()}`,
+      kind: 'skill.permission',
+      payload
+    });
     if (operation.status !== 'succeeded') {
       return reply.status(409).send({
         error: operation.error?.message ?? 'Permission change failed',
@@ -813,6 +804,24 @@ async function authenticateSkillUser(
   return user ? { username: user.username } : null;
 }
 
+// 运行一个以幂等键收敛的 Operation:已有失败终态的操作随本次请求重试,
+// 其余情况由执行器按租约与终态保护处理;返回重取后的最新操作记录。
+async function runIdempotentOperation(
+  operationRepository: OperationRepository,
+  operationExecutor: OperationExecutor,
+  input: { idempotencyKey: string; kind: string; payload: unknown }
+) {
+  let operation = operationRepository.getOperationByIdempotencyKey(input.idempotencyKey);
+  if (!operation) {
+    operation = operationRepository.createOperation(input);
+  }
+  if (operation.status === 'failed' || operation.status === 'permanently_failed') {
+    operation = operationRepository.retryOperation(operation.id)!;
+  }
+  await operationExecutor.process(operation.id);
+  return operationRepository.getOperation(operation.id)!;
+}
+
 async function createSkill(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -827,32 +836,24 @@ async function createSkill(
   if (!skill) {
     // 技能仓库创建与 Skill Identity 登记接入统一 Operation 模型:
     // 幂等键收敛重复请求,失败落库可查询、可重试,成功后正常返回发布结果。
-    const idempotencyKey = `skill.create:${input.name}`;
-    let operation = operationRepository.getOperationByIdempotencyKey(idempotencyKey);
-    if (!operation) {
-      operation = operationRepository.createOperation({
-        idempotencyKey,
-        kind: 'skill.create',
-        payload: {
-          name: input.name,
-          scope,
-          skillName,
-          description: input.description,
-          visibility: input.visibility,
-          username
-        }
-      });
-    }
-    if (operation.status === 'failed' || operation.status === 'permanently_failed') {
-      operation = operationRepository.retryOperation(operation.id)!;
-    }
-    await operationExecutor.process(operation.id);
-    operation = operationRepository.getOperation(operation.id)!;
+    const operation = await runIdempotentOperation(operationRepository, operationExecutor, {
+      idempotencyKey: `skill.create:${input.name}`,
+      kind: 'skill.create',
+      payload: {
+        name: input.name,
+        scope,
+        skillName,
+        description: input.description,
+        visibility: input.visibility,
+        username
+      }
+    });
     if (operation.status !== 'succeeded') {
       return reply.status(409).send({
         error: operation.error?.message ?? 'Skill creation failed',
         operationId: operation.id,
-        status: operation.status
+        status: operation.status,
+        retryable: true
       });
     }
     skill = repository.getSkill(input.name)!;

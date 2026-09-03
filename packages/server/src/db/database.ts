@@ -174,6 +174,9 @@ export class SkillRepository {
         DELETE FROM skill_identity_redirects
         WHERE skill_id = ? OR current_name = ? OR old_name = ?
       `).run(skillId ?? '', name, name);
+      // 技能被物理删除后其创建 Operation 不再有意义,一并清理,
+      // 使同名技能可以重新创建(幂等键不残留)。
+      this.db.prepare(`DELETE FROM operations WHERE idempotency_key = ?`).run(`skill.create:${name}`);
       this.db.prepare(`DELETE FROM skills WHERE name = ?`).run(name);
     });
     transaction();
@@ -197,6 +200,8 @@ export class SkillRepository {
           DELETE FROM skill_identity_redirects
           WHERE skill_id = ? OR current_name = ? OR old_name = ?
         `).run(skillId ?? '', name, name);
+        // 同 deleteSkill:清理创建 Operation,避免幂等键残留阻断同名重建。
+        this.db.prepare(`DELETE FROM operations WHERE idempotency_key = ?`).run(`skill.create:${name}`);
         this.db.prepare(`DELETE FROM skills WHERE name = ?`).run(name);
       }
     });

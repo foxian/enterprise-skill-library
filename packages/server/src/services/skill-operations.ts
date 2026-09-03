@@ -26,21 +26,34 @@ export async function executeSkillCreation(deps: SkillOperationDeps, payload: Sk
     return;
   }
   const repoName = `${payload.scope}_${payload.skillName}`;
-  let fullName: string | undefined;
+  let createdFullName: string | undefined;
   try {
     const existingRepo = typeof giteaService.getRepo === 'function'
       ? await giteaService.getRepo(payload.scope, repoName)
       : null;
     if (existingRepo) {
-      fullName = existingRepo.full_name;
-    } else {
-      const created = await giteaService.createOrganizationRepo(
-        payload.scope,
-        repoName,
-        payload.visibility === 'private'
-      );
-      fullName = created.full_name;
+      // 采纳已有仓库:它可能是本 Operation 上次尝试遗留的孤儿。
+      // 采纳的仓库不是本次创建的资源,后续失败不参与补偿删除。
+      await skillRepository.createServerSkill({
+        name: payload.name,
+        scope: payload.scope,
+        skillName: payload.skillName,
+        description: payload.description,
+        createdBy: payload.username,
+        owner: 'platform',
+        maintainers: [payload.username],
+        visibility: payload.visibility,
+        gitRepoPath: existingRepo.full_name,
+        status: 'active-published'
+      });
+      return;
     }
+    const created = await giteaService.createOrganizationRepo(
+      payload.scope,
+      repoName,
+      payload.visibility === 'private'
+    );
+    createdFullName = created.full_name;
     skillRepository.createServerSkill({
       name: payload.name,
       scope: payload.scope,
@@ -50,13 +63,13 @@ export async function executeSkillCreation(deps: SkillOperationDeps, payload: Sk
       owner: 'platform',
       maintainers: [payload.username],
       visibility: payload.visibility,
-      gitRepoPath: fullName,
+      gitRepoPath: createdFullName,
       status: 'active-published'
     });
   } catch (error) {
-    // Resource Provenance:仓库由本次操作创建且身份未登记,可安全补偿;
+    // Resource Provenance:仅补偿本次操作创建且身份未登记的仓库;
     // 补偿本身失败时保留现场,失败 Operation 供管理员重试或人工清理。
-    if (fullName && !skillRepository.getSkill(payload.name) && typeof giteaService.deleteRepo === 'function') {
+    if (createdFullName && !skillRepository.getSkill(payload.name) && typeof giteaService.deleteRepo === 'function') {
       try {
         await giteaService.deleteRepo(payload.scope, repoName);
       } catch {
