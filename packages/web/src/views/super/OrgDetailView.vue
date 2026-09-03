@@ -20,7 +20,10 @@
       class="page-error"
       data-test="org-last-error"
     />
-    <div v-if="summary?.status === 'delete_failed' || summary?.status === 'failed'" class="retry-row">
+    <div
+      v-if="(summary?.status === 'delete_failed' || summary?.status === 'failed') && summary?.operationId"
+      class="retry-row"
+    >
       <el-button type="warning" data-test="retry-operation" :loading="retrying" @click="retryOperation">
         重试处理流程
       </el-button>

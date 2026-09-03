@@ -262,6 +262,15 @@ describe('OrgDetailView 组织详情', () => {
     expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(false);
   });
+
+  it('失败但无关联 Operation 的组织不展示重试入口(无重试目标)', async () => {
+    mockOrgsApi({ status: 'failed', operationId: null, lastError: { code: 'OPERATION_FAILED', message: 'boom', details: {} } });
+    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(false);
+  });
 });
 
 describe('OrgDetailView 删除组织二次确认', () => {
