@@ -79,7 +79,7 @@ export const databaseSchema = `
     admin_display_name TEXT NOT NULL,
     hashed_password TEXT NOT NULL DEFAULT '',
     encrypted_password TEXT,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );

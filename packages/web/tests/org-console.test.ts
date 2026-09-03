@@ -94,6 +94,47 @@ describe('MembersView 成员管理', () => {
     expect(addRequest?.body).toEqual({ username: 'zed', password: 'explicit-pass' });
   });
 
+  it('无效成员用户名复用核心校验规则且不发起请求', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/members') {
+        return { status: 200, json: members };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="open-add-member"]').trigger('click');
+    await flushPromises();
+    await setDocInput('add-member-username', 'Bad_Name');
+    await doc('add-member-submit').trigger('click');
+    await flushPromises();
+
+    expect(requests.some((request) => request.method === 'POST')).toBe(false);
+    expect(wrapper.find('.page-error').text()).toContain('lowercase letters');
+  });
+
+  it('低于策略最小长度的初始密码不发起请求', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/members') {
+        return { status: 200, json: members };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="open-add-member"]').trigger('click');
+    await flushPromises();
+    await setDocInput('add-member-username', 'zed');
+    await setDocInput('add-member-password', 'short-pass');
+    await doc('add-member-submit').trigger('click');
+    await flushPromises();
+
+    expect(requests.some((request) => request.method === 'POST')).toBe(false);
+    expect(wrapper.find('.page-error').text()).toContain('password must be at least');
+  });
+
   it('重置密码时自动生成并一次性展示新密码', async () => {
     useApiMock((method, url) => {
       if (url === '/api/orgs/members/bob/password' && method === 'POST') {

@@ -14,6 +14,7 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
   ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
   ensureColumn(db, 'encrypted_password', 'TEXT', 'org_applications');
+  ensureOrgApplicationStatuses(db);
   db.exec(`
     UPDATE skills
     SET created_by = author
@@ -24,6 +25,32 @@ export function initDatabase(dbPath: string): Database.Database {
     VALUES ('org_registration_mode', 'auto')
   `);
   return db;
+}
+
+// 旧库的 org_applications.status CHECK 不含 cancelled/expired,需要重建表迁移。
+// 该表没有被外键引用,可以安全地重建;无状态更新时跳过,保证幂等。
+function ensureOrgApplicationStatuses(db: Database.Database): void {
+  const table = db.prepare(`
+    SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'org_applications'
+  `).get() as { sql: string } | undefined;
+  if (!table || table.sql.includes("'cancelled'")) return;
+  db.exec(`
+    CREATE TABLE org_applications_migrated (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_name TEXT NOT NULL UNIQUE,
+      admin_display_name TEXT NOT NULL,
+      hashed_password TEXT NOT NULL DEFAULT '',
+      encrypted_password TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO org_applications_migrated (id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at)
+      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+      FROM org_applications;
+    DROP TABLE org_applications;
+    ALTER TABLE org_applications_migrated RENAME TO org_applications;
+  `);
 }
 
 function ensureColumn(db: Database.Database, column: string, definition: string, table = 'skills'): void {
@@ -549,7 +576,7 @@ export class AdminRepository {
   }
 }
 
-export type OrgApplicationStatus = 'pending' | 'approved' | 'rejected';
+export type OrgApplicationStatus = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
 
 export interface OrgApplicationRecord {
   id: number;
@@ -658,6 +685,27 @@ export class OrgApplicationRepository {
       WHERE org_name = ?
     `);
     return stmt.run(orgName).changes > 0;
+  }
+
+  // pending 申请默认保留 30 天,超期统一转为 expired 并返回过期申请,
+  // 由调用方同步清理密码密文与租户状态。
+  expireStalePending(cutoffIsoDate: string): OrgApplicationRecord[] {
+    const expired = (
+      this.db.prepare(`
+        SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+        FROM org_applications
+        WHERE status = 'pending' AND created_at < ?
+        ORDER BY id ASC
+      `).all(cutoffIsoDate) as Parameters<OrgApplicationRepository['deserialize']>[0][]
+    ).map((row) => this.deserialize(row));
+    if (expired.length > 0) {
+      this.db.prepare(`
+        UPDATE org_applications
+        SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'pending' AND created_at < ?
+      `).run(cutoffIsoDate);
+    }
+    return expired;
   }
 
   private deserialize(row: {

@@ -12,6 +12,8 @@ services:
       GITEA__server__CUSTOM_HOOKS_PATH: /data/gitea/custom/hooks
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__service__DISABLE_REGISTRATION: "true"
+      # 与 ESL 共用同一密码最小长度(默认 12),保证双端策略一致
+      GITEA__security__MIN_PASSWORD_LENGTH: ${ESL_PASSWORD_MIN_LENGTH:-12}
 
   gitea-bootstrap:
     image: gitea/gitea:1.22

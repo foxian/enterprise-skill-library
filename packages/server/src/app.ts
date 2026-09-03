@@ -21,6 +21,7 @@ import { OperationExecutor } from './services/operation-executor.js';
 import { initializeTenantOrganization } from './services/org-init.js';
 import { runOrganizationDeletion } from './services/org-delete.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
+import { sanitizeOperationError } from './db/database.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -31,6 +32,8 @@ export interface AppOptions {
   passwordMinLength?: number;
   applicationEncryptionKey?: string;
 }
+
+const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function buildApp(options: AppOptions): FastifyInstance {
   // bodyLimit matches the nginx client_max_body_size so publish requests carrying
@@ -61,12 +64,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
       orgApplicationRepository.updateApplicationStatusById(payload.applicationId, 'approved');
       orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      tenantOrganizationRepository.transition(payload.orgName, 'failed', {
-        code: 'PROVISIONING_FAILED',
-        message,
-        details: {}
-      });
+      tenantOrganizationRepository.transition(payload.orgName, 'failed', sanitizeOperationError(error));
       if (operation.attempts >= operation.maxAttempts) {
         orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
       }
@@ -119,7 +117,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
     await options.giteaService.changeUserPassword(payload.username, readOperationSecret(operation.id));
     operationSecretRepository.clear(operation.id);
   });
+  expireStalePendingApplications();
   void operationExecutor.processPending();
+
+  // pending 申请默认保留 30 天(ADR-0017):过期申请终止流程并立即清除密码密文。
+  function expireStalePendingApplications(): void {
+    const cutoff = new Date(Date.now() - PENDING_APPLICATION_TTL_MS).toISOString();
+    for (const application of orgApplicationRepository.expireStalePending(cutoff)) {
+      tenantOrganizationRepository.transition(application.orgName, 'expired');
+      orgApplicationRepository.clearEncryptedPasswordById(application.id);
+    }
+  }
 
   function readOperationSecret(operationId: number): string {
     const encryptedSecret = operationSecretRepository.get(operationId);

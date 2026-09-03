@@ -87,12 +87,27 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="password"]', 'secret');
-    await setField(wrapper, '[data-test="confirm-password"]', 'different');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'different-password');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
 
     expect(wrapper.find('[data-test="register-error"]').text()).toContain('两次输入的密码不一致');
+    expect(fetchMock.calls).toHaveLength(0);
+  });
+
+  it('低于密码策略最小长度的密码被拒绝提交', async () => {
+    const fetchMock = mockFetch(201, { status: 'pending' });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountRegister();
+
+    await setField(wrapper, '[data-test="org-name"]', 'acme');
+    await setField(wrapper, '[data-test="password"]', 'short-pass');
+    await setField(wrapper, '[data-test="confirm-password"]', 'short-pass');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="register-error"]').text()).toContain('password must be at least');
     expect(fetchMock.calls).toHaveLength(0);
   });
 
@@ -102,8 +117,8 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="password"]', 'secret');
-    await setField(wrapper, '[data-test="confirm-password"]', 'secret');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
     await vi.waitFor(() => expect(fetchMock.calls).toHaveLength(1));
@@ -112,7 +127,7 @@ describe('RegisterView', () => {
     expect(JSON.parse(String(fetchMock.calls[0].init.body))).toEqual({
       orgName: 'acme',
       adminDisplayName: 'admin',
-      password: 'secret'
+      password: 'initial-password-123'
     });
     expect(wrapper.find('[data-test="register-result"]').text()).toContain('等待审批');
   });
@@ -122,8 +137,8 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="password"]', 'secret');
-    await setField(wrapper, '[data-test="confirm-password"]', 'secret');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
 
@@ -149,8 +164,8 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="password"]', 'secret');
-    await setField(wrapper, '[data-test="confirm-password"]', 'secret');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
 

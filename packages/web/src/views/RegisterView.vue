@@ -51,6 +51,7 @@
 import { computed, ref } from 'vue';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
 import { validateOrgName } from '@esl/core/dist/org/org-name.js';
+import { validatePassword } from '@esl/core/dist/org/account-policy.js';
 import { apiRequest } from '../api/client';
 
 const orgName = ref('');
@@ -81,6 +82,11 @@ async function submit(): Promise<void> {
   const validation = validateOrgName(orgName.value);
   if (!validation.success) {
     errorMessage.value = validation.errors.join('；');
+    return;
+  }
+  const passwordValidation = validatePassword(password.value);
+  if (!passwordValidation.success) {
+    errorMessage.value = passwordValidation.errors.join('；');
     return;
   }
   if (password.value !== confirmPassword.value) {

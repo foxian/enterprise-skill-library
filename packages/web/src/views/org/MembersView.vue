@@ -91,6 +91,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+// 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
+import { validateMemberUsername, validatePassword } from '@esl/core/dist/org/account-policy.js';
 import { useAuthStore } from '../../stores/auth';
 import { apiRequest } from '../../api/client';
 
@@ -145,6 +147,19 @@ async function loadMembers(): Promise<void> {
 
 async function addMember(): Promise<void> {
   errorMessage.value = '';
+  // 与服务端复用同一核心校验规则:成员用户名与可选的初始密码
+  const usernameValidation = validateMemberUsername(addUsername.value);
+  if (!usernameValidation.success) {
+    errorMessage.value = usernameValidation.errors.join('；');
+    return;
+  }
+  if (addPassword.value) {
+    const passwordValidation = validatePassword(addPassword.value);
+    if (!passwordValidation.success) {
+      errorMessage.value = passwordValidation.errors.join('；');
+      return;
+    }
+  }
   try {
     const result = await apiRequest<{ username: string; password?: string }>('/api/orgs/members', {
       method: 'POST',
@@ -174,6 +189,13 @@ function openReset(row: GiteaUserView): void {
 
 async function resetPasswordFor(): Promise<void> {
   errorMessage.value = '';
+  if (resetPassword.value) {
+    const passwordValidation = validatePassword(resetPassword.value);
+    if (!passwordValidation.success) {
+      errorMessage.value = passwordValidation.errors.join('；');
+      return;
+    }
+  }
   try {
     const result = await apiRequest<{ username: string; password?: string }>(
       `/api/orgs/members/${encodeURIComponent(shortUsername(resetTarget.value))}/password`,

@@ -192,6 +192,25 @@ describe('Operation persistence', () => {
     expect(repository.claimOperation(created.id, 'worker-b')?.attempts).toBe(2);
   });
 
+  it('never re-claims a succeeded terminal operation', () => {
+    db = initDatabase(dbPath);
+    const repository = new OperationRepository(db);
+    const created = repository.createOperation({
+      idempotencyKey: 'org:acme:provision',
+      kind: 'organization.provision',
+      payload: { orgName: 'acme' }
+    });
+
+    repository.claimOperation(created.id, 'worker-a');
+    expect(repository.completeOperation(created.id, 'worker-a')?.status).toBe('succeeded');
+    // 终态幂等:重复领取与重复完成都被拒绝
+    expect(repository.claimOperation(created.id, 'worker-a')).toBeUndefined();
+    expect(repository.claimOperation(created.id, 'worker-b')).toBeUndefined();
+    expect(repository.claimNextOperation('worker-b')).toBeUndefined();
+    expect(repository.completeOperation(created.id, 'worker-a')).toBeUndefined();
+    expect(repository.getOperation(created.id)?.attempts).toBe(1);
+  });
+
   it('marks an expired final attempt as permanently failed instead of leaving it running', () => {
     let now = new Date('2026-09-02T00:00:00.000Z');
     db = initDatabase(dbPath);

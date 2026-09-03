@@ -8,7 +8,8 @@ export class OperationExecutor {
 
   constructor(
     private readonly repository: OperationRepository,
-    private readonly workerId = `worker-${crypto.randomUUID()}`
+    private readonly workerId = `worker-${crypto.randomUUID()}`,
+    private readonly leaseRenewalMs = 20_000
   ) {}
 
   register(kind: string, handler: OperationHandler): void {
@@ -28,7 +29,7 @@ export class OperationExecutor {
     }
 
     try {
-      await handler(operation);
+      await this.runWithLeaseRenewal(operation, handler);
       return this.repository.completeOperation(operation.id, this.workerId);
     } catch (error) {
       return this.repository.failOperation(operation.id, this.workerId, error);
@@ -48,11 +49,28 @@ export class OperationExecutor {
         continue;
       }
       try {
-        await handler(operation);
+        await this.runWithLeaseRenewal(operation, handler);
         this.repository.completeOperation(operation.id, this.workerId);
       } catch (error) {
         this.repository.failOperation(operation.id, this.workerId, error);
       }
+    }
+  }
+
+  // 长任务执行期间按固定间隔续租,避免租约过期后被其他执行器重新领取;
+  // 若租约已被接管,完成/失败操作的条件更新守卫会阻止本实例落库。
+  private async runWithLeaseRenewal(operation: OperationRecord, handler: OperationHandler): Promise<void> {
+    if (this.leaseRenewalMs <= 0) {
+      await handler(operation);
+      return;
+    }
+    const renewal = setInterval(() => {
+      void this.repository.renewLease(operation.id, this.workerId);
+    }, this.leaseRenewalMs);
+    try {
+      await handler(operation);
+    } finally {
+      clearInterval(renewal);
     }
   }
 }

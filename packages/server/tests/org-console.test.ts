@@ -261,6 +261,108 @@ describe('organization console API', () => {
     expect(mockGitea.removeOrgMember).toHaveBeenCalledWith('acme', 'acme_bob');
   });
 
+  it('converges repeated disable requests carrying the same idempotency key', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const request = {
+      method: 'POST' as const,
+      url: '/api/orgs/members/bob/disable',
+      headers: { authorization: 'token acme-admin-token', 'idempotency-key': 'retry-1' }
+    };
+    const first = await app.inject(request);
+    const second = await app.inject(request);
+    expect(first.statusCode).toBe(202);
+    expect(second.statusCode).toBe(202);
+    expect(second.json().operationId).toBe(first.json().operationId);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockGitea.disableUser).toHaveBeenCalledTimes(1);
+    expect(mockGitea.removeOrgMember).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers a member creation whose default team join failed mid-way', async () => {
+    const mockGitea = orgAdminGitea();
+    // 用户创建成功、加入 all-readers 成功、加入 all-writers 失败
+    mockGitea.addTeamMember
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValue(undefined);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/members',
+      headers: { authorization: 'token acme-admin-token' },
+      payload: { username: 'bob', password: 'initial-password' }
+    });
+    expect(response.statusCode).toBe(202);
+    const operationId = response.json().operationId;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const db = initDatabase(dbPath);
+    expect(db.prepare('SELECT status FROM operations WHERE id = ?').get(operationId)).toMatchObject({
+      status: 'failed'
+    });
+    // 失败不静默:operation 携带失败原因
+    const failed = db.prepare('SELECT error_json FROM operations WHERE id = ?').get(operationId) as {
+      error_json: string;
+    };
+    expect(JSON.parse(failed.error_json).message).toContain('temporary failure');
+    db.prepare(`UPDATE operations SET next_retry_at = NULL WHERE id = ?`).run(operationId);
+    db.close();
+
+    // 服务重启后 processPending 认领并收敛
+    await app.close();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // 重试复用已创建用户并补齐缺失团队关系
+    expect(mockGitea.addTeamMember).toHaveBeenCalledTimes(4);
+    expect(mockGitea.addTeamMember).toHaveBeenNthCalledWith(3, 2, 'acme_bob');
+    expect(mockGitea.addTeamMember).toHaveBeenNthCalledWith(4, 3, 'acme_bob');
+    const after = initDatabase(dbPath);
+    expect(after.prepare('SELECT status FROM operations WHERE id = ?').get(operationId)).toMatchObject({
+      status: 'succeeded'
+    });
+    after.close();
+  });
+
+  it('rejects a member password reset below the shared policy minimum', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/members/bob/password',
+      headers: { authorization: 'token acme-admin-token' },
+      payload: { password: 'short' }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockGitea.changeUserPassword).not.toHaveBeenCalled();
+  });
+
   it('resets a member password', async () => {
     const mockGitea = orgAdminGitea();
     app = await buildApp({

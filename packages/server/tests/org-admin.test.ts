@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { encryptApplicationSecret } from '../src/services/application-secret.js';
 import {
   initDatabase,
   OperationRepository,
@@ -170,6 +171,44 @@ describe('super administrator org console API', () => {
     const db = initDatabase(dbPath);
     expect(new OrgApplicationRepository(db).getApplication('acme')?.status).toBe('rejected');
     db.close();
+  });
+
+  it('reuses the applicant password ciphertext on approval and clears it afterwards', async () => {
+    const applicationEncryptionKey = 'a'.repeat(64);
+    const db = initDatabase(dbPath);
+    new OrgApplicationRepository(db).createApplication({
+      orgName: 'acme',
+      adminDisplayName: 'Acme Admin',
+      encryptedPassword: encryptApplicationSecret('applicant-password-123', applicationEncryptionKey)
+    });
+    db.close();
+
+    const mockGitea = superAdminGitea();
+    mockGitea.listOrgMembers.mockResolvedValue([]);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/approve',
+      headers: { authorization: 'token super-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'provisioning', orgName: 'acme' });
+    await new Promise((resolve) => setImmediate(resolve));
+    // 复用申请人提交的初始密码,不重新生成
+    expect(mockGitea.createUser).toHaveBeenCalledWith('acme_admin', 'applicant-password-123');
+    // 开通成功后立即清除密码密文
+    const after = initDatabase(dbPath);
+    expect(after.prepare('SELECT encrypted_password FROM org_applications WHERE org_name = ?').get('acme')).toEqual({
+      encrypted_password: null
+    });
+    after.close();
   });
 
   it('reads and updates the registration mode setting', async () => {
