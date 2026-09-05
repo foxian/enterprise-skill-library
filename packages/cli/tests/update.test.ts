@@ -180,6 +180,12 @@ describe('esl update', () => {
     });
 
     expect(result).toEqual([{ name: '@alice/code-review', from: '1.0.0', to: '1.1.0' }]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/%40alice%2Fcode-review',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'token gitea-token' })
+      })
+    );
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
       [
@@ -405,5 +411,77 @@ describe('esl update', () => {
     });
 
     expect(result).toEqual([]);
+  });
+
+  it('keeps updating the remaining skills when one is forbidden and reports actionable guidance', async () => {
+    await saveSkillsJson(projectDir, {
+      skills: { '@acme/private-skill': '^1.0.0', '@myorg/my-skill': '^1.0.0' }
+    });
+    await saveSkillsLock(projectDir, {
+      lockfileVersion: 1,
+      skills: {
+        '@acme/private-skill': {
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/git/esl-skills/acme_private-skill.git',
+          integrity: ''
+        },
+        '@myorg/my-skill': {
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          integrity: ''
+        }
+      }
+    });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes('%40acme%2Fprivate-skill')) {
+        return {
+          ok: false,
+          status: 403,
+          text: async () => '{"error":"Forbidden: read access required"}'
+        } as any;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          name: '@myorg/my-skill',
+          cloneUrl: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          versions: ['1.1.0', '1.0.0']
+        })
+      } as any;
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes('clone')) {
+        const cloneDir = args.at(-1)!;
+        fs.mkdirSync(cloneDir, { recursive: true });
+        fs.writeFileSync(path.join(cloneDir, 'SKILL.md'), '---\nname: my-skill\ndescription: Test.\n---\n');
+        fs.writeFileSync(
+          path.join(cloneDir, 'skill.json'),
+          JSON.stringify({ name: '@myorg/my-skill', version: '1.1.0', description: 'Test', author: 'tester' })
+        );
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    try {
+      const result = await executeUpdate({
+        projectRoot: projectDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        noAdapt: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      });
+
+      expect(result).toEqual([{ name: '@myorg/my-skill', from: '1.0.0', to: '1.1.0' }]);
+      const reported = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(reported).toContain('Failed to update @acme/private-skill');
+      expect(reported).toMatch(/maintained by another account or organization/);
+      expect(reported).toMatch(/esl login/);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

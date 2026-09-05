@@ -4,22 +4,22 @@
 `esl config set-server <url>` —— 设 ESL Server 地址。本地 Docker 默认 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
 
 ## 查看登录状态
-`esl whoami` —— 输出当前用户名 / 所属组织 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
+`esl whoami` —— 输出当前用户名 / 所属组织 / 角色 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
 
 ## 登录
-`esl login` —— 交互式（推荐）：依次提示 `Username:` 与隐藏的密码。登录成功后 token 写入本机所有者只读文件，默认 30 天有效；可用环境变量 `ESL_LOGIN_TTL_HOURS`（单位：小时）调整 TTL。
+`esl login` —— 交互式（推荐）：依次提示 `Organization:`、`Username:` 与隐藏的密码（**组织必填**）。登录成功后 token 写入本机所有者只读文件，默认 30 天有效；可用环境变量 `ESL_LOGIN_TTL_HOURS`（单位：小时）调整 TTL。
 
 旗标：
+- `--org <orgname>`：所属组织（**必填**）。ESL CLI 只服务组织内成员，组织账号由服务端解析为 `<orgname>_<username>` 并校验归属；组织管理员用户名为 `admin`
 - `--username <name>`：指定用户名（仍会交互提示密码）
-- `--org <orgname>`：指定所属组织；登录时把 Gitea 用户名组装为 `<orgname>_<username>`，组织信息随登录状态保存（`whoami` 会显示 `Organization`）。组织成员登录应带上它；交互式登录也会提示（可留空跳过）
-- `--server <url>`：本次覆盖已配置地址
-- `--token-file <path>`：用用户 token 文件登录（管理员签发）
+- `--server <url>`：本次覆盖已配置地址（也可用环境变量 `ESL_SERVER`）
+- `--token-file <path>`：用用户 token 文件登录（同样需要 `--org`）
 - `--password-file <path>`：用密码文件登录（脚本 / CI）
 
-管理员首次登录用 `ESL_BOOTSTRAP_ADMIN_TOKEN`：
-```
-esl login --username eslroot --token-file ./bootstrap-token.txt
-```
+平台管理员不通过 CLI 登录——打开管理后台（`http://<server>/admin/`），用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。
+
+## 登出
+`esl logout` —— 清除本机凭据（token 与登录时间戳），保留 server / 组织 / 工具配置。幂等：未登录时执行也成功。登出后 `esl whoami` 显示 `Not logged in`，需要登录态的命令（install/update/upload 等）会提示先 `esl login`；离线命令（`adapt`/`list`/`validate`）与已安装技能的本地使用不受影响。用户想在共享机器上清除凭据、或要换一个组织账号登录时，提议它。写命令，先回显再执行。
 
 ## AI 行为（重要）
 - **交互式密码登录让用户自己跑**：`esl login` 会在它自己的终端提示输入密码，你替它跑反而会卡住或把密码暴露给会话。引导用户在自己的终端执行。

@@ -12,7 +12,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { ensureReleaseManifest } from './release-manifest.js';
-import { confirm, isInteractive, readText } from '../prompt.js';
+import { isInteractive, readText } from '../prompt.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -23,7 +23,6 @@ export interface UploadOptions extends NetworkCommandOptions {
   license?: string;
   message?: string;
   noInput?: boolean;
-  confirmInput?: () => Promise<boolean>;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -208,66 +207,28 @@ async function uploadSource(
       return { ...uploaded, alreadyUpToDate: true };
     }
   } catch (error) {
-    if (isSourceGone(error)) {
-      return handleOrphanedSource(execFileAsync, directory, options, (error as Error).message, skillName, description);
-    }
-    throw error;
+    throw hostedSourceAccessError((error as Error).message);
   }
   try {
     await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
   } catch (error) {
-    if (isSourceGone(error)) {
-      return handleOrphanedSource(execFileAsync, directory, options, (error as Error).message, skillName, description);
-    }
-    // The source is already registered on the server; the push is the only
-    // remaining step, so tell the user exactly how to finish it.
-    throw new Error(
-      `Failed to push the skill source to the server; re-run "esl upload" or run "git push esl HEAD:main" to finish: ${(error as Error).message}`
-    );
+    // ADR-0021：不可访问的已托管源绝不被接管。错误给出两条恢复出路——
+    // 切回维护账号重跑 upload，或显式两步手动重建——绝不触碰 remote。
+    throw hostedSourceAccessError((error as Error).message, { includePushHint: true });
   }
   return uploaded;
 }
 
-async function handleOrphanedSource(
-  execFileAsync: typeof defaultExecFileAsync,
-  directory: string,
-  options: UploadOptions,
-  detail: string,
-  skillName: string,
-  description: string
-): Promise<UploadedSkill> {
-  if (options.noInput) {
-    throw new Error(orphanedSourceGuidance(detail));
-  }
-  let reset: boolean;
-  if (options.confirmInput) {
-    reset = await options.confirmInput();
-  } else if (isInteractive()) {
-    reset = await confirm(
-      'The server source was deleted; the local esl remote points at a removed repository (orphan). ' +
-        'Remove the esl remote and re-register this source? [y/N] '
-    );
-  } else {
-    throw new Error(orphanedSourceGuidance(detail));
-  }
-  if (!reset) {
-    throw new Error(orphanedSourceGuidance(detail));
-  }
-  await execFileAsync('git', ['remote', 'remove', 'esl'], { cwd: directory });
-  return uploadSource(options, directory, skillName, description);
-}
-
-function orphanedSourceGuidance(detail: string): string {
-  return (
-    `The server source no longer exists; the local esl remote points at a deleted repository. ` +
-    `Run "git remote remove esl" then "esl upload --directory ." to register a fresh source. ` +
-    `(${detail})`
-  );
-}
-
-function isSourceGone(error: unknown): boolean {
-  const message = (error as Error).message ?? '';
-  return /not found|404|does not exist/i.test(message);
+function hostedSourceAccessError(detail: string, options: { includePushHint?: boolean } = {}): Error {
+  const guidance =
+    'Failed to sync the skill source with the server: the current login cannot access the server source at the esl remote. ' +
+    'The source may be maintained by another account or organization, or it may no longer exist. ' +
+    'Log in with the maintaining account and re-run "esl upload"; ' +
+    'or, if the server source is confirmed deleted, run "git remote remove esl" and re-run "esl upload" to register a fresh source.';
+  const pushHint = options.includePushHint
+    ? ' To finish an interrupted push on an already-registered source, run "git push esl HEAD:main".'
+    : '';
+  return new Error(`${guidance}${pushHint} (${detail})`);
 }
 
 function skillNameFromRemote(remoteUrl: string): string {
@@ -293,13 +254,12 @@ async function syncSource(
   authHeader: string
 ): Promise<'up-to-date' | 'needs-push'> {
   // Refresh the server-side ref so we can compare and rebase onto it.
+  // ADR-0021：已托管源上任何 fetch 失败一律按「凭据不足或源不可达」处理，
+  // 不视为可接管的孤儿。
   try {
     await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
   } catch (error) {
-    if (isSourceGone(error)) {
-      throw error; // orphaned source: let the caller prompt or guide
-    }
-    return 'needs-push'; // remote unreachable or empty; let the push surface the real error
+    throw hostedSourceAccessError((error as Error).message);
   }
   let remoteHead: string;
   try {

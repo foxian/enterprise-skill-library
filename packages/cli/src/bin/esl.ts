@@ -13,6 +13,7 @@ import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
+import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
@@ -54,8 +55,8 @@ export function createProgram(): Command {
   program
     .command('login')
     .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
-    .option('--org <orgname>', 'ESL organization (assembles the Gitea username as orgname_username)')
-    .option('--server <url>', 'ESL Server URL (defaults to the saved server)')
+    .option('--org <orgname>', 'ESL organization (required; resolves the Gitea account as orgname_username)')
+    .option('--server <url>', 'ESL Server URL (defaults to the saved server or ESL_SERVER)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
     .addHelpText('after', example('$ esl login --server http://localhost:3000 --org acme --username alice'))
@@ -64,10 +65,20 @@ export function createProgram(): Command {
         ...options,
         noInput: program.opts().input === false,
         readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readServer: process.stdin.isTTY ? undefined : () => readStdinText(),
         readUsername: process.stdin.isTTY ? undefined : () => readStdinText(),
         readOrg: process.stdin.isTTY ? undefined : () => readStdinText()
       });
-      console.log(`Logged in as ${options.username ?? 'you'}`);
+      console.log(`Logged in as ${options.org ? `${options.org}/` : ''}${options.username ?? 'you'}`);
+    });
+
+  program
+    .command('logout')
+    .description('Clear the locally stored ESL credentials')
+    .addHelpText('after', example('$ esl logout'))
+    .action(async () => {
+      const result = await executeLogout();
+      console.log(formatLogout(result));
     });
 
   const configCmd = program.command('config').description('Manage ESL client configuration');

@@ -505,7 +505,7 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['rebase', '--continue'], { cwd: skillDir });
   });
 
-  it('guides the user to re-register when the fetch reports the server source is gone', async () => {
+  it('fails with cross-account guidance when the fetch cannot access the hosted source', async () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
@@ -517,19 +517,25 @@ describe('esl upload', () => {
       return Promise.resolve({ stdout: '', stderr: '' });
     });
 
-    await expect(
-      executeUpload({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any
-      })
-    ).rejects.toThrow(/server source no longer exists/);
+    const error = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/maintained by another account or organization/);
+    expect(error!.message).toMatch(/git remote remove esl/);
     expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
   });
 
-  it('surfaces a deleted server source when the push reports not found', async () => {
+  it('fails with cross-account guidance and a push-finish hint when the push reports the hosted source is gone', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
@@ -544,61 +550,25 @@ describe('esl upload', () => {
       return Promise.resolve({ stdout: '', stderr: '' });
     });
 
-    await expect(
-      executeUpload({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any
-      })
-    ).rejects.toThrow(/server source no longer exists/);
-  });
-
-  it('removes the stale esl remote and re-registers when the orphan reset is confirmed', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
-    let hasRemote = true;
-    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
-      if (args[0] === 'remote' && args[1] === 'get-url') {
-        return hasRemote
-          ? Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' })
-          : Promise.reject(new Error('no such remote'));
-      }
-      if (args[0] === 'remote' && args[1] === 'remove') {
-        hasRemote = false;
-        return Promise.resolve({ stdout: '', stderr: '' });
-      }
-      if (args[0] === 'remote' && args[1] === 'add') return Promise.resolve({ stdout: '', stderr: '' });
-      if (args.includes('fetch')) {
-        return hasRemote
-          ? Promise.reject(new Error('remote: Repository not found.'))
-          : Promise.resolve({ stdout: '', stderr: '' });
-      }
-      if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
-      if (args[0] === 'rev-parse' && args.includes('--verify')) {
-        return hasRemote
-          ? Promise.resolve({ stdout: 'remote\n', stderr: '' })
-          : Promise.reject(new Error('no esl/main ref yet'));
-      }
-      if (args[0] === 'rev-list') return Promise.resolve({ stdout: '0\n', stderr: '' });
-      return Promise.resolve({ stdout: '', stderr: '' });
-    });
-
-    const result = await executeUpload({
+    const error = await executeUpload({
       directory: skillDir,
       server: 'http://localhost:3000',
       homeDir,
-      confirmInput: async () => true,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
-    });
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
 
-    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
-    expect(execFileAsync).toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
-    expect(fetchImpl).toHaveBeenCalled();
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/maintained by another account or organization/);
+    expect(error!.message).toMatch(/git remote remove esl/);
+    expect(error!.message).toMatch(/git push esl HEAD:main/);
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
   });
 
-  it('keeps the guidance when the orphan reset is declined', async () => {
+  it('hard-fails under --no-input when the hosted source cannot be accessed', async () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
@@ -615,12 +585,11 @@ describe('esl upload', () => {
         directory: skillDir,
         server: 'http://localhost:3000',
         homeDir,
-        confirmInput: async () => false,
+        noInput: true,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow(/server source no longer exists/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    ).rejects.toThrow(/maintained by another account or organization/);
     expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
   });
 });

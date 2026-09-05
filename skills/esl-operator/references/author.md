@@ -16,6 +16,7 @@
 
 - `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按 Platform Organization 生成。不要在命令里拼 `@author/...` 之类的身份。
 - 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
+- 已托管目录（有 `esl` remote）上 fetch/push 失败时，`upload` 直接硬报错，提示该源可能由其他账号/组织维护或已不存在，并给出两条出路：**用维护它的账号重新登录后再 `esl upload`**；或确认服务器源已删除时手动 `git remote remove esl` 再重新 `esl upload`（显式两步重建）。CLI 绝不会自动删除 remote 重注册——看到这类报错别提议删 remote，先让用户确认当前登录账号是不是这个源的维护账号。
 
 ## 发布
 `esl publish [version] [--force|-f] [--license SPDX]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），落盘后**提示先 commit + push、再重跑 `publish`**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。

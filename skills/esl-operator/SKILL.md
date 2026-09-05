@@ -14,14 +14,14 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 | 用户说了类似这些 | 读 |
 |---|---|
-| 登录 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
+| 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / 列出已装 / 更新、升级 / 卸载 / 同步到工具、刷到 Claude/Trae/Codex | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验 / 上传源码 / 发布 / 改版本号 / 拉别人源码、二次开发 | `references/author.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `whoami` `validate`——直接跑，跑完把结果给用户。会改状态或写盘的命令——`install` `update` `uninstall` `adapt` `init` `upload` `publish` `version` `source` `login` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `whoami` `validate`——直接跑，跑完把结果给用户。会改状态或写盘的命令——`install` `update` `uninstall` `adapt` `init` `upload` `publish` `version` `source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`install` 会把远端内容拉进项目、`publish` 把东西推到全公司共享的服务器、`uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。
 

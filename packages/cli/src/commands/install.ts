@@ -29,6 +29,7 @@ import {
   requireConfigured,
   requireFreshToken,
   resolveNetworkConfig,
+  withAuthGuidanceIfForbidden,
   projectSkillsDir,
   publishedInstallTargetDir,
   publishedProjectSkillsDir,
@@ -229,7 +230,8 @@ async function installPublishedPackage(
     headers: { Authorization: `token ${authToken}` }
   });
   if (!response.ok) {
-    throw new Error(`Failed to download Published Skill Package: ${await response.text()}`);
+    const message = `Failed to download Published Skill Package: ${await response.text()}`;
+    throw new Error(withAuthGuidanceIfForbidden(response.status, message));
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
@@ -334,7 +336,8 @@ async function installPublishedDependencies(
       headers: { Authorization: `token ${authToken}` }
     });
     if (!response.ok) {
-      throw new Error(`Failed to download dependency Published Skill Package: ${await response.text()}`);
+      const message = `Failed to download dependency Published Skill Package: ${await response.text()}`;
+      throw new Error(withAuthGuidanceIfForbidden(response.status, message));
     }
     const packageBytes = Buffer.from(await response.arrayBuffer());
     const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;

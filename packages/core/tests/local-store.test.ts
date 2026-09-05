@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  clearCredentials,
   initializeLocalStore,
   loadConfig,
   loadCredentials,
@@ -41,6 +42,7 @@ describe('local store', () => {
       server: null,
       username: null,
       org: null,
+      role: null,
       tools: []
     });
     expect(JSON.parse(fs.readFileSync(paths.credentialsJson, 'utf8'))).toEqual({
@@ -77,6 +79,7 @@ describe('local store', () => {
       server: 'http://skills.company.com',
       username: 'zhangsan',
       org: null,
+      role: null,
       tools: []
     };
 
@@ -84,5 +87,33 @@ describe('local store', () => {
     const loaded = await loadConfig({ homeDir });
 
     expect(loaded).toEqual(config);
+  });
+
+  it('clears credentials while keeping config intact', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      { server: 'http://skills.company.com', username: 'zhangsan', org: 'acme', role: 'member', tools: [] },
+      { homeDir }
+    );
+    await saveCredentials({ token: 'secret_token_123', loginAt: new Date().toISOString() }, { homeDir });
+
+    await clearCredentials({ homeDir });
+
+    const credentials = await loadCredentials({ homeDir });
+    expect(credentials.token).toBeNull();
+    expect(credentials.loginAt).toBeNull();
+
+    const config = await loadConfig({ homeDir });
+    expect(config.server).toBe('http://skills.company.com');
+    expect(config.username).toBe('zhangsan');
+    expect(config.org).toBe('acme');
+    expect(config.role).toBe('member');
+  });
+
+  it('clears credentials even when no local store exists yet', async () => {
+    await clearCredentials({ homeDir });
+
+    const credentials = await loadCredentials({ homeDir });
+    expect(credentials).toEqual({ token: null, loginAt: null });
   });
 });

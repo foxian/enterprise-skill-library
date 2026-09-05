@@ -143,6 +143,33 @@ describe('esl install (project-level)', () => {
     expect(lock.skills['@alice/code-review']?.version).toBe('0.1.0');
   });
 
+  it('fails a server-backed install with cross-account guidance on a 403', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => '{"error":"Forbidden: read access required"}'
+    });
+    const execFileAsync = vi.fn();
+
+    const error = await executeInstall('@acme/private-skill', {
+      projectRoot: projectDir,
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      noAdapt: true
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toContain('Failed to fetch skill info: {"error":"Forbidden: read access required"}');
+    expect(error!.message).toMatch(/maintained by another account or organization/);
+    expect(error!.message).toMatch(/esl login/);
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
   it('fails fast when login is missing for a server-backed install', async () => {
     await saveCredentials({ token: null, loginAt: null }, { homeDir });
     const fetchImpl = vi.fn();

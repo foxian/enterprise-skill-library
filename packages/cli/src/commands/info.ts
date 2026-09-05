@@ -1,6 +1,13 @@
-import fs from 'node:fs/promises';
+﻿import fs from 'node:fs/promises';
 import path from 'node:path';
-import { apiUrl, fetchWithTimeout, type NetworkCommandOptions, resolveNetworkConfig } from './network-options.js';
+import {
+  apiUrl,
+  fetchWithTimeout,
+  resolveOptionalFreshToken,
+  withAuthGuidanceIfForbidden,
+  type NetworkCommandOptions,
+  resolveNetworkConfig
+} from './network-options.js';
 import { isBuiltinIdentity, loadBuiltinPackageOrThrow } from '@esl/core';
 import { resolveBuiltinDir } from '../builtin-dir.js';
 
@@ -28,11 +35,19 @@ export async function executeInfo(name: string, options: NetworkCommandOptions =
   }
   const fetchImpl = options.customFetch ?? fetch;
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
-  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/skills/${encodeURIComponent(name)}`));
+  // 存在有效登录态时随请求携带 Skill User Token，private 技能对其维护账号可见；
+  // public 技能匿名也能访问。
+  const token = await resolveOptionalFreshToken({ homeDir: options.homeDir });
+  const res = await fetchWithTimeout(
+    fetchImpl,
+    apiUrl(server, `/api/skills/${encodeURIComponent(name)}`),
+    { headers: token ? { Authorization: `token ${token}` } : {} }
+  );
 
   if (!res.ok && res.status !== 301) {
     const err = await res.text();
-    throw new Error(`Failed to fetch skill info: ${err}`);
+    const message = `Failed to fetch skill info: ${err}`;
+    throw new Error(withAuthGuidanceIfForbidden(res.status, message));
   }
 
   const info = (await res.json()) as SkillInfo;

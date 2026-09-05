@@ -1,5 +1,5 @@
 import { loadConfig, loadCredentials, type LocalStoreOptions } from '@esl/core';
-import { resolveLoginTtlMs } from './network-options.js';
+import { isLoginFresh, resolveLoginTtlMs } from './network-options.js';
 
 export interface WhoamiResult {
   loggedIn: boolean;
@@ -25,7 +25,7 @@ export async function executeWhoami(options: LocalStoreOptions = {}): Promise<Wh
   const token = credentials.token;
   const loginAt = credentials.loginAt;
   const loginAtMs = loginAt ? Date.parse(loginAt) : NaN;
-  const expired = !loginAt || Number.isNaN(loginAtMs) || Date.now() - loginAtMs > resolveLoginTtlMs();
+  const expired = !isLoginFresh(loginAt);
 
   return {
     loggedIn: Boolean(token),

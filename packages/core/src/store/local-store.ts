@@ -14,6 +14,7 @@ export interface EslConfig {
   server: string | null;
   username: string | null;
   org: string | null;
+  role: 'super' | 'org-admin' | 'member' | null;
   tools: string[];
 }
 
@@ -55,6 +56,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
     server: null,
     username: null,
     org: null,
+    role: null,
     tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {
@@ -100,4 +102,15 @@ export async function saveCredentials(
     mode: 0o600
   });
   return updated;
+}
+
+export async function clearCredentials(options: LocalStoreOptions = {}): Promise<EslCredentials> {
+  const paths = resolveLocalStorePaths(options);
+  await fs.mkdir(paths.root, { recursive: true });
+  const cleared: EslCredentials = { token: null, loginAt: null };
+  await fs.writeFile(paths.credentialsJson, `${JSON.stringify(cleared, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600
+  });
+  return cleared;
 }

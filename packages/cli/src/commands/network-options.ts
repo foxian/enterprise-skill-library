@@ -34,6 +34,17 @@ export function requireConfigured(value: string | null | undefined, name: string
   return value;
 }
 
+// ADR-0021 后续：403 通常意味着技能由其他账号/组织维护（各组织账号相互独立）。
+// 在原始错误后附加可行动指引，替代裸 403 信息。
+function withAuthGuidance(message: string): string {
+  return `${message}\nThis skill may be maintained by another account or organization; log in with the maintaining organization ("esl login") and retry.`;
+}
+
+// 403 时附加跨账号指引，其余状态码原样返回。
+export function withAuthGuidanceIfForbidden(status: number, message: string): string {
+  return status === 403 ? withAuthGuidance(message) : message;
+}
+
 export function resolveTimeoutMs(): number {
   const env = process.env.ESL_HTTP_TIMEOUT;
   if (env) {
@@ -56,15 +67,37 @@ export function resolveLoginTtlMs(): number {
   return 720 * 3_600_000;
 }
 
+// 登录是否仍在 TTL 有效期内（本地时间戳判断，不向服务器验证）。
+export function isLoginFresh(loginAt: string | null | undefined): boolean {  if (!loginAt) {
+    return false;
+  }
+  const loginAtMs = Date.parse(loginAt);
+  return !Number.isNaN(loginAtMs) && Date.now() - loginAtMs <= resolveLoginTtlMs();
+}
+
 export async function requireFreshToken(options: LocalStoreOptions = {}): Promise<string> {
   const credentials = await loadCredentials({ homeDir: options.homeDir });
   const token = requireConfigured(credentials.token, 'token');
-  if (!credentials.loginAt) {
+  if (!isLoginFresh(credentials.loginAt)) {
     throw new Error('Login expired; run esl login to re-authenticate');
   }
-  const loginAt = Date.parse(credentials.loginAt);
-  if (Number.isNaN(loginAt) || Date.now() - loginAt > resolveLoginTtlMs()) {
-    throw new Error('Login expired; run esl login to re-authenticate');
+  return token;
+}
+
+// 匿名也可用的请求所用尽力而为的凭据：登录仍在有效期则返回 token，
+// 缺失或过期返回 null（调用方按匿名处理）。
+export async function resolveOptionalFreshToken(options: LocalStoreOptions = {}): Promise<string | null> {
+  let token: string | null;
+  let loginAt: string | null;
+  try {
+    const credentials = await loadCredentials({ homeDir: options.homeDir });
+    token = credentials.token;
+    loginAt = credentials.loginAt;
+  } catch {
+    return null;
+  }
+  if (!token || !isLoginFresh(loginAt)) {
+    return null;
   }
   return token;
 }
