@@ -37,35 +37,32 @@ esl config set-server http://localhost:3000
 默认本地 Docker 地址是 `http://localhost:3000`。
 
 #### 交互式登录（推荐）
-`esl login` 会依次提示输入 `Username:` 与 `Password:`（密码隐藏显示），
-登录成功后凭据写入本地，后续命令无需再传账号与地址：
+`esl login` 会依次提示输入 `Organization:`、`Username:` 与 `Password:`
+（**组织必填**，密码隐藏显示）。登录成功后凭据写入本地，后续命令无需再传
+账号与地址：
 
 ```powershell
 esl login
 ```
 
 #### 指定账号 / 非交互登录
-也可以显式传 `--username` / `--server`，或使用文件提供凭据：
+也可以显式传 `--org` / `--username` / `--server`，或使用文件提供凭据。
+ESL CLI 只服务组织内成员，组织账号由服务端解析为 `<org>_<username>` 并校验
+归属；组织管理员的用户名为 `admin`：
 
 ```powershell
-# 指定账号交互登录
-esl login --username eslroot
-
-# 指定账号与地址
-esl login --server http://localhost:3000 --username eslroot
-
-# 用用户 token（管理员签发）登录
-esl login --username alice --token-file ./user-token.txt
+# 指定组织与账号交互登录
+esl login --org acme --username alice
 
 # 用密码文件登录（脚本 / CI）
-esl login --username alice --password-file ./pw.txt
+esl login --org acme --username alice --password-file ./pw.txt
+
+# 用用户 token 文件登录
+esl login --org acme --username alice --token-file ./user-token.txt
 ```
 
-平台管理员首次登录使用 `ESL_BOOTSTRAP_ADMIN_TOKEN`（通过 `--token-file` 提供）：
-
-```powershell
-esl login --username eslroot --token-file ./bootstrap-token.txt
-```
+平台管理员不通过 CLI 登录：打开管理后台（`http://<server>/admin/`），使用
+`GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。
 
 登录后的 token 默认 30 天有效，过期后需重新登录；可通过环境变量
 `ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。
@@ -75,69 +72,32 @@ esl login --username eslroot --token-file ./bootstrap-token.txt
 esl whoami
 ```
 
-输出当前登录的用户名、Server、登录时间、过期时间与状态（`active` /
-`expired` / `Not logged in`）。
+输出当前登录的用户名、所属组织、角色（organization administrator /
+member）、Server、登录时间、过期时间与状态（`active` / `expired` /
+`Not logged in`）。
 
 CLI 不支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的
 凭据文件（仅所有者可读），不会写入 `config.json`。
 
 需要直接登录 Gitea 网页后台进行恢复或诊断时，请参阅
-[Docker 排障指南](docker-troubleshooting.md)。`bootstrap-token` 是 ESL CLI
-管理员 token，不是 Gitea 网页密码。
+[Docker 排障指南](docker-troubleshooting.md)。
 
-### 3. 平台管理员命令 (Admin)
-检查 Docker bootstrap 是否完成：
+### 3. 平台管理员操作 (Admin)
 
-```powershell
-esl admin bootstrap status
-```
-
-创建 Skill User。创建时会生成一个随机初始密码并在终端**只显示一次**，
-请记录并转交给用户；也可用 `--password-file` 指定自定义初始密码：
-
-```powershell
-esl admin user create alice
-esl admin user create alice --password-file ./initial-pw.txt
-```
-
-给 Skill User 签发登录 token：
-
-```powershell
-esl admin user token alice
-```
-
-重置/恢复任意 Skill User 的密码。默认生成随机密码并只显示一次（忘记密码
-或迁移旧用户时使用）；也可用 `--password-file` 指定：
-
-```powershell
-esl admin user set-password alice
-esl admin user set-password alice --password-file ./new-pw.txt
-```
-
-禁用 Skill User：
-
-```powershell
-esl admin user disable alice
-```
+平台管理员的治理操作（组织审批、组织管理、平台设置、管理员改密）全部在
+**管理后台**（`/admin/`）完成；ESL CLI 不提供平台管理员登录，只面向
+组织内成员与组织管理员。
 
 ### 4. 账户自助管理 (Account)
 
-Skill User 可修改自己的登录密码。需要验证当前密码，新密码二次确认：
+组织成员可修改自己的登录密码。需要验证当前密码，新密码二次确认：
 
 ```powershell
 esl account change-password
 ```
 
-管理员修改 ESL Administrator Account 密码。当前该账号由
-`GITEA_ADMIN_USERNAME` 对应的 Gitea 用户承载；必须先用该账号自身登录，
-不能用 Bootstrap Token 执行改密：
-
-```powershell
-esl login --username eslroot
-
-# 从文件读取新密码；交互式执行时会隐藏输入并要求确认
-esl admin account change-password --password-file ./new-password.txt
-```
+平台管理员（ESL Administrator Account）改密在**管理后台 → 平台设置**中
+完成，不使用 CLI。
 
 ---
 

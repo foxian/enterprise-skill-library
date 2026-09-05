@@ -3,32 +3,63 @@
     <div class="console-toolbar">
       <h2>成员管理</h2>
       <div>
-        <el-button data-test="open-enable-member" @click="enableDialogVisible = true">启用成员</el-button>
         <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">添加成员</el-button>
       </div>
     </div>
 
-    <el-table :data="members" data-test="members-table" v-loading="loading">
-      <el-table-column prop="username" label="用户名" />
-      <el-table-column label="显示名" width="160">
-        <template #default="{ row }">{{ displayName(row.username) }}</template>
-      </el-table-column>
-      <el-table-column label="状态" width="100">
-        <template #default>
-          <el-tag type="success" data-test="member-status">在册</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="200">
-        <template #default="{ row }">
-          <el-button link type="primary" :data-test="`reset-password-${row.username}`" @click="openReset(row)">
-            重置密码
-          </el-button>
-          <el-button link type="danger" :data-test="`disable-${row.username}`" @click="openDisable(row)">
-            禁用
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <el-tabs v-model="activeTab">
+      <el-tab-pane label="在册成员" name="members">
+        <el-table :data="members" data-test="members-table" v-loading="loading">
+          <el-table-column label="成员">
+            <template #default="{ row }">{{ shortUsername(auth.org, row.username) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default>
+              <el-tag type="success" data-test="member-status">在册</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="220">
+            <template #default="{ row }">
+              <el-button link type="primary" :data-test="`reset-password-${row.username}`" @click="openReset(row)">
+                重置密码
+              </el-button>
+              <el-button
+                v-if="!isOrganizationAdmin(row.username)"
+                link
+                type="danger"
+                :data-test="`disable-${row.username}`"
+                @click="openDisable(row)"
+              >
+                禁用
+              </el-button>
+              <!-- 组织管理员是组织唯一 Owner 与治理入口,不可被禁用(后端同样拒绝) -->
+              <el-tag v-else type="warning" data-test="admin-badge">管理员</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+      <!-- 被禁用成员已被移出组织,单独一个 tab;只有存在禁用成员时才显示 -->
+      <el-tab-pane v-if="disabledMembers.length" :label="`已禁用（${disabledMembers.length}）`" name="disabled" data-test="disabled-members-tab">
+        <el-table :data="disabledMembers" size="small" data-test="disabled-members-table">
+          <el-table-column label="成员">
+            <template #default="{ row }">{{ shortUsername(auth.org, row.username) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button
+                link
+                type="primary"
+                :data-test="`enable-${row.username}`"
+                :loading="enabling === row.username"
+                @click="enableDisabled(row)"
+              >
+                启用
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+    </el-tabs>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
 
     <el-dialog v-model="addDialogVisible" title="添加成员" width="420px">
@@ -66,15 +97,6 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="enableDialogVisible" title="启用成员" width="420px">
-      <p>输入被禁用成员的用户名，恢复其登录并重新加入默认团队。</p>
-      <el-input v-model="enableUsername" data-test="enable-member-username" placeholder="成员用户名（不含组织前缀）" />
-      <template #footer>
-        <el-button @click="enableDialogVisible = false">取消</el-button>
-        <el-button type="primary" data-test="enable-member-submit" @click="enableMember">启用</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 一次性密码展示：关闭后不再可见 -->
     <el-dialog v-model="passwordDialogVisible" title="一次性初始密码" width="420px">
       <p><strong>{{ passwordDialogUsername }}</strong> 的初始密码（仅展示一次，请立即交付）：</p>
@@ -89,12 +111,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
 import { validateMemberUsername, validatePassword } from '@esl/core/dist/org/account-policy.js';
 import { useAuthStore } from '../../stores/auth';
-import { apiRequest } from '../../api/client';
+import { apiRequest, openOperationStream, type OperationStream } from '../../api/client';
+import { shortUsername } from '../../utils/short-username';
 
 interface GiteaUserView {
   id: number;
@@ -106,6 +129,7 @@ const auth = useAuthStore();
 const members = ref<GiteaUserView[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
+const activeTab = ref('members');
 
 const addDialogVisible = ref(false);
 const addUsername = ref('');
@@ -118,19 +142,23 @@ const resetPassword = ref('');
 const disableDialogVisible = ref(false);
 const disableTarget = ref('');
 
-const enableDialogVisible = ref(false);
-const enableUsername = ref('');
+const disabledMembers = ref<GiteaUserView[]>([]);
+const enabling = ref('');
 
 const passwordDialogVisible = ref(false);
 const passwordDialogUsername = ref('');
 const oneTimePassword = ref('');
 
-function displayName(username: string): string {
-  return username.startsWith(`${auth.org}_`) ? username.slice(auth.org!.length + 1) : username;
-}
+// 成员创建是异步 Operation:订阅状态流,创建完成后再刷新列表
+let operationStream: OperationStream | undefined;
 
-function shortUsername(username: string): string {
-  return displayName(username);
+onUnmounted(() => {
+  operationStream?.close();
+  operationStream = undefined;
+});
+
+function isOrganizationAdmin(username: string): boolean {
+  return username === `${auth.org}_admin`;
 }
 
 async function loadMembers(): Promise<void> {
@@ -142,6 +170,15 @@ async function loadMembers(): Promise<void> {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadDisabledMembers(): Promise<void> {
+  errorMessage.value = '';
+  try {
+    disabledMembers.value = await apiRequest<GiteaUserView[]>('/api/orgs/members/disabled');
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -161,7 +198,7 @@ async function addMember(): Promise<void> {
     }
   }
   try {
-    const result = await apiRequest<{ username: string; password?: string }>('/api/orgs/members', {
+    const result = await apiRequest<{ username: string; password?: string; operationId?: number }>('/api/orgs/members', {
       method: 'POST',
       body: { username: addUsername.value, password: addPassword.value || undefined }
     });
@@ -175,14 +212,33 @@ async function addMember(): Promise<void> {
     } else {
       ElMessage.success(`成员 ${result.username} 已添加`);
     }
-    await loadMembers();
+    if (result.operationId) {
+      // 成员创建是异步 Operation:订阅状态流,创建完成后再刷新列表,避免读到
+      // Gitea 尚未建好用户的中间状态。
+      operationStream = openOperationStream(result.operationId, {
+        onEvent: (event) => {
+          if (event.status === 'succeeded') {
+            void loadMembers();
+          } else if (event.status === 'permanently_failed') {
+            errorMessage.value = '成员创建失败，请稍后重试';
+          }
+        },
+        onError: () => {
+          // 流断开时兜底刷新,不阻断后续操作
+          void loadMembers();
+        }
+      });
+    } else {
+      await loadMembers();
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }
 }
 
 function openReset(row: GiteaUserView): void {
-  resetTarget.value = row.username;
+  // 对话框标题展示短名;API 路径使用短名(后端在组织上下文拼装完整用户名)
+  resetTarget.value = shortUsername(auth.org, row.username);
   resetPassword.value = '';
   resetDialogVisible.value = true;
 }
@@ -198,7 +254,7 @@ async function resetPasswordFor(): Promise<void> {
   }
   try {
     const result = await apiRequest<{ username: string; password?: string }>(
-      `/api/orgs/members/${encodeURIComponent(shortUsername(resetTarget.value))}/password`,
+      `/api/orgs/members/${encodeURIComponent(resetTarget.value)}/password`,
       {
         method: 'POST',
         body: { password: resetPassword.value || undefined }
@@ -218,40 +274,85 @@ async function resetPasswordFor(): Promise<void> {
 }
 
 function openDisable(row: GiteaUserView): void {
-  disableTarget.value = row.username;
+  // 对话框与提示展示短名;API 路径使用短名(后端在组织上下文拼装完整用户名)
+  disableTarget.value = shortUsername(auth.org, row.username);
   disableDialogVisible.value = true;
 }
 
 async function disableMember(): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest(`/api/orgs/members/${encodeURIComponent(shortUsername(disableTarget.value))}/disable`, {
-      method: 'POST'
-    });
+    const result = await apiRequest<{ username: string; operationId?: number }>(
+      `/api/orgs/members/${encodeURIComponent(disableTarget.value)}/disable`,
+      { method: 'POST' }
+    );
     disableDialogVisible.value = false;
     ElMessage.success(`成员 ${disableTarget.value} 已禁用`);
-    await loadMembers();
+    if (result.operationId) {
+      // 禁用是异步 Operation:订阅状态流,成功后再同时刷新在册与已禁用列表
+      operationStream = openOperationStream(result.operationId, {
+        onEvent: (event) => {
+          if (event.status === 'succeeded') {
+            void loadMembers();
+            void loadDisabledMembers();
+          } else if (event.status === 'permanently_failed') {
+            errorMessage.value = '成员禁用失败，请稍后重试';
+          }
+        },
+        onError: () => {
+          void loadMembers();
+          void loadDisabledMembers();
+        }
+      });
+    } else {
+      await loadMembers();
+      await loadDisabledMembers();
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }
 }
 
-async function enableMember(): Promise<void> {
+async function enableDisabled(row: GiteaUserView): Promise<void> {
   errorMessage.value = '';
+  enabling.value = row.username;
   try {
-    await apiRequest(`/api/orgs/members/${encodeURIComponent(enableUsername.value)}/enable`, {
-      method: 'POST'
-    });
-    enableDialogVisible.value = false;
-    enableUsername.value = '';
-    ElMessage.success('成员已启用');
-    await loadMembers();
+    const result = await apiRequest<{ username: string; operationId?: number }>(
+      `/api/orgs/members/${encodeURIComponent(shortUsername(auth.org, row.username))}/enable`,
+      { method: 'POST' }
+    );
+    ElMessage.success(`成员 ${shortUsername(auth.org, row.username)} 已启用`);
+    if (result.operationId) {
+      // 启用是异步 Operation:订阅状态流,完成后刷新在册与被禁用列表
+      operationStream = openOperationStream(result.operationId, {
+        onEvent: (event) => {
+          if (event.status === 'succeeded') {
+            void loadMembers();
+            void loadDisabledMembers();
+          } else if (event.status === 'permanently_failed') {
+            errorMessage.value = '成员启用失败，请稍后重试';
+          }
+        },
+        onError: () => {
+          void loadMembers();
+          void loadDisabledMembers();
+        }
+      });
+    } else {
+      await loadMembers();
+      await loadDisabledMembers();
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    enabling.value = '';
   }
 }
 
-onMounted(loadMembers);
+onMounted(() => {
+  void loadMembers();
+  void loadDisabledMembers();
+});
 </script>
 
 <style scoped>

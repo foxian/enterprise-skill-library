@@ -719,6 +719,9 @@ async function hasReadAccess(
   username: string | undefined
 ): Promise<boolean> {
   if (!username) return false;
+  // public 技能对任何已登录用户可读,无需向 Git Backend 查询权限。
+  // 也避免对 DB 中存在但 Gitea 侧仓库缺失的孤儿记录触发 Gitea 调用。
+  if (skill.visibility === 'public') return true;
   if (username === `${skill.scope}_admin`) return true;
   // 技能创建者/维护者拥有管理权，理应可读自己的仓库（API 创建流未自动添加 collaborator）
   if (username === skill.owner || skill.maintainers.includes(username)) return true;

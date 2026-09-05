@@ -9,9 +9,11 @@ export interface ServerConfig {
   giteaAdminUsername: string;
   giteaAdminPassword?: string;
   repoOwner: string;
-  bootstrapAdminToken: string;
   passwordMinLength: number;
   applicationEncryptionKey?: string;
+  // When true the server seeds sample skill metadata at startup (ESL_AUTO_SEED).
+  // Development environments opt in; production keeps the database clean.
+  autoSeed: boolean;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -38,6 +40,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   if (!Number.isInteger(passwordMinLength) || passwordMinLength < 1) {
     throw new Error(`Invalid ESL_PASSWORD_MIN_LENGTH: ${env.ESL_PASSWORD_MIN_LENGTH}`);
   }
+  const autoSeed = env.ESL_AUTO_SEED === 'true' || env.ESL_AUTO_SEED === '1';
 
   return {
     port,
@@ -50,8 +53,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     // Transitional fixed namespace for Server-hosted Skill Sources; per-org
     // scopes arrive with the multi-tenant upload flow (docs/adr/0016).
     repoOwner: 'esl-skills',
-    bootstrapAdminToken: env.ESL_BOOTSTRAP_ADMIN_TOKEN ?? 'bootstrap-token',
     passwordMinLength,
+    autoSeed,
     ...(env.ESL_APPLICATION_ENCRYPTION_KEY
       ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
       : {})

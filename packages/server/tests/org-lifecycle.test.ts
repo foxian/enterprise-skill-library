@@ -254,6 +254,101 @@ describe('organization application lifecycle', () => {
     after.close();
   });
 
+  it('removes the platform site admin from the Owners team after initialization', async () => {
+    const mockGitea = {
+      ...autoModeGitea(),
+      adminUsername: 'eslroot',
+      removeTeamMember: vi.fn().mockResolvedValue(undefined)
+    };
+    // Gitea 创建组织时会把 admin token 持有者(site admin)自动加入 Owners 团队
+    mockGitea.listTeamMembers.mockResolvedValue([
+      { id: 2, username: 'eslroot', email: 'eslroot@local.esl' },
+      { id: 1, username: 'acme_admin', email: 'acme_admin@local.esl' }
+    ]);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'initial-password' }
+    });
+    expect(response.statusCode).toBe(201);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // 初始化完成后 Owners 团队只保留本组织管理员
+    expect(mockGitea.removeTeamMember).toHaveBeenCalledWith(1, 'eslroot');
+    const after = initDatabase(dbPath);
+    expect(after.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+      status: 'active'
+    });
+    after.close();
+  });
+
+  it('allows retrying provisioning when the Owners team contains the platform site admin', async () => {
+    const mockGitea = {
+      ...autoModeGitea(),
+      adminUsername: 'eslroot',
+      removeTeamMember: vi.fn().mockResolvedValue(undefined)
+    };
+    // 首次开通:建组织成功(Gitea 自动把 site admin 加入 Owners)、创建管理员失败;
+    // 重试时组织已存在,Owners 同时含 site admin 与本组织管理员。
+    mockGitea.createUser.mockRejectedValueOnce(new Error('temporary failure'));
+    mockGitea.organizationExists.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
+    mockGitea.listOrgMembers.mockResolvedValueOnce([]).mockResolvedValue([
+      { id: 1, username: 'acme_admin', email: 'acme_admin@local.esl' }
+    ]);
+    mockGitea.listTeams.mockResolvedValueOnce([{ id: 1, name: 'Owners', permission: 'owner' }]).mockResolvedValue([
+      { id: 1, name: 'Owners', permission: 'owner' },
+      { id: 2, name: 'all-readers', permission: 'read' },
+      { id: 3, name: 'all-writers', permission: 'write' }
+    ]);
+    mockGitea.listTeamMembers.mockResolvedValue([
+      { id: 2, username: 'eslroot', email: 'eslroot@local.esl' },
+      { id: 1, username: 'acme_admin', email: 'acme_admin@local.esl' }
+    ]);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'initial-password' }
+    });
+    expect(response.statusCode).toBe(201);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const db = initDatabase(dbPath);
+    db.prepare(`UPDATE operations SET next_retry_at = NULL, status = 'failed' WHERE kind = 'organization.provision'`).run();
+    db.close();
+    await app.close();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // site admin 常驻 Owners 不构成外部所有者:重试应完成开通而不是拒绝接管
+    const after = initDatabase(dbPath);
+    expect(after.prepare(`SELECT status FROM operations WHERE kind = 'organization.provision'`).get()).toMatchObject({
+      status: 'succeeded'
+    });
+    expect(after.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+      status: 'active'
+    });
+    after.close();
+  });
+
   it('lets applicants query their own application status without exposing credentials', async () => {
     const settingsDb = initDatabase(dbPath);
     new PlatformSettingsRepository(settingsDb).setSetting('org_registration_mode', 'manual');

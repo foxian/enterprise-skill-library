@@ -14,7 +14,7 @@
           团队 {{ team.name }}（{{ permissionText(team.permission) }}）
         </el-tag>
         <el-tag v-for="member in matrix.members" :key="member.username" type="info" data-test="granted-member">
-          {{ member.username }}（{{ permissionText(member.permission) }}）
+          {{ shortUsername(props.scope, member.username) }}（{{ permissionText(member.permission) }}）
         </el-tag>
       </el-space>
     </el-card>
@@ -77,7 +77,12 @@
               placeholder="成员用户名"
               style="width: 220px"
             >
-              <el-option v-for="member in memberOptions" :key="member.username" :value="member.username" />
+              <el-option
+                v-for="member in memberOptions"
+                :key="member.username"
+                :label="shortUsername(props.scope, member.username)"
+                :value="member.username"
+              />
             </el-select>
             <el-input v-else v-model="selectedMember" data-test="member-input" placeholder="成员用户名（含组织前缀）" style="width: 220px" />
             <el-select v-model="memberPermission" data-test="member-permission" style="width: 100px">
@@ -87,7 +92,9 @@
             <el-button type="primary" data-test="grant-member" @click="grantMember">添加授权</el-button>
           </div>
           <el-table v-if="matrix.members.length" :data="matrix.members" size="small">
-            <el-table-column prop="username" label="成员" />
+            <el-table-column label="成员">
+              <template #default="{ row }">{{ shortUsername(props.scope, row.username) }}</template>
+            </el-table-column>
             <el-table-column label="权限" width="80">
               <template #default="{ row }">{{ permissionText(row.permission) }}</template>
             </el-table-column>
@@ -116,6 +123,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
+import { shortUsername } from '../utils/short-username';
 import {
   deriveShareState,
   type MemberOption,

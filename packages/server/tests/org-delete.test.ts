@@ -451,7 +451,7 @@ describe('organization lifecycle access control', () => {
       ),
       loginUser: vi.fn().mockResolvedValue('issued-gitea-token'),
       organizationExists: vi.fn().mockResolvedValue(true),
-      listOrgMembers: vi.fn().mockResolvedValue([]),
+      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_bob' }]),
       listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
       createTeam: vi.fn().mockResolvedValue({ id: 5, name: 'dev', permission: 'read' })
     };
@@ -477,7 +477,7 @@ describe('organization lifecycle access control', () => {
       const memberLogin = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
-        payload: { username: 'acme_bob', password: 'whatever-password' }
+        payload: { org: 'acme', username: 'bob', password: 'whatever-password' }
       });
       expect(memberLogin.statusCode).toBe(409);
       expect(mockGitea.loginUser).not.toHaveBeenCalled();
@@ -485,7 +485,7 @@ describe('organization lifecycle access control', () => {
       const adminLogin = await app.inject({
         method: 'POST',
         url: '/api/auth/login',
-        payload: { username: 'acme_admin', password: 'whatever-password' }
+        payload: { org: 'acme', username: 'admin', password: 'whatever-password' }
       });
       expect(adminLogin.statusCode).toBe(409);
 
@@ -529,7 +529,7 @@ describe('organization lifecycle access control', () => {
     const login = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { username: 'acme_bob', password: 'whatever-password' }
+      payload: { org: 'acme', username: 'bob', password: 'whatever-password' }
     });
     expect(login.statusCode).toBe(200);
 
@@ -539,6 +539,6 @@ describe('organization lifecycle access control', () => {
       headers: { authorization: 'token acme-token' }
     });
     expect(members.statusCode).toBe(200);
-    expect(members.json()).toEqual([]);
+    expect(members.json()).toEqual([{ username: 'acme_bob' }]);
   });
 });

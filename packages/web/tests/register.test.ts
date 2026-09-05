@@ -132,6 +132,80 @@ describe('RegisterView', () => {
     expect(wrapper.find('[data-test="register-result"]').text()).toContain('等待审批');
   });
 
+  // 构造一个带 SSE 事件的流式 Response,供 openOperationStream 消费
+  function sseResponse(events: unknown[]): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+        controller.close();
+      }
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' }
+    });
+  }
+
+  it('auto 模式提交后自动订阅开通流，开通成功时界面自动更新为已开通', async () => {
+    setFetchImpl((async (url: string | URL) => {
+      const path = String(url);
+      if (path === '/api/orgs/apply') {
+        return new Response(JSON.stringify({ status: 'provisioning', operationId: 5 }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      if (path === '/api/operations/5/stream') {
+        return sseResponse([
+          { operationId: 5, status: 'pending', error: null },
+          { operationId: 5, status: 'succeeded', error: null }
+        ]);
+      }
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch);
+    wrapper = await mountRegister();
+
+    await setField(wrapper, '[data-test="org-name"]', 'acme');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await flushPromises();
+
+    await vi.waitFor(() => {
+      expect(wrapper!.find('[data-test="register-result"]').text()).toContain('组织已开通');
+    });
+  });
+
+  it('auto 模式开通失败时界面自动展示失败状态', async () => {
+    setFetchImpl((async (url: string | URL) => {
+      const path = String(url);
+      if (path === '/api/orgs/apply') {
+        return new Response(JSON.stringify({ status: 'provisioning', operationId: 6 }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+      if (path === '/api/operations/6/stream') {
+        return sseResponse([{ operationId: 6, status: 'permanently_failed', error: 'simulated failure' }]);
+      }
+      return new Response('{}', { status: 404 });
+    }) as typeof fetch);
+    wrapper = await mountRegister();
+
+    await setField(wrapper, '[data-test="org-name"]', 'acme');
+    await setField(wrapper, '[data-test="password"]', 'initial-password-123');
+    await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await flushPromises();
+
+    await vi.waitFor(() => {
+      expect(wrapper!.find('[data-test="register-result"]').text()).toContain('组织开通失败');
+    });
+  });
+
   it('免审批模式下直接展示已开通状态', async () => {
     setFetchImpl(mockFetch(201, { status: 'approved' }).impl);
     wrapper = await mountRegister();

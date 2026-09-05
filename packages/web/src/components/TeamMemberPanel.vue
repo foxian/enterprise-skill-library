@@ -8,12 +8,22 @@
       </div>
     </div>
     <el-table :data="members" size="small" :data-test="`team-members-${team.name}`">
-      <el-table-column prop="username" label="用户名" />
+      <el-table-column label="成员">
+        <template #default="{ row }">{{ shortUsername(auth.org, row.username) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="100">
         <template #default="{ row }">
-          <el-button link type="danger" :data-test="`team-remove-${row.username}`" @click="removeMember(row)">
+          <el-button
+            v-if="!isProtectedOwner(row.username)"
+            link
+            type="danger"
+            :data-test="`team-remove-${row.username}`"
+            @click="removeMember(row)"
+          >
             移除
           </el-button>
+          <!-- 组织管理员是组织唯一 Owner,不可从 Owners 团队移除(后端同样拒绝) -->
+          <el-tag v-else type="warning" data-test="owner-admin-badge">管理员</el-tag>
         </template>
       </el-table-column>
     </el-table>
@@ -26,6 +36,7 @@ import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
 import { useAuthStore } from '../stores/auth';
+import { shortUsername } from '../utils/short-username';
 
 interface TeamView {
   id: number;
@@ -43,8 +54,9 @@ const props = defineProps<{ team: TeamView }>();
 const emit = defineEmits<{ (event: 'changed'): void }>();
 const auth = useAuthStore();
 
-function shortUsername(username: string): string {
-  return username.startsWith(`${auth.org}_`) ? username.slice(auth.org!.length + 1) : username;
+// Owners 团队中的组织管理员账号是治理根基,不可从该团队移除
+function isProtectedOwner(username: string): boolean {
+  return props.team.permission === 'owner' && shortUsername(auth.org, username) === 'admin';
 }
 
 const username = ref('');
@@ -79,10 +91,11 @@ async function addMember(): Promise<void> {
 async function removeMember(member: GiteaUserView): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest(`/api/orgs/teams/${props.team.id}/members/${encodeURIComponent(shortUsername(member.username))}`, {
+    // API 路径使用短名(后端在组织上下文拼装完整用户名),提示同样展示短名
+    await apiRequest(`/api/orgs/teams/${props.team.id}/members/${encodeURIComponent(shortUsername(auth.org, member.username))}`, {
       method: 'DELETE'
     });
-    ElMessage.success(`已移除 ${member.username}`);
+    ElMessage.success(`已移除 ${shortUsername(auth.org, member.username)}`);
     await loadMembers();
     emit('changed');
   } catch (error) {

@@ -76,17 +76,18 @@ describe('LoginView', () => {
     expect(localStorage.getItem('esl-admin-session')).toBeNull();
   });
 
-  it('组装组织前缀登录成员账号并保存会话，跳转成员视图', async () => {
-    const fetchMock = mockFetch(200, { token: 'member-token', username: 'acme_bob' });
+  it('走管理后台登录端点、发送组织与用户名并保存服务端返回的角色，跳转成员视图', async () => {
+    const fetchMock = mockFetch(200, { token: 'member-token', username: 'bob', org: 'acme', role: 'member' });
     setFetchImpl(fetchMock.impl);
     wrapper = await mountLogin();
 
     await fillAndSubmit(wrapper, { username: 'bob', org: 'acme', password: 'secret' });
 
     expect(fetchMock.calls).toHaveLength(1);
-    expect(fetchMock.calls[0].url).toBe('/api/auth/login');
+    expect(fetchMock.calls[0].url).toBe('/api/console/login');
     expect(JSON.parse(String(fetchMock.calls[0].init.body))).toEqual({
-      username: 'acme_bob',
+      username: 'bob',
+      org: 'acme',
       password: 'secret'
     });
 
@@ -100,7 +101,9 @@ describe('LoginView', () => {
   });
 
   it('用户名为 admin 的组织账号登录后跳转组织管理视图', async () => {
-    setFetchImpl(mockFetch(200, { token: 'org-admin-token', username: 'acme_admin' }).impl);
+    setFetchImpl(
+      mockFetch(200, { token: 'org-admin-token', username: 'admin', org: 'acme', role: 'org-admin' }).impl
+    );
     wrapper = await mountLogin();
 
     await fillAndSubmit(wrapper, { username: 'admin', org: 'acme', password: 'secret' });
@@ -111,10 +114,17 @@ describe('LoginView', () => {
   });
 
   it('组织名留空时按超级管理员登录并跳转超管视图', async () => {
-    setFetchImpl(mockFetch(200, { token: 'super-token', username: 'eslroot' }).impl);
+    const fetchMock = mockFetch(200, { token: 'super-token', username: 'eslroot', org: null, role: 'super' });
+    setFetchImpl(fetchMock.impl);
     wrapper = await mountLogin();
 
     await fillAndSubmit(wrapper, { username: 'eslroot', org: '', password: 'secret' });
+
+    expect(JSON.parse(String(fetchMock?.calls[0]?.init.body ?? '{}'))).toEqual({
+      username: 'eslroot',
+      org: null,
+      password: 'secret'
+    });
 
     const auth = useAuthStore();
     expect(auth.role).toBe('super');

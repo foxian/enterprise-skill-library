@@ -95,10 +95,6 @@ the `GITEA_ADMIN_PASSWORD` value from `.env`. Continue using the ESL Server at
 `http://localhost:3000` for normal API and Git workflows.
 
 Change the ESL Administrator Account password through ESL rather than editing
-runtime storage. This requires logging in as that account; the Bootstrap Token
-cannot change the account password:
-
-```powershell
-npm exec -- esl login --server http://localhost:3000 --username eslroot
-npm exec -- esl admin account change-password --password-file .\new-password.txt
-```
+runtime storage: sign in to the Admin Console (`http://localhost:3000/admin`) as
+the administrator account and change it under 平台设置 (Platform Settings). The
+CLI does not host the platform administrator.

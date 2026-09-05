@@ -28,7 +28,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../api/client';
-import { deriveRole, useAuthStore } from '../stores/auth';
+import { useAuthStore, type Role } from '../stores/auth';
 
 const username = ref('');
 const org = ref('');
@@ -49,17 +49,20 @@ async function submit(): Promise<void> {
   const trimmedOrg = org.value.trim();
   loading.value = true;
   try {
-    // 后端账号体系为 <orgname>_<username>，超级管理员无组织前缀
-    const giteaUsername = trimmedOrg ? `${trimmedOrg}_${trimmedUsername}` : trimmedUsername;
-    const result = await apiRequest<{ token: string; username: string }>('/api/auth/login', {
-      method: 'POST',
-      body: { username: giteaUsername, password: password.value }
-    });
+    // 管理后台专用登录端点：组织账号由服务端解析 <org>_<username> 并校验归属，
+    // 无组织的平台管理员由服务端判定为 super；角色一律以服务端返回为准。
+    const result = await apiRequest<{ token: string; username: string; org: string | null; role: Role }>(
+      '/api/console/login',
+      {
+        method: 'POST',
+        body: { username: trimmedUsername, org: trimmedOrg || null, password: password.value }
+      }
+    );
     auth.establish({
       token: result.token,
-      username: trimmedUsername,
-      org: trimmedOrg || null,
-      role: deriveRole(trimmedUsername, trimmedOrg || null)
+      username: result.username,
+      org: result.org,
+      role: result.role
     });
     await router.push(auth.homePath);
   } catch (error) {

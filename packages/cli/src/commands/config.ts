@@ -13,6 +13,10 @@ export async function resolveServer(options: ConfigCommandOptions = {}): Promise
   if (options.server) {
     return options.server;
   }
+  const fromEnv = process.env.ESL_SERVER;
+  if (fromEnv) {
+    return fromEnv;
+  }
   const config = await loadConfig({ homeDir: options.homeDir });
   if (!config.server) {
     throw new Error('Missing server; run esl config set-server <url> or pass --server');

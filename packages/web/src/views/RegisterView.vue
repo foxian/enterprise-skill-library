@@ -22,13 +22,21 @@
         <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" data-test="register-error" />
         <el-result
           v-if="submittedStatus"
-          :icon="submittedStatus === 'approved' ? 'success' : 'info'"
-          :title="submittedStatus === 'approved' ? '组织已开通' : submittedStatus === 'provisioning' ? '组织正在开通' : '申请已提交，等待审批'"
+          :icon="submittedStatus === 'approved' ? 'success' : submittedStatus === 'failed' ? 'error' : 'info'"
+          :title="submittedStatus === 'approved'
+            ? '组织已开通'
+            : submittedStatus === 'failed'
+              ? '组织开通失败'
+              : submittedStatus === 'provisioning'
+                ? '组织正在开通'
+                : '申请已提交，等待审批'"
           :sub-title="submittedStatus === 'approved'
             ? '组织已初始化，请使用组织管理员账号登录。'
-            : submittedStatus === 'provisioning'
-              ? '组织资源正在后台初始化，完成后即可登录。'
-              : '平台管理员审批通过后，组织将进入后台开通流程。'"
+            : submittedStatus === 'failed'
+              ? '开通未能完成，请使用下方查询确认状态，或联系平台管理员处理。'
+              : submittedStatus === 'provisioning'
+                ? '组织资源正在后台初始化，完成后会自动提示。'
+                : '平台管理员审批通过后，组织将进入后台开通流程。'"
           data-test="register-result"
         />
         <el-button
@@ -64,11 +72,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
 import { validateOrgName } from '@esl/core/dist/org/org-name.js';
 import { validatePassword } from '@esl/core/dist/org/account-policy.js';
-import { apiRequest, ApiError } from '../api/client';
+import { apiRequest, ApiError, openOperationStream, type OperationStream } from '../api/client';
 import { orgStatusText } from '../constants/org-status';
 
 const orgName = ref('');
@@ -76,7 +84,9 @@ const password = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
-const submittedStatus = ref<'pending' | 'provisioning' | 'approved' | ''>('');
+const submittedStatus = ref<'pending' | 'provisioning' | 'approved' | 'failed' | ''>('');
+// 提交后订阅开通流的句柄,组件卸载时关闭
+let operationStream: OperationStream | undefined;
 
 // 服务端固定创建 <组织名>_admin 管理员账号，申请单统一以 admin 作为管理员标识
 const ADMIN_ACCOUNT = 'admin';
@@ -112,21 +122,47 @@ async function submit(): Promise<void> {
   }
   loading.value = true;
   try {
-    const result = await apiRequest<{ status: 'pending' | 'provisioning' | 'approved' }>('/api/orgs/apply', {
-      method: 'POST',
-      body: {
-        orgName: orgName.value,
-        adminDisplayName: ADMIN_ACCOUNT,
-        password: password.value
+    const result = await apiRequest<{ status: 'pending' | 'provisioning' | 'approved'; operationId?: number }>(
+      '/api/orgs/apply',
+      {
+        method: 'POST',
+        body: {
+          orgName: orgName.value,
+          adminDisplayName: ADMIN_ACCOUNT,
+          password: password.value
+        }
       }
-    });
+    );
     submittedStatus.value = result.status;
+    // auto 模式进入后台开通:订阅 Operation 状态流,开通成功/失败后界面自动更新,
+    // 无需申请人反复手动查询。
+    if (result.status === 'provisioning' && result.operationId) {
+      operationStream = openOperationStream(result.operationId, {
+        orgPassword: password.value,
+        onEvent: (event) => {
+          if (event.status === 'succeeded') {
+            submittedStatus.value = 'approved';
+          } else if (event.status === 'permanently_failed') {
+            submittedStatus.value = 'failed';
+          }
+        },
+        onError: () => {
+          // 流断开不阻断界面:申请人仍可用下方"查询申请状态"手动查询
+          operationStream = undefined;
+        }
+      });
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
     loading.value = false;
   }
 }
+
+onUnmounted(() => {
+  operationStream?.close();
+  operationStream = undefined;
+});
 
 // 申请人自助查询:申请密文仍存在时必须提供申请时设置的初始密码,
 // 且只有查看入口,没有任何重试、取消或修复入口

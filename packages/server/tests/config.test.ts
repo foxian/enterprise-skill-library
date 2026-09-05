@@ -18,20 +18,26 @@ describe('server config', () => {
       giteaAdminUsername: 'eslroot',
       giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
-      bootstrapAdminToken: 'bootstrap-token',
-      passwordMinLength: 12
+      passwordMinLength: 12,
+      autoSeed: false
     });
   });
 
-  it('loads the configured bootstrap administrator token', () => {
-    const config = loadServerConfig({
+  it('defaults autoSeed to false and enables it via ESL_AUTO_SEED', () => {
+    const disabled = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token'
+    } as NodeJS.ProcessEnv);
+    expect(disabled.autoSeed).toBe(false);
+
+    const enabled = loadServerConfig({
       DATABASE_PATH: '/tmp/esl.db',
       GITEA_URL: 'http://gitea:3000',
       GITEA_ADMIN_TOKEN: 'admin-token',
-      ESL_BOOTSTRAP_ADMIN_TOKEN: 'configured-bootstrap-token'
+      ESL_AUTO_SEED: 'true'
     } as NodeJS.ProcessEnv);
-
-    expect(config.bootstrapAdminToken).toBe('configured-bootstrap-token');
+    expect(enabled.autoSeed).toBe(true);
   });
 
   it('loads the shared password minimum length', () => {

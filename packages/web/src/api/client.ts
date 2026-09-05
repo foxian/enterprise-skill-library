@@ -22,6 +22,83 @@ export interface RequestOptions {
   body?: unknown;
 }
 
+// Operation 状态流(SSE)事件:与 GET /api/operations/:id/stream 推送的数据一致。
+export interface OperationStreamEvent {
+  operationId: number;
+  status: string;
+  error: string | null;
+}
+
+export interface OperationStreamOptions {
+  // 匿名申请人订阅 organization.provision 开通流时携带的初始密码;
+  // 已登录用户无需此字段(走 Authorization token)。
+  orgPassword?: string;
+  onEvent: (event: OperationStreamEvent) => void;
+  onError?: (error: Error) => void;
+}
+
+export interface OperationStream {
+  close: () => void;
+}
+
+// 订阅一次跨系统 Operation 的状态流。连接建立后服务端先推送当前状态,
+// 之后每次 settle(succeeded / permanently_failed)增量推送,无需轮询。
+// 使用 fetch + ReadableStream 解析 SSE:原生 EventSource 无法携带自定义
+// Authorization / X-Org-Password 头。返回 close() 用于取消订阅并断开连接。
+export function openOperationStream(operationId: number, options: OperationStreamOptions): OperationStream {
+  const auth = useAuthStore();
+  const headers: Record<string, string> = {};
+  if (auth.token) {
+    headers.Authorization = `token ${auth.token}`;
+  }
+  if (options.orgPassword) {
+    headers['X-Org-Password'] = options.orgPassword;
+  }
+  const controller = new AbortController();
+
+  void (async () => {
+    try {
+      const response = await fetchImpl(`/api/operations/${operationId}/stream`, {
+        headers,
+        signal: controller.signal
+      });
+      if (!response.ok || !response.body) {
+        const text = await response.text();
+        let message = text;
+        try {
+          message = (JSON.parse(text) as { error?: string }).error ?? text;
+        } catch {
+          // 非 JSON 错误体,直接展示原文
+        }
+        throw new ApiError(response.status, message || `请求失败（HTTP ${response.status}）`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let separator: number;
+        while ((separator = buffer.indexOf('\n\n')) !== -1) {
+          const block = buffer.slice(0, separator);
+          buffer = buffer.slice(separator + 2);
+          for (const line of block.split('\n')) {
+            if (line.startsWith('data: ')) {
+              options.onEvent(JSON.parse(line.slice(6)) as OperationStreamEvent);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') return;
+      options.onError?.(error instanceof Error ? error : new Error(String(error)));
+    }
+  })();
+
+  return { close: () => controller.abort() };
+}
+
 export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const auth = useAuthStore();
   const headers: Record<string, string> = {};

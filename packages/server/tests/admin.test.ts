@@ -78,141 +78,6 @@ describe('Admin API', () => {
     });
   });
 
-  it('creates a user and issues a login token', async () => {
-    const mockGitea = {
-      organizationExists: async () => true,
-      createUser: async () => undefined,
-      issueUserToken: async () => 'gitea-user-token'
-    };
-    app = buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills'
-    });
-
-    const createRes = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice' }
-    });
-
-    expect(createRes.statusCode).toBe(201);
-    expect(createRes.json()).toMatchObject({ username: 'alice', disabled: false });
-    expect(typeof createRes.json().password).toBe('string');
-
-    const tokenRes = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/tokens',
-      headers: { authorization: 'token bootstrap-token' }
-    });
-
-    expect(tokenRes.statusCode).toBe(201);
-    expect(tokenRes.json().token).toBe('gitea-user-token');
-  });
-
-  it('disables a user', async () => {
-    const mockGitea = {
-      organizationExists: async () => true,
-      createUser: async () => undefined,
-      issueUserToken: async () => 'gitea-user-token',
-      disableUser: async () => undefined
-    };
-    app = buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills'
-    });
-
-    await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice' }
-    });
-
-    const disableRes = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/disable',
-      headers: { authorization: 'token bootstrap-token' }
-    });
-
-    expect(disableRes.statusCode).toBe(200);
-    expect(disableRes.json()).toEqual({ username: 'alice', disabled: true });
-
-    const tokenRes = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/tokens',
-      headers: { authorization: 'token bootstrap-token' }
-    });
-
-    expect(tokenRes.statusCode).toBe(400);
-  });
-
-  it('allows issued user tokens for skill operations until the user is disabled', async () => {
-    const mockGitea = {
-      organizationExists: async () => true,
-      createUser: async () => undefined,
-      issueUserToken: async () => 'gitea-user-token',
-      disableUser: async () => undefined,
-      createOrganizationRepo: async () => ({ full_name: 'esl-skills/alice_demo' })
-    };
-    app = buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills'
-    });
-
-    await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice' }
-    });
-    const tokenRes = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/tokens',
-      headers: { authorization: 'token bootstrap-token' }
-    });
-    const userToken = tokenRes.json().token as string;
-
-    const createSkillRes = await app.inject({
-      method: 'POST',
-      url: '/api/skills',
-      headers: { authorization: `token ${userToken}` },
-      payload: {
-        name: '@alice/demo',
-        version: '0.1.0',
-        description: 'Demo skill',
-        author: 'alice'
-      }
-    });
-
-    expect(createSkillRes.statusCode).toBe(201);
-    expect(createSkillRes.json().createdBy).toBe('alice');
-
-    await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/disable',
-      headers: { authorization: 'token bootstrap-token' }
-    });
-
-    const disabledRes = await app.inject({
-      method: 'POST',
-      url: '/api/skills',
-      headers: { authorization: `token ${userToken}` },
-      payload: {
-        name: '@alice/blocked',
-        version: '0.1.0',
-        description: 'Blocked skill',
-        author: 'alice'
-      }
-    });
-
-    expect(disabledRes.statusCode).toBe(401);
-    expect(disabledRes.json()).toEqual({ error: 'Unauthorized: invalid token' });
-  });
-
   it('changes the ESL Administrator Account password with its own token', async () => {
     const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
     const validateAdminUserToken = vi.fn().mockResolvedValue({ username: 'eslroot' });
@@ -235,7 +100,7 @@ describe('Admin API', () => {
     expect(changeAdminPassword).toHaveBeenCalledWith('new-password');
   });
 
-  it('rejects the Bootstrap Token when changing the ESL Administrator Account password', async () => {
+  it('rejects a non-administrator token when changing the ESL Administrator Account password', async () => {
     const changeAdminPassword = vi.fn().mockResolvedValue(undefined);
     const validateAdminUserToken = vi.fn().mockResolvedValue(null);
     app = buildApp({
@@ -275,50 +140,5 @@ describe('Admin API', () => {
 
     expect(response.statusCode).toBe(404);
     expect(changeAdminPassword).not.toHaveBeenCalled();
-  });
-
-  it('authorizes a password-minted administrator token via the Gitea fallback', async () => {
-    const mockGitea = {
-      validateAdminUserToken: async () => ({ username: 'eslroot' }),
-      createUser: async () => undefined
-    };
-    app = buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills'
-    });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token password-minted-token' },
-      payload: { username: 'alice' }
-    });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ username: 'alice', disabled: false });
-    expect(typeof response.json().password).toBe('string');
-  });
-
-  it('rejects a non-administrator token on admin routes', async () => {
-    const mockGitea = {
-      validateAdminUserToken: async () => null,
-      createUser: async () => undefined
-    };
-    app = buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills'
-    });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token some-user-token' },
-      payload: { username: 'alice' }
-    });
-
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: 'Forbidden: platform administrator token required' });
   });
 });

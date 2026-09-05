@@ -137,6 +137,9 @@ describe('skill creation and permission operations', () => {
       validateToken: vi.fn(async (token: string) =>
         token === 'alice-token' ? { id: 1, username: 'acme_alice', email: 'acme_alice@local.esl' } : null
       ),
+      validateAdminUserToken: vi.fn().mockImplementation(async (token: string) =>
+        token === 'eslroot-token' ? { username: 'eslroot' } : null
+      ),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'acme/acme_demo' }),
       getRepo: vi.fn().mockResolvedValue(null),
       deleteRepo: vi.fn().mockResolvedValue(undefined)
@@ -217,7 +220,7 @@ describe('skill creation and permission operations', () => {
     await app.inject({
       method: 'POST',
       url: '/api/skills/@acme/demo/delete',
-      headers: { authorization: 'token bootstrap-token' },
+      headers: { authorization: 'token eslroot-token' },
       payload: { confirm: '@acme/demo' }
     });
 

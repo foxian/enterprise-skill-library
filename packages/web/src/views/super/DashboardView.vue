@@ -18,6 +18,20 @@
         </el-card>
       </el-col>
     </el-row>
+    <el-card data-test="platform-status" style="margin-top: 16px">
+      <template #header>平台状态</template>
+      <template v-if="bootstrapStatus">
+        <el-tag :type="bootstrapStatus.ready ? 'success' : 'warning'" data-test="bootstrap-ready">
+          {{ bootstrapStatus.ready ? 'Bootstrap 就绪' : 'Bootstrap 未就绪' }}
+        </el-tag>
+        <span class="status-detail">
+          Gitea：{{ bootstrapStatus.gitea }} / 管理员 token：{{ bootstrapStatus.adminToken }} / 平台仓库：{{
+            bootstrapStatus.repoOwner
+          }}
+        </span>
+      </template>
+      <el-skeleton v-else :rows="1" animated />
+    </el-card>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
   </div>
 </template>
@@ -42,8 +56,16 @@ interface ApplicationView {
   updatedAt: string;
 }
 
+interface BootstrapStatus {
+  ready: boolean;
+  gitea: 'ready' | 'missing';
+  adminToken: 'ready' | 'missing' | 'invalid';
+  repoOwner: 'ready' | 'missing';
+}
+
 const orgs = ref<OrgSummary[]>([]);
 const applications = ref<ApplicationView[]>([]);
+const bootstrapStatus = ref<BootstrapStatus | null>(null);
 const errorMessage = ref('');
 
 const pendingCount = computed(() => applications.value.filter((item) => item.status === 'pending').length);
@@ -51,12 +73,14 @@ const skillTotal = computed(() => orgs.value.reduce((total, org) => total + org.
 
 onMounted(async () => {
   try {
-    const [orgList, applicationList] = await Promise.all([
+    const [orgList, applicationList, status] = await Promise.all([
       apiRequest<OrgSummary[]>('/api/admin/orgs'),
-      apiRequest<ApplicationView[]>('/api/admin/orgs/applications')
+      apiRequest<ApplicationView[]>('/api/admin/orgs/applications'),
+      apiRequest<BootstrapStatus>('/api/admin/bootstrap/status')
     ]);
     orgs.value = orgList;
     applications.value = applicationList;
+    bootstrapStatus.value = status;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }
@@ -66,5 +90,11 @@ onMounted(async () => {
 <style scoped>
 .page-error {
   margin-top: 16px;
+}
+
+.status-detail {
+  margin-left: 12px;
+  color: #909399;
+  font-size: 13px;
 }
 </style>

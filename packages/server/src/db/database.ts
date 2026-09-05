@@ -448,10 +448,7 @@ export interface AdminUserRecord {
 }
 
 export class AdminRepository {
-  constructor(
-    private readonly db: Database.Database,
-    private readonly bootstrapAdminToken: string
-  ) {
+  constructor(private readonly db: Database.Database) {
     this.ensureBootstrapAdmin();
   }
 
@@ -499,6 +496,20 @@ export class AdminRepository {
     stmt.run(hashToken(token), username);
   }
 
+  enableUser(username: string): AdminUserRecord {
+    const stmt = this.db.prepare(`
+      UPDATE admin_users
+      SET disabled = 0, updated_at = CURRENT_TIMESTAMP
+      WHERE username = ?
+    `);
+    stmt.run(username);
+    const user = this.getUser(username);
+    if (!user) {
+      throw new Error(`User not found: ${username}`);
+    }
+    return user;
+  }
+
   disableUser(username: string): AdminUserRecord {
     const stmt = this.db.prepare(`
       UPDATE admin_users
@@ -520,9 +531,6 @@ export class AdminRepository {
   }
 
   getPlatformAdminForToken(token: string): { username: string } | null {
-    if (token === this.bootstrapAdminToken) {
-      return { username: 'admin' };
-    }
     const stmt = this.db.prepare(`
       SELECT u.username AS username, u.disabled AS disabled, u.platform_admin AS platformAdmin, t.revoked AS revoked
       FROM admin_tokens t

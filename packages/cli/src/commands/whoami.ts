@@ -5,11 +5,18 @@ export interface WhoamiResult {
   loggedIn: boolean;
   username: string | null;
   org: string | null;
+  role: 'super' | 'org-admin' | 'member' | null;
   server: string | null;
   loginAt: string | null;
   expiresAt: string | null;
   expired: boolean;
 }
+
+const ROLE_LABELS: Record<NonNullable<WhoamiResult['role']>, string> = {
+  super: 'platform administrator',
+  'org-admin': 'organization administrator',
+  member: 'member'
+};
 
 export async function executeWhoami(options: LocalStoreOptions = {}): Promise<WhoamiResult> {
   const config = await loadConfig({ homeDir: options.homeDir });
@@ -24,6 +31,7 @@ export async function executeWhoami(options: LocalStoreOptions = {}): Promise<Wh
     loggedIn: Boolean(token),
     username: config.username ?? null,
     org: config.org ?? null,
+    role: config.role ?? null,
     server: config.server ?? null,
     loginAt,
     expiresAt: loginAt && !Number.isNaN(loginAtMs) ? new Date(loginAtMs + resolveLoginTtlMs()).toISOString() : null,
@@ -41,6 +49,9 @@ export function formatWhoami(result: WhoamiResult): string {
   }
   if (result.org) {
     lines.push(`Organization: ${result.org}`);
+  }
+  if (result.role) {
+    lines.push(`Role: ${ROLE_LABELS[result.role]}`);
   }
   if (result.server) {
     lines.push(`Server: ${result.server}`);

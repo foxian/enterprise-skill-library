@@ -21,9 +21,13 @@ export async function initializeTenantOrganization(
   }
   // 已存在的组织必须验证归属:Owners 团队中出现本组织管理员以外的成员,
   // 说明该组织并非本流程创建,不能盲目接管(结构化错误进入脱敏管线)。
+  // 平台 site admin 例外:Gitea 创建组织时会把 admin token 持有者自动加入
+  // Owners,它是 ESL 侧的系统账号,不构成外部所有者。
   if (orgPreExisted) {
     const ownerMembers = await giteaService.listTeamMembers(ownersTeam.id);
-    const foreignOwners = ownerMembers.filter((member) => member.username !== adminUsername);
+    const foreignOwners = ownerMembers.filter(
+      (member) => member.username !== adminUsername && member.username !== giteaService.adminUsername
+    );
     if (foreignOwners.length > 0) {
       throw {
         code: 'EXTERNAL_RESOURCE',
@@ -45,5 +49,14 @@ export async function initializeTenantOrganization(
   }
   if (!teams.some((team) => team.name === 'all-writers')) {
     await giteaService.createTeam(orgName, 'all-writers', 'write');
+  }
+  // Gitea 用 admin token 创建组织时会把 site admin 自动加入 Owners 团队;
+  // 平台系统账号不属于组织治理面,初始化完成后移出,保持 Owners 只含本组织
+  // 管理员。重试时若已移除(listTeamMembers 不含 site admin)则跳过,幂等。
+  if (giteaService.adminUsername && typeof giteaService.removeTeamMember === 'function') {
+    const owners = await giteaService.listTeamMembers(ownersTeam.id);
+    if (owners.some((member) => member.username === giteaService.adminUsername)) {
+      await giteaService.removeTeamMember(ownersTeam.id, giteaService.adminUsername);
+    }
   }
 }

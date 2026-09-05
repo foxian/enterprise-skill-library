@@ -944,4 +944,13 @@ describe('GiteaService', () => {
       'Failed to get Gitea collaborator permission: boom'
     );
   });
+
+  it('treats a missing repository as having no teams, collaborators, or permissions', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 404, text: async () => 'not found' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listRepoTeams('myorg', 'my-skill')).resolves.toEqual([]);
+    await expect(gitea.listCollaborators('myorg', 'my-skill')).resolves.toEqual([]);
+    await expect(gitea.getCollaboratorPermission('myorg', 'my-skill', 'foxian_admin')).resolves.toBe('none');
+  });
 });

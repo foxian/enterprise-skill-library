@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { GiteaService } from '../src/services/gitea.js';
-import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
+import { initDatabase, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
 
 describe('Fastify Server API', () => {
   let tmpDir: string;
@@ -20,6 +20,105 @@ describe('Fastify Server API', () => {
   afterEach(async () => {
     await app?.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does not seed sample skill metadata by default', async () => {
+    const mockGitea = { validateToken: vi.fn(), createOrganizationRepo: vi.fn() };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const db = initDatabase(dbPath);
+    try {
+      const repo = new SkillRepository(db);
+      expect(repo.getSkill('@myorg/my-skill')).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('seeds sample skill metadata when autoSeed is enabled', async () => {
+    const mockGitea = { validateToken: vi.fn(), createOrganizationRepo: vi.fn() };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills', autoSeed: true });
+
+    const db = initDatabase(dbPath);
+    try {
+      const repo = new SkillRepository(db);
+      expect(repo.getSkill('@myorg/my-skill')).toBeTruthy();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('search does not 500 when a skill repo is missing in Gitea (orphan record)', async () => {
+    // 模拟 Gitea:用户有效,但仓库/组织相关查询全部 404
+    const mockFetch = vi.fn().mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('/user')) {
+        return { ok: true, json: async () => ({ id: 1, username: 'foxian_admin', email: 'foxian_admin@local.esl' }) };
+      }
+      return { ok: false, status: 404, text: async () => 'not found' };
+    });
+    const giteaService = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+    app = buildApp({ dbPath, giteaService: giteaService as any, repoOwner: 'esl-skills' });
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createSkill({
+      name: '@myorg/my-skill',
+      scope: 'myorg',
+      skillName: 'my-skill',
+      description: 'orphan',
+      createdBy: 'dev',
+      owner: 'platform',
+      maintainers: ['dev'],
+      visibility: 'private',
+      gitRepoPath: 'myorg/my-skill'
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/skills/search?q=',
+      headers: { authorization: 'token foxian-token' }
+    });
+    expect(res.statusCode).toBe(200);
+    // 孤儿技能对 foxian_admin 无读权限,被过滤而非 500
+    expect(JSON.parse(res.body)).toEqual([]);
+    db.close();
+  });
+
+  it('permissions returns an empty matrix instead of 500 when the repo is missing', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('/user')) {
+        return { ok: true, json: async () => ({ id: 1, username: 'foxian_admin', email: 'foxian_admin@local.esl' }) };
+      }
+      return { ok: false, status: 404, text: async () => 'not found' };
+    });
+    const giteaService = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+    app = buildApp({ dbPath, giteaService: giteaService as any, repoOwner: 'esl-skills' });
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createSkill({
+      name: '@foxian/ghost-skill',
+      scope: 'foxian',
+      skillName: 'ghost-skill',
+      description: 'orphan',
+      createdBy: 'foxian_admin',
+      owner: 'foxian_admin',
+      maintainers: ['foxian_admin'],
+      visibility: 'private',
+      gitRepoPath: 'foxian/ghost-skill'
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/skills/foxian/ghost-skill/permissions',
+      headers: { authorization: 'token foxian-token' }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      scope: 'foxian',
+      skillName: 'ghost-skill',
+      sharedAllRead: false,
+      sharedAllWrite: false,
+      teams: [],
+      members: []
+    });
+    db.close();
   });
 
   it('registers and retrieves a skill', async () => {
@@ -328,29 +427,6 @@ describe('Fastify Server API', () => {
     expect(mockGitea.validateToken).not.toHaveBeenCalled();
   });
 
-  it('creates a user with a generated initial password shown exactly once', async () => {
-    const mockGitea = {
-      createUser: vi.fn().mockResolvedValue(undefined)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice' }
-    });
-
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(body.username).toBe('alice');
-    expect(body.disabled).toBe(false);
-    expect(typeof body.password).toBe('string');
-    expect(body.password).not.toBe('');
-    expect(mockGitea.createUser).toHaveBeenCalledTimes(1);
-    expect(mockGitea.createUser).toHaveBeenCalledWith('alice', body.password);
-  });
-
   it('blocks skill access while a tenant is provisioning', async () => {
     const db = initDatabase(dbPath);
     new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'provisioning' });
@@ -371,104 +447,61 @@ describe('Fastify Server API', () => {
     expect(mockGitea.validateToken).not.toHaveBeenCalled();
   });
 
-  it('rejects an administrator-created password below the shared minimum', async () => {
-    const mockGitea = {
-      createUser: vi.fn().mockResolvedValue(undefined)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills', passwordMinLength: 12 });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice', password: 'short' }
-    });
-
-    expect(response.statusCode).toBe(400);
-    expect(mockGitea.createUser).not.toHaveBeenCalled();
-  });
-
-  it('creates a user with an administrator-supplied initial password without echoing it', async () => {
-    const mockGitea = {
-      createUser: vi.fn().mockResolvedValue(undefined)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice', password: 'custom-password' }
-    });
-
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(body.username).toBe('alice');
-    expect(body).not.toHaveProperty('password');
-    expect(mockGitea.createUser).toHaveBeenCalledWith('alice', 'custom-password');
-  });
-
-  it('rejects user creation without a platform administrator token', async () => {
-    const mockGitea = {
-      createUser: vi.fn(),
-      validateAdminUserToken: vi.fn().mockResolvedValue(null)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token ordinary-user-token' },
-      payload: { username: 'alice' }
-    });
-
-    expect(res.statusCode).toBe(403);
-    expect(mockGitea.createUser).not.toHaveBeenCalled();
-  });
-
-  it('logs in through the ESL Server and registers the returned Skill User Token', async () => {
+  it('logs in an organization member through the CLI endpoint and registers the returned token', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('skill-user-token'),
-      createUser: vi.fn().mockResolvedValue(undefined),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/alice_demo' })
+      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_alice' }]),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'acme/alice_demo' })
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    await app.inject({
-      method: 'POST',
-      url: '/api/admin/users',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { username: 'alice' }
-    });
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { username: 'alice', password: 'correct-password' }
+      payload: { org: 'acme', username: 'alice', password: 'correct-password' }
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'skill-user-token', username: 'alice' });
-    expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
+    expect(loginRes.json()).toEqual({ token: 'skill-user-token', username: 'alice', org: 'acme', role: 'member' });
+    expect(mockGitea.loginUser).toHaveBeenCalledWith('acme_alice', 'correct-password');
+    expect(mockGitea.listOrgMembers).toHaveBeenCalledWith('acme');
 
     const createSkillRes = await app.inject({
       method: 'POST',
       url: '/api/skills',
       headers: { authorization: 'token skill-user-token' },
       payload: {
-        name: '@alice/demo',
+        name: '@acme/demo',
         version: '0.1.0',
         description: 'Demo skill'
       }
     });
 
     expect(createSkillRes.statusCode).toBe(201);
-    expect(createSkillRes.json().createdBy).toBe('alice');
+    expect(createSkillRes.json().createdBy).toBe('acme_alice');
   });
 
-  it('logs in a Gitea user who is not yet recorded in the ESL database', async () => {
+  it('logs in an organization administrator through the CLI endpoint with the org-admin role', async () => {
+    const mockGitea = {
+      loginUser: vi.fn().mockResolvedValue('admin-token'),
+      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_admin' }])
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { org: 'acme', username: 'admin', password: 'correct-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toEqual({ token: 'admin-token', username: 'admin', org: 'acme', role: 'org-admin' });
+  });
+
+  it('logs in the platform administrator through the Admin Console endpoint', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('gitea-token'),
+      adminUsername: 'eslroot',
       validateToken: vi.fn().mockResolvedValue({ username: 'eslroot' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/eslroot_demo' })
     };
@@ -476,40 +509,83 @@ describe('Fastify Server API', () => {
 
     const loginRes = await app.inject({
       method: 'POST',
-      url: '/api/auth/login',
+      url: '/api/console/login',
       payload: { username: 'eslroot', password: 'correct-password' }
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'gitea-token', username: 'eslroot' });
-
-    const createSkillRes = await app.inject({
-      method: 'POST',
-      url: '/api/skills',
-      headers: { authorization: 'token gitea-token' },
-      payload: {
-        name: '@eslroot/demo',
-        version: '0.1.0',
-        description: 'Demo skill'
-      }
-    });
-
-    expect(createSkillRes.statusCode).toBe(201);
+    expect(loginRes.json()).toEqual({ token: 'gitea-token', username: 'eslroot', org: null, role: 'super' });
+    expect(mockGitea.loginUser).toHaveBeenCalledWith('eslroot', 'correct-password');
   });
 
-  it('rejects invalid ESL Server login credentials without issuing a token', async () => {
+  it('rejects invalid CLI login credentials without issuing a token', async () => {
     const mockGitea = {
-      loginUser: vi.fn().mockResolvedValue(null)
+      loginUser: vi.fn().mockResolvedValue(null),
+      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_alice' }])
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const loginRes = await app.inject({
-      method: 'POST',      url: '/api/auth/login',
-      payload: { username: 'alice', password: 'wrong-password' }
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { org: 'acme', username: 'alice', password: 'wrong-password' }
     });
 
     expect(loginRes.statusCode).toBe(401);
     expect(loginRes.json()).toEqual({ error: 'Unauthorized: invalid credentials' });
+  });
+
+  it('requires an organization on the CLI login endpoint, structurally excluding the platform administrator', async () => {
+    const mockGitea = {
+      loginUser: vi.fn(),
+      adminUsername: 'eslroot'
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'eslroot', password: 'whatever' }
+    });
+
+    expect(loginRes.statusCode).toBe(400);
+    expect(loginRes.json().error).toContain('Organization');
+    expect(mockGitea.loginUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects an org-less non-admin account on the Admin Console endpoint', async () => {
+    const mockGitea = {
+      loginUser: vi.fn(),
+      adminUsername: 'eslroot'
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/console/login',
+      payload: { username: 'legacy-user', password: 'whatever' }
+    });
+
+    expect(loginRes.statusCode).toBe(403);
+    expect(mockGitea.loginUser).not.toHaveBeenCalled();
+  });
+
+  it('rejects a login when the account is not a member of the organization', async () => {
+    const mockGitea = {
+      loginUser: vi.fn().mockResolvedValue('some-token'),
+      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_bob' }])
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { org: 'acme', username: 'alice', password: 'correct-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(403);
+    expect(loginRes.json().error).toContain('not a member');
+    expect(mockGitea.loginUser).toHaveBeenCalledWith('acme_alice', 'correct-password');
   });
 
   it('lets an authenticated Skill User change their own password with their current password', async () => {
@@ -572,73 +648,12 @@ describe('Fastify Server API', () => {
     expect(mockGitea.changeUserPassword).not.toHaveBeenCalled();
   });
 
-  it('lets an administrator reset a user password with a generated one shown once', async () => {
-    const mockGitea = {
-      changeUserPassword: vi.fn().mockResolvedValue(undefined)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/password',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: {}
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.username).toBe('alice');
-    expect(typeof body.password).toBe('string');
-    expect(body.password).not.toBe('');
-    expect(mockGitea.changeUserPassword).toHaveBeenCalledTimes(1);
-    expect(mockGitea.changeUserPassword).toHaveBeenCalledWith('alice', body.password);
-  });
-
-  it('lets an administrator reset a user password with a supplied one without echoing it', async () => {
-    const mockGitea = {
-      changeUserPassword: vi.fn().mockResolvedValue(undefined)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/password',
-      headers: { authorization: 'token bootstrap-token' },
-      payload: { password: 'supplied-password' }
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body.username).toBe('alice');
-    expect(body).not.toHaveProperty('password');
-    expect(mockGitea.changeUserPassword).toHaveBeenCalledWith('alice', 'supplied-password');
-  });
-
-  it('rejects resetting a user password without a platform administrator token', async () => {
-    const mockGitea = {
-      changeUserPassword: vi.fn(),
-      validateAdminUserToken: vi.fn().mockResolvedValue(null)
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/admin/users/alice/password',
-      headers: { authorization: 'token ordinary-user-token' },
-      payload: {}
-    });
-
-    expect(res.statusCode).toBe(403);
-    expect(mockGitea.changeUserPassword).not.toHaveBeenCalled();
-  });
-
-  it('builds the app with the resolved Gitea admin token', () => {
+  it('builds the app with a Gitea admin token', () => {
     const giteaService = new GiteaService('http://gitea:3000', 'admin-token');
     app = buildApp({
       dbPath,
       giteaService,
-      repoOwner: 'esl-skills',
-      bootstrapAdminToken: 'bootstrap-token'
+      repoOwner: 'esl-skills'
     });
 
     expect(app).toBeDefined();

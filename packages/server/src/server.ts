@@ -63,9 +63,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
     dbPath: config.databasePath,
     giteaService,
     repoOwner: config.repoOwner,
-    bootstrapAdminToken: config.bootstrapAdminToken,
     passwordMinLength: config.passwordMinLength,
-    applicationEncryptionKey: config.applicationEncryptionKey
+    applicationEncryptionKey: config.applicationEncryptionKey,
+    autoSeed: config.autoSeed
   });
 
   const listen = options.listen?.bind(app) ?? app.listen.bind(app);

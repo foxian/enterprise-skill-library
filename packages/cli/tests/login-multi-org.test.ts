@@ -16,10 +16,10 @@ describe('esl login with organizations', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('assembles the Gitea username from the organization for password login', async () => {
+  it('sends the organization and username separately to the CLI login endpoint', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_token', username: 'acme_zhangsan' })
+      json: async () => ({ token: 'mock_token', username: 'zhangsan', org: 'acme', role: 'member' })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
@@ -33,16 +33,18 @@ describe('esl login with organizations', () => {
       customFetch: mockFetch as any
     });
 
+    // org_username 拼装交给服务端,CLI 只发送组织与用户名两个字段
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/auth/login',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ username: 'acme_zhangsan', password: 'password123' })
+        body: JSON.stringify({ org: 'acme', username: 'zhangsan', password: 'password123' })
       })
     );
     const config = await loadConfig({ homeDir });
     expect(config.org).toBe('acme');
     expect(config.username).toBe('zhangsan');
+    expect(config.role).toBe('member');
   });
 
   it('stores the organization for token-file logins without contacting the server', async () => {
@@ -67,7 +69,7 @@ describe('esl login with organizations', () => {
   it('prompts for the organization through the injected reader', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_token', username: 'acme_zhangsan' })
+      json: async () => ({ token: 'mock_token', username: 'zhangsan', org: 'acme', role: 'member' })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
@@ -84,34 +86,30 @@ describe('esl login with organizations', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/auth/login',
       expect.objectContaining({
-        body: JSON.stringify({ username: 'acme_zhangsan', password: 'password123' })
+        body: JSON.stringify({ org: 'acme', username: 'zhangsan', password: 'password123' })
       })
     );
   });
 
-  it('keeps the plain username when no organization is given', async () => {
+  it('derives the org-admin role from the server response', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_token', username: 'zhangsan' })
+      json: async () => ({ token: 'mock_token', username: 'admin', org: 'acme', role: 'org-admin' })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
     await executeLogin({
       server: 'http://skills.company.com',
-      username: 'zhangsan',
+      org: 'acme',
+      username: 'admin',
       passwordFile,
       homeDir,
       customFetch: mockFetch as any
     });
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      'http://skills.company.com/api/auth/login',
-      expect.objectContaining({
-        body: JSON.stringify({ username: 'zhangsan', password: 'password123' })
-      })
-    );
     const config = await loadConfig({ homeDir });
-    expect(config.org).toBeNull();
+    expect(config.org).toBe('acme');
+    expect(config.role).toBe('org-admin');
   });
 });

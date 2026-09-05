@@ -31,6 +31,18 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return giteaService.listOrgMembers(org);
   });
 
+  // 被禁用的成员已被移出组织,不在普通成员列表中;从 Git Backend 全量用户
+  // 中按组织前缀过滤出 prohibit_login 的用户,供组织管理员从列表直接启用。
+  // (禁用由 ESL 设置为 prohibit_login,active 字段不变,不能作为禁用判据)
+  app.get('/api/orgs/members/disabled', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    if (!org) return;
+    const users = await giteaService.listUsers(`${org}_`);
+    return users
+      .filter((user) => user.username.startsWith(`${org}_`) && user.prohibit_login === true)
+      .map((user) => ({ id: user.id, username: user.username, email: user.email }));
+  });
+
   app.post('/api/orgs/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
@@ -71,6 +83,11 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const giteaUsername = buildGiteaUsername(org, username);
     if (!giteaUsername) {
       return reply.status(400).send({ error: 'Member username produces a Gitea username that is too long' });
+    }
+    // 组织管理员账号是组织唯一 Owner 与治理入口,禁用后无恢复路径,
+    // 不属于组织管理员自身可操作的范围。
+    if (giteaUsername === `${org}_admin`) {
+      return reply.status(400).send({ error: 'Organization administrator cannot be disabled' });
     }
     const operation = options.operationRepository.createOperation({
       idempotencyKey: operationIdempotencyKey(request, 'disable', org, giteaUsername),
@@ -156,8 +173,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    if (DEFAULT_TEAM_NAMES.has(team.name)) {
-      return reply.status(400).send({ error: 'Default teams cannot be deleted' });
+    // 系统团队不可删除:两个默认团队之外,Owners 是组织治理根基
+    // (org-init 依赖它定位组织所有者,删除后组织在 Git Backend 失去 Owner)。
+    if (DEFAULT_TEAM_NAMES.has(team.name) || team.permission === 'owner') {
+      return reply.status(400).send({ error: 'System teams cannot be deleted' });
     }
     await giteaService.deleteTeam(teamId);
     return { deleted: true };
@@ -198,10 +217,16 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const username = decodeURIComponent((request.params as { username: string }).username);
-    if (!(await orgHasTeam(giteaService, org, teamId))) {
+    const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
+    if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
     const giteaUsername = `${org}_${username}`;
+    // 组织管理员是组织唯一 Owner 与治理入口,不可从 Owners 团队移除
+    // (与禁用自身同一治理约束:移出后组织在 Git Backend 失去 Owner)。
+    if (team.permission === 'owner' && giteaUsername === `${org}_admin`) {
+      return reply.status(400).send({ error: 'Organization administrator cannot be removed from the Owners team' });
+    }
     await giteaService.removeTeamMember(teamId, giteaUsername);
     return { teamId, username: giteaUsername, removed: true };
   });

@@ -15,6 +15,7 @@
       <el-table-column label="类型" width="120">
         <template #default="{ row }">
           <el-tag v-if="isDefaultTeam(row.name)" type="info" data-test="default-team-tag">默认团队</el-tag>
+          <el-tag v-else-if="row.name === 'Owners'" type="warning" data-test="owners-team-tag">系统团队</el-tag>
           <el-tag v-else>自定义</el-tag>
         </template>
       </el-table-column>
@@ -29,7 +30,7 @@
             link
             type="danger"
             :data-test="`delete-team-${row.name}`"
-            :disabled="isDefaultTeam(row.name)"
+            :disabled="isSystemTeam(row.name)"
             @click="confirmDeleteTeam(row)"
           >
             删除
@@ -80,6 +81,11 @@ interface TeamView {
 }
 
 const DEFAULT_TEAM_NAMES = new Set(['all-readers', 'all-writers']);
+
+// 系统团队 = 两个默认团队 + Owners(组织治理根基),均不可删除
+function isSystemTeam(name: string): boolean {
+  return DEFAULT_TEAM_NAMES.has(name) || name === 'Owners';
+}
 
 const teams = ref<TeamView[]>([]);
 const loading = ref(false);

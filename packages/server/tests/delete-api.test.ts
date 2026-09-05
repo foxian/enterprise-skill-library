@@ -18,7 +18,9 @@ describe('Skill Delete API', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-delete-'));
     gitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
-      validateAdminUserToken: vi.fn().mockResolvedValue(null),
+      validateAdminUserToken: vi.fn().mockImplementation(async (token: string) =>
+        token === 'eslroot-token' ? { username: 'eslroot' } : null
+      ),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       deleteRepo: vi.fn().mockResolvedValue(undefined)
     };
@@ -70,7 +72,7 @@ describe('Skill Delete API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/@platform-ai/reviewer/delete',
-      headers: { authorization: 'token bootstrap-token' },
+      headers: { authorization: 'token eslroot-token' },
       payload: { confirm: '@platform-ai/reviewer' }
     });
 
@@ -89,7 +91,7 @@ describe('Skill Delete API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/@platform-ai/reviewer/delete',
-      headers: { authorization: 'token bootstrap-token' },
+      headers: { authorization: 'token eslroot-token' },
       payload: { confirm: 'some-other-skill' }
     });
 
@@ -107,7 +109,7 @@ describe('Skill Delete API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/@platform-ai/missing/delete',
-      headers: { authorization: 'token bootstrap-token' }
+      headers: { authorization: 'token eslroot-token' }
     });
 
     expect(response.statusCode).toBe(404);

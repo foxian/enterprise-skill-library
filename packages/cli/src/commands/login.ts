@@ -12,26 +12,33 @@ export interface LoginOptions extends LocalStoreOptions {
   tokenFile?: string;
   noInput?: boolean;
   readInput?: () => Promise<string>;
+  readServer?: () => Promise<string>;
   readUsername?: (prompt: string) => Promise<string>;
   readOrg?: (prompt: string) => Promise<string>;
   customFetch?: typeof fetch;
+}
+
+export interface LoginResult {
+  token: string;
+  role: 'org-admin' | 'member';
 }
 
 export async function executeLogin(options: LoginOptions): Promise<string> {
   const fetchImpl = options.customFetch ?? fetch;
   await initializeLocalStore({ homeDir: options.homeDir });
 
-  const server = await resolveServer({ server: options.server, homeDir: options.homeDir });
-  const username = await resolveUsername(options);
+  const server = await resolveServerForLogin(options);
   const org = await resolveOrg(options);
-  const token = await resolveLoginToken(options, server, org ? `${org}_${username}` : username, fetchImpl);
+  const username = await resolveUsername(options);
+  const { token, role } = await resolveLoginToken(options, server, org, username, fetchImpl);
 
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
   await saveConfig(
     {
       server,
       username,
-      org: org ?? null
+      org,
+      role
     },
     { homeDir: options.homeDir }
   );
@@ -39,20 +46,50 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   return token;
 }
 
-async function resolveOrg(options: LoginOptions): Promise<string | undefined> {
+// 首次使用未配置 server 时交互式询问并记住;非交互环境直接报错。
+async function resolveServerForLogin(options: LoginOptions): Promise<string> {
+  try {
+    return await resolveServer({ server: options.server, homeDir: options.homeDir });
+  } catch (error) {
+    if (options.noInput) {
+      throw error;
+    }
+    if (options.readServer) {
+      const url = (await options.readServer()).trim();
+      if (!url) {
+        throw error;
+      }
+      return url;
+    }
+    if (!isInteractive()) {
+      throw error;
+    }
+    const url = (await readText('Server URL (e.g. http://localhost:3000): ')).trim();
+    if (!url) {
+      throw error;
+    }
+    return url;
+  }
+}
+
+async function resolveOrg(options: LoginOptions): Promise<string> {
   if (options.org) {
     return options.org.trim();
   }
   if (options.noInput) {
-    return undefined;
+    throw new Error('An organization is required; pass --org or run interactively');
   }
   if (options.readOrg) {
-    return (await options.readOrg('Organization (optional): ')).trim() || undefined;
+    return (await options.readOrg('Organization: ')).trim();
   }
   if (!isInteractive()) {
-    return undefined;
+    throw new Error('An organization is required; pass --org or run interactively');
   }
-  return (await readText('Organization (optional, press enter to skip): ')).trim() || undefined;
+  const org = (await readText('Organization: ')).trim();
+  if (!org) {
+    throw new Error('An organization is required');
+  }
+  return org;
 }
 
 async function resolveUsername(options: LoginOptions): Promise<string> {
@@ -74,15 +111,17 @@ async function resolveUsername(options: LoginOptions): Promise<string> {
 async function resolveLoginToken(
   options: LoginOptions,
   server: string,
+  org: string,
   username: string,
   fetchImpl: typeof fetch
-): Promise<string> {
+): Promise<LoginResult> {
   if (options.tokenFile) {
     const token = (await fs.readFile(options.tokenFile, 'utf8')).trim();
     if (!token) {
       throw new Error(`Token file ${options.tokenFile} is empty`);
     }
-    return token;
+    // token-file 登录不联网,角色按命名约定推导(仅展示用)
+    return { token, role: username === 'admin' ? 'org-admin' : 'member' };
   }
 
   const password = options.passwordFile
@@ -93,7 +132,7 @@ async function resolveLoginToken(
     throw new Error('Password is required for login');
   }
 
-  return exchangePasswordForToken(server, username, password, fetchImpl);
+  return exchangePasswordForToken(server, org, username, password, fetchImpl);
 }
 
 async function promptForPassword(options: LoginOptions): Promise<string> {
@@ -111,17 +150,18 @@ async function promptForPassword(options: LoginOptions): Promise<string> {
 
 async function exchangePasswordForToken(
   server: string,
+  org: string,
   username: string,
   password: string,
   fetchImpl: typeof fetch
-): Promise<string> {
+): Promise<LoginResult> {
   const base = server.replace(/\/$/, '');
   const res = await fetchWithTimeout(fetchImpl, `${base}/api/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ org, username, password })
   });
 
   if (!res.ok) {
@@ -129,6 +169,7 @@ async function exchangePasswordForToken(
     throw new Error(`Failed to authenticate with ESL Server: ${err}`);
   }
 
-  const data = (await res.json()) as { token: string };
-  return data.token;
+  const data = (await res.json()) as { token: string; role?: string };
+  const role = data.role === 'org-admin' || data.role === 'member' ? data.role : username === 'admin' ? 'org-admin' : 'member';
+  return { token: data.token, role };
 }

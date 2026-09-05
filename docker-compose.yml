@@ -46,7 +46,8 @@ services:
       GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
       GITEA_ADMIN_USERNAME: ${GITEA_ADMIN_USERNAME:-eslroot}
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
-      ESL_BOOTSTRAP_ADMIN_TOKEN: ${ESL_BOOTSTRAP_ADMIN_TOKEN:-bootstrap-token}
+      # Seed sample skill metadata at startup (development only)
+      ESL_AUTO_SEED: ${ESL_AUTO_SEED:-false}
     volumes:
       - ${ESL_DATA_DIR:-./data}/api:/data
       - ${ESL_DATA_DIR:-./data}/secrets:/bootstrap:ro

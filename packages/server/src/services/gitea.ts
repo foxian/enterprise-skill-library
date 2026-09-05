@@ -4,6 +4,13 @@ export interface GiteaUser {
   email: string;
 }
 
+// admin users API 返回的完整用户记录。注意:禁用(prohibit_login=true)不会改变
+// active 字段(它恒为账号激活态),识别"被禁用"须看 prohibit_login。
+export interface GiteaAdminUser extends GiteaUser {
+  active: boolean;
+  prohibit_login: boolean;
+}
+
 export interface GiteaRepo {
   id: number;
   name: string;
@@ -42,9 +49,25 @@ export class GiteaService {
     private baseUrl: string,
     private adminToken: string,
     private customFetch: typeof fetch = fetch,
-    private adminUsername?: string,
+    readonly adminUsername?: string,
     private adminPassword?: string
   ) {}
+
+  async listUsers(search?: string): Promise<GiteaAdminUser[]> {
+    const url = new URL(`${this.baseUrl}/api/v1/admin/users`);
+    url.searchParams.set('limit', '50');
+    if (search) {
+      url.searchParams.set('search', search);
+    }
+    const res = await this.customFetch(url.toString(), {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea users: ${err}`);
+    }
+    return (await res.json()) as GiteaAdminUser[];
+  }
 
   async validateToken(token: string): Promise<GiteaUser | null> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/user`, {
@@ -619,6 +642,10 @@ export class GiteaService {
     });
 
     if (!res.ok) {
+      if (res.status === 404) {
+        // 仓库或组织不存在(如 DB 中的孤儿技能记录):视为没有任何协作者
+        return [];
+      }
       const err = await res.text();
       throw new Error(`Failed to list Gitea repository collaborators: ${err}`);
     }
@@ -632,6 +659,10 @@ export class GiteaService {
     });
 
     if (!res.ok) {
+      if (res.status === 404) {
+        // 仓库或组织不存在(如 DB 中的孤儿技能记录):视为没有任何团队
+        return [];
+      }
       const err = await res.text();
       throw new Error(`Failed to list Gitea repository teams: ${err}`);
     }
@@ -673,6 +704,10 @@ export class GiteaService {
     );
 
     if (!res.ok) {
+      if (res.status === 404) {
+        // 仓库或组织不存在(如 DB 中的孤儿技能记录):视为没有任何权限
+        return 'none';
+      }
       const err = await res.text();
       throw new Error(`Failed to get Gitea collaborator permission: ${err}`);
     }

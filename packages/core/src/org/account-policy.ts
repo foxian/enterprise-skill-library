@@ -39,3 +39,15 @@ export function buildGiteaUsername(orgName: string, username: string): string | 
   const giteaUsername = `${orgName}_${username}`;
   return giteaUsername.length <= MAX_GITEA_USERNAME_LENGTH ? giteaUsername : null;
 }
+
+export type OrganizationRole = 'super' | 'org-admin' | 'member';
+
+// 按组织作用域账号模型推导角色:无组织即平台管理员(super);组织内
+// 用户名为 admin 即组织管理员(org-admin);其余为普通成员(member)。
+// 服务端登录响应以此为准,客户端不再自行推导。
+export function deriveOrganizationRole(org: string | null | undefined, username: string): OrganizationRole {
+  if (!org) {
+    return 'super';
+  }
+  return username === 'admin' ? 'org-admin' : 'member';
+}

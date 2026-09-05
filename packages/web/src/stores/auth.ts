@@ -17,15 +17,6 @@ export const ROLE_HOME_PATHS: Record<Role, string> = {
   member: '/admin/member/skills'
 };
 
-// 登录时按账号命名约定推导角色：无组织即超级管理员，
-// 组织内用户名为 admin 即组织管理员，其余为普通成员。
-export function deriveRole(username: string, org: string | null): Role {
-  if (!org) {
-    return 'super';
-  }
-  return username === 'admin' ? 'org-admin' : 'member';
-}
-
 function loadSession(): AuthSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

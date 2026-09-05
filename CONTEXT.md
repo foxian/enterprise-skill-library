@@ -187,6 +187,11 @@ ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行�
 
 组织创建时自动生成的管理账号（Gitea 用户名为 `<orgname>_admin`），担任该 Gitea Organization 的 Owner 角色。拥有组织内成员、团队、权限矩阵以及全部技能的最高管理与治理权。
 
+## Organization-scoped Account Name
+
+组织成员在 Gitea 中的账号名，形式为 `<org>_<username>`。它是平台内部账号命名约定，不属于用户可见的产品术语：CLI 与管理后台登录均以「组织 + 用户名」两个字段提交，由 ESL Server 负责拼装与归属校验（见 ADR-0020）。组织名与成员用户名都不允许下划线，因此该拼接可唯一解析、不会歧义。
+_Avoid_: 用 `org_username` 当作面向用户的登录输入。
+
 ## Organization Team
 
 组织内部创建的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的仓库访问级别（Read 或 Write）。组织初始化时自动创建两个默认全员团队：`all-readers` 与 `all-writers`。
@@ -195,10 +200,10 @@ ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行�
 
 ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。
 
-## Web Console
+## 管理后台 (Admin Console)
 
-管理后台的 Web 界面入口，位于 `/admin/` 路径下。它以浏览器方式承载三类角色：Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）与普通成员（`/admin/member/`），并通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由账号命名约定推导：无组织账号即超级管理员，组织内用户名为 `admin` 即组织管理员，其余为普通成员。
-_Avoid_: 管理后台，当指代 Web 界面时。
+ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载三类角色：Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）与普通成员（`/admin/member/`），通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由 ESL Server 判定并随登录响应返回，客户端不自行按命名约定推导。
+_Avoid_: Web Console，当指代该 Web 界面时（易被误解为网页终端）；后台，当单独指代 ESL Server 或 Git Backend 时。
 
 ## Local Scope
 
@@ -348,6 +353,17 @@ _Avoid_: password reset
 The first-run process that prepares the ESL Docker runtime with the platform
 state required before normal users can operate it.
 
+## Bootstrap Reset
+
+将 ESL 本地运行环境恢复为干净状态的破坏性流程：停掉 Docker 运行时，删除
+API 数据库、Gitea 数据与 Bootstrap 机密三个持久数据卷，再重新执行
+Bootstrap，借助首启初始化路径重建数据库 schema 与 Gitea 管理员。它由宿主机
+命令显式触发（`npm run reset:dev`，见 `scripts/reset-dev-env.mjs`），仅用于
+开发与测试环境，不属于正常用户操作面，绝不自动触发。与 Bootstrap 的区分：
+Bootstrap 从干净状态准备平台状态（幂等、无破坏）；Bootstrap Reset 先破坏性
+清空再准备，必须由操作者确认。
+_Avoid_: Bootstrap，当指代"清空后重新初始化"时。
+
 ## Bootstrap Secret Volume
 
 The Docker volume that stores the internal Gitea administrator token generated
@@ -357,9 +373,10 @@ _Avoid_: user token, Skill User token
 
 ## Bootstrap Token
 
-The ESL platform administrator credential used for the first CLI login and
-initial platform administration.
-
+已退役的 ESL 平台管理员 CLI 登录凭据。在多租户组织模型下（见 ADR-0020），
+ESL CLI 只服务组织内成员，平台管理员通过管理后台以 ESL Administrator
+Account 密码登录，不再使用静态 bootstrap token 作为人用登录凭据；`esl
+login` 也不再接受无组织账号。
 _Avoid_: Gitea admin token, Gitea Service Administrator token
 
 ## Skill User Token

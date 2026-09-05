@@ -82,6 +82,70 @@ describe('organization console API', () => {
     }
   });
 
+  it('refuses to remove the organization administrator from the Owners team', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/teams/1/members/admin',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockGitea.removeTeamMember).not.toHaveBeenCalled();
+  });
+
+  it('allows removing the organization administrator from a non-Owners team', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/teams/7/members/admin',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockGitea.removeTeamMember).toHaveBeenCalledWith(7, 'acme_admin');
+  });
+
+  it('lists disabled members of the organization', async () => {
+    const mockGitea = orgAdminGitea();
+    mockGitea.listUsers = vi.fn().mockResolvedValue([
+      // 禁用是 prohibit_login=true;active 恒为 true(激活态),不能作为禁用判据
+      { id: 1, username: 'acme_admin', email: 'acme_admin@local.esl', active: true, prohibit_login: false },
+      { id: 2, username: 'acme_zed', email: 'acme_zed@local.esl', active: true, prohibit_login: true },
+      { id: 3, username: 'other_bob', email: 'other_bob@local.esl', active: true, prohibit_login: true }
+    ]);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/members/disabled',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    // 只返回本组织(acme_)前缀且被禁用的用户
+    expect(response.json()).toEqual([{ id: 2, username: 'acme_zed', email: 'acme_zed@local.esl' }]);
+    expect(mockGitea.listUsers).toHaveBeenCalledWith('acme_');
+  });
+
+  it('refuses to disable the organization administrator account', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/members/admin/disable',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockGitea.disableUser).not.toHaveBeenCalled();
+  });
+
   it('rejects an administrator whose organization does not exist', async () => {
     const mockGitea = orgAdminGitea();
     mockGitea.organizationExists.mockResolvedValue(false);
@@ -444,6 +508,20 @@ describe('organization console API', () => {
       });
       expect(response.statusCode).toBe(400);
     }
+    expect(mockGitea.deleteTeam).not.toHaveBeenCalled();
+  });
+
+  it('refuses to delete the Owners team', async () => {
+    const mockGitea = orgAdminGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/teams/1',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(400);
     expect(mockGitea.deleteTeam).not.toHaveBeenCalled();
   });
 
