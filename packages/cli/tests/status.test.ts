@@ -28,20 +28,29 @@ describe('esl status', () => {
     opts: {
       inRepo?: boolean;
       hasRemote?: boolean;
+      remoteUrl?: string;
       dirty?: string;
       ahead?: number;
       behind?: number;
       lastCommit?: string;
     } = {}
   ) {
-    const { inRepo = true, hasRemote = true, dirty = '', ahead = 0, behind = 0, lastCommit = 'abc123 fix: something' } = opts;
+    const {
+      inRepo = true,
+      hasRemote = true,
+      remoteUrl = 'http://localhost:3000/git/org/reviewer.git',
+      dirty = '',
+      ahead = 0,
+      behind = 0,
+      lastCommit = 'abc123 fix: something'
+    } = opts;
     return vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) {
         return inRepo ? Promise.resolve({ stdout: 'true\n', stderr: '' }) : Promise.reject(new Error('not a repo'));
       }
       if (args[0] === 'remote' && args[1] === 'get-url') {
         return hasRemote
-          ? Promise.resolve({ stdout: 'http://localhost:3000/git/org/reviewer.git\n', stderr: '' })
+          ? Promise.resolve({ stdout: `${remoteUrl}\n`, stderr: '' })
           : Promise.reject(new Error('no such remote'));
       }
       if (args[0] === 'status') {
@@ -94,5 +103,43 @@ describe('esl status', () => {
     const status = await executeStatus({ directory: skillDir, homeDir, execFileAsync: execFileAsync as any });
 
     expect(status).toMatchObject({ serverHosted: true, clean: false, ahead: 2, behind: 1 });
+  });
+
+  it('notifies when the esl remote origin differs from the configured server', async () => {
+    const execFileAsync = gitMock({ remoteUrl: 'http://old-host:3000/git/org/reviewer.git' });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      const status = await executeStatus({
+        directory: skillDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        execFileAsync: execFileAsync as any
+      });
+
+      expect(status.serverHosted).toBe(true);
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('esl remote origin differs'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('stays silent when the esl remote origin matches the configured server', async () => {
+    const execFileAsync = gitMock({});
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      const status = await executeStatus({
+        directory: skillDir,
+        homeDir,
+        server: 'http://localhost:3000',
+        execFileAsync: execFileAsync as any
+      });
+
+      expect(status.serverHosted).toBe(true);
+      expect(stderrSpy).not.toHaveBeenCalledWith(expect.stringContaining('esl remote origin differs'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
   });
 });

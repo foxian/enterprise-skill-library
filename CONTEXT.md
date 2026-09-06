@@ -70,6 +70,24 @@ rebase）或裸 `git push esl main` 完成。
 本地技能仓库指向 ESL Server 源码仓库的独立 Git remote，名称为 `esl`；首次
 Source Upload 不覆盖用户已有的 `origin`。
 
+## Server Origin 迁移 (Server Origin Migration)
+
+ESL Server 的用户可见 origin（`scheme://host[:port]`，即 Single User-Facing
+Server URL 的寻址部分）发生变化，而 Registry 与 Git Backend 的数据整体保留：
+所有 Skill ID、Skill Identity、Git 仓库路径与 Skill Release 均不变。已安装副
+本与 install/update/use/source 等消费链路在 `config set-server` 后自动跟随新
+origin；持有旧 Source Remote 的本地源目录则依赖 Source Remote 重指修复。
+_Avoid_: 换服务器、重新部署、重装（当指数据整体搬迁时）。
+
+## Source Remote 重指 (Source Remote Rehoming)
+
+CLI 在 Server-hosted Skill Source 目录中检测到 Source Remote 的 origin 与当前
+配置的 ESL Server origin 不一致时，先向当前 ESL Server 验证 Skill Identity 存
+在且 Git 仓库路径与旧路径一致，验证通过后把 Source Remote URL 中失效的
+origin 替换为新 origin 的自动修复动作。验证不通过时按可行动错误处理，绝不重
+新注册、绝不接管（不创建新 Skill ID，不删除既有 Source Remote）。
+_Avoid_: 重新注册、接管（adopt，ADR-0021 语义）。
+
 ## Active Unreleased Skill Source
 
 已上传但尚未产生 Skill Release、仍可由 Maintainer 协作维护的

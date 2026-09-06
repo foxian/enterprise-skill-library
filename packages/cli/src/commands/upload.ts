@@ -7,12 +7,15 @@ import {
   apiUrl,
   fetchWithTimeout,
   gitAuthHeaderConfig,
+  parseHttpOrigin,
   requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
 } from './network-options.js';
 import { ensureReleaseManifest } from './release-manifest.js';
+import { executeInfo } from './info.js';
 import { isInteractive, readText } from '../prompt.js';
+import { notify } from '../output.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -173,7 +176,11 @@ async function uploadSource(
   if (await hasEslRemote(execFileAsync, directory)) {
     // Already server-hosted: skip the registration call and sync straight
     // against the existing source.
-    const remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
+    let remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
+    // ADR-0023：Source Remote 重指——origin 漂移（Server Origin 迁移）时先按
+    // 身份向当前 server 验证，再采用服务器 cloneUrl 修复 remote；验证不过则
+    // 报可行动错误，绝不重新注册或接管。
+    remoteUrl = await rehomeEslRemoteIfNeeded(options, execFileAsync, directory, remoteUrl, server);
     const remoteShortName = remoteUrl.match(/[^/]+(?=\.git)/)?.[0] ?? '';
     if (remoteShortName && remoteShortName !== skillName) {
       throw new Error(
@@ -207,6 +214,8 @@ async function uploadSource(
       return { ...uploaded, alreadyUpToDate: true };
     }
   } catch (error) {
+    // syncSource 已按 ADR-0021 包裹指导,透传即可,避免指导段落重复。
+    if (error instanceof HostedSourceAccessError) throw error;
     throw hostedSourceAccessError((error as Error).message);
   }
   try {
@@ -219,6 +228,10 @@ async function uploadSource(
   return uploaded;
 }
 
+// 带身份标记的「已托管源不可访问」错误:调用方据此识别错误已被包裹,避免对已
+// 带指导的错误再次包裹导致指导段落重复。
+class HostedSourceAccessError extends Error {}
+
 function hostedSourceAccessError(detail: string, options: { includePushHint?: boolean } = {}): Error {
   const guidance =
     'Failed to sync the skill source with the server: the current login cannot access the server source at the esl remote. ' +
@@ -228,12 +241,67 @@ function hostedSourceAccessError(detail: string, options: { includePushHint?: bo
   const pushHint = options.includePushHint
     ? ' To finish an interrupted push on an already-registered source, run "git push esl HEAD:main".'
     : '';
-  return new Error(`${guidance}${pushHint} (${detail})`);
+  return new HostedSourceAccessError(`${guidance}${pushHint} (${detail})`);
 }
 
 function skillNameFromRemote(remoteUrl: string): string {
   const match = remoteUrl.match(/\/git\/(.+?)(?:\.git)?\/?$/);
   return match ? `@${match[1]}` : 'source';
+}
+
+// ADR-0023：Source Remote 重指。检测到 Source Remote origin 与当前配置 server
+// 的 origin 漂移（Server Origin 迁移）时，以旧 remote 路径解析出的 Skill
+// Identity 向当前 server 验证（含 Skill Rename 重定向），验证通过则采用服务器
+// 返回的 cloneUrl（ADR-0004：客户端不自行推导后端路径）静默重指；验证不过则
+// 报可行动错误，不触碰所有权（不创建 Skill ID、不删除 remote）。
+async function rehomeEslRemoteIfNeeded(
+  options: UploadOptions,
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string,
+  remoteUrl: string,
+  server: string
+): Promise<string> {
+  const oldOrigin = parseHttpOrigin(remoteUrl);
+  const newOrigin = parseHttpOrigin(server);
+  if (!oldOrigin || !newOrigin || oldOrigin === newOrigin) {
+    return remoteUrl;
+  }
+  const identity = skillNameFromRemote(remoteUrl);
+  if (!identity.startsWith('@')) {
+    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, null);
+  }
+  let cloneUrl: string | undefined;
+  try {
+    const info = await executeInfo(identity, options);
+    cloneUrl = info.cloneUrl;
+  } catch {
+    cloneUrl = undefined;
+  }
+  if (!cloneUrl) {
+    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, identity);
+  }
+  if (parseHttpOrigin(cloneUrl) === oldOrigin) {
+    // 服务器返回的 cloneUrl 与现 remote 同源：remote 已指向权威地址，无需重指。
+    return remoteUrl;
+  }
+  await execFileAsync('git', ['remote', 'set-url', 'esl', cloneUrl], { cwd: directory });
+  notify(`Server origin migration detected: re-homed the esl remote from ${oldOrigin} to ${newOrigin}.`);
+  return cloneUrl;
+}
+
+// ADR-0023：地址迁移验证失败的可行动错误——与 ADR-0021 的「账号/权限」语义区分。
+function sourceRemoteUnverifiedError(oldOrigin: string, newOrigin: string, identity: string | null): Error {
+  const identityClause = identity
+    ? `the skill identity ${identity} could not be verified on ${newOrigin}`
+    : 'the skill identity could not be determined from the remote URL';
+  return new Error(
+    `The esl remote points at ${oldOrigin} but the configured ESL server is ${newOrigin}; ` +
+      'this looks like a server origin migration, but ' +
+      `${identityClause} (it may not exist there, or the current login cannot read it - ` +
+      'the source may be maintained by another account or organization). ' +
+      'Log in with the maintaining account and re-run "esl upload"; ' +
+      'or, if the source is confirmed absent from this server, run "git remote remove esl" and re-run "esl upload" to register a fresh source.'
+  );
 }
 
 async function hasEslRemote(

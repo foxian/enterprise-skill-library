@@ -3,6 +3,13 @@
 ## 配置 Server 地址（一次性）
 `esl config set-server <url>` —— 设 ESL Server 地址。本地 Docker 默认 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
 
+## Server Origin 迁移（服务器换地址）
+ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release 原样保留）时，改完 `esl config set-server <新地址>` 后：
+
+- **消费端自动跟随**：install/update/use/source 每次从服务器现取地址，无需额外操作。
+- **已托管源目录自动重指**：之前 `upload` 过的目录（带 `esl` remote）在下一次 `esl upload` 时自动验证技能身份并把 remote 重指到新地址，输出一行「re-homed the esl remote」提示；`esl status` 在这类目录只读提示 origin 漂移（ahead/behind 在重指前可能过期），不改任何配置。不需要也不建议手动 `git remote set-url`。
+- **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
+
 ## 查看登录状态
 `esl whoami` —— 输出当前用户名 / 所属组织 / 角色 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
 

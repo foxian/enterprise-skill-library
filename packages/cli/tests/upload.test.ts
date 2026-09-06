@@ -49,6 +49,7 @@ describe('esl upload', () => {
       behind?: number;
       rebaseConflict?: boolean;
       remoteUrl?: string | null;
+      fetchFail?: boolean;
     } = {}
   ) {
     const {
@@ -60,12 +61,17 @@ describe('esl upload', () => {
       remoteHead = 'remote-head',
       behind = 0,
       rebaseConflict = false,
-      remoteUrl = 'http://localhost:3000/git/platform-ai/reviewer.git'
+      remoteUrl = 'http://localhost:3000/git/platform-ai/reviewer.git',
+      fetchFail = false
     } = opts;
     return vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
         if (remoteUrl === null) return Promise.reject(new Error('no such remote'));
         return Promise.resolve({ stdout: `${remoteUrl}\n`, stderr: '' });
+      }
+      if (args.includes('fetch')) {
+        if (fetchFail) return Promise.reject(new Error('fatal: could not read Username for https://esl'));
+        return Promise.resolve({ stdout: '', stderr: '' });
       }
       if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) {
         if (inRepo) return Promise.resolve({ stdout: 'true\n', stderr: '' });
@@ -306,6 +312,30 @@ describe('esl upload', () => {
         execFileAsync: execFileAsync as any
       })
     ).rejects.toThrow(/git push esl HEAD:main/);
+  });
+
+  it('does not duplicate the guidance paragraph when syncing an inaccessible source fails', async () => {
+    const fetchImpl = vi.fn();
+    const execFileAsync = gitMock({ fetchFail: true });
+
+    let captured: unknown;
+    try {
+      await executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      });
+    } catch (error) {
+      captured = error;
+    }
+
+    const message = (captured as Error).message;
+    const guidance = 'Failed to sync the skill source with the server';
+    expect(message).toMatch(new RegExp(guidance));
+    // syncSource 已按 ADR-0021 包裹指导,调用方不得再包一层(双重包裹会重复段落)
+    expect(message.match(new RegExp(guidance, 'g'))).toHaveLength(1);
   });
 
   it('resolves the server from local config when --server is omitted', async () => {
@@ -591,5 +621,132 @@ describe('esl upload', () => {
       })
     ).rejects.toThrow(/maintained by another account or organization/);
     expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+  });
+
+  it('rehomes the esl remote when the server origin migrated and the identity verifies', async () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/skills/%40platform-ai%2Freviewer')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            name: '@platform-ai/reviewer',
+            skillId: 'sk_01J00000000000000000000000',
+            cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+          })
+        });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+    const execFileAsync = gitMock({ remoteUrl: 'http://old-host:3000/git/platform-ai/reviewer.git' });
+
+    try {
+      const result = await executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      });
+
+      expect(result).toMatchObject({
+        name: '@platform-ai/reviewer',
+        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+      });
+      expect(execFileAsync).toHaveBeenCalledWith(
+        'git',
+        ['remote', 'set-url', 'esl', 'http://localhost:3000/git/platform-ai/reviewer.git'],
+        { cwd: skillDir }
+      );
+      expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:3000/api/skills/upload', expect.anything());
+      expect(execFileAsync).toHaveBeenCalledWith(
+        'git',
+        ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+        { cwd: skillDir }
+      );
+      expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('re-homed the esl remote'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
+  });
+
+  it('fails with migration guidance when the drifted source identity cannot be verified', async () => {
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/skills/%40platform-ai%2Freviewer')) {
+        return Promise.resolve({ ok: false, status: 404, text: async () => 'Skill not found' });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+    const execFileAsync = gitMock({ remoteUrl: 'http://old-host:3000/git/platform-ai/reviewer.git' });
+
+    const error = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/server origin migration/);
+    expect(error!.message).toMatch(/git remote remove esl/);
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', expect.arrayContaining(['set-url']), { cwd: skillDir });
+    expect(execFileAsync).not.toHaveBeenCalledWith(
+      'git',
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+      { cwd: skillDir }
+    );
+  });
+
+  it('rehomes through a rename redirect to the current source repository', async () => {
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      '---\nname: review-crew\ndescription: Shared reviewer\n---\n'
+    );
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/skills/%40platform-ai%2Freviewer')) {
+        return Promise.resolve({
+          ok: true,
+          status: 301,
+          json: async () => ({
+            error: 'Skill renamed',
+            oldName: '@platform-ai/reviewer',
+            currentName: '@platform-ai/review-crew',
+            skillId: 'sk_01J00000000000000000000000'
+          })
+        });
+      }
+      if (url.includes('/api/skills/%40platform-ai%2Freview-crew')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            name: '@platform-ai/review-crew',
+            cloneUrl: 'http://localhost:3000/git/platform-ai/review-crew.git'
+          })
+        });
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+    const execFileAsync = gitMock({ remoteUrl: 'http://old-host:3000/git/platform-ai/reviewer.git' });
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/review-crew' });
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['remote', 'set-url', 'esl', 'http://localhost:3000/git/platform-ai/review-crew.git'],
+      { cwd: skillDir }
+    );
   });
 });

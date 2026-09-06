@@ -16,6 +16,7 @@
 
 - `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按 Platform Organization 生成。不要在命令里拼 `@author/...` 之类的身份。
 - 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
+- **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
 - 已托管目录（有 `esl` remote）上 fetch/push 失败时，`upload` 直接硬报错，提示该源可能由其他账号/组织维护或已不存在，并给出两条出路：**用维护它的账号重新登录后再 `esl upload`**；或确认服务器源已删除时手动 `git remote remove esl` 再重新 `esl upload`（显式两步重建）。CLI 绝不会自动删除 remote 重注册——看到这类报错别提议删 remote，先让用户确认当前登录账号是不是这个源的维护账号。
 
 ## 发布

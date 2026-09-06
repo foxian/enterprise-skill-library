@@ -127,6 +127,27 @@ export function apiUrl(server: string, path: string): string {
   return `${base}${path}`;
 }
 
+// 解析 http(s) URL 的 origin（scheme://host[:port]）；非 http(s) 或无法解析时返回 null。
+export function parseHttpOrigin(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+// ADR-0023：Source Remote origin 与当前配置 ESL Server origin 是否漂移
+// （Server Origin 迁移检测）。任一侧不是 http(s) 时视为无漂移，维持既有行为。
+export function sourceRemoteOriginDrifted(remoteUrl: string, server: string): boolean {
+  const remoteOrigin = parseHttpOrigin(remoteUrl);
+  const serverOrigin = parseHttpOrigin(server);
+  return remoteOrigin !== null && serverOrigin !== null && remoteOrigin !== serverOrigin;
+}
+
 export function gitAuthHeaderConfig(token: string): string {
   return `http.extraHeader=Authorization: Bearer ${token}`;
 }

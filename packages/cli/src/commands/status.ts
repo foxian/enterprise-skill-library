@@ -1,6 +1,13 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { gitAuthHeaderConfig, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
+import {
+  gitAuthHeaderConfig,
+  requireFreshToken,
+  resolveNetworkConfig,
+  sourceRemoteOriginDrifted,
+  type NetworkCommandOptions
+} from './network-options.js';
+import { notify } from '../output.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -24,8 +31,24 @@ export async function executeStatus(options: StatusOptions = {}): Promise<Source
   if (!(await isInsideWorkTree(execFileAsync, directory))) {
     return { serverHosted: false, clean: true, ahead: 0, behind: 0 };
   }
-  if (!(await hasEslRemote(execFileAsync, directory))) {
+  const remoteUrl = await eslRemoteUrl(execFileAsync, directory);
+  if (remoteUrl === null) {
     return { serverHosted: false, clean: true, ahead: 0, behind: 0 };
+  }
+
+  // ADR-0023：Source Remote origin 与配置 server 漂移时只读提示——不修改任何
+  // 配置，指引跑一次 upload 完成重指；提示后 ahead/behind 仍按上次本地同步显示。
+  try {
+    const { server } = await resolveNetworkConfig(options);
+    if (sourceRemoteOriginDrifted(remoteUrl, server)) {
+      notify(
+        'Notice: the esl remote origin differs from the configured ESL server (server origin migration). ' +
+          'Run "esl upload" in this directory once to re-home the remote; ' +
+          'the ahead/behind counts below may be stale until then.'
+      );
+    }
+  } catch {
+    // server 未配置或读取失败；维持现状
   }
 
   // Refresh the server-side ref when logged in, so ahead/behind are accurate
@@ -78,14 +101,15 @@ async function isInsideWorkTree(
   }
 }
 
-async function hasEslRemote(
+async function eslRemoteUrl(
   execFileAsync: typeof defaultExecFileAsync,
   directory: string
-): Promise<boolean> {
+): Promise<string | null> {
   try {
     const res = await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory });
-    return res.stdout.trim().length > 0;
+    const url = res.stdout.trim();
+    return url.length > 0 ? url : null;
   } catch {
-    return false;
+    return null;
   }
 }
