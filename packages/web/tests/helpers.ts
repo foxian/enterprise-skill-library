@@ -46,7 +46,7 @@ const ROLE_ACCOUNTS: Record<Role, { username: string; org: string | null }> = {
 // 挂载到 document.body 上，使未开启 append-to-body 的 el-dialog 内容也可用 document 查询。
 export async function mountConsoleView(
   component: Component,
-  options: { role: Role; route: string }
+  options: { role: Role; route: string; props?: Record<string, unknown> }
 ): Promise<VueWrapper> {
   localStorage.clear();
   const pinia = createPinia();
@@ -59,6 +59,7 @@ export async function mountConsoleView(
   document.body.appendChild(container);
   return mount(component as unknown as Component, {
     attachTo: container,
+    props: options.props,
     global: {
       plugins: [pinia, ElementPlus, router]
     }

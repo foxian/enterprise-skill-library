@@ -1,35 +1,18 @@
 <template>
-  <el-container class="console-shell">
-    <el-aside width="200px">
-      <div class="console-brand">ESL 平台治理</div>
-      <el-menu router :default-active="$route.path">
-        <el-menu-item index="/admin/super/dashboard">平台概览</el-menu-item>
-        <el-menu-item index="/admin/super/orgs">组织管理</el-menu-item>
-        <el-menu-item index="/admin/super/applications">注册审批</el-menu-item>
-        <el-menu-item index="/admin/super/settings">平台设置</el-menu-item>
-      </el-menu>
-    </el-aside>
-    <el-container>
-      <el-header class="console-header">
-        <span>超级管理员：{{ auth.username }}</span>
-        <el-button link type="primary" data-test="logout" @click="logout">退出登录</el-button>
-      </el-header>
-      <el-main>
-        <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+  <ConsoleShell brand="ESL工作台" :menu-items="menuItems">
+    <router-view />
+  </ConsoleShell>
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../../stores/auth';
+import ConsoleShell from '../../components/layout/ConsoleShell.vue';
+import type { ConsoleMenuItem } from '../../components/layout/ConsoleShell.vue';
+import { Odometer, OfficeBuilding, Tickets, Setting } from '@element-plus/icons-vue';
 
-const auth = useAuthStore();
-const router = useRouter();
-
-async function logout(): Promise<void> {
-  auth.logout();
-  await router.push({ name: 'login' });
-}
+const menuItems: ConsoleMenuItem[] = [
+  { index: '/admin/super/dashboard', label: '平台概览', icon: Odometer },
+  { index: '/admin/super/orgs', label: '组织管理', icon: OfficeBuilding },
+  { index: '/admin/super/applications', label: '注册审批', icon: Tickets },
+  { index: '/admin/super/settings', label: '平台设置', icon: Setting }
+];
 </script>

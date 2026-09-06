@@ -1,28 +1,29 @@
 <template>
   <div>
-    <h2>组织技能</h2>
-    <el-table :data="rows" data-test="org-skills-table" v-loading="loading">
-      <el-table-column prop="name" label="技能名" />
-      <el-table-column prop="createdBy" label="创建者" width="160" />
-      <el-table-column label="共享状态" width="140">
-        <template #default="{ row }">
-          <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ row.state.text }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="140">
-        <template #default="{ row }">
-          <el-button
-            link
-            type="primary"
-            :data-test="`configure-${row.skillName}`"
-            @click="openPermissions(row.scope, row.skillName)"
-          >
-            配置权限
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
+    <el-card class="data-card" shadow="never">
+      <el-table :data="rows" data-test="org-skills-table" v-loading="loading">
+        <el-table-column prop="name" label="技能名" />
+        <el-table-column prop="createdBy" label="创建者" width="160" />
+        <el-table-column label="共享状态" width="140">
+          <template #default="{ row }">
+            <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ row.state.text }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              :data-test="`configure-${row.skillName}`"
+              @click="openPermissions(row.scope, row.skillName)"
+            >
+              配置权限
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
+    </el-card>
   </div>
 </template>
 

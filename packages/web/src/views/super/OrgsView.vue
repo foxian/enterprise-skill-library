@@ -1,28 +1,29 @@
 <template>
   <div>
-    <h2>全平台组织</h2>
-    <el-table :data="orgs" data-test="orgs-table" v-loading="loading">
-      <el-table-column prop="name" label="组织名" />
-      <el-table-column label="生命周期" width="120">
-        <template #default="{ row }">
-          <el-tag :type="orgStatusTagType(row.status)" :data-test="`org-status-${row.name}`">
-            {{ orgStatusText(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="memberCount" label="成员数" width="100" />
-      <el-table-column prop="skillCount" label="技能数" width="100" />
-      <el-table-column label="创建时间" width="200">
-        <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="140">
-        <template #default="{ row }">
-          <el-button link type="primary" :data-test="`org-detail-${row.name}`" @click="openDetail(row.name)">
-            详情
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <el-card class="data-card" shadow="never">
+      <el-table :data="orgs" data-test="orgs-table" v-loading="loading">
+        <el-table-column prop="name" label="组织名" />
+        <el-table-column label="生命周期" width="120">
+          <template #default="{ row }">
+            <el-tag :type="orgStatusTagType(row.status)" :data-test="`org-status-${row.name}`">
+              {{ orgStatusText(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="memberCount" label="成员数" width="100" />
+        <el-table-column prop="skillCount" label="技能数" width="100" />
+        <el-table-column label="创建时间" width="200">
+          <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">
+            <el-button link type="primary" :data-test="`org-detail-${row.name}`" @click="openDetail(row.name)">
+              详情
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
   </div>
 </template>
@@ -67,9 +68,3 @@ onMounted(async () => {
   }
 });
 </script>
-
-<style scoped>
-.page-error {
-  margin-top: 16px;
-}
-</style>

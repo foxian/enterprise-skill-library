@@ -39,10 +39,12 @@ ESL Administrator Account 密码登录。为此把登录面按客户端拆开，
   `ServerConfig` 中移除；`AdminRepository` 不再接收 bootstrap token。任何仍用
   `token bootstrap-token` 直连 `/api/admin/*` 的脚本失效，改为使用平台管理员
   密码登录后签发的 token。
-- 管理后台补位：平台设置页新增「管理员账号改密」（`POST
-  /api/admin/account/password`）；平台概览并入 bootstrap 状态条
-  （`GET /api/admin/bootstrap/status`）；不新增平台用户管理页——用户由组织
-  管理员在组织内创建（`/api/orgs/members`）。
+- 管理后台补位：三套布局右上角新增统一「修改密码」入口，走自服务改密
+  `POST /api/auth/password`（任何已登录账号，含平台管理员，均以当前密码换取
+  改密）；平台概览并入 bootstrap 状态条（`GET /api/admin/bootstrap/status`）；
+  不新增平台用户管理页——用户由组织管理员在组织内创建
+  （`/api/orgs/members`）。`POST /api/admin/account/password` 保留为
+  ESL Administrator Account 的独立改密 API。
 - 无组织普通账号（旧 `esl admin user create` 产物）失去所有登录面：CLI 要求
   组织，管理后台仅接受平台管理员的无组织账号。冒烟/生命周期文档改为组织内
   成员流程。

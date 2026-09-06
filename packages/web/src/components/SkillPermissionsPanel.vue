@@ -1,7 +1,9 @@
 <template>
   <div data-test="skill-permissions-panel">
     <div class="console-toolbar">
-      <h2>技能权限：@{{ scope }}/{{ skillName }}</h2>
+      <h2 class="panel-title">
+        技能权限：<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+      </h2>
       <el-tag :type="stateTagType" data-test="share-state">{{ stateText }}</el-tag>
     </div>
 
@@ -225,6 +227,23 @@ onMounted(loadMatrix);
 </script>
 
 <style scoped>
+.panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+/* 技能标识符是技术坐标,用等宽字体呈现 */
+.skill-path {
+  font-family: var(--font-family-mono);
+  font-size: 14px;
+  color: var(--celadon-600);
+  background-color: var(--celadon-50);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
 .section-card {
   margin-bottom: 16px;
 }

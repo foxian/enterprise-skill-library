@@ -28,11 +28,11 @@ export const router = createRouter({
       meta: { role: 'super' },
       children: [
         { path: '', redirect: { name: 'super-dashboard' } },
-        { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard },
-        { path: 'orgs', name: 'super-orgs', component: SuperOrgs },
-        { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail },
-        { path: 'applications', name: 'super-applications', component: SuperApplications },
-        { path: 'settings', name: 'super-settings', component: SuperSettings }
+        { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard, meta: { title: '平台概览', description: '组织、审批与技能资源的实时汇总' } },
+        { path: 'orgs', name: 'super-orgs', component: SuperOrgs, meta: { title: '组织管理', description: '查看平台内全部组织的生命周期与资源概况' } },
+        { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: '组织详情' } },
+        { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '注册审批', description: '处理组织注册申请，批准后将自动开通组织资源' } },
+        { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: '平台设置', description: '配置组织注册的审批模式与平台级策略' } }
       ]
     },
     {
@@ -41,10 +41,10 @@ export const router = createRouter({
       meta: { role: 'org-admin' },
       children: [
         { path: '', redirect: { name: 'org-members' } },
-        { path: 'members', name: 'org-members', component: OrgMembers },
-        { path: 'teams', name: 'org-teams', component: OrgTeams },
-        { path: 'skills', name: 'org-skills', component: OrgSkills },
-        { path: 'skills/:scope/:skillName/permissions', name: 'org-skill-permissions', component: OrgSkillPermissions }
+        { path: 'members', name: 'org-members', component: OrgMembers, meta: { title: '成员管理', description: '管理组织内成员账号，支持添加、重置密码与禁用' } },
+        { path: 'teams', name: 'org-teams', component: OrgTeams, meta: { title: '团队管理', description: '按团队分配技能读写权限，系统团队不可删除' } },
+        { path: 'skills', name: 'org-skills', component: OrgSkills, meta: { title: '技能权限', description: '管理组织内技能的共享范围与访问权限' } },
+        { path: 'skills/:scope/:skillName/permissions', name: 'org-skill-permissions', component: OrgSkillPermissions, meta: { title: '技能权限详情' } }
       ]
     },
     {
@@ -53,8 +53,8 @@ export const router = createRouter({
       meta: { role: 'member' },
       children: [
         { path: '', redirect: { name: 'member-skills' } },
-        { path: 'skills', name: 'member-skills', component: MemberSkills },
-        { path: 'skills/:scope/:skillName/permissions', name: 'member-skill-permissions', component: MemberSkillPermissions }
+        { path: 'skills', name: 'member-skills', component: MemberSkills, meta: { title: '我的技能', description: '查看你创建的技能及其共享状态' } },
+        { path: 'skills/:scope/:skillName/permissions', name: 'member-skill-permissions', component: MemberSkillPermissions, meta: { title: '技能权限详情' } }
       ]
     },
     { path: '/admin', redirect: '/admin/login' },

@@ -1,13 +1,14 @@
 <template>
   <div>
-    <div class="console-toolbar">
-      <h2>团队管理</h2>
-      <el-button type="primary" data-test="open-create-team" @click="createDialogVisible = true">
-        新建团队
-      </el-button>
-    </div>
+    <el-card class="data-card" shadow="never">
+      <div class="console-toolbar">
+        <span class="toolbar-caption">团队 {{ teams.length }} 个</span>
+        <el-button type="primary" data-test="open-create-team" @click="createDialogVisible = true">
+          新建团队
+        </el-button>
+      </div>
 
-    <el-table :data="teams" data-test="teams-table" v-loading="loading">
+      <el-table :data="teams" data-test="teams-table" v-loading="loading">
       <el-table-column prop="name" label="团队名" />
       <el-table-column label="权限级别" width="120">
         <template #default="{ row }">{{ permissionText(row.permission) }}</template>
@@ -39,6 +40,7 @@
       </el-table-column>
     </el-table>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
+    </el-card>
 
     <el-dialog v-model="createDialogVisible" title="新建团队" width="420px">
       <el-form label-width="100px">
@@ -158,6 +160,11 @@ onMounted(loadTeams);
 </script>
 
 <style scoped>
+.toolbar-caption {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
 .page-error {
   margin-top: 16px;
 }

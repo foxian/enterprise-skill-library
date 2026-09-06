@@ -1,17 +1,18 @@
 <template>
   <div>
-    <div class="console-toolbar">
-      <h2>组织注册审批</h2>
-      <el-select v-model="statusFilter" data-test="status-filter" style="width: 160px">
-        <el-option label="待审批" value="pending" />
-        <el-option label="开通中" value="provisioning" />
-        <el-option label="已批准" value="approved" />
-        <el-option label="已拒绝" value="rejected" />
-        <el-option label="全部" value="all" />
-      </el-select>
-    </div>
+    <el-card class="data-card" shadow="never">
+      <div class="console-toolbar">
+        <span class="toolbar-caption">按状态筛选申请</span>
+        <el-select v-model="statusFilter" data-test="status-filter" style="width: 160px">
+          <el-option label="待审批" value="pending" />
+          <el-option label="开通中" value="provisioning" />
+          <el-option label="已批准" value="approved" />
+          <el-option label="已拒绝" value="rejected" />
+          <el-option label="全部" value="all" />
+        </el-select>
+      </div>
 
-    <el-table :data="filteredApplications" data-test="applications-table" v-loading="loading">
+      <el-table :data="filteredApplications" data-test="applications-table" v-loading="loading">
       <el-table-column prop="orgName" label="组织名" />
       <el-table-column prop="adminDisplayName" label="管理员名称" />
       <el-table-column label="申请时间" width="180">
@@ -33,6 +34,7 @@
         </template>
       </el-table-column>
     </el-table>
+    </el-card>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
   </div>
 
@@ -135,6 +137,11 @@ onMounted(loadApplications);
 </script>
 
 <style scoped>
+.toolbar-caption {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
 .page-error {
   margin-top: 16px;
 }

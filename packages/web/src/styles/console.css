@@ -1,3 +1,4 @@
+/* 后台布局骨架 —— 墨库 Ink Registry(色值全部来自 theme/tokens.css) */
 html,
 body,
 #app {
@@ -6,39 +7,557 @@ body,
 }
 
 body {
-  font-family: 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .console-shell {
   height: 100vh;
 }
 
+/* ---------- 侧边栏(深墨) ---------- */
+
 .console-shell .el-aside {
-  border-right: 1px solid #e4e7ed;
+  width: var(--sidebar-width);
+  background-color: var(--ink-900);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 2px 0 8px rgba(15, 26, 32, 0.06);
 }
 
 .console-brand {
-  height: 60px;
-  line-height: 60px;
-  text-align: center;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  color: #e8edee;
   font-weight: 600;
-  border-bottom: 1px solid #e4e7ed;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--ink-700);
 }
+
+.console-brand-mark {
+  width: 6px;
+  height: 22px;
+  background-color: var(--celadon-500);
+  border-radius: 0 3px 3px 0;
+  flex-shrink: 0;
+}
+
+.console-brand-text {
+  font-size: var(--fs-md);
+}
+
+/* 深色菜单(el-menu 无官方深色模式,作用域内覆盖变量) */
+.console-shell .el-aside .el-menu {
+  --el-menu-bg-color: var(--ink-900);
+  --el-menu-text-color: #c8d4d9;
+  --el-menu-hover-bg-color: var(--ink-800);
+  --el-menu-active-color: #ffffff;
+  border-right: none;
+  padding: 12px 10px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.console-shell .el-aside .el-menu-item {
+  height: 44px;
+  line-height: 44px;
+  margin: 2px 0;
+  padding: 0 14px !important;
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.console-shell .el-aside .el-menu-item:hover {
+  background-color: var(--ink-800);
+}
+
+.console-shell .el-aside .el-menu-item.is-active {
+  position: relative;
+  background-color: var(--ink-800);
+  color: #ffffff;
+}
+
+/* 菜单图标 */
+.console-menu-icon {
+  margin-right: 10px;
+  font-size: 17px;
+}
+
+/* 书签丝带:左侧竖条 */
+.console-shell .el-aside .el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  background-color: var(--celadon-500);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ---------- 侧边栏左下角用户区 ---------- */
+
+.console-aside-user {
+  border-top: 1px solid var(--ink-700);
+  padding: 10px;
+}
+
+.console-aside-user .el-dropdown {
+  width: 100%;
+}
+
+.console-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 48px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  cursor: pointer;
+  color: #c8d4d9;
+  font-family: inherit;
+  font-size: var(--fs-base);
+  text-align: left;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.console-user:hover {
+  background-color: var(--ink-800);
+}
+
+.console-user:focus-visible {
+  outline: 2px solid var(--celadon-500);
+  outline-offset: 1px;
+}
+
+.console-user-avatar {
+  background-color: var(--celadon-500);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.console-user-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.console-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e8edee;
+  font-size: var(--fs-base);
+  line-height: 1.3;
+}
+
+.console-user-role {
+  font-size: var(--fs-xs);
+  color: var(--ink-400);
+  line-height: 1.3;
+}
+
+.console-user-caret {
+  font-size: 10px;
+  color: var(--ink-500);
+}
+
+/* 下拉面板(浅色 popper)内的用户信息 */
+.console-user-meta-panel {
+  padding: 10px 16px 12px;
+}
+
+.console-user-meta-name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.console-user-meta-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.console-user-meta-org {
+  font-size: var(--fs-xs);
+  color: var(--el-text-color-secondary);
+  font-family: var(--font-family-mono);
+}
+
+/* ---------- 顶部上下文栏 ---------- */
 
 .console-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e4e7ed;
+  padding: 0 var(--content-padding);
+  background-color: #ffffff;
+  border-bottom: 1px solid var(--paper-200);
+  height: var(--header-height) !important;
 }
+
+.console-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.console-header-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.console-header-desc {
+  font-size: var(--fs-sm);
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+}
+
+/* ---------- 内容区 ---------- */
+
+.console-main {
+  background-color: var(--paper-50);
+  padding: 0 !important;
+  overflow-y: auto;
+}
+
+.console-content {
+  padding: var(--content-padding);
+  min-width: 0;
+}
+
+/* ---------- 页面头部(页面内标题 + 描述) ---------- */
+
+.page-header {
+  margin-bottom: 20px;
+}
+
+.page-header-title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.page-header-desc {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--el-text-color-secondary);
+}
+
+/* ---------- 工具栏 ---------- */
 
 .console-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
+}
+
+.toolbar-caption {
+  font-size: var(--fs-sm);
+  color: var(--el-text-color-secondary);
+}
+
+/* ---------- 统计卡片(仪表盘) ---------- */
+
+.stat-card {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out);
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card .el-card__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 20px;
+}
+
+.stat-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.stat-card-icon.primary {
+  background-color: var(--celadon-50);
+  color: var(--celadon-600);
+}
+
+.stat-card-icon.warning {
+  background-color: var(--el-color-warning-light-9);
+  color: var(--el-color-warning);
+}
+
+.stat-card-icon.info {
+  background-color: var(--el-color-info-light-9);
+  color: var(--el-color-info);
+}
+
+.stat-card-title {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--el-text-color-secondary);
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.stat-card-value {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 平台状态卡片 ---------- */
+
+.status-card {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.status-card .el-card__body {
+  padding: 20px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.status-details {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-item-label {
+  color: var(--el-text-color-secondary);
+}
+
+.status-item-value {
+  font-family: var(--font-family-mono);
+  color: var(--el-text-color-regular);
+}
+
+/* ---------- 数据卡片通用 ---------- */
+
+.data-card {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.data-card .el-card__body {
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* 表格表头不换行,避免列名挤压 */
+.console-content .el-table th .cell {
+  white-space: nowrap;
+}
+
+/* ---------- 空状态 ---------- */
+
+.empty-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
+}
+
+.empty-block-icon {
+  font-size: 40px;
+  color: var(--paper-200);
+  margin-bottom: 12px;
+}
+
+.empty-block-text {
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+
+/* ---------- 登录/注册(深墨沉浸背景) ---------- */
+
+.auth-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(165deg, var(--ink-900) 0%, #0f1a20 100%);
+}
+
+.auth-card {
+  width: 420px;
+  border: none;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 60px rgba(15, 26, 32, 0.5);
+}
+
+.auth-card .el-card__body {
+  padding: 32px;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.auth-brand-mark {
+  width: 6px;
+  height: 22px;
+  background-color: var(--celadon-500);
+  border-radius: 0 3px 3px 0;
+}
+
+.auth-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.auth-subtitle {
+  margin: 0 0 24px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--el-text-color-secondary);
+}
+
+.auth-submit {
+  width: 100%;
+  height: 40px;
+  font-weight: 500;
+}
+
+.auth-link {
+  display: block;
+  margin-top: 16px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--celadon-600);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.auth-link:hover {
+  color: var(--celadon-500);
+}
+
+/* ---------- 危险操作区 ---------- */
+
+.danger-zone {
+  margin-top: 16px;
+  border: 1px solid var(--el-color-danger-light-7);
+  border-radius: var(--radius-lg);
+}
+
+.danger-zone .el-card__header {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+
+.danger-hint {
+  color: var(--el-color-danger);
+  font-size: var(--fs-sm);
+  margin: 0 0 12px;
+}
+
+.danger-input {
+  width: 280px;
+  margin-right: 12px;
+}
+
+/* ---------- 面包屑 ---------- */
+
+.page-breadcrumb {
+  margin-bottom: 16px;
+}
+
+/* ---------- 错误提示 ---------- */
+
+.page-error {
+  margin-top: 16px;
+}
+
+/* ---------- 表格容器圆角 ---------- */
+
+.console-content .el-table {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* ---------- 滚动条美化 ---------- */
+
+.console-shell .el-aside .el-menu::-webkit-scrollbar,
+.console-main::-webkit-scrollbar {
+  width: 6px;
+}
+
+.console-shell .el-aside .el-menu::-webkit-scrollbar-thumb,
+.console-main::-webkit-scrollbar-thumb {
+  background-color: var(--paper-200);
+  border-radius: 3px;
+}
+
+.console-shell .el-aside .el-menu::-webkit-scrollbar-track {
+  background: transparent;
 }

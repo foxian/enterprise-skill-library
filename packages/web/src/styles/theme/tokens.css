@@ -1,0 +1,58 @@
+/* 墨库 Ink Registry 设计 token —— ESL 后台唯一色值来源 */
+:root {
+  /* 深墨:侧边栏与暗色表面 */
+  --ink-900: #1b2a32;
+  --ink-800: #24343d;
+  --ink-700: #2e424d;
+  --ink-600: #4a6069;
+  --ink-500: #6b8089;
+  --ink-400: #8fa3ab;
+
+  /* 青瓷绿:主色 */
+  --celadon-600: #0b6657;
+  --celadon-500: #0e7c6b;
+  --celadon-400: #12997f;
+  --celadon-100: #c7e6dd;
+  --celadon-50: #e6f3ef;
+
+  /* 纸:内容区与亮色表面 */
+  --paper-50: #f6f8f9;
+  --paper-100: #eef1f3;
+  --paper-200: #e3e8eb;
+
+  /* 字体 */
+  --font-family-sans: 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-family-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* 字号阶梯 */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* 阴影:由近及远,纸面浮起层次 */
+  --shadow-xs: 0 1px 2px rgba(15, 26, 32, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 26, 32, 0.06), 0 1px 2px rgba(15, 26, 32, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 26, 32, 0.08), 0 2px 4px rgba(15, 26, 32, 0.04);
+  --shadow-lg: 0 10px 30px rgba(15, 26, 32, 0.12), 0 4px 8px rgba(15, 26, 32, 0.06);
+
+  /* 布局 */
+  --sidebar-width: 232px;
+  --header-height: 56px;
+  --content-padding: 24px;
+
+  /* 过渡 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+}

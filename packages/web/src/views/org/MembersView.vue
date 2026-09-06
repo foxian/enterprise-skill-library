@@ -1,13 +1,14 @@
 <template>
   <div>
-    <div class="console-toolbar">
-      <h2>成员管理</h2>
-      <div>
-        <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">添加成员</el-button>
+    <el-card class="data-card" shadow="never">
+      <div class="console-toolbar">
+        <span class="toolbar-caption">在册成员 {{ members.length }} 人</span>
+        <div>
+          <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">添加成员</el-button>
+        </div>
       </div>
-    </div>
 
-    <el-tabs v-model="activeTab">
+      <el-tabs v-model="activeTab">
       <el-tab-pane label="在册成员" name="members">
         <el-table :data="members" data-test="members-table" v-loading="loading">
           <el-table-column label="成员">
@@ -61,6 +62,7 @@
       </el-tab-pane>
     </el-tabs>
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
+    </el-card>
 
     <el-dialog v-model="addDialogVisible" title="添加成员" width="420px">
       <el-form label-width="100px">
@@ -356,6 +358,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.toolbar-caption {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
 .page-error {
   margin-top: 16px;
 }

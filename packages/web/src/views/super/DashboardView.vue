@@ -1,34 +1,59 @@
 <template>
   <div>
-    <h2>平台概览</h2>
     <el-row :gutter="16">
-      <el-col :span="8">
-        <el-card data-test="stat-orgs">
-          <el-statistic title="组织总数" :value="orgs.length" />
+      <el-col :xs="24" :sm="12" :md="8">
+        <el-card class="stat-card" data-test="stat-orgs" shadow="never">
+          <div class="stat-card-icon primary">
+            <el-icon><OfficeBuilding /></el-icon>
+          </div>
+          <p class="stat-card-title">组织总数</p>
+          <p class="stat-card-value">{{ orgs.length }}</p>
         </el-card>
       </el-col>
-      <el-col :span="8">
-        <el-card data-test="stat-pending">
-          <el-statistic title="待审批申请" :value="pendingCount" />
+      <el-col :xs="24" :sm="12" :md="8">
+        <el-card class="stat-card" data-test="stat-pending" shadow="never">
+          <div class="stat-card-icon warning">
+            <el-icon><Tickets /></el-icon>
+          </div>
+          <p class="stat-card-title">待审批申请</p>
+          <p class="stat-card-value">{{ pendingCount }}</p>
         </el-card>
       </el-col>
-      <el-col :span="8">
-        <el-card data-test="stat-skills">
-          <el-statistic title="平台技能总数" :value="skillTotal" />
+      <el-col :xs="24" :sm="12" :md="8">
+        <el-card class="stat-card" data-test="stat-skills" shadow="never">
+          <div class="stat-card-icon info">
+            <el-icon><Files /></el-icon>
+          </div>
+          <p class="stat-card-title">平台技能总数</p>
+          <p class="stat-card-value">{{ skillTotal }}</p>
         </el-card>
       </el-col>
     </el-row>
-    <el-card data-test="platform-status" style="margin-top: 16px">
-      <template #header>平台状态</template>
+
+    <el-card class="status-card" data-test="platform-status" shadow="never" style="margin-top: 16px">
+      <template #header>
+        <span class="status-card-title">平台状态</span>
+      </template>
       <template v-if="bootstrapStatus">
-        <el-tag :type="bootstrapStatus.ready ? 'success' : 'warning'" data-test="bootstrap-ready">
-          {{ bootstrapStatus.ready ? 'Bootstrap 就绪' : 'Bootstrap 未就绪' }}
-        </el-tag>
-        <span class="status-detail">
-          Gitea：{{ bootstrapStatus.gitea }} / 管理员 token：{{ bootstrapStatus.adminToken }} / 平台仓库：{{
-            bootstrapStatus.repoOwner
-          }}
-        </span>
+        <div class="status-row">
+          <el-tag :type="bootstrapStatus.ready ? 'success' : 'warning'" data-test="bootstrap-ready" size="large">
+            {{ bootstrapStatus.ready ? 'Bootstrap 就绪' : 'Bootstrap 未就绪' }}
+          </el-tag>
+          <div class="status-details">
+            <div class="status-item">
+              <span class="status-item-label">Gitea</span>
+              <span class="status-item-value">{{ bootstrapStatus.gitea }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-item-label">管理员 Token</span>
+              <span class="status-item-value">{{ bootstrapStatus.adminToken }}</span>
+            </div>
+            <div class="status-item">
+              <span class="status-item-label">平台仓库</span>
+              <span class="status-item-value">{{ bootstrapStatus.repoOwner }}</span>
+            </div>
+          </div>
+        </div>
       </template>
       <el-skeleton v-else :rows="1" animated />
     </el-card>
@@ -38,6 +63,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { OfficeBuilding, Tickets, Files } from '@element-plus/icons-vue';
 import { apiRequest } from '../../api/client';
 
 interface OrgSummary {
@@ -88,13 +114,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.page-error {
-  margin-top: 16px;
-}
-
-.status-detail {
-  margin-left: 12px;
-  color: #909399;
-  font-size: 13px;
+.status-card-title {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 </style>

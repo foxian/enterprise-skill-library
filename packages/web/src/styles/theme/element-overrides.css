@@ -1,0 +1,33 @@
+/* Element Plus 变量覆盖 —— 墨库 Ink Registry 主题
+   必须在 element-plus/dist/index.css 之后引入 */
+:root {
+  /* 主色:青瓷绿及其变体 */
+  --el-color-primary: var(--celadon-500);
+  --el-color-primary-light-3: color-mix(in srgb, var(--celadon-500) 70%, white);
+  --el-color-primary-light-5: color-mix(in srgb, var(--celadon-500) 50%, white);
+  --el-color-primary-light-7: color-mix(in srgb, var(--celadon-500) 30%, white);
+  --el-color-primary-light-8: color-mix(in srgb, var(--celadon-500) 20%, white);
+  --el-color-primary-light-9: color-mix(in srgb, var(--celadon-500) 10%, white);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--celadon-500) 80%, black);
+
+  /* 全局基调:纸色背景 + 墨系文字 */
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: var(--paper-50);
+  --el-fill-color-light: var(--paper-100);
+  --el-text-color-primary: #1f2932;
+  --el-text-color-regular: #3a454f;
+  --el-text-color-secondary: #6b7a85;
+  --el-border-color: var(--paper-200);
+  --el-border-color-light: var(--paper-100);
+  --el-border-radius-base: var(--radius-md);
+
+  /* 卡片与弹层阴影 */
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-dark: var(--shadow-lg);
+
+  /* 表格 */
+  --el-table-row-hover-bg-color: var(--paper-100);
+  --el-table-header-bg-color: var(--paper-50);
+  --el-table-header-text-color: var(--ink-600);
+}

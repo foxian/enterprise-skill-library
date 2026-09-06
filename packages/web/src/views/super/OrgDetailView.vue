@@ -1,15 +1,20 @@
 <template>
   <div>
-    <h2>组织详情：{{ orgName }}</h2>
-    <el-descriptions :column="3" border data-test="org-summary">
-      <el-descriptions-item label="组织名">{{ summary?.name ?? orgName }}</el-descriptions-item>
-      <el-descriptions-item label="生命周期">
-        <el-tag :type="orgStatusTagType(summary?.status)" data-test="org-status">{{ orgStatusText(summary?.status) }}</el-tag>
-      </el-descriptions-item>
-      <el-descriptions-item label="成员数">{{ summary?.memberCount ?? '-' }}</el-descriptions-item>
-      <el-descriptions-item label="技能数">{{ summary?.skillCount ?? '-' }}</el-descriptions-item>
-      <el-descriptions-item label="创建时间">{{ formatTime(summary?.createdAt) }}</el-descriptions-item>
-    </el-descriptions>
+    <el-breadcrumb class="page-breadcrumb" separator="/">
+      <el-breadcrumb-item :to="{ name: 'super-orgs' }">组织管理</el-breadcrumb-item>
+      <el-breadcrumb-item>{{ orgName }}</el-breadcrumb-item>
+    </el-breadcrumb>
+    <el-card class="data-card" shadow="never" data-test="org-summary">
+      <el-descriptions :column="3" border>
+        <el-descriptions-item label="组织名">{{ summary?.name ?? orgName }}</el-descriptions-item>
+        <el-descriptions-item label="生命周期">
+          <el-tag :type="orgStatusTagType(summary?.status)" data-test="org-status">{{ orgStatusText(summary?.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="成员数">{{ summary?.memberCount ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="技能数">{{ summary?.skillCount ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ formatTime(summary?.createdAt) }}</el-descriptions-item>
+      </el-descriptions>
+    </el-card>
 
     <el-alert
       v-if="summary?.lastError"
@@ -147,6 +152,10 @@ watch(orgName, () => {
 </script>
 
 <style scoped>
+.page-breadcrumb {
+  margin-bottom: 16px;
+}
+
 .retry-row {
   margin: 12px 0;
 }
