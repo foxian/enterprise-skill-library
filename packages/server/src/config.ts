@@ -52,28 +52,20 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     throw new Error(`Invalid ESL_DEPLOYMENT_MODE: ${rawDeploymentMode}`);
   }
   const deploymentMode = rawDeploymentMode === 'single' ? 'single' : 'multi';
-  // 单组织模式必须声明默认组织与其管理员初始凭据,Bootstrap 据此直接开通。
+  // 默认组织声明驱动 Bootstrap 开通(ADR-0022):单组织模式必须声明;多组织模式
+  // 可选(声明了才在启动时开通并设为默认,未声明则空起步)。无论哪种模式,
+  // 组织名与组织管理员初始凭据必须成对声明。
+  let defaultOrg: string | undefined;
+  let orgAdminPassword: string | undefined;
   if (deploymentMode === 'single') {
-    const defaultOrg = requireEnv(env, 'ESL_DEFAULT_ORG');
-    const orgAdminPassword = requireEnv(env, 'ESL_ORG_ADMIN_PASSWORD');
-    return {
-      port,
-      databasePath: requireEnv(env, 'DATABASE_PATH'),
-      giteaUrl: requireEnv(env, 'GITEA_URL'),
-      giteaAdminToken,
-      giteaAdminTokenFile,
-      giteaAdminUsername: env.GITEA_ADMIN_USERNAME ?? 'eslroot',
-      giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
-      repoOwner: 'esl-skills',
-      passwordMinLength,
-      autoSeed,
-      deploymentMode,
-      defaultOrg,
-      orgAdminPassword,
-      ...(env.ESL_APPLICATION_ENCRYPTION_KEY
-        ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
-        : {})
-    };
+    defaultOrg = requireEnv(env, 'ESL_DEFAULT_ORG');
+    orgAdminPassword = requireEnv(env, 'ESL_ORG_ADMIN_PASSWORD');
+  } else if (env.ESL_DEFAULT_ORG !== undefined || env.ESL_ORG_ADMIN_PASSWORD !== undefined) {
+    if (env.ESL_DEFAULT_ORG === undefined || env.ESL_ORG_ADMIN_PASSWORD === undefined) {
+      throw new Error('ESL_DEFAULT_ORG and ESL_ORG_ADMIN_PASSWORD must be declared together');
+    }
+    defaultOrg = env.ESL_DEFAULT_ORG;
+    orgAdminPassword = env.ESL_ORG_ADMIN_PASSWORD;
   }
 
   return {
@@ -84,12 +76,13 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     giteaAdminTokenFile,
     giteaAdminUsername: env.GITEA_ADMIN_USERNAME ?? 'eslroot',
     giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
-    // Transitional fixed namespace for Server-hosted Skill Sources; per-org
-    // scopes arrive with the multi-tenant upload flow (docs/adr/0016).
     repoOwner: 'esl-skills',
     passwordMinLength,
     autoSeed,
     deploymentMode,
+    ...(defaultOrg !== undefined && orgAdminPassword !== undefined
+      ? { defaultOrg, orgAdminPassword }
+      : {}),
     ...(env.ESL_APPLICATION_ENCRYPTION_KEY
       ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
       : {})

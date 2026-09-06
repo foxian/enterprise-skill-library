@@ -29,7 +29,7 @@ import { sanitizeOperationError } from './db/database.js';
 import { seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
 import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
-import { ensureSingleOrgBootstrap } from './services/single-org-bootstrap.js';
+import { ensureDeclaredOrgBootstrap } from './services/single-org-bootstrap.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -43,9 +43,10 @@ export interface AppOptions {
   autoSeed?: boolean;
   // Injectable Operation event bus (test seam); defaults to a new in-process bus.
   operationEventBus?: OperationEventBus;
-  // 单组织部署声明(ADR-0022):由 startServer 从环境变量解析后传入,Bootstrap 在
-  // onReady 时直接 Provisioning 默认组织并写入单组织设置。测试构建不传,不触发。
-  singleOrgBootstrap?: { orgName: string; adminPassword: string };
+  // 默认组织部署声明(ADR-0022):由 startServer 从环境变量解析后传入,两种部署
+  // 模式都支持——声明了就在 onReady 时直接 Provisioning 默认组织并写入部署
+  // 模式与默认组织设置。测试构建不传,不触发。
+  declaredOrgBootstrap?: { orgName: string; adminPassword: string; deploymentMode: 'single' | 'multi' };
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -236,16 +237,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return decryptApplicationSecret(encryptedSecret, options.applicationEncryptionKey);
   }
 
-  // 单组织部署在监听前完成默认组织开通,失败则启动失败(见 ADR-0022)。
-  const singleOrgBootstrap = options.singleOrgBootstrap;
-  if (singleOrgBootstrap) {
+  // 声明了默认组织的部署在监听前完成开通,失败则启动失败(见 ADR-0022)。
+  const declaredOrgBootstrap = options.declaredOrgBootstrap;
+  if (declaredOrgBootstrap) {
     app.addHook('onReady', async () => {
-      await ensureSingleOrgBootstrap({
+      await ensureDeclaredOrgBootstrap({
         giteaService: options.giteaService,
         platformSettingsRepository,
         tenantOrganizationRepository,
-        orgName: singleOrgBootstrap.orgName,
-        adminPassword: singleOrgBootstrap.adminPassword
+        orgName: declaredOrgBootstrap.orgName,
+        adminPassword: declaredOrgBootstrap.adminPassword,
+        deploymentMode: declaredOrgBootstrap.deploymentMode
       });
     });
   }

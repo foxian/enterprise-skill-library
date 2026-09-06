@@ -66,8 +66,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
     passwordMinLength: config.passwordMinLength,
     applicationEncryptionKey: config.applicationEncryptionKey,
     autoSeed: config.autoSeed,
-    ...(config.deploymentMode === 'single' && config.defaultOrg && config.orgAdminPassword
-      ? { singleOrgBootstrap: { orgName: config.defaultOrg, adminPassword: config.orgAdminPassword } }
+    ...(config.defaultOrg && config.orgAdminPassword
+      ? {
+          declaredOrgBootstrap: {
+            orgName: config.defaultOrg,
+            adminPassword: config.orgAdminPassword,
+            deploymentMode: config.deploymentMode
+          }
+        }
       : {})
   });
 

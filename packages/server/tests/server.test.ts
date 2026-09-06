@@ -178,4 +178,69 @@ describe('server runtime', () => {
     expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
     await app.close();
   });
+
+  it('bootstraps the declared default organization in multi mode as well', async () => {
+    const giteaService = {
+      validateToken: vi.fn().mockResolvedValue({ id: 1, username: 'eslroot', email: 'eslroot@local.esl' }),
+      validateAdminToken: vi.fn().mockResolvedValue(true),
+      adminUsername: 'eslroot',
+      organizationExists: vi.fn().mockResolvedValue(false),
+      createOrg: vi.fn().mockResolvedValue(undefined),
+      createUser: vi.fn().mockResolvedValue(undefined),
+      listOrgMembers: vi.fn().mockResolvedValue([]),
+      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listTeamMembers: vi.fn().mockResolvedValue([]),
+      addTeamMember: vi.fn().mockResolvedValue(undefined),
+      createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' }),
+      removeTeamMember: vi.fn().mockResolvedValue(undefined)
+    };
+    const listen = vi.fn().mockResolvedValue('http://127.0.0.1:3999');
+
+    const app = await startServer({
+      env: {
+        PORT: '3999',
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        ESL_DEPLOYMENT_MODE: 'multi',
+        ESL_DEFAULT_ORG: 'acme',
+        ESL_ORG_ADMIN_PASSWORD: 'initial-password'
+      } as NodeJS.ProcessEnv,
+      listen,
+      giteaServiceFactory: () => giteaService as any
+    });
+
+    await app.ready();
+    expect(giteaService.createOrg).toHaveBeenCalledWith('acme');
+    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
+    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme' });
+    await app.close();
+  });
+
+  it('does not provision any organization in multi mode without declarations', async () => {
+    const giteaService = {
+      validateToken: vi.fn().mockResolvedValue({ id: 1, username: 'eslroot', email: 'eslroot@local.esl' }),
+      validateAdminToken: vi.fn().mockResolvedValue(true),
+      adminUsername: 'eslroot',
+      createOrg: vi.fn().mockResolvedValue(undefined)
+    };
+    const listen = vi.fn().mockResolvedValue('http://127.0.0.1:3999');
+
+    const app = await startServer({
+      env: {
+        PORT: '3999',
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token'
+      } as NodeJS.ProcessEnv,
+      listen,
+      giteaServiceFactory: () => giteaService as any
+    });
+
+    await app.ready();
+    expect(giteaService.createOrg).not.toHaveBeenCalled();
+    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
+    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: null });
+    await app.close();
+  });
 });

@@ -155,4 +155,39 @@ describe('server config', () => {
       } as NodeJS.ProcessEnv)
     ).toThrow('Missing required environment variable: ESL_DEFAULT_ORG');
   });
+
+  it('loads the default org declarations in multi mode when both are provided', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token',
+      ESL_DEPLOYMENT_MODE: 'multi',
+      ESL_DEFAULT_ORG: 'acme',
+      ESL_ORG_ADMIN_PASSWORD: 'initial-password'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.deploymentMode).toBe('multi');
+    expect(config.defaultOrg).toBe('acme');
+    expect(config.orgAdminPassword).toBe('initial-password');
+  });
+
+  it('requires the default org declarations to be declared together in multi mode', () => {
+    expect(() =>
+      loadServerConfig({
+        DATABASE_PATH: '/tmp/esl.db',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        ESL_DEFAULT_ORG: 'acme'
+      } as NodeJS.ProcessEnv)
+    ).toThrow('ESL_DEFAULT_ORG and ESL_ORG_ADMIN_PASSWORD must be declared together');
+
+    expect(() =>
+      loadServerConfig({
+        DATABASE_PATH: '/tmp/esl.db',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        ESL_ORG_ADMIN_PASSWORD: 'initial-password'
+      } as NodeJS.ProcessEnv)
+    ).toThrow('ESL_DEFAULT_ORG and ESL_ORG_ADMIN_PASSWORD must be declared together');
+  });
 });
