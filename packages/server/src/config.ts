@@ -14,6 +14,11 @@ export interface ServerConfig {
   // When true the server seeds sample skill metadata at startup (ESL_AUTO_SEED).
   // Development environments opt in; production keeps the database clean.
   autoSeed: boolean;
+  // 部署模式与默认组织声明(ADR-0022):单组织模式下必须声明默认组织名与
+  // 组织管理员初始凭据,Bootstrap 直接 Provisioning,不走注册申请。
+  deploymentMode: 'single' | 'multi';
+  defaultOrg?: string;
+  orgAdminPassword?: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -42,6 +47,35 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   }
   const autoSeed = env.ESL_AUTO_SEED === 'true' || env.ESL_AUTO_SEED === '1';
 
+  const rawDeploymentMode = env.ESL_DEPLOYMENT_MODE;
+  if (rawDeploymentMode !== undefined && rawDeploymentMode !== 'single' && rawDeploymentMode !== 'multi') {
+    throw new Error(`Invalid ESL_DEPLOYMENT_MODE: ${rawDeploymentMode}`);
+  }
+  const deploymentMode = rawDeploymentMode === 'single' ? 'single' : 'multi';
+  // 单组织模式必须声明默认组织与其管理员初始凭据,Bootstrap 据此直接开通。
+  if (deploymentMode === 'single') {
+    const defaultOrg = requireEnv(env, 'ESL_DEFAULT_ORG');
+    const orgAdminPassword = requireEnv(env, 'ESL_ORG_ADMIN_PASSWORD');
+    return {
+      port,
+      databasePath: requireEnv(env, 'DATABASE_PATH'),
+      giteaUrl: requireEnv(env, 'GITEA_URL'),
+      giteaAdminToken,
+      giteaAdminTokenFile,
+      giteaAdminUsername: env.GITEA_ADMIN_USERNAME ?? 'eslroot',
+      giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
+      repoOwner: 'esl-skills',
+      passwordMinLength,
+      autoSeed,
+      deploymentMode,
+      defaultOrg,
+      orgAdminPassword,
+      ...(env.ESL_APPLICATION_ENCRYPTION_KEY
+        ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
+        : {})
+    };
+  }
+
   return {
     port,
     databasePath: requireEnv(env, 'DATABASE_PATH'),
@@ -55,6 +89,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     repoOwner: 'esl-skills',
     passwordMinLength,
     autoSeed,
+    deploymentMode,
     ...(env.ESL_APPLICATION_ENCRYPTION_KEY
       ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
       : {})

@@ -13,7 +13,15 @@ function mockFetch(status = 201, body: unknown = {}): {
 } {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init ?? {} });
+    const path = String(url);
+    calls.push({ url: path, init: init ?? {} });
+    // 挂载时先请求平台信息自适应交互:返回多组织模式,保持注册表单可见。
+    if (path === '/api/public/platform-info') {
+      return new Response(JSON.stringify({ mode: 'multi', defaultOrg: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
     return new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' }
@@ -93,7 +101,7 @@ describe('RegisterView', () => {
     await flushPromises();
 
     expect(wrapper.find('[data-test="register-error"]').text()).toContain('两次输入的密码不一致');
-    expect(fetchMock.calls).toHaveLength(0);
+    expect(fetchMock.calls.filter((call) => call.url === '/api/orgs/apply')).toHaveLength(0);
   });
 
   it('低于密码策略最小长度的密码被拒绝提交', async () => {
@@ -108,7 +116,7 @@ describe('RegisterView', () => {
     await flushPromises();
 
     expect(wrapper.find('[data-test="register-error"]').text()).toContain('password must be at least');
-    expect(fetchMock.calls).toHaveLength(0);
+    expect(fetchMock.calls.filter((call) => call.url === '/api/orgs/apply')).toHaveLength(0);
   });
 
   it('提交申请并展示待审批状态', async () => {
@@ -121,10 +129,12 @@ describe('RegisterView', () => {
     await setField(wrapper, '[data-test="confirm-password"]', 'initial-password-123');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
-    await vi.waitFor(() => expect(fetchMock.calls).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(fetchMock.calls.filter((call) => call.url === '/api/orgs/apply')).toHaveLength(1)
+    );
 
-    expect(fetchMock.calls[0].url).toBe('/api/orgs/apply');
-    expect(JSON.parse(String(fetchMock.calls[0].init.body))).toEqual({
+    const applyCall = fetchMock.calls.find((call) => call.url === '/api/orgs/apply');
+    expect(JSON.parse(String(applyCall!.init.body))).toEqual({
       orgName: 'acme',
       adminDisplayName: 'admin',
       password: 'initial-password-123'

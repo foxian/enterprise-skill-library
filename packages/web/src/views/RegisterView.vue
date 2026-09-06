@@ -1,8 +1,19 @@
 <template>
   <div class="auth-page">
-    <el-card class="auth-card">
-      <h2 class="auth-title">组织注册申请</h2>
-      <el-form label-position="top" @submit.prevent="submit">
+    <el-card class="auth-card auth-card-wide">
+      <div class="auth-brand">
+        <span class="auth-brand-mark" aria-hidden="true"></span>
+        <h2 class="auth-title">ESL 技能库</h2>
+      </div>
+      <p class="auth-subtitle">组织注册申请</p>
+      <el-alert
+        v-if="isSingleMode"
+        type="warning"
+        :title="'平台处于单组织模式，不接受新的组织注册申请。'"
+        :closable="false"
+        data-test="single-mode-notice"
+      />
+      <el-form v-if="!isSingleMode" label-position="top" @submit.prevent="submit">
         <el-form-item label="组织名" required>
           <el-input v-model="orgName" data-test="org-name" placeholder="小写字母、数字与连字符" />
           <div v-if="orgNameError" class="field-error" data-test="org-name-error">{{ orgNameError }}</div>
@@ -72,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
 import { validateOrgName } from '@esl/core/dist/org/org-name.js';
 import { validatePassword } from '@esl/core/dist/org/account-policy.js';
@@ -87,6 +98,18 @@ const errorMessage = ref('');
 const submittedStatus = ref<'pending' | 'provisioning' | 'approved' | 'failed' | ''>('');
 // 提交后订阅开通流的句柄,组件卸载时关闭
 let operationStream: OperationStream | undefined;
+// 平台信息(ADR-0022):单组织模式下隐藏注册入口并说明原因;平台信息不可用时
+// 保持现状(展示表单),注册请求由服务端按模式硬拒绝兜底。
+const platformInfo = ref<{ mode: 'single' | 'multi'; defaultOrg: string | null } | null>(null);
+const isSingleMode = computed(() => platformInfo.value?.mode === 'single');
+
+onMounted(async () => {
+  try {
+    platformInfo.value = await apiRequest('/api/public/platform-info');
+  } catch {
+    platformInfo.value = null;
+  }
+});
 
 // 服务端固定创建 <组织名>_admin 管理员账号，申请单统一以 admin 作为管理员标识
 const ADMIN_ACCOUNT = 'admin';
@@ -193,32 +216,9 @@ async function queryStatus(): Promise<void> {
 </script>
 
 <style scoped>
-.auth-page {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background: #f5f7fa;
-}
-
-.auth-card {
-  width: 400px;
-}
-
-.auth-title {
-  margin: 0 0 16px;
-  text-align: center;
-}
-
-.auth-submit {
-  width: 100%;
-}
-
-.auth-link {
-  display: block;
-  margin-top: 12px;
-  text-align: center;
-  font-size: 13px;
+/* 布局与品牌样式见全局 console.css 的 auth-* 类 */
+.auth-card-wide {
+  width: 440px;
 }
 
 .field-error {

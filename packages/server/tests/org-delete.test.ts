@@ -91,6 +91,7 @@ describe('tenant organization deletion workflow', () => {
       validateAdminUserToken: vi.fn(async (token: string) =>
         token === 'super-token' ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
       ),
+      validateToken: vi.fn().mockResolvedValue(null),
       organizationExists: vi.fn().mockResolvedValue(true),
       listOrgRepos: vi.fn(async () => state.repos),
       listOrgMembers: vi.fn(async () => state.members),
@@ -424,6 +425,103 @@ describe('tenant organization deletion workflow', () => {
     expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
     expect(mockGitea.deleteUser).not.toHaveBeenCalled();
     expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
+  });
+
+  function seedFrozenOrg(orgName: string): void {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName, status: 'active' });
+    new SkillRepository(db).createServerSkill({
+      name: `@${orgName}/tool`,
+      scope: orgName,
+      skillName: 'tool',
+      description: 'Tool skill',
+      createdBy: `${orgName}_admin`,
+      owner: `${orgName}_admin`,
+      maintainers: [`${orgName}_admin`],
+      visibility: 'private',
+      gitRepoPath: `${orgName}/${orgName}_tool`,
+      status: 'active-published'
+    });
+    new OperationRepository(db).createOperation({
+      idempotencyKey: `member.create:${orgName}:${orgName}_bob`,
+      kind: 'member.create',
+      payload: { orgName, username: `${orgName}_bob` }
+    });
+    db.close();
+  }
+
+  function frozenOrgState(orgName: string): OrgState {
+    return {
+      repos: [{ id: 20, name: `${orgName}_tool`, full_name: `${orgName}/${orgName}_tool` }],
+      members: [
+        { id: 30, username: `${orgName}_admin`, email: `${orgName}_admin@local.esl` },
+        { id: 31, username: `${orgName}_bob`, email: `${orgName}_bob@local.esl` }
+      ]
+    };
+  }
+
+  it('blocks deleting the default organization in single mode without starting cleanup', async () => {
+    seedActiveTenant();
+    const state = acmeState();
+    const mockGitea = deletionGitea(state);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: superHeaders,
+      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
+    });
+    expect(put.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/acme',
+      headers: superHeaders,
+      payload: { confirm: 'acme' }
+    });
+
+    expect(response.statusCode).toBe(409);
+    await flush();
+    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
+  });
+
+  it('still allows deleting a frozen organization in single mode', async () => {
+    seedActiveTenant();
+    seedFrozenOrg('other');
+    const state = acmeState();
+    const mockGitea = deletionGitea(state);
+    mockGitea.listOrgRepos = vi.fn(async () => frozenOrgState('other').repos);
+    mockGitea.listOrgMembers = vi.fn(async () => frozenOrgState('other').members);
+    mockGitea.deleteOrg = vi.fn().mockResolvedValue(undefined);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: superHeaders,
+      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
+    });
+    expect(put.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/other',
+      headers: superHeaders,
+      payload: { confirm: 'other' }
+    });
+
+    expect(response.statusCode).toBe(202);
+    await flush();
+    expect(mockGitea.deleteOrg).toHaveBeenCalledWith('other');
   });
 });
 

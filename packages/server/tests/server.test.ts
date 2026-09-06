@@ -135,4 +135,47 @@ describe('server runtime', () => {
       })
     ).rejects.toThrow('Failed to read Gitea admin token file: /bootstrap/gitea-admin-token: ENOENT');
   });
+
+  it('bootstraps the default organization in single mode before listening', async () => {
+    const giteaService = {
+      validateToken: vi.fn().mockResolvedValue({ id: 1, username: 'eslroot', email: 'eslroot@local.esl' }),
+      validateAdminToken: vi.fn().mockResolvedValue(true),
+      adminUsername: 'eslroot',
+      organizationExists: vi.fn().mockResolvedValue(false),
+      createOrg: vi.fn().mockResolvedValue(undefined),
+      createUser: vi.fn().mockResolvedValue(undefined),
+      listOrgMembers: vi.fn().mockResolvedValue([]),
+      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listTeamMembers: vi.fn().mockResolvedValue([]),
+      addTeamMember: vi.fn().mockResolvedValue(undefined),
+      createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' }),
+      removeTeamMember: vi.fn().mockResolvedValue(undefined)
+    };
+    const listen = vi.fn().mockResolvedValue('http://127.0.0.1:3999');
+
+    const app = await startServer({
+      env: {
+        PORT: '3999',
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        ESL_DEPLOYMENT_MODE: 'single',
+        ESL_DEFAULT_ORG: 'acme',
+        ESL_ORG_ADMIN_PASSWORD: 'initial-password'
+      } as NodeJS.ProcessEnv,
+      listen,
+      giteaServiceFactory: () => giteaService as any
+    });
+
+    // 触发 onReady,完成 Bootstrap 声明驱动的组织开通
+    await app.ready();
+    expect(giteaService.createOrg).toHaveBeenCalledWith('acme');
+    expect(giteaService.createUser).toHaveBeenCalledWith('acme_admin', 'initial-password');
+    expect(giteaService.createTeam).toHaveBeenCalledWith('acme', 'all-readers', 'read');
+    expect(giteaService.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
+
+    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
+    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
+    await app.close();
+  });
 });

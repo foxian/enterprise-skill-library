@@ -28,7 +28,7 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
   await initializeLocalStore({ homeDir: options.homeDir });
 
   const server = await resolveServerForLogin(options);
-  const org = await resolveOrg(options);
+  const org = await resolveOrg(options, server, fetchImpl);
   const username = await resolveUsername(options);
   const { token, role } = await resolveLoginToken(options, server, org, username, fetchImpl);
 
@@ -72,9 +72,15 @@ async function resolveServerForLogin(options: LoginOptions): Promise<string> {
   }
 }
 
-async function resolveOrg(options: LoginOptions): Promise<string> {
+async function resolveOrg(options: LoginOptions, server: string, fetchImpl: typeof fetch): Promise<string> {
+  // 显式 --org 始终覆盖默认组织,且无需询问平台信息。
   if (options.org) {
     return options.org.trim();
+  }
+  // 平台设有默认组织时(任何模式)跳过组织提示,按默认组织登录(ADR-0022)。
+  const defaultOrg = await fetchDefaultOrg(server, fetchImpl);
+  if (defaultOrg) {
+    return defaultOrg;
   }
   if (options.noInput) {
     throw new Error('An organization is required; pass --org or run interactively');
@@ -90,6 +96,22 @@ async function resolveOrg(options: LoginOptions): Promise<string> {
     throw new Error('An organization is required');
   }
   return org;
+}
+
+// 登录前查询平台信息拿默认组织;平台信息不可用或未设默认组织时返回 null,
+// 退回原交互(不阻断登录——认证失败本身会给出错误)。
+async function fetchDefaultOrg(server: string, fetchImpl: typeof fetch): Promise<string | null> {
+  try {
+    const base = server.replace(/\/$/, '');
+    const res = await fetchWithTimeout(fetchImpl, `${base}/api/public/platform-info`, { method: 'GET' });
+    if (!res.ok) {
+      return null;
+    }
+    const data = (await res.json()) as { defaultOrg?: string | null };
+    return typeof data.defaultOrg === 'string' && data.defaultOrg ? data.defaultOrg : null;
+  } catch {
+    return null;
+  }
 }
 
 async function resolveUsername(options: LoginOptions): Promise<string> {

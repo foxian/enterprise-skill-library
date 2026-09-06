@@ -396,7 +396,7 @@ describe('super administrator org console API', () => {
 
     const initial = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
     expect(initial.statusCode).toBe(200);
-    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto' });
+    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', deploymentMode: 'multi', defaultOrg: null });
 
     const updated = await app.inject({
       method: 'PUT',
@@ -405,10 +405,10 @@ describe('super administrator org console API', () => {
       payload: { orgRegistrationMode: 'manual' }
     });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual' });
+    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', deploymentMode: 'multi', defaultOrg: null });
 
     const reread = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
-    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual' });
+    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', deploymentMode: 'multi', defaultOrg: null });
 
     const invalid = await app.inject({
       method: 'PUT',

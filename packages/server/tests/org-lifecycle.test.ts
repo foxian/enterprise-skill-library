@@ -593,3 +593,112 @@ describe('organization application lifecycle', () => {
     expect(approve.statusCode).toBe(409);
   });
 });
+
+describe('single-organization mode registration rejection', () => {
+  const applicationEncryptionKey = 'a'.repeat(64);
+  let tmpDir: string;
+  let dbPath: string;
+  let app: FastifyInstance | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-single-apply-'));
+    dbPath = path.join(tmpDir, 'test.db');
+  });
+
+  afterEach(async () => {
+    await app?.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function singleModeGitea() {
+    return {
+      validateAdminUserToken: vi.fn(async (token: string) =>
+        token === 'super-token' ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
+      ),
+      validateToken: vi.fn().mockResolvedValue(null),
+      organizationExists: vi.fn().mockResolvedValue(false),
+      createOrg: vi.fn().mockResolvedValue(undefined),
+      createUser: vi.fn().mockResolvedValue(undefined),
+      listOrgMembers: vi.fn().mockResolvedValue([]),
+      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listTeamMembers: vi.fn().mockResolvedValue([]),
+      addTeamMember: vi.fn().mockResolvedValue(undefined),
+      createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' })
+    };
+  }
+
+  function createActiveTenant(orgName: string): void {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName, status: 'active' });
+    db.close();
+  }
+
+  async function switchToSingle(defaultOrg: string): Promise<void> {
+    createActiveTenant(defaultOrg);
+    const res = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: { authorization: 'token super-token' },
+      payload: { deploymentMode: 'single', defaultOrg }
+    });
+    expect(res.statusCode).toBe(200);
+  }
+
+  it('rejects organization registration in single mode with a clear error', async () => {
+    const mockGitea = singleModeGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await switchToSingle('beta');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'correct-password' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toContain('single-organization');
+    expect(mockGitea.createOrg).not.toHaveBeenCalled();
+  });
+
+  it('keeps pending applications pending when switching to single mode', async () => {
+    const mockGitea = singleModeGitea();
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await app.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: { authorization: 'token super-token' },
+      payload: { orgRegistrationMode: 'manual' }
+    });
+    const applied = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: { orgName: 'acme', password: 'correct-password' }
+    });
+    expect(applied.statusCode).toBe(201);
+    expect(applied.json()).toMatchObject({ status: 'pending' });
+
+    await switchToSingle('beta');
+
+    const db = initDatabase(dbPath);
+    expect(new OrgApplicationRepository(db).getApplication('acme')?.status).toBe('pending');
+    db.close();
+
+    const statusRes = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications/acme/status',
+      body: { password: 'correct-password' }
+    });
+    expect(statusRes.statusCode).toBe(200);
+    expect(statusRes.json()).toMatchObject({ orgName: 'acme', status: 'pending' });
+  });
+});

@@ -9,6 +9,7 @@ import type {
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
+import { readDeploymentMode, readDefaultOrg } from '../services/platform-config.js';
 import crypto from 'node:crypto';
 
 export interface OrgAdminRouteOptions {
@@ -165,17 +166,79 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 
   app.get('/api/admin/orgs/settings', async (request, reply) => {
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
-    return { orgRegistrationMode: getRegistrationMode() };
+    return {
+      orgRegistrationMode: getRegistrationMode(),
+      deploymentMode: readDeploymentMode(platformSettingsRepository),
+      defaultOrg: readDefaultOrg(platformSettingsRepository)
+    };
   });
 
   app.put('/api/admin/orgs/settings', async (request, reply) => {
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
-    const { orgRegistrationMode } = (request.body ?? {}) as { orgRegistrationMode?: string };
-    if (orgRegistrationMode !== 'auto' && orgRegistrationMode !== 'manual') {
-      return reply.status(400).send({ error: 'orgRegistrationMode must be auto or manual' });
+    const body = (request.body ?? {}) as {
+      orgRegistrationMode?: string;
+      deploymentMode?: string;
+      defaultOrg?: string | null;
+      confirm?: string;
+    };
+    const currentMode = readDeploymentMode(platformSettingsRepository);
+    const currentDefaultOrg = readDefaultOrg(platformSettingsRepository);
+    const nextDefaultOrg =
+      body.defaultOrg !== undefined ? (typeof body.defaultOrg === 'string' ? body.defaultOrg : null) : currentDefaultOrg;
+    const nextMode = body.deploymentMode !== undefined ? body.deploymentMode : currentMode;
+
+    // 全部校验通过后才写入,避免校验失败时产生部分写(如单组织下清空默认组织)。
+    if (body.orgRegistrationMode !== undefined) {
+      if (body.orgRegistrationMode !== 'auto' && body.orgRegistrationMode !== 'manual') {
+        return reply.status(400).send({ error: 'orgRegistrationMode must be auto or manual' });
+      }
     }
-    platformSettingsRepository.setSetting('org_registration_mode', orgRegistrationMode);
-    return { orgRegistrationMode };
+    if (body.deploymentMode !== undefined) {
+      if (body.deploymentMode !== 'single' && body.deploymentMode !== 'multi') {
+        return reply.status(400).send({ error: 'deploymentMode must be single or multi' });
+      }
+    }
+    // 默认组织必须指向一个已开通(active)的租户组织,防止把平台锁死在不存在的组织上。
+    if (nextDefaultOrg) {
+      const tenant = options.tenantOrganizationRepository.get(nextDefaultOrg);
+      if (!tenant || tenant.status !== 'active') {
+        return reply.status(400).send({ error: 'defaultOrg must be an active organization' });
+      }
+    }
+    // 单组织模式必须有默认组织,否则平台(除超级管理员外)无人可登录。
+    if (nextMode === 'single' && !nextDefaultOrg) {
+      return reply.status(400).send({ error: 'single mode requires a default org' });
+    }
+    // 单组织模式下更换默认组织等同整体换锁(原组织立即冻结、新组织立即可用),要求
+    // 显式确认;实际从多组织切到单组织的原子切换、以及多组织下的设置不需要确认。
+    const actuallySwitchingToSingle = body.deploymentMode === 'single' && currentMode !== 'single';
+    if (
+      nextMode === 'single' &&
+      nextDefaultOrg &&
+      currentDefaultOrg &&
+      nextDefaultOrg !== currentDefaultOrg &&
+      !actuallySwitchingToSingle &&
+      body.confirm !== nextDefaultOrg
+    ) {
+      return reply.status(400).send({
+        error: 'Reassigning the default org requires confirm matching the new organization name'
+      });
+    }
+
+    if (body.orgRegistrationMode !== undefined) {
+      platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
+    }
+    if (body.defaultOrg !== undefined) {
+      platformSettingsRepository.setSetting('default_org', nextDefaultOrg ?? '');
+    }
+    if (body.deploymentMode !== undefined) {
+      platformSettingsRepository.setSetting('deployment_mode', body.deploymentMode);
+    }
+    return {
+      orgRegistrationMode: getRegistrationMode(),
+      deploymentMode: readDeploymentMode(platformSettingsRepository),
+      defaultOrg: readDefaultOrg(platformSettingsRepository)
+    };
   });
 
   app.get('/api/admin/orgs', async (request, reply) => {
@@ -231,6 +294,13 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const { confirm } = (request.body ?? {}) as { confirm?: string };
     if (confirm !== orgName) {
       return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
+    }
+    // 默认组织不可直接删除:单组织模式下删除默认组织会让平台(除超级管理员外)
+    // 无人可登录(ADR-0022)。必须先更换默认组织或先切回多组织模式。
+    if (readDefaultOrg(platformSettingsRepository) === orgName) {
+      return reply
+        .status(409)
+        .send({ error: 'The default organization cannot be deleted; reassign the default org or switch to multi mode first' });
     }
     // 只有 ESL 开通的组织(具备 Resource Provenance)才允许自动删除;
     // 未登记的组织(含平台组织)一律拒绝,防止误删外部资源。

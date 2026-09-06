@@ -22,7 +22,7 @@ export function initDatabase(dbPath: string): Database.Database {
   `);
   db.exec(`
     INSERT OR IGNORE INTO platform_settings (key, value)
-    VALUES ('org_registration_mode', 'auto')
+    VALUES ('org_registration_mode', 'auto'), ('deployment_mode', 'multi')
   `);
   return db;
 }

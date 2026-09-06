@@ -8,14 +8,23 @@ import LoginView from '../src/views/LoginView.vue';
 import { setFetchImpl } from '../src/api/client';
 import { useAuthStore } from '../src/stores/auth';
 
-// 登录视图的响应式 fetch mock：记录请求体并返回可配置的响应
+// 登录视图的响应式 fetch mock：记录请求体并返回可配置的响应。
+// 挂载时会先请求 /api/public/platform-info 自适应交互,这里固定返回多组织无默认
+// 组织,保持组织输入框可见,与既有用例的交互一致。
 function mockFetch(status = 200, body: unknown = {}): {
   impl: typeof fetch;
   calls: Array<{ url: string; init: RequestInit }>;
 } {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const impl = (async (url: string | URL, init?: RequestInit) => {
-    calls.push({ url: String(url), init: init ?? {} });
+    const path = String(url);
+    calls.push({ url: path, init: init ?? {} });
+    if (path === '/api/public/platform-info') {
+      return new Response(JSON.stringify({ mode: 'multi', defaultOrg: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
     return new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' }
@@ -83,9 +92,9 @@ describe('LoginView', () => {
 
     await fillAndSubmit(wrapper, { username: 'bob', org: 'acme', password: 'secret' });
 
-    expect(fetchMock.calls).toHaveLength(1);
-    expect(fetchMock.calls[0].url).toBe('/api/console/login');
-    expect(JSON.parse(String(fetchMock.calls[0].init.body))).toEqual({
+    const loginCall = fetchMock.calls.find((call) => call.url === '/api/console/login');
+    expect(loginCall).toBeDefined();
+    expect(JSON.parse(String(loginCall!.init.body))).toEqual({
       username: 'bob',
       org: 'acme',
       password: 'secret'
@@ -120,7 +129,8 @@ describe('LoginView', () => {
 
     await fillAndSubmit(wrapper, { username: 'eslroot', org: '', password: 'secret' });
 
-    expect(JSON.parse(String(fetchMock?.calls[0]?.init.body ?? '{}'))).toEqual({
+    const loginCall = fetchMock?.calls.find((call) => call.url === '/api/console/login');
+    expect(JSON.parse(String(loginCall?.init.body ?? '{}'))).toEqual({
       username: 'eslroot',
       org: null,
       password: 'secret'

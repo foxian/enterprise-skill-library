@@ -9,6 +9,7 @@ import type {
 import type { GiteaService } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import { decryptApplicationSecret, encryptApplicationSecret } from '../services/application-secret.js';
+import { readDeploymentMode } from '../services/platform-config.js';
 
 export interface OrgRouteOptions {
   giteaService: GiteaService;
@@ -65,6 +66,13 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
       return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+    }
+
+    // 单组织模式由超级管理员声明并直接开通组织,不接收公开注册申请(ADR-0022)。
+    if (readDeploymentMode(platformSettingsRepository) === 'single') {
+      return reply
+        .status(403)
+        .send({ error: 'Organization registration is disabled in single-organization mode' });
     }
 
     if (await giteaService.organizationExists(orgName)) {

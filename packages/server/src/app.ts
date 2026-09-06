@@ -28,6 +28,8 @@ import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
 import { seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
+import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
+import { ensureSingleOrgBootstrap } from './services/single-org-bootstrap.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -41,12 +43,29 @@ export interface AppOptions {
   autoSeed?: boolean;
   // Injectable Operation event bus (test seam); defaults to a new in-process bus.
   operationEventBus?: OperationEventBus;
+  // 单组织部署声明(ADR-0022):由 startServer 从环境变量解析后传入,Bootstrap 在
+  // onReady 时直接 Provisioning 默认组织并写入单组织设置。测试构建不传,不触发。
+  singleOrgBootstrap?: { orgName: string; adminPassword: string };
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-// 解析 Operation 查询/订阅请求的调用方身份:token 可来自平台管理员、Skill User
-// 或 Gitea 用户。两者都为空即匿名(无有效 token)。
+// 统一的 token → 调用方身份解析:token 可来自平台管理员、Skill User 或 Gitea
+// 用户,DB 内先查(已登记 token,无网络往返)再回退 Gitea。单组织门禁与
+// Operation 查询/订阅共用此实现,保证冻结判断与路由鉴权一致。
+async function resolveAuthedUser(
+  token: string,
+  adminRepository: AdminRepository,
+  giteaService: GiteaService
+): Promise<{ username: string | null; isPlatformAdmin: boolean }> {
+  const platformAdmin = token ? adminRepository.getPlatformAdminForToken(token) : null;
+  const eslUser = token ? adminRepository.validateUserToken(token) : null;
+  const giteaUser = eslUser ? null : await giteaService.validateToken(token);
+  const username = platformAdmin?.username ?? eslUser?.username ?? giteaUser?.username ?? null;
+  return { username, isPlatformAdmin: Boolean(platformAdmin) };
+}
+
+// 解析 Operation 查询/订阅请求的调用方身份;无有效 token 即匿名。
 async function resolveOperationRequester(
   request: FastifyRequest,
   adminRepository: AdminRepository,
@@ -54,11 +73,7 @@ async function resolveOperationRequester(
 ): Promise<{ username: string | null; isPlatformAdmin: boolean }> {
   const authorization = request.headers.authorization;
   const token = authorization?.startsWith('token ') ? authorization.replace('token ', '').trim() : '';
-  const platformAdmin = token ? adminRepository.getPlatformAdminForToken(token) : null;
-  const eslUser = token ? adminRepository.validateUserToken(token) : null;
-  const giteaUser = eslUser ? null : await giteaService.validateToken(token);
-  const username = platformAdmin?.username ?? eslUser?.username ?? giteaUser?.username ?? null;
-  return { username, isPlatformAdmin: Boolean(platformAdmin) };
+  return resolveAuthedUser(token, adminRepository, giteaService);
 }
 
 export function buildApp(options: AppOptions): FastifyInstance {
@@ -221,7 +236,24 @@ export function buildApp(options: AppOptions): FastifyInstance {
     return decryptApplicationSecret(encryptedSecret, options.applicationEncryptionKey);
   }
 
+  // 单组织部署在监听前完成默认组织开通,失败则启动失败(见 ADR-0022)。
+  const singleOrgBootstrap = options.singleOrgBootstrap;
+  if (singleOrgBootstrap) {
+    app.addHook('onReady', async () => {
+      await ensureSingleOrgBootstrap({
+        giteaService: options.giteaService,
+        platformSettingsRepository,
+        tenantOrganizationRepository,
+        orgName: singleOrgBootstrap.orgName,
+        adminPassword: singleOrgBootstrap.adminPassword
+      });
+    });
+  }
+
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
+  // 匿名平台信息(ADR-0022):CLI 与 Web 登录/注册页在登录前消费它自适应交互,
+  // 默认组织对匿名可见是接受的成本(企业内网部署场景无碍)。
+  app.get('/api/public/platform-info', async () => readPlatformInfo(platformSettingsRepository));
   app.get('/api/operations/:id', async (request, reply) => {
     // 供调用方查询跨系统 Operation 状态(错误信息已脱敏)。
     // 归属约束:携带发起者标识的操作仅发起者可查,其余仅平台管理员可查。
@@ -336,6 +368,24 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
+    // 单组织模式门禁(ADR-0022):仅默认组织成员与平台管理员可访问。冻结组织的存量
+    // token 逐请求失效(立即拒绝,不等自然过期);新登录由下方登录门禁覆盖。
+    // 组织实体状态不变——「不可登录」由平台模式推导,不新增组织级禁用状态。
+    if (readDeploymentMode(platformSettingsRepository) === 'single') {
+      const defaultOrg = readDefaultOrg(platformSettingsRepository);
+      const authorization = request.headers.authorization;
+      if (authorization?.startsWith('token ')) {
+        const token = authorization.replace('token ', '').trim();
+        const { username } = await resolveAuthedUser(token, adminRepository, options.giteaService);
+        if (username) {
+          const isAdmin = username === options.giteaService.adminUsername;
+          const org = resolveUsernameOrg(username);
+          if (!isAdmin && (org === null || org !== defaultOrg)) {
+            return reply.status(403).send({ error: 'Organization is frozen in single-organization mode' });
+          }
+        }
+      }
+    }
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
       // 技能 Identity 形如 @scope/skill-name,scope 段即租户组织名;
       // POST /api/skills 的 Identity 在请求体中而非 URL。
@@ -351,24 +401,28 @@ export function buildApp(options: AppOptions): FastifyInstance {
       }
     }
     // CLI 与管理后台登录端点共用同一组织激活门禁:body 以 { org } 显式携带
-    // 组织名(CLI 端点组织必填;管理后台端点组织为空时即平台管理员,跳过)。
+    // 组织名,省略时按默认组织解析(ADR-0022)。平台管理员账号无组织,跳过。
     if (routePath === '/api/auth/login' || routePath === '/api/console/login') {
       const body = (request.body ?? {}) as { org?: string };
-      const org = typeof body.org === 'string' ? body.org : '';
-      if (org) {
-        const tenant = tenantOrganizationRepository.get(org);
-        if (tenant && tenant.status !== 'active') {
-          return reply.status(409).send({
-            error: `Organization is not active: ${org}`,
-            status: tenant.status
-          });
-        }
+      const org = typeof body.org === 'string' && body.org ? body.org : readDefaultOrg(platformSettingsRepository);
+      const tenant = org ? tenantOrganizationRepository.get(org) : undefined;
+      if (tenant && tenant.status !== 'active') {
+        return reply.status(409).send({
+          error: `Organization is not active: ${org}`,
+          status: tenant.status
+        });
+      }
+      // 单组织模式下只有默认组织的成员可以登录(ADR-0022)。
+      if (readDeploymentMode(platformSettingsRepository) === 'single' && org && org !== readDefaultOrg(platformSettingsRepository)) {
+        return reply.status(403).send({ error: 'Organization is frozen in single-organization mode' });
       }
     }
   });
+
   registerAuthRoutes(app, {
     repository: adminRepository,
     giteaService: options.giteaService,
+    platformSettingsRepository,
     passwordMinLength: options.passwordMinLength
   });
   registerOrgRoutes(app, {

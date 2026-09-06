@@ -147,6 +147,27 @@ _Avoid_: Skill Release，用于指代 Git tag 时。
 
 ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一个 Organization。它为该组织内的所有 Server-hosted Skill Identity 提供唯一的 Namespace（`@scope/skill-name` 中的 scope 段）。组织间技能与源码完全私有隔离。
 
+## 部署模式 (Deployment Mode)
+
+平台级组织规模开关，取值「单组织」与「多组织」。初始值由 Bootstrap 按部署
+场景声明（企业自部署为单组织，技能云为多组织），运行期可由 Super
+Administrator 切换。单组织模式下仅默认组织的成员可登录，其余组织整体冻结：
+组织自身状态不变，「不可登录」由平台模式推导，不引入组织级禁用状态；冻结
+组织的资产原样保留，切回多组织模式后恢复可用。单组织模式下，服务端拒绝新
+的组织注册申请（前端同步隐藏注册入口）；切换时刻已存在的待审批申请保持挂
+起，不自动拒绝。单组织部署的 Bootstrap 直接以声明值（组织名与组织管理员
+初始凭据）触发 Tenant Organization Provisioning 创建该组织并设为默认组
+织，不走注册申请。多组织模式下，多租户隔离与组织注册流程照常。
+
+## 默认组织 (Default Organization)
+
+由 Super Administrator 指定、作为登录省略组织名时解析目标的组织。多组织
+模式下可不设置；设置后，CLI 与管理后台登录不填组织名即按默认组织拼装账号。
+单组织模式下必须设置，且是唯一可登录的组织（Super Administrator 的管理后
+台登录不受此限）。部署模式切换时该设置保留。默认组织不可直接删除，必须先
+更换默认组织或切回多组织模式。单组织模式下更换默认组织等同于整体换锁：原
+组织立即冻结、新组织立即可用，须显式确认。
+
 ## Tenant Organization Provisioning
 
 将已接受的组织注册申请变为可使用 Tenant Organization 的可恢复跨系统工作流。只有 Gitea Organization、Organization Admin、Owner 关系与两个默认 Organization Team 都完成后，Tenant Organization 才可用。
