@@ -61,7 +61,7 @@ export function createProgram(): Command {
     .option('--token-file <path>', 'Read a Skill User Token from a file')
     .addHelpText('after', example('$ esl login --server http://localhost:3000 --org acme --username alice'))
     .action(async (options: { server?: string; username?: string; org?: string; passwordFile?: string; tokenFile?: string }) => {
-      await executeLogin({
+      const login = await executeLogin({
         ...options,
         noInput: program.opts().input === false,
         readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
@@ -69,7 +69,8 @@ export function createProgram(): Command {
         readUsername: process.stdin.isTTY ? undefined : () => readStdinText(),
         readOrg: process.stdin.isTTY ? undefined : () => readStdinText()
       });
-      console.log(`Logged in as ${options.org ? `${options.org}/` : ''}${options.username ?? 'you'}`);
+      // 用解析后的身份(org 可能由默认组织自动解析而非显式 --org)打印成功信息
+      console.log(`Logged in as ${login.org ? `${login.org}/` : ''}${login.username}`);
     });
 
   program

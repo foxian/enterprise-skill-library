@@ -38,7 +38,7 @@ describe('esl login adapting to the platform default organization', () => {
     fs.writeFileSync(passwordFile, 'password123');
     const readOrg = vi.fn();
 
-    await executeLogin({
+    const login = await executeLogin({
       server: 'http://skills.company.com',
       username: 'zhangsan',
       passwordFile,
@@ -55,6 +55,8 @@ describe('esl login adapting to the platform default organization', () => {
         body: JSON.stringify({ org: 'acme', username: 'zhangsan', password: 'password123' })
       })
     );
+    // 返回解析后的身份,供 CLI 打印准确的登录成功信息
+    expect(login).toMatchObject({ token: 'mock_token', username: 'zhangsan', org: 'acme', role: 'member' });
     const config = await loadConfig({ homeDir });
     expect(config.org).toBe('acme');
   });

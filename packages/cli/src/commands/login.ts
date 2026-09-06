@@ -20,10 +20,12 @@ export interface LoginOptions extends LocalStoreOptions {
 
 export interface LoginResult {
   token: string;
+  username: string;
+  org: string;
   role: 'org-admin' | 'member';
 }
 
-export async function executeLogin(options: LoginOptions): Promise<string> {
+export async function executeLogin(options: LoginOptions): Promise<LoginResult> {
   const fetchImpl = options.customFetch ?? fetch;
   await initializeLocalStore({ homeDir: options.homeDir });
 
@@ -43,7 +45,9 @@ export async function executeLogin(options: LoginOptions): Promise<string> {
     { homeDir: options.homeDir }
   );
 
-  return token;
+  // 返回解析后的身份,供调用方打印准确的登录成功信息(org 可能由默认组织
+  // 自动解析而非显式 --org 提供)。
+  return { token, username, org, role };
 }
 
 // 首次使用未配置 server 时交互式询问并记住;非交互环境直接报错。
@@ -136,7 +140,7 @@ async function resolveLoginToken(
   org: string,
   username: string,
   fetchImpl: typeof fetch
-): Promise<LoginResult> {
+): Promise<{ token: string; role: 'org-admin' | 'member' }> {
   if (options.tokenFile) {
     const token = (await fs.readFile(options.tokenFile, 'utf8')).trim();
     if (!token) {
@@ -176,7 +180,7 @@ async function exchangePasswordForToken(
   username: string,
   password: string,
   fetchImpl: typeof fetch
-): Promise<LoginResult> {
+): Promise<{ token: string; role: 'org-admin' | 'member' }> {
   const base = server.replace(/\/$/, '');
   const res = await fetchWithTimeout(fetchImpl, `${base}/api/auth/login`, {
     method: 'POST',
