@@ -48,6 +48,12 @@ services:
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
       # Seed sample skill metadata at startup (development only)
       ESL_AUTO_SEED: ${ESL_AUTO_SEED:-false}
+      # Deployment mode and default-org declarations (ADR-0022): single mode
+      # requires a default org + org admin password; multi mode optionally
+      # accepts the pair to provision a default org at bootstrap.
+      ESL_DEPLOYMENT_MODE: ${ESL_DEPLOYMENT_MODE:-multi}
+      ESL_DEFAULT_ORG: ${ESL_DEFAULT_ORG:-}
+      ESL_ORG_ADMIN_PASSWORD: ${ESL_ORG_ADMIN_PASSWORD:-}
     volumes:
       - ${ESL_DATA_DIR:-./data}/api:/data
       - ${ESL_DATA_DIR:-./data}/secrets:/bootstrap:ro
