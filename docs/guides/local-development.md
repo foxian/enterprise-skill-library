@@ -1,140 +1,169 @@
-# Local Development Runtime
+# 本地开发运行时
 
-This is the authoritative guide for starting ESL locally. For Docker Desktop,
-registry, proxy, or recovery issues, see
-[Docker troubleshooting](docker-troubleshooting.md).
+本文是本地启动 ESL 的权威指南。关于 Docker Desktop、镜像仓库、代理或恢复问题，请参阅
+[Docker 故障排查](docker-troubleshooting.md)。
 
-## Prerequisites
+## 前置条件
 
 - Node.js 18+
 - npm
 - Docker Desktop
 - Git for Windows
 
-## Start Services
+## 启动服务
 
-Copy `.env.example` to `.env`. Set `GITEA_ADMIN_PASSWORD` to an explicit password of at least 12 characters — it is the initial password of the ESL Administrator Account, which signs in through the Admin Console (`http://localhost:3000/admin`), not the CLI.
+将 `.env.example` 复制为 `.env`，至少配置以下必填项：
 
-`GITEA_ADMIN_USERNAME` defaults to `eslroot`; Gitea 1.22 rejects the reserved username `admin` during bootstrap user creation.
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 12 个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
+| `ESL_APPLICATION_ENCRYPTION_KEY` | ✅ | 应用层加密密钥，64 个十六进制字符（256 位）。服务启动时校验，缺失会直接报错退出。可使用 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` 生成。 |
 
-If Docker build cannot reach npm registries in a proxied network, set `NPM_PROXY` in `.env` to the Docker-reachable host proxy address. For example, with a local proxy on Windows port `7897`:
+`GITEA_ADMIN_USERNAME` 默认为 `eslroot`；Gitea 1.22 在 bootstrap 用户创建时会拒绝保留用户名 `admin`。
+
+### 部署模式与默认组织（ADR-0022）
+
+ESL 支持两种部署模式，通过 `ESL_DEPLOYMENT_MODE` 声明，服务启动时自动 Bootstrap：
+
+- **`multi`（默认）**：多组织模式，技能云提供商场景；不预置任何组织，通过注册申请开通。可选地成对声明 `ESL_DEFAULT_ORG` + `ESL_ORG_ADMIN_PASSWORD`，启动时自动开通该组织并设为默认组织。
+- **`single`**：单组织模式，企业自部署场景；**必须**成对声明 `ESL_DEFAULT_ORG` 与 `ESL_ORG_ADMIN_PASSWORD`，启动时直接开通该组织并设为默认组织，不开放公开注册。
+
+```dotenv
+# 单组织模式示例
+ESL_DEPLOYMENT_MODE=single
+ESL_DEFAULT_ORG=acme
+ESL_ORG_ADMIN_PASSWORD=your-org-admin-password-at-least-12-chars
+```
+
+单组织模式下，组织管理员初始用户名为 `org_admin`，登录时省略组织名即可（服务端按默认组织拼装账号）。平台超级管理员（`eslroot`）不受模式限制，始终可登录管理后台切换模式。
+
+### 可选配置
+
+如果 Docker 构建在代理网络下无法访问 npm 注册表，请在 `.env` 中设置 `NPM_PROXY` 为 Docker 可访问的宿主机代理地址。例如，Windows 上本地代理端口为 `7897` 时：
 
 ```dotenv
 NPM_PROXY=http://host.docker.internal:7897
 ```
 
-Leave `NPM_PROXY` blank when Docker containers can access npm directly.
+当 Docker 容器可以直接访问 npm 时，将 `NPM_PROXY` 留空。
 
-For Docker-specific network diagnosis and image-pull recovery, see
-[Docker troubleshooting](docker-troubleshooting.md).
+关于 Docker 特定的网络诊断和镜像拉取恢复，请参阅
+[Docker 故障排查](docker-troubleshooting.md)。
 
 ```powershell
 npm run build
 docker compose up --build
 ```
 
-Gitea runs as ESL's internal Git backend. The local Docker runtime locks Gitea installation and disables public registration so normal setup and user onboarding happen through ESL instead of the Gitea UI.
+Gitea 作为 ESL 的内部 Git 后端运行。本地 Docker 运行时会锁定 Gitea 安装并禁用公开注册，因此正常的设置和用户入职通过 ESL 完成，而非 Gitea UI。
 
-The user-facing ESL Server is `http://localhost:3000`. API routes are served
-under `/api`, Git HTTP traffic is routed under `/git`, and the Web admin
-console (built from `packages/web`) is served under `/admin` — open
-`http://localhost:3000/admin` in a browser after `npm run build`, which also
-produces the web static bundle mounted into the nginx container.
+用户面向的 ESL 服务器地址是 `http://localhost:3000`。API 路由在 `/api` 下提供服务，
+Git HTTP 流量在 `/git` 下路由，Web 管理后台（从 `packages/web` 构建）在
+`/admin` 下提供服务——执行 `npm run build` 后在浏览器中打开
+`http://localhost:3000/admin`，构建同时会生成挂载到 nginx 容器的 web 静态包。
 
-## Redeploy the Web Console
+`server`（nginx）容器会等待 `api` 容器健康检查通过后再启动，因此启动后即可直接访问，
+不会出现冷启动 502 窗口。Nginx 的上传大小限制为 200 MB（`client_max_body_size 200m`）。
 
-The frontend is not baked into any image: `packages/web/dist` is bind-mounted
-into the nginx container. Rebuild and redeploy it with:
+## 重新部署 Web 管理后台
+
+前端不会被打包进任何镜像：`packages/web/dist` 以 bind mount 方式挂载到
+nginx 容器。重新构建并重新部署：
 
 ```powershell
 npm run deploy:web
 ```
 
-This runs `vite build` (which updates files inside `dist` in place —
-`emptyOutDir: false` keeps the directory inode stable so the container's mount
-never goes stale) and recreates the `server` container. Only the recreated
-container re-reads `docker-compose.yml`, so use `docker compose up -d server`,
-never `docker compose restart`, after changing compose config or mounts. The
-same caveat applies to single-file mounts such as `docker/nginx.conf`.
+该命令执行 `vite build`（它会就地更新 `dist` 中的文件——
+`emptyOutDir: false` 保持目录 inode 稳定，因此容器的挂载永远不会失效）并重新创建
+`server` 容器。只有重新创建的容器才会重新读取 `docker-compose.yml`，因此在修改
+compose 配置或挂载后，使用 `docker compose up -d server`，切勿使用
+`docker compose restart`。同样的注意事项适用于单文件挂载，如
+`docker/nginx.conf`。
 
-Because `dist` is no longer emptied on build, hashed assets from previous
-builds accumulate; delete unused `dist/assets/*` files occasionally.
+由于构建时不再清空 `dist`，先前构建的带哈希资源会累积；偶尔删除未使用的
+`dist/assets/*` 文件即可。
 
-API server code is baked into the `api` image. Changes under
-`packages/server` require `docker compose build api && docker compose up -d api`.
-The Dockerfile copies workspace manifests before the dependency-install layer,
-so code-only changes reuse the cached `npm install` layer.
+API 服务器代码被打包进 `api` 镜像。修改 `packages/server` 下的代码需要执行
+`docker compose build api && docker compose up -d api`。
+Dockerfile 在依赖安装层之前复制工作区清单，因此仅代码变更会复用缓存的
+`npm install` 层。
 
-`gitea-bootstrap` creates or reuses the configured Gitea administrator and writes the internal Gitea administrator token to `GITEA_ADMIN_TOKEN_FILE` in the shared bootstrap secret volume. Docker local runtime does not require opening the Gitea UI or manually creating `GITEA_ADMIN_TOKEN`.
+`gitea-bootstrap` 创建或复用配置的 Gitea 管理员，并将内部 Gitea 管理员令牌写入共享 bootstrap 密卷中的 `GITEA_ADMIN_TOKEN_FILE`。Docker 本地运行时不需要打开 Gitea UI 或手动创建 `GITEA_ADMIN_TOKEN`。
 
-`GITEA_ADMIN_PASSWORD` is a first-run input only. Changing it in `.env` after bootstrap does not rotate the ESL Administrator Account password; sign in to the Admin Console as the configured administrator account and change it under 平台设置 (Admin Console → Platform Settings).
+`GITEA_ADMIN_PASSWORD` 仅在首次运行时作为输入。在 bootstrap 之后修改 `.env`
+中的该值不会轮换 ESL 管理员账号密码；请以配置的管理员账号登录管理后台，
+通过右上角头像下拉菜单中的「修改密码」入口进行修改。
 
-The API validates the internal token before it starts listening. Skill source
-repositories live under tenant organizations mapped from Gitea organizations
-(see `docs/adr/0016`); the server no longer asserts a fixed platform
-organization at startup.
+API 在开始监听之前会验证内部令牌。技能源仓库位于与 Gitea 组织映射的租户组织下
+（参见 `docs/adr/0016`）；服务器在启动时不再断言固定的平台组织。
 
-## Reload Code Changes
+## 前后端单独更新命令速查
 
-After editing source, make the running stack pick up the new code with one
-command:
+日常开发中，只需更新某一端时，使用对应的单独命令比全量 `reload:dev` 更快：
+
+| 目标 | 命令 |
+|---|---|
+| **仅更新后端（API）** | `docker compose build api && docker compose up -d api` |
+| **仅更新前端（Web 管理后台）** | `npm run build --workspace @esl/web`，然后刷新浏览器 |
+| **前后端全部更新** | `npm run reload:dev` |
+
+> 💡 前端更新不需要重启 Docker 容器——`packages/web/dist` 以 bind mount 方式挂载到 nginx，文件变更立即可见。后端代码打包在 `api` 镜像内，所以每次变更都要重建镜像并重启容器。
+
+## 重新加载代码变更
+
+编辑源代码后，通过以下任一命令让运行中的栈获取新代码：
 
 ```powershell
 npm run reload:dev
 ```
 
-This rebuilds all workspace packages (`npm run build`), rebuilds the `api`
-image, and recreates the `api` and `server` containers. The web bundle is a
-bind mount, so a browser refresh is all that is needed for frontend changes;
-the `server` recreate re-reads mounted configs such as `docker/nginx.conf`.
-Use `npm run reset:dev` instead when you want a clean environment (see
-[Reset the Environment](#reset-the-environment)).
+该命令重新构建所有工作区包（`npm run build`）、重新构建 `api`
+镜像，并重新创建 `api` 和 `server` 容器。Web 包是 bind mount，
+因此前端变更只需刷新浏览器；重新创建 `server` 会重新读取挂载的配置，如
+`docker/nginx.conf`。
+如果你想要一个干净的环境，请改用 `npm run reset:dev`（参见
+[重置环境](#重置环境)）。
 
-### Which layer needs what
+### 各层变更对应的操作
 
-| You changed | Required commands |
+| 你修改了 | 需要的命令 |
 |---|---|
-| `packages/server` | `docker compose build api && docker compose up -d api` (code is baked into the `api` image) |
-| `packages/web` | `npm run build --workspace @esl/web`, then refresh the browser (`dist` is a bind mount) |
-| `packages/core` | rebuild it first (`npm run build --workspace @esl/core`), then follow the server / web row above |
-| `packages/cli` | `npm run build --workspace @esl/cli` (local `esl` symlinks to this repo) |
-| `docker/nginx.conf` / `docker-compose.yml` / mounts | `docker compose up -d server` (recreate re-reads the config) |
+| `packages/server` | `docker compose build api && docker compose up -d api`（代码被打包进 `api` 镜像） |
+| `packages/web` | `npm run build --workspace @esl/web`，然后刷新浏览器（`dist` 是 bind mount） |
+| `packages/core` | 先重新构建它（`npm run build --workspace @esl/core`），然后按照上面的 server / web 行操作 |
+| `packages/cli` | `npm run build --workspace @esl/cli`（本地 `esl` 符号链接指向此仓库） |
+| `docker/nginx.conf` / `docker-compose.yml` / 挂载 | `docker compose up -d server`（重新创建会重新读取配置） |
 
-`npm run reload:dev` covers every row above at once, so it is the everyday
-command.
+`npm run reload:dev` 一次性覆盖以上所有情况，是日常使用的命令。
 
-### Why not `docker compose up --build`?
+### 为什么不用 `docker compose up --build`？
 
-`up --build` only rebuilds Docker images — it does **not** run the host
-`npm run build`, so frontend changes are never picked up (nginx keeps serving
-the stale `dist`). Use it for first-time bring-up or after changing compose
-config; use `reload:dev` for everyday code changes.
+`up --build` 只重新构建 Docker 镜像——它**不会**在宿主机上执行
+`npm run build`，因此前端变更永远不会生效（nginx 继续提供陈旧的 `dist`）。
+首次启动或修改 compose 配置后使用它；日常代码变更使用 `reload:dev`。
 
-## Login
+## 登录
 
-The CLI is for organization members only: `esl login` requires `--org <orgname>`
-(or prompts for it) and sends the organization and username separately; the
-server assembles and validates the `<orgname>_<username>` account. Set the
-server once with `npm exec -- esl config set-server http://localhost:3000` (or
-the `ESL_SERVER` environment variable), then:
+CLI 仅供组织成员使用：`esl login` 需要 `--org <orgname>`
+（或提示输入）并分别发送组织名和用户名；服务器组装并校验 `<orgname>_<username>`
+账号。使用 `npm exec -- esl config set-server http://localhost:3000` 设置一次服务器
+（或设置 `ESL_SERVER` 环境变量），然后：
 
 ```powershell
 npm exec -- esl login --org acme --username alice
 ```
 
-The platform administrator does not log into the CLI. Open the Admin Console at
-`http://localhost:3000/admin` and sign in with `GITEA_ADMIN_USERNAME` (default
-`eslroot`) and the administrator password. Check the current CLI login with
-`npm exec -- esl whoami` (shows organization and role).
+平台管理员不登录 CLI。打开管理后台 `http://localhost:3000/admin`，
+使用 `GITEA_ADMIN_USERNAME`（默认 `eslroot`）和管理员密码登录。
+使用 `npm exec -- esl whoami` 检查当前 CLI 登录状态（显示组织和角色）。
 
-Organization and member management moved to the Admin Console; the CLI keeps
-only developer-facing commands. A Skill User can change their own password with
-`esl account change-password`.
+组织和成员管理已移至管理后台；CLI 仅保留面向开发者的命令。技能用户可以使用
+`esl account change-password` 修改自己的密码。
 
-## Local Skill Namespace
+## 本地技能命名空间
 
-Use the reserved `@local` namespace for local or draft skills that are not ready
-to publish:
+使用保留的 `@local` 命名空间存放尚未发布的本地或草稿技能：
 
 ```powershell
 npm exec -- esl init @local/my-skill
@@ -143,70 +172,67 @@ npm exec -- esl install .\my-skill
 npm exec -- esl adapt
 ```
 
-`@local/*` skills can be created, installed, and adapted locally, but they
-cannot be published to the shared server. Before publishing, rename the skill to
-a stable namespace:
+`@local/*` 技能可以在本地创建、安装和适配，但不能发布到共享服务器。
+发布前，请将技能重命名为稳定的命名空间：
 
 ```text
 @local/my-skill -> @cnfox/my-skill
 ```
 
-or:
+或：
 
 ```text
 @local/my-skill -> @platform/my-skill
 ```
 
-The namespace is part of the stable skill identity. It is not the current owner,
-creator, or maintainer.
+命名空间是稳定技能标识的一部分。它不是当前所有者、创建者或维护者。
 
-## Seed Metadata
+## 种子元数据
 
-Run the seed script against the API database path used by Docker Compose:
+针对 Docker Compose 使用的 API 数据库路径运行种子脚本：
 
 ```powershell
 docker compose exec api npm run seed --workspace @esl/server
 ```
 
-The seed inserts a sample skill (`@myorg/my-skill` v0.1.0) and is idempotent.
-For development, the API can seed automatically on startup: set `ESL_AUTO_SEED=true`
-in `.env` (default `false`, so production starts with a clean database), then
-`docker compose up -d api` for the new value to reach the container.
+种子脚本插入一个示例技能（`@myorg/my-skill` v0.1.0），并且是幂等的。
+开发环境下，API 可以在启动时自动播种：在 `.env` 中设置 `ESL_AUTO_SEED=true`
+（默认为 `false`，因此生产环境以干净数据库启动），然后执行
+`docker compose up -d api` 使新值生效到容器中。
 
-## Reset the Environment
+## 重置环境
 
-After development or E2E runs, stale data accumulates in the persistent volumes
-(SQLite DB, Gitea repositories/orgs, bootstrap secrets). Reset the stack to a
-clean, ready-to-develop state with:
+开发或 E2E 运行后，持久化卷中会累积陈旧数据
+（SQLite 数据库、Gitea 仓库/组织、bootstrap 密钥）。
+将栈重置为干净、可开发的状态：
 
 ```powershell
 npm run reset:dev
 ```
 
-This stops the Docker stack, deletes `data/api`, `data/gitea` and `data/secrets`
-(after an interactive confirmation, skippable with `--yes`), recreates them via
-the first-run initialisation path (startup schema creation + `gitea-bootstrap`),
-waits for the API to become healthy, and re-seeds the sample skill by default.
-Pass `--no-seed` to skip the re-seed. The script refuses to delete a data
-directory that does not look like ESL data, and it never runs automatically —
-reset is destructive by design. See `docs/adr/0018` for why reset works this way.
+该命令停止 Docker 栈，删除 `data/api`、`data/gitea` 和 `data/secrets`
+（交互式确认后，可用 `--yes` 跳过），通过首次运行初始化路径重新创建它们
+（启动时创建 schema + `gitea-bootstrap`），等待 API 变为健康状态，
+并默认重新播种示例技能。传递 `--no-seed` 可跳过重新播种。
+脚本拒绝删除看起来不像 ESL 数据的数据目录，并且它永远不会自动运行——
+重置本质上是破坏性的。参见 `docs/adr/0018` 了解重置为何采用这种方式。
 
-Reset invalidates any previous `esl login` state under `~/.skill-library/`; log
-in again afterwards. Only the three data-volume subdirectories are removed:
-`.env`, the web bundle, and the source tree are left untouched.
+重置会使 `~/.skill-library/` 下任何先前的 `esl login` 状态失效；
+之后需要重新登录。只有三个数据卷子目录被删除：
+`.env`、web 包和源代码树保持不变。
 
-Prerequisites before running it:
+运行前的前置条件：
 
-- Docker Desktop must be running.
-- `GITEA_ADMIN_PASSWORD` in `.env` must be at least 12 characters — the
-  `gitea-bootstrap` container validates this and exits non-zero otherwise,
-  which blocks the whole bring-up. This password is used to recreate the
-  `eslroot` administrator after the reset.
-- Anything under `data/` that is not recreated by the stack is deleted for
-  good (e.g. the E2E helper `data/esl-db-tool.cjs`, which is git-ignored).
-  Back it up first if you still need it.
+- Docker Desktop 必须正在运行。
+- `.env` 中的 `GITEA_ADMIN_PASSWORD` 必须至少 12 个字符——
+  `gitea-bootstrap` 容器会验证这一点，否则以非零状态退出，
+  从而阻塞整个启动过程。此密码用于在重置后重新创建
+  `eslroot` 管理员。
+- `data/` 下任何不会被栈重新创建的内容都会被永久删除
+  （例如 E2E 辅助工具 `data/esl-db-tool.cjs`，它在 git 忽略列表中）。
+  如果还需要，请先备份。
 
-## CLI Smoke
+## CLI 冒烟测试
 
 ```powershell
 npm exec -- esl login --server http://localhost:3000 --org <orgname> --username <user>
@@ -214,16 +240,15 @@ npm exec -- esl search my-skill --server http://localhost:3000
 npm exec -- esl info @myorg/my-skill --server http://localhost:3000
 ```
 
-For the full publish, cross-user install, update, and source smoke path, see
-[Skill Release lifecycle walkthrough](skill-release-lifecycle.md).
+完整的发布、跨用户安装、更新和源码冒烟路径，请参阅
+[技能发布生命周期演练](skill-release-lifecycle.md)。
 
-To expose Gitea directly for backend diagnostics or recovery, run Docker with
-the debug override:
+如需直接暴露 Gitea 进行后端诊断或恢复，请使用调试覆盖运行 Docker：
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
-That maps Gitea to `http://localhost:3001`; normal ESL workflows should keep
-using `http://localhost:3000`. See
-[Docker troubleshooting](docker-troubleshooting.md) for the recovery workflow.
+这会将 Gitea 映射到 `http://localhost:3001`；正常的 ESL 工作流应继续使用
+`http://localhost:3000`。恢复工作流请参阅
+[Docker 故障排查](docker-troubleshooting.md)。

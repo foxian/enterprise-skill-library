@@ -10,6 +10,8 @@ import type {
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import { readDeploymentMode, readDefaultOrg } from '../services/platform-config.js';
+import { encryptApplicationSecret } from '../services/application-secret.js';
+import { validateOrgName, validatePassword } from '@esl/core';
 import crypto from 'node:crypto';
 
 export interface OrgAdminRouteOptions {
@@ -239,6 +241,79 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       deploymentMode: readDeploymentMode(platformSettingsRepository),
       defaultOrg: readDefaultOrg(platformSettingsRepository)
     };
+  });
+
+  app.post('/api/admin/orgs', async (request, reply) => {
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
+
+    if (!options.applicationEncryptionKey) {
+      return reply
+        .status(503)
+        .send({ error: 'Organization provisioning is unavailable without application encryption key' });
+    }
+
+    const body = (request.body ?? {}) as { orgName?: string; password?: string };
+    const orgName = body.orgName ?? '';
+
+    const orgNameValidation = validateOrgName(orgName);
+    if (!orgNameValidation.success) {
+      return reply.status(400).send({ error: orgNameValidation.errors.join(', ') });
+    }
+
+    const initialPassword = body.password && body.password.length > 0
+      ? body.password
+      : crypto.randomBytes(18).toString('base64url');
+
+    const passwordValidation = validatePassword(initialPassword);
+    if (!passwordValidation.success) {
+      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+    }
+
+    // 冲突检查:Gitea 已存在 或 tenant 已存在且非 deleted 状态
+    if (await giteaService.organizationExists(orgName)) {
+      return reply.status(409).send({ error: 'Organization name is already taken' });
+    }
+    const existingTenant = options.tenantOrganizationRepository.get(orgName);
+    if (existingTenant && existingTenant.status !== 'deleted') {
+      return reply.status(409).send({ error: 'Organization name is already taken' });
+    }
+
+    const application = options.orgApplicationRepository.createApplication({
+      orgName,
+      adminDisplayName: 'system',
+      encryptedPassword: encryptApplicationSecret(initialPassword, options.applicationEncryptionKey),
+    });
+    // 直接将申请置为 approved,admin 发起的不走待审批流程
+    options.orgApplicationRepository.updateApplicationStatusById(application.id, 'approved');
+
+    const operation = options.operationRepository.createOperation({
+      idempotencyKey: `organization.provision:${application.id}`,
+      kind: 'organization.provision',
+      payload: {
+        orgName,
+        applicationId: application.id,
+      },
+    });
+
+    options.tenantOrganizationRepository.create({
+      orgName,
+      status: 'provisioning',
+      operationId: operation.id,
+    });
+
+    options.operationAuditRepository.record({
+      operationId: operation.id,
+      event: 'organization.create',
+      actor: admin.username,
+      details: { orgName, source: 'admin' },
+    });
+
+    void options.operationExecutor.process(operation.id);
+
+    return reply
+      .status(202)
+      .send({ status: 'provisioning', orgName, operationId: operation.id, initialPassword });
   });
 
   app.get('/api/admin/orgs', async (request, reply) => {

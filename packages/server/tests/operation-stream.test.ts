@@ -13,10 +13,12 @@ const ENCRYPTION_KEY = 'a'.repeat(64);
 
 function mockGiteaService() {
   return {
+    adminUsername: 'eslroot',
     validateToken: vi.fn().mockImplementation(async (token: string) => {
       if (token === 'alice-token') return { username: 'alice' };
       if (token === 'consumer-token') return { username: 'consumer' };
       if (token === 'acme-admin-token') return { username: 'acme_admin' };
+      if (token === 'eslroot-token') return { username: 'eslroot' };
       return null;
     })
   };
@@ -154,6 +156,46 @@ describe('Operation SSE stream', () => {
       headers: { 'x-org-password': 'wrong-password' }
     });
     expect(res.statusCode).toBe(403);
+    db.close();
+  });
+
+  it('allows the platform administrator (Gitea admin) to subscribe to an organization provision stream', async () => {
+    app = buildApp({
+      dbPath,
+      giteaService: mockGiteaService() as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey: ENCRYPTION_KEY
+    });
+    await app.listen({ port: 0 });
+    const { port } = app.server.address() as AddressInfo;
+    const db = initDatabase(dbPath);
+    const orgRepo = new OrgApplicationRepository(db);
+    orgRepo.createApplication({
+      orgName: 'acme',
+      adminDisplayName: 'system',
+      encryptedPassword: encryptApplicationSecret('pw', ENCRYPTION_KEY)
+    });
+    const application = orgRepo.getApplication('acme')!;
+    const operation = new OperationRepository(db).createOperation({
+      idempotencyKey: 'stream.admin.provision',
+      kind: 'organization.provision',
+      payload: { orgName: 'acme', applicationId: application.id }
+    });
+
+    const controller = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${port}/api/operations/${operation.id}/stream`, {
+      headers: { authorization: 'token eslroot-token' },
+      signal: controller.signal
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/event-stream');
+    const collector = createEventCollector(response);
+    try {
+      const initial = await collector.waitFor((event) => event.status === 'pending');
+      expect(initial.operationId).toBe(operation.id);
+    } finally {
+      controller.abort();
+    }
     db.close();
   });
 
