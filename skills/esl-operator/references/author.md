@@ -12,15 +12,15 @@
 注意：`validate` 只校验结构，**不拦 `@local/*` 保留 Scope**——`@local` 的发布拦截由 `publish` 阶段执行。所以你在提议 `publish` 前要自己复核技能身份不是 `@local/*`，别等 `validate` 通过就以为能发。
 
 ## 上传源码（发布前必需）
-`esl upload --directory ./path [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
+`esl upload [./path] [--directory <path>] [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录两种写法等价：位置路径（`esl upload ./markdown-master`）或 `--directory`（默认当前目录）；同时给时以位置路径为准。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
 
 - `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按 Platform Organization 生成。不要在命令里拼 `@author/...` 之类的身份。
-- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
+- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 默认 `MIT`，可用 `--license` 覆盖，不再交互询问），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 - **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
 - 已托管目录（有 `esl` remote）上 fetch/push 失败时，`upload` 直接硬报错，提示该源可能由其他账号/组织维护或已不存在，并给出两条出路：**用维护它的账号重新登录后再 `esl upload`**；或确认服务器源已删除时手动 `git remote remove esl` 再重新 `esl upload`（显式两步重建）。CLI 绝不会自动删除 remote 重注册——看到这类报错别提议删 remote，先让用户确认当前登录账号是不是这个源的维护账号。
 
 ## 发布
-`esl publish [version] [--force|-f] [--license SPDX]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认或 `--license` 提供），落盘后**提示先 commit + push、再重跑 `publish`**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+`esl publish [./path] [version] [--force|-f] [--license SPDX]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。技能目录与版本号都是可选位置参数：目录可写位置路径（`esl publish ./markdown-master 1.0.0`）或 `--directory`（默认当前目录）；只给一个位置参数时按形状识别——形如 SemVer（`esl publish 1.0.0`）视为版本号，否则视为技能目录。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 默认 `MIT`，可用 `--license` 覆盖，不再交互询问），落盘后**提示先 commit + push、再重跑 `publish`**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
 
 - 若目录还没有 `esl` remote，`publish` 会报错并提示你先 `esl upload`；它不自动建仓、不隐式 push。
 - `publish` 只发布当前已推送的 HEAD，不自动推断或替你定发布身份。

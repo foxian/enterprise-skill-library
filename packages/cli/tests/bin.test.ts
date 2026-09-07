@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram, formatErrorMessage, isDirectCliEntry } from '../src/bin/esl.js';
+import { executeUpload } from '../src/commands/upload.js';
+import { executePublish } from '../src/commands/publish.js';
 import { readCliVersion } from '../src/version.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+vi.mock('../src/commands/upload.js', () => ({ executeUpload: vi.fn() }));
+vi.mock('../src/commands/publish.js', () => ({ executePublish: vi.fn() }));
 
 describe('esl program', () => {
   it('registers Phase 1 commands', () => {
@@ -170,5 +175,81 @@ describe('esl program', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('upload / publish positional path', () => {
+  function uploadedResult() {
+    return { name: '@ns/reviewer', skillId: 'sk_01', cloneUrl: 'http://localhost:3000/git/ns/reviewer.git' };
+  }
+
+  beforeEach(() => {
+    vi.mocked(executeUpload).mockReset();
+    vi.mocked(executePublish).mockReset();
+    vi.mocked(executeUpload).mockResolvedValue(uploadedResult());
+    vi.mocked(executePublish).mockResolvedValue({});
+  });
+
+  it('registers the optional positional arguments on upload and publish', () => {
+    const program = createProgram();
+    const upload = program.commands.find((command) => command.name() === 'upload');
+    const publish = program.commands.find((command) => command.name() === 'publish');
+
+    expect(upload?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual(['path:false']);
+    expect(publish?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual([
+      'path:false',
+      'version:false'
+    ]);
+  });
+
+  it('passes the upload positional path as the directory', async () => {
+    const program = createProgram();
+    await program.parseAsync(['upload', './markdown-master'], { from: 'user' });
+
+    expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: './markdown-master' }));
+  });
+
+  it('prefers the upload positional path over --directory', async () => {
+    const program = createProgram();
+    await program.parseAsync(['upload', './a', '--directory', './b'], { from: 'user' });
+
+    expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: './a' }));
+  });
+
+  it('falls back to the current directory for upload when no path is given', async () => {
+    const program = createProgram();
+    await program.parseAsync(['upload'], { from: 'user' });
+
+    expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: process.cwd() }));
+  });
+
+  it('resolves publish positional path and version in path-first order', async () => {
+    const program = createProgram();
+    await program.parseAsync(['publish', './x', '1.0.0'], { from: 'user' });
+
+    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: '1.0.0' }));
+  });
+
+  it('keeps "esl publish <version>" backward compatible', async () => {
+    const program = createProgram();
+    await program.parseAsync(['publish', '1.0.0'], { from: 'user' });
+
+    expect(executePublish).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '1.0.0', directory: process.cwd() })
+    );
+  });
+
+  it('resolves publish positional path and version in version-first order', async () => {
+    const program = createProgram();
+    await program.parseAsync(['publish', '1.0.0', './x'], { from: 'user' });
+
+    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: '1.0.0' }));
+  });
+
+  it('accepts a publish path as the only positional argument', async () => {
+    const program = createProgram();
+    await program.parseAsync(['publish', './x'], { from: 'user' });
+
+    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: undefined }));
   });
 });

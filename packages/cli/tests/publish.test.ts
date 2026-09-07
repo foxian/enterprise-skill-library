@@ -74,7 +74,7 @@ description: Use when reviewing code changes.
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails without --no-input when a license is needed and none is provided', async () => {
+  it('defaults to MIT when release.json is missing and no license is passed', async () => {
     fs.rmSync(path.join(skillDir, 'release.json'));
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn();
@@ -89,8 +89,16 @@ description: Use when reviewing code changes.
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow('a license is required to create release.json');
+    ).rejects.toThrow('Created release.json in the source directory; commit it and push to esl/main');
 
+    const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
+    expect(created).toEqual({
+      schemaVersion: 1,
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(execFileAsync).not.toHaveBeenCalled();
   });

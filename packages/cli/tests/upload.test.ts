@@ -196,24 +196,36 @@ describe('esl upload', () => {
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
   });
 
-  it('fails without --no-input when a license is needed and none is provided', async () => {
+  it('defaults to MIT when release.json is missing and no license is passed', async () => {
     fs.rmSync(path.join(skillDir, 'release.json'));
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-
-    await expect(
-      executeUpload({
-        directory: skillDir,
-        server: 'http://localhost:3000',
-        homeDir,
-        noInput: true,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@platform-ai/reviewer',
+        skillId: 'sk_01J00000000000000000000000',
+        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
       })
-    ).rejects.toThrow('a license is required to create release.json');
+    });
+    const execFileAsync = gitMock({ dirty: '?? release.json\n' });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(execFileAsync).not.toHaveBeenCalled();
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      noInput: true,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
+    expect(created).toEqual({
+      schemaVersion: 1,
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
   });
 
   it('syncs directly to the existing source without a registration call when the esl remote is present', async () => {

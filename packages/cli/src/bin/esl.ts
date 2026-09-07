@@ -35,6 +35,20 @@ function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
 }
 
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function resolvePublishPositional(first: string | undefined, second: string | undefined): { path?: string; version?: string } {
+  if (!first) {
+    return {};
+  }
+  if (!second) {
+    return SEMVER_PATTERN.test(first) ? { version: first } : { path: first };
+  }
+  return SEMVER_PATTERN.test(first) && !SEMVER_PATTERN.test(second)
+    ? { version: first, path: second }
+    : { path: first, version: second };
+}
+
 export function createProgram(): Command {
   const program = new Command();
 
@@ -159,13 +173,18 @@ export function createProgram(): Command {
 program
     .command('upload')
     .description('Commit, push and (on first use) register a local skill source')
+    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
     .option('--directory <path>', 'skill directory', process.cwd())
-    .option('--license <spdx>', 'SPDX license for a missing release.json')
+    .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('--message <text>', 'description of this upload, used as the source commit message')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl upload --directory ./my-skill --message "fix: correct the regex"'))
-    .action(async (options: { directory: string; license?: string; message?: string; server?: string }) => {
-      const uploaded = await executeUpload({ ...options, noInput: program.opts().input === false });
+    .addHelpText('after', example('$ esl upload ./my-skill --message "fix: correct the regex"'))
+    .action(async (skillPath: string | undefined, options: { directory: string; license?: string; message?: string; server?: string }) => {
+      const uploaded = await executeUpload({
+        ...options,
+        directory: skillPath ?? options.directory,
+        noInput: program.opts().input === false
+      });
       if ('alreadyUpToDate' in uploaded && uploaded.alreadyUpToDate) {
         console.log(`Skill source is already up to date: ${uploaded.name}`);
         return;
@@ -241,16 +260,23 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
   program
     .command('publish')
-    .argument('[version]', 'Skill Release SemVer for release.json sources')
+    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
+    .argument('[version]', 'Skill Release SemVer for release.json sources (also accepted as the only argument)')
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
-    .option('--license <spdx>', 'SPDX license for a missing release.json')
+    .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('--message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
-    .addHelpText('after', example('$ esl publish 1.1.0 --message "fix: dead-link regex"'))
-    .action(async (version: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean }) => {
-await executePublish({ ...options, version, noInput: program.opts().input === false });
+    .addHelpText('after', example('$ esl publish ./my-skill 1.1.0 --message "fix: dead-link regex"'))
+    .action(async (first: string | undefined, second: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean }) => {
+      const { path: skillPath, version } = resolvePublishPositional(first, second);
+      await executePublish({
+        ...options,
+        directory: skillPath ?? options.directory,
+        version,
+        noInput: program.opts().input === false
+      });
       console.log('Skill published');
     });
 
