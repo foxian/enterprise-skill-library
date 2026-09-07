@@ -14,7 +14,7 @@
 ## 上传源码（发布前必需）
 `esl upload [./path] [--directory <path>] [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录两种写法等价：位置路径（`esl upload ./markdown-master`）或 `--directory`（默认当前目录）；同时给时以位置路径为准。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
 
-- `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按 Platform Organization 生成。不要在命令里拼 `@author/...` 之类的身份。
+- `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按你的租户组织（登录组织）生成，如组织 `esl` 的成员上传 `markdown-master` 得到 `@esl/markdown-master`（ADR-0024）。不要在命令里拼 `@author/...` 之类的身份。
 - 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 默认 `MIT`，可用 `--license` 覆盖，不再交互询问），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 - **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
 - 已托管目录（有 `esl` remote）上 fetch/push 失败时，`upload` 直接硬报错，提示该源可能由其他账号/组织维护或已不存在，并给出两条出路：**用维护它的账号重新登录后再 `esl upload`**；或确认服务器源已删除时手动 `git remote remove esl` 再重新 `esl upload`（显式两步重建）。CLI 绝不会自动删除 remote 重注册——看到这类报错别提议删 remote，先让用户确认当前登录账号是不是这个源的维护账号。
@@ -25,7 +25,7 @@
 - 若目录还没有 `esl` remote，`publish` 会报错并提示你先 `esl upload`；它不自动建仓、不隐式 push。
 - `publish` 只发布当前已推送的 HEAD，不自动推断或替你定发布身份。
 
-重要：`@local/*` 保留 Scope 被系统拦截、无法发布。**发布身份不需要你在源码里写 namespace**——`SKILL.md` 的 `name` 只写短名（如 `markdown-master`），完整身份 `@<namespace>/<skill-name>` 由服务器在 `upload`/`publish` 时按 Platform Organization 自动生成（如 `@esl-skills/markdown-master`）。不要从登录用户名推断 namespace，也不要替用户猜一个（猜错会落到错误组织下，之后改名要走正式 Skill Rename 流程）；用户没明确给出目标组织前，按服务器默认组织处理。跑完报告服务器返回的技能身份与 Release Tag（`v<SemVer>`）提示。
+重要：`@local/*` 保留 Scope 被系统拦截、无法发布。**发布身份不需要你在源码里写 namespace**——`SKILL.md` 的 `name` 只写短名（如 `markdown-master`），完整身份 `@<namespace>/<skill-name>` 由服务器在 `upload`/`publish` 时按你的租户组织（登录组织）自动生成（如组织 `esl` 的成员得到 `@esl/markdown-master`，ADR-0024）。不要从登录用户名推断 namespace，也不要替用户猜一个（猜错会落到错误组织下，之后改名要走正式 Skill Rename 流程）；用户没明确给出目标组织前，按其登录组织处理。跑完报告服务器返回的技能身份与 Release Tag（`v<SemVer>`）提示。
 
 ## 升级版本号
 源码形态（`SKILL.md` + `release.json`）的技能不存储本地版本号——`esl version` 对它不可用（会提示改用 `publish`）。发新版直接指定 SemVer：`esl publish 0.2.0`（minor）/ `esl publish 0.2.1`（patch）/ `esl publish 1.0.0`（major）。版本号由 `publish` 固化到 Skill Release，源码中的 `release.json` 不记录 SemVer。`esl version` 仍只作用于含 `skill.json` 的安装副本或包形态目录。

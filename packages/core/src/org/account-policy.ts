@@ -40,6 +40,19 @@ export function buildGiteaUsername(orgName: string, username: string): string | 
   return giteaUsername.length <= MAX_GITEA_USERNAME_LENGTH ? giteaUsername : null;
 }
 
+// 组织作用域账号名的逆向解析(ADR-0020):组织名与成员用户名都不允许下划线,
+// 首个下划线即唯一分隔点。平台管理员等无组织账号不含下划线,解析返回 null。
+export function parseGiteaUsername(giteaUsername: string): { org: string; username: string } | null {
+  const separator = giteaUsername.indexOf('_');
+  if (separator <= 0 || separator === giteaUsername.length - 1) {
+    return null;
+  }
+  return {
+    org: giteaUsername.slice(0, separator),
+    username: giteaUsername.slice(separator + 1)
+  };
+}
+
 export type OrganizationRole = 'super' | 'org-admin' | 'member';
 
 // 按组织作用域账号模型推导角色:无组织即平台管理员(super);组织内

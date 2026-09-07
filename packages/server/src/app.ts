@@ -63,7 +63,11 @@ async function resolveAuthedUser(
   const eslUser = token ? adminRepository.validateUserToken(token) : null;
   const giteaUser = eslUser ? null : await giteaService.validateToken(token);
   const username = platformAdmin?.username ?? eslUser?.username ?? giteaUser?.username ?? null;
-  return { username, isPlatformAdmin: Boolean(platformAdmin) };
+  // Gitea 管理员账号(默认 eslroot)是平台超级管理员:admin_users 表只把内置
+  // 'admin' 标记为 platform_admin,而 ESL 实际管理员是 GITEA_ADMIN_USERNAME,
+  // 需按 Gitea 管理员身份补齐判定,否则管理后台发起的 Operation 流订阅会被 403。
+  const isAdminByGitea = username !== null && username === giteaService.adminUsername;
+  return { username, isPlatformAdmin: Boolean(platformAdmin) || isAdminByGitea };
 }
 
 // 解析 Operation 查询/订阅请求的调用方身份;无有效 token 即匿名。
@@ -390,7 +394,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
       // 技能 Identity 形如 @scope/skill-name,scope 段即租户组织名;
-      // POST /api/skills 的 Identity 在请求体中而非 URL。
+      // POST /api/skills 的 Identity 在请求体中而非 URL。Source Upload
+      // (/api/skills/upload)的 body.name 是技能短名而非 Identity,其租户
+      // 组织由路由按调用方账号解析并校验(ADR-0024),此处跳过短名误判。
+      if (routePath === '/api/skills/upload') {
+        return;
+      }
       const urlSegment = decodeURIComponent(routePath.split('/')[3] ?? '');
       const bodyName = (request.body as { name?: string } | undefined)?.name ?? '';
       const scope = (urlSegment || bodyName).replace(/^@/, '').split('/')[0];
@@ -468,6 +477,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     adminRepository,
     giteaService: options.giteaService,
     repoOwner: options.repoOwner,
+    tenantOrganizationRepository,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
     operationRepository,
     operationExecutor

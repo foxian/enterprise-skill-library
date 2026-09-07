@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildGiteaUsername,
+  parseGiteaUsername,
   validateMemberUsername,
   validateOrgName,
   validatePassword
@@ -74,5 +75,17 @@ describe('account and password policy', () => {
   it('rejects a canonical Gitea username longer than 255 characters', () => {
     const result = buildGiteaUsername('a'.repeat(39), 'b'.repeat(216));
     expect(result).toBeNull();
+  });
+
+  it('parses the organization and member short name back from the canonical Gitea username', () => {
+    expect(parseGiteaUsername('acme_alice')).toEqual({ org: 'acme', username: 'alice' });
+    expect(parseGiteaUsername('platform-ai_alice')).toEqual({ org: 'platform-ai', username: 'alice' });
+  });
+
+  it('returns null for accounts without an organization scope', () => {
+    expect(parseGiteaUsername('eslroot')).toBeNull();
+    expect(parseGiteaUsername('')).toBeNull();
+    expect(parseGiteaUsername('_alice')).toBeNull();
+    expect(parseGiteaUsername('acme_')).toBeNull();
   });
 });

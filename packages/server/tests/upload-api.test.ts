@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
 
 describe('Skill Source Upload API', () => {
   let tmpDir: string;
@@ -20,7 +21,7 @@ describe('Skill Source Upload API', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-upload-api-'));
     gitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       addCollaborator: vi.fn().mockResolvedValue(undefined),
       deleteRepo: vi.fn().mockResolvedValue(undefined),
@@ -28,6 +29,9 @@ describe('Skill Source Upload API', () => {
       getReleaseTag: vi.fn().mockResolvedValue(null),
       readSourceTree: vi.fn().mockResolvedValue({})
     };
+    const db = initDatabase(path.join(tmpDir, 'test.db'));
+    new TenantOrganizationRepository(db).create({ orgName: 'platform-ai', status: 'active' });
+    db.close();
     app = buildApp({
       dbPath: path.join(tmpDir, 'test.db'),
       packageRoot: path.join(tmpDir, 'packages'),
@@ -91,11 +95,32 @@ describe('Skill Source Upload API', () => {
 
   it('rejects re-upload by a different creator', async () => {
     await upload();
-    gitea.validateToken.mockResolvedValue({ username: 'bob' });
+    gitea.validateToken.mockResolvedValue({ username: 'platform-ai_bob' });
 
     const retry = await upload();
     expect(retry.statusCode).toBe(409);
     expect(retry.json().error).toContain('already exists');
+  });
+
+  it('rejects an upload from an account without an organization scope', async () => {
+    gitea.validateToken.mockResolvedValue({ username: 'eslroot' });
+
+    const response = await upload();
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toContain('organization-scoped account');
+    expect(gitea.createOrganizationRepo).not.toHaveBeenCalled();
+  });
+
+  it('rejects an upload when the caller tenant organization is not active', async () => {
+    const db = initDatabase(path.join(tmpDir, 'test.db'));
+    new TenantOrganizationRepository(db).create({ orgName: 'frozen', status: 'pending' });
+    db.close();
+    gitea.validateToken.mockResolvedValue({ username: 'frozen_bob' });
+
+    const response = await upload();
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toContain('Tenant organization frozen is not active');
+    expect(gitea.createOrganizationRepo).not.toHaveBeenCalled();
   });
 
   it('deletes the orphaned repository when provisioning fails after creation', async () => {

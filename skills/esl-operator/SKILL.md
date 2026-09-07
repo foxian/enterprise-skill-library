@@ -29,7 +29,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
-**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**发布（`upload`/`publish`）时不需要在源码或命令里写 namespace**——`SKILL.md` 只写短名，完整身份由服务器按 Platform Organization 生成；不要从登录用户名推断或自己拼一个身份。
+**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**发布（`upload`/`publish`）时不需要在源码或命令里写 namespace**——`SKILL.md` 只写短名，完整身份由服务器按你的租户组织（登录组织）生成（如组织 `esl` 的成员上传 `markdown-master` 得到 `@esl/markdown-master`，ADR-0024）；不要从登录用户名推断或自己拼一个身份。
 
 ## 输出与解析
 

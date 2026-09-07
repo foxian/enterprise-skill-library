@@ -22,6 +22,13 @@ describe('Fastify Server API', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  function buildAppWithTenant(giteaService: unknown, repoOwner: string): FastifyInstance {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: repoOwner, status: 'active' });
+    db.close();
+    return buildApp({ dbPath, giteaService: giteaService as any, repoOwner });
+  }
+
   it('does not seed sample skill metadata by default', async () => {
     const mockGitea = { validateToken: vi.fn(), createOrganizationRepo: vi.fn() };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -170,11 +177,11 @@ describe('Fastify Server API', () => {
 
   it('uploads a server-hosted skill without creating a release', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
     };
 
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
 
     const response = await app.inject({
       method: 'POST',
@@ -190,21 +197,40 @@ describe('Fastify Server API', () => {
     expect(response.json()).toMatchObject({
       name: '@platform-ai/reviewer',
       status: 'active-unreleased',
-      createdBy: 'alice',
-      maintainers: ['alice'],
+      createdBy: 'platform-ai_alice',
+      maintainers: ['platform-ai_alice'],
       versions: []
     });
     expect(response.json().skillId).toMatch(/^sk_/);
     expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', true);
   });
 
+  it('rejects an upload from an account without an organization scope', async () => {
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'eslroot' }),
+      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+    };
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Shared reviewer' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toContain('organization-scoped account');
+    expect(mockGitea.createOrganizationRepo).not.toHaveBeenCalled();
+  });
+
   it('grants an authenticated user read access before source checkout', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'consumer' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_consumer' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       addCollaborator: vi.fn().mockResolvedValue(undefined)
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
@@ -223,18 +249,18 @@ describe('Fastify Server API', () => {
     expect(mockGitea.addCollaborator).toHaveBeenCalledWith(
       'platform-ai',
       'reviewer',
-      'consumer',
+      'platform-ai_consumer',
       'read'
     );
   });
 
   it('renames a skill while preserving its Skill ID and creates a redirect', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       renameRepo: vi.fn().mockResolvedValue(undefined)
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
 
     const upload = await app.inject({
       method: 'POST',
@@ -259,14 +285,14 @@ describe('Fastify Server API', () => {
 
   it('rejects a rename that would reuse an existing skill identity before touching Gitea', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn()
         .mockResolvedValueOnce({ full_name: 'platform-ai/reviewer' })
         .mockResolvedValueOnce({ full_name: 'platform-ai/other' }),
       renameRepo: vi.fn().mockResolvedValue(undefined),
       updateSkillName: vi.fn().mockResolvedValue(undefined)
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
     for (const name of ['reviewer', 'other']) {
       await app.inject({
         method: 'POST',
@@ -291,12 +317,12 @@ describe('Fastify Server API', () => {
 
   it('attempts to roll back source metadata when repository rename fails', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       updateSkillName: vi.fn().mockResolvedValue(undefined),
       renameRepo: vi.fn().mockRejectedValue(new Error('backend unavailable'))
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
@@ -324,11 +350,11 @@ describe('Fastify Server API', () => {
 
   it('archives a skill and only a platform administrator can restore it', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       validateAdminUserToken: vi.fn().mockResolvedValue(null),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
     };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'platform-ai' });
+    app = buildAppWithTenant(mockGitea, 'platform-ai');
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',

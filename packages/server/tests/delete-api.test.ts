@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
 
 describe('Skill Delete API', () => {
   let tmpDir: string;
@@ -17,13 +18,16 @@ describe('Skill Delete API', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-delete-'));
     gitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       validateAdminUserToken: vi.fn().mockImplementation(async (token: string) =>
         token === 'eslroot-token' ? { username: 'eslroot' } : null
       ),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       deleteRepo: vi.fn().mockResolvedValue(undefined)
     };
+    const db = initDatabase(path.join(tmpDir, 'test.db'));
+    new TenantOrganizationRepository(db).create({ orgName: 'platform-ai', status: 'active' });
+    db.close();
     app = buildApp({
       dbPath: path.join(tmpDir, 'test.db'),
       packageRoot: path.join(tmpDir, 'packages'),

@@ -3,15 +3,16 @@
 ## Scope
 
 Skill Identity 形式 `@scope/skill-name` 的第一段。它是机械层概念，无治理
-含义；adapt 引擎按它生成安装目录名与展示名。Scope 分两类：由 Platform
-Organization 占用的 Namespace，以及保留 Scope（`local`、`builtin`）。
+含义；adapt 引擎按它生成安装目录名与展示名。Scope 分两类：由 Tenant
+Organization 占用的 Namespace（ADR-0024），以及保留 Scope（`local`、
+`builtin`）。
 
 ## Namespace
 
-由 Platform Organization 占用的 Scope。它带治理语义：运行后不可变，在
-Bootstrap 时配置，为所有 Server-hosted Skill Identity 提供稳定平台组织名。
-在 `@platform-ai/code-review` 中，Namespace 是 `platform-ai`。保留 Scope
-不是 Namespace。
+由 Tenant Organization 占用的 Scope。它带治理语义：随租户组织的身份而
+确定（组织名即 Namespace），为该组织内所有 Server-hosted Skill Identity
+提供唯一的组织边界；组织间技能与源码完全私有隔离。在 `@acme/code-review`
+中，Namespace 是 `acme`。保留 Scope 不是 Namespace。
 
 ## Skill Source Lifecycle
 
@@ -24,7 +25,7 @@ Skill Release 也一直存在。其格式为带 `sk_` 前缀的 ULID。
 ## Skill Rename
 
 平台管理员或 Owner 对 Server-hosted Skill Identity 执行的显式改名操作。
-Rename 只改短名，不改 scope 段；scope 段由 Platform Organization 锁定。
+Rename 只改短名，不改 scope 段；scope 段由 Tenant Organization 锁定。
 Skill ID 保持不变，旧 Identity 永久重定向到新 Identity。普通 Git push
 不得直接改变 `SKILL.md.name` 或技能身份；名称变更必须经过该流程。使用旧
 Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release 时仍允许
@@ -38,7 +39,7 @@ Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release
 
 ## Server-hosted Skill Source
 
-技能上传至 ESL Server 的 Platform Organization 后形成的协作维护源码仓库。
+技能上传至其所属 Tenant Organization 后形成的协作维护源码仓库（ADR-0024）。
 它独立于 Skill Release 存在；其 Skill Identity 由服务器记录，源码中的
 `SKILL.md.name` 保持短名并与服务器记录的当前短名一致。源码以
 `SKILL.md` 与 Release Manifest（`release.json`）为内容；它不包含 Skill

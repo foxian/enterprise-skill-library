@@ -1,10 +1,10 @@
-import { parseSkillName, validateReleaseManifest } from '@esl/core';
+import { parseSkillName, parseGiteaUsername, validateReleaseManifest } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import semver from 'semver';
-import type { AdminRepository, OperationRepository, SkillRecord, SkillRepository } from '../db/database.js';
+import type { AdminRepository, OperationRepository, SkillRecord, SkillRepository, TenantOrganizationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import type { PermissionChangePayload } from '../services/skill-operations.js';
@@ -14,13 +14,14 @@ export interface SkillsRouteOptions {
   adminRepository?: AdminRepository;
   giteaService: GiteaService;
   repoOwner: string;
+  tenantOrganizationRepository: TenantOrganizationRepository;
   packageRoot?: string;
   operationRepository: OperationRepository;
   operationExecutor: OperationExecutor;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
-  const { repository, adminRepository, giteaService, repoOwner, operationRepository, operationExecutor } = options;
+  const { repository, adminRepository, giteaService, repoOwner, tenantOrganizationRepository, operationRepository, operationExecutor } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
   app.post('/api/skills/upload', async (request, reply) => {
@@ -28,6 +29,23 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user) {
       return reply.status(401).send({ error: 'Unauthorized: invalid token' });
     }
+
+    // ADR-0024:Skill Identity 的 scope 段由上传者的 Tenant Organization 提供。
+    // 登录 token 只携带组织作用域账号(<org>_<username>),租户组织从账号名解析,
+    // 而非按服务器配置的平台宿主(repoOwner,仅遗留包形态发布流仍在使用)。
+    const account = parseGiteaUsername(user.username);
+    if (!account) {
+      return reply.status(403).send({
+        error: 'Source upload requires an organization-scoped account (<org>_<username>); the platform administrator has no tenant organization'
+      });
+    }
+    const tenant = tenantOrganizationRepository.get(account.org);
+    if (!tenant || tenant.status !== 'active') {
+      return reply.status(403).send({
+        error: `Tenant organization ${account.org} is not active; it must be provisioned before uploading skills`
+      });
+    }
+    const tenantOrg = account.org;
 
     const body = request.body as { name?: string; description?: string };
     const shortName = body.name ?? '';
@@ -38,7 +56,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(400).send({ error: 'Skill description is required' });
     }
 
-    const name = `@${repoOwner}/${shortName}`;
+    const name = `@${tenantOrg}/${shortName}`;
     const existing = repository.getSkill(name);
     if (existing) {
       if (existing.status !== 'active-unreleased' || existing.createdBy !== user.username) {
@@ -54,13 +72,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let gitRepo: { full_name: string } | undefined;
     let skill: ReturnType<SkillRepository['createServerSkill']> | undefined;
     try {
-      gitRepo = await giteaService.createOrganizationRepo(repoOwner, shortName, true);
+      gitRepo = await giteaService.createOrganizationRepo(tenantOrg, shortName, true);
       if (typeof giteaService.addCollaborator === 'function') {
-        await giteaService.addCollaborator(repoOwner, shortName, user.username, 'write');
+        await giteaService.addCollaborator(tenantOrg, shortName, user.username, 'write');
       }
       skill = repository.createServerSkill({
         name,
-        scope: repoOwner,
+        scope: tenantOrg,
         skillName: shortName,
         description: body.description,
         createdBy: user.username,
@@ -75,7 +93,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // orphan so the same skill name can be uploaded again.
       if (gitRepo && typeof giteaService.deleteRepo === 'function') {
         try {
-          await giteaService.deleteRepo(repoOwner, shortName);
+          await giteaService.deleteRepo(tenantOrg, shortName);
         } catch {
           // Best-effort cleanup; the original failure is the one to surface.
         }
