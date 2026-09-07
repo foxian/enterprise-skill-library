@@ -1,13 +1,14 @@
 # 部署模式与默认组织（单组织 / 多组织）E2E 测试执行报告
 
-- **执行日期**：2026-09-06
+- **执行日期**：2026-09-06（PLT/LOGIN/GATE/DEL/WEB/REG/CLI/NEG 组），2026-09-07（BOOT 组补充执行）
 - **被测文档**：[deployment-mode-e2e-test-cases.md](./deployment-mode-e2e-test-cases.md)（v1.0，9 组 49 条用例）
 - **执行方式**：HTTP API 断言（PowerShell `Invoke-RestMethod` / `curl.exe`）+ Chrome 浏览器自动化（Web 自适应组）+ `esl` CLI 命令行（CLI 自适应组）
 - **测试环境**：Docker 栈（`api` healthy / `gitea` / `server`，前端经 nginx 暴露 `0.0.0.0:3000`），超管密码 `123456123456`
+  - BOOT 组补充执行：`.env` 已预置 `ESL_DEPLOYMENT_MODE=single`、`ESL_DEFAULT_ORG=esl`、`ESL_ORG_ADMIN_PASSWORD=1234567890ab`，栈为既有运行环境而非干净数据卷
 
 ## 总体结果
 
-**43 条已执行：43 通过；6 条未执行**（BOOT 组 5 条 + NEG-05，需修改环境变量并重启 Docker 栈，建议在独立栈中执行）。
+**45 条已执行：45 通过；4 条未执行**（BOOT-02/03/04 + NEG-05，需修改环境变量并重启 Docker 栈，建议在独立栈中执行）。
 
 | 分组 | 用例范围 | 数量 | 结果 |
 | --- | --- | --- | --- |
@@ -16,7 +17,7 @@
 | C. 单组织门禁 | GATE-01 ~ GATE-05 | 5 | ✅ 全部通过 |
 | D. 默认组织删除守卫 | DEL-01 ~ DEL-04 | 4 | ✅ 全部通过 |
 | E. Web 登录与注册自适应 | WEB-01 ~ WEB-06 | 6 | ✅ 全部通过 |
-| F. Bootstrap 单组织变体 | BOOT-01 ~ BOOT-05 | 5 | ⏸ 未执行（需修改 .env 并重启栈） |
+| F. Bootstrap 单组织变体 | BOOT-01 ~ BOOT-05 | 5 | ✅ 2 通过 / ⏸ 3 未执行（BOOT-02/03/04） |
 | G. 注册硬拒绝与挂起申请 | REG-01 ~ REG-04 | 4 | ✅ 全部通过 |
 | H. CLI 登录自适应 | CLI-01 ~ CLI-06 | 6 | ✅ 全部通过 |
 | I. 负向/异常 | NEG-01 ~ NEG-05 | 5 | ✅ 4 通过 / 1 未执行（NEG-05） |
@@ -42,6 +43,8 @@
 - **WEB-02/05**：单组织模式下登录页隐藏组织输入框与注册入口；注册页隐藏表单并提示「平台处于单组织模式，不接受新的组织注册申请。」，仅保留申请状态查询与返回登录入口。
 - **REG-01/02/03**：单组织模式注册返回 `403 Organization registration is disabled in single-organization mode`；切换到单组织时已存在的 `pending` 申请保持不变；切回多组织后可继续审批。
 - **CLI-01/02/04/05**：设有默认组织时 `esl login` 不询问组织名、`--no-input` 无需 `--org`；`--org` 显式覆盖默认组织；无默认组织且 `--no-input` 时抛 `An organization is required; pass --org or run interactively`。
+- **BOOT-01**：`.env` 声明 single 模式 + 默认组织 `esl`，Docker 栈启动后 platform-info 返回 `{ mode: "single", defaultOrg: "esl" }`，`esl` 组织已开通（active），组织 admin 可成功登录且 role 为 `org-admin`——Bootstrap 单组织变体生效。
+- **BOOT-05**：单组织 Bootstrap 后经 `PUT /api/admin/orgs/settings` 可切回 multi 模式，返回 `deploymentMode: "multi"`；模式非终身判决，可双向切换。
 
 ## 环境与执行备注
 
@@ -55,12 +58,15 @@
 
 | 用例 | 未执行原因 | 建议 |
 | --- | --- | --- |
-| BOOT-01 ~ BOOT-05 | 需修改 `.env`（`ESL_DEPLOYMENT_MODE`、`ESL_DEFAULT_ORG`、`ESL_ORG_ADMIN_PASSWORD`）并 `docker compose down -v` 重建数据卷 | 在独立 Docker 栈或 CI 环境中执行，避免污染主栈 |
-| NEG-05 | 需设置 `ESL_DEPLOYMENT_MODE=invalid` 并重启服务观察启动失败日志 | 可与 BOOT 组在同一次独立栈执行中覆盖 |
+| BOOT-02 | 需设置 `ESL_DEPLOYMENT_MODE=single` 但缺少 `ESL_DEFAULT_ORG` 或 `ESL_ORG_ADMIN_PASSWORD` 并重启栈观察启动失败 | 在独立 Docker 栈或 CI 环境中执行；config 单测已覆盖校验逻辑 |
+| BOOT-03 | 需干净数据卷 + 默认 multi 模式启动验证无自动建组织 | 在独立 Docker 栈或 CI 环境中执行；platform-settings 单测已覆盖默认值 |
+| BOOT-04 | 需 Bootstrap Reset（清数据卷）后按 .env 重新初始化，本质是 BOOT-01 的重复验证 | 可在同一次独立栈 Reset 操作中顺带验证 |
+| NEG-05 | 需设置 `ESL_DEPLOYMENT_MODE=invalid` 并重启服务观察启动失败日志 | 可与 BOOT-02 在同一次独立栈执行中覆盖；config 单测已覆盖非法值 |
 
 ## 更新摘要
 
 | 日期 | 版本 | 核心变更 |
 | --- | --- | --- |
+| 2026-09-07 | v1.2 | 补充执行 BOOT-01、BOOT-05 并通过；BOOT-02/03/04 与 NEG-05 仍需独立栈环境（config 单测已覆盖对应校验逻辑）。已执行用例数 45 条，全部通过。 |
 | 2026-09-06 | v1.1 | 修正 LOGIN-07 判定：eslroot 不能用 CLI 登录符合 ADR-0020 设计（其正确通道是 `/api/console/login`），由「差异」改为「通过」；43 条用例全部通过。仅补充说明 CLI 端点里 `403` 拦截分支实际不可达、错误码与用例预设的差异不影响行为正确性。 |
 | 2026-09-06 | v1.0 | 初版：执行 43 条用例（PLT/LOGIN/GATE/DEL/WEB/REG/CLI/NEG），42 通过、1 差异（LOGIN-07 超管 CLI 登录 403 分支为死代码，安全目标仍达成）；BOOT 组与 NEG-05 因需修改环境变量未执行；平台已恢复 multi + 无默认组织，测试数据已清理。 |
