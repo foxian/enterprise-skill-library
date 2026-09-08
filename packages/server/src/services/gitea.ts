@@ -1,3 +1,5 @@
+import { giteaUserEmail } from '@esl/core';
+
 export interface GiteaUser {
   id: number;
   username: string;
@@ -121,7 +123,7 @@ export class GiteaService {
       },
       body: JSON.stringify({
         username,
-        email: `${username}@local.esl`,
+        email: giteaUserEmail(username),
         password,
         must_change_password: false
       })
@@ -251,7 +253,7 @@ export class GiteaService {
       },
       body: JSON.stringify({
         username,
-        email: `${username}@local.esl`,
+        email: giteaUserEmail(username),
         password,
         must_change_password: false
       })

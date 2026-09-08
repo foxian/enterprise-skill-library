@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
+import { buildGiteaUsername, fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -56,7 +56,7 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
     throw new Error(`Invalid skill source: ${sourceValidation.errors.join(', ')}`);
   }
   const message = await resolveUploadMessage(options);
-  await prepareSourceGit(execFileAsync, directory, message);
+  await prepareSourceGit(execFileAsync, directory, message, await resolveFallbackGitIdentity(options));
   return uploadSource(
     options,
     directory,
@@ -88,10 +88,34 @@ async function resolveUploadMessage(options: UploadOptions): Promise<string> {
   return (await readText('Describe this upload (optional, press Enter to skip): ')).trim();
 }
 
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+// 未显式配置 git 身份时的仓库级兜底作者:优先用当前登录的 Skill User
+// (组织作用域账号 + Git Backend 的 email 约定),使 Git Backend 能把提交
+// 匹配到登录账号;未登录或本地存储缺失时退回通用占位身份。
+async function resolveFallbackGitIdentity(options: UploadOptions): Promise<GitIdentity> {
+  try {
+    const config = await loadConfig({ homeDir: options.homeDir });
+    if (config.org && config.username) {
+      const giteaUsername = buildGiteaUsername(config.org, config.username);
+      if (giteaUsername) {
+        return { name: giteaUsername, email: giteaUserEmail(giteaUsername) };
+      }
+    }
+  } catch {
+    // Fall through to the generic placeholder identity.
+  }
+  return { name: 'esl upload', email: 'esl@local' };
+}
+
 async function prepareSourceGit(
   execFileAsync: typeof defaultExecFileAsync,
   directory: string,
-  message: string
+  message: string,
+  fallbackIdentity: GitIdentity
 ): Promise<void> {
   // Initialize the repository when the skill directory is not already one.
   try {
@@ -111,11 +135,12 @@ async function prepareSourceGit(
 
   // Use a repository-local identity fallback so the auto-commit never blocks
   // on a missing git user.name / user.email (repo-local only, never global).
+  // 兜底作者优先取当前登录身份,使提交在 Git Backend 里可关联到该账号。
   if (!(await readGitConfig(execFileAsync, directory, 'user.name'))) {
-    await execFileAsync('git', ['config', 'user.name', 'esl upload'], { cwd: directory });
+    await execFileAsync('git', ['config', 'user.name', fallbackIdentity.name], { cwd: directory });
   }
   if (!(await readGitConfig(execFileAsync, directory, 'user.email'))) {
-    await execFileAsync('git', ['config', 'user.email', 'esl@local'], { cwd: directory });
+    await execFileAsync('git', ['config', 'user.email', fallbackIdentity.email], { cwd: directory });
   }
 
   // If a previous upload hit a merge conflict and left a rebase in progress,

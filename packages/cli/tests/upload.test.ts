@@ -447,6 +447,23 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'esl@local'], { cwd: skillDir });
   });
 
+  it('falls back to the logged-in identity so commits match the Gitea account', async () => {
+    await saveConfig({ username: 'author01', org: 'esl' }, { homeDir });
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ userName: '', userEmail: '' });
+
+    await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.name', 'esl_author01'], { cwd: skillDir });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'esl_author01@local.esl'], { cwd: skillDir });
+  });
+
   it('uses the --message text as the auto-commit message', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = gitMock({ dirty: ' M SKILL.md\n' });

@@ -40,6 +40,12 @@ export function buildGiteaUsername(orgName: string, username: string): string | 
   return giteaUsername.length <= MAX_GITEA_USERNAME_LENGTH ? giteaUsername : null;
 }
 
+// Git Backend 用户账号的 email 约定(用户创建流程统一使用该格式):以该 email
+// 作为 commit author 时,Git Backend 可通过 email 把提交匹配到对应账号。
+export function giteaUserEmail(giteaUsername: string): string {
+  return `${giteaUsername}@local.esl`;
+}
+
 // 组织作用域账号名的逆向解析(ADR-0020):组织名与成员用户名都不允许下划线,
 // 首个下划线即唯一分隔点。平台管理员等无组织账号不含下划线,解析返回 null。
 export function parseGiteaUsername(giteaUsername: string): { org: string; username: string } | null {
