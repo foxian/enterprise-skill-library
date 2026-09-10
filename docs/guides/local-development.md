@@ -243,12 +243,8 @@ npm exec -- esl info @myorg/my-skill --server http://localhost:3000
 完整的发布、跨用户安装、更新和源码冒烟路径，请参阅
 [技能发布生命周期演练](skill-release-lifecycle.md)。
 
-如需直接暴露 Gitea 进行后端诊断或恢复，请使用调试覆盖运行 Docker：
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
-```
-
-这会将 Gitea 映射到 `http://localhost:3001`；正常的 ESL 工作流应继续使用
-`http://localhost:3000`。恢复工作流请参阅
-[Docker 故障排查](docker-troubleshooting.md)。
+Gitea 由 `docker-compose.yml` 暴露到宿主 `http://localhost:3001`（E2E 与调试经
+Git Backend admin API 读取隐藏团队等成员关系；`docker-compose.debug.yml` 声明的
+同一端口已并入主配置）。正常的 ESL 工作流应继续使用 `http://localhost:3000`。
+如需更细粒度的后端诊断或恢复入口，可结合
+[Docker 故障排查](docker-troubleshooting.md) 使用。

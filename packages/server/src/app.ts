@@ -30,6 +30,7 @@ import { seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
 import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
 import { ensureDeclaredOrgBootstrap } from './services/single-org-bootstrap.js';
+import { ensureDefaultTeamsForActiveOrgs } from './services/default-team-migration.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -50,6 +51,10 @@ export interface AppOptions {
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+// 三个全员默认团队(ADR-0026):成员创建/启用时自动加入;system-admins 是
+// 手动管理的委托团队,不在此列(禁用清出后启用不自动恢复)。
+const ALL_MEMBER_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
 
 // 统一的 token → 调用方身份解析:token 可来自平台管理员、Skill User 或 Gitea
 // 用户,DB 内先查(已登记 token,无网络往返)再回退 Gitea。单组织门禁与
@@ -112,7 +117,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     const password = decryptApplicationSecret(application.encryptedPassword, options.applicationEncryptionKey);
     try {
-      await initializeTenantOrganization(options.giteaService, payload.orgName, password);
+      await initializeTenantOrganization(options.giteaService, payload.orgName, password, tenantOrganizationRepository);
       tenantOrganizationRepository.transition(payload.orgName, 'active');
       orgApplicationRepository.updateApplicationStatusById(payload.applicationId, 'approved');
       orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
@@ -181,7 +186,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const password = readOperationSecret(operation.id);
     await options.giteaService.createUser(payload.username, password);
     for (const team of await options.giteaService.listTeams(payload.orgName)) {
-      if (team.name === 'all-readers' || team.name === 'all-writers') {
+      if (ALL_MEMBER_TEAM_NAMES.has(team.name)) {
         await options.giteaService.addTeamMember(team.id, payload.username);
       }
     }
@@ -199,7 +204,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const payload = operation.payload as { orgName: string; username: string };
     await options.giteaService.enableUser(payload.username);
     for (const team of await options.giteaService.listTeams(payload.orgName)) {
-      if (team.name === 'all-readers' || team.name === 'all-writers') {
+      if (ALL_MEMBER_TEAM_NAMES.has(team.name)) {
         await options.giteaService.addTeamMember(team.id, payload.username);
       }
     }
@@ -255,6 +260,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
       });
     });
   }
+  // ADR-0026 存量迁移:启动时为既有 active 组织补建四档默认团队(幂等)。
+  app.addHook('onReady', async () => {
+    await ensureDefaultTeamsForActiveOrgs(options.giteaService, tenantOrganizationRepository);
+  });
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   // 匿名平台信息(ADR-0022):CLI 与 Web 登录/注册页在登录前消费它自适应交互,
@@ -405,10 +414,19 @@ export function buildApp(options: AppOptions): FastifyInstance {
       const scope = (urlSegment || bodyName).replace(/^@/, '').split('/')[0];
       const tenant = tenantOrganizationRepository.get(scope);
       if (tenant && tenant.status !== 'active') {
-        return reply.status(409).send({
-          error: `Organization is not active: ${scope}`,
-          status: tenant.status
-        });
+        // 平台管理员保留治理可见性(ADR-0025):冻结/删除中的组织技能仍可巡检,
+        // 不受组织激活门禁限制;其余调用方一律拒绝。
+        const authorization = request.headers.authorization;
+        const token = authorization?.startsWith('token ') ? authorization.replace('token ', '').trim() : '';
+        const { isPlatformAdmin } = token
+          ? await resolveAuthedUser(token, adminRepository, options.giteaService)
+          : { isPlatformAdmin: false };
+        if (!isPlatformAdmin) {
+          return reply.status(409).send({
+            error: `Organization is not active: ${scope}`,
+            status: tenant.status
+          });
+        }
       }
     }
     // CLI 与管理后台登录端点共用同一组织激活门禁:body 以 { org } 显式携带

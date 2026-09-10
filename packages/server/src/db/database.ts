@@ -332,6 +332,28 @@ export class SkillRepository {
     return row.count;
   }
 
+  // 全量技能清单(含未发布,ADR-0025):管理后台的角色化可见性视图以此为基础,
+  // 再按调用方身份(超管/组织管理员/成员)与 Git Backend 权限过滤。
+  listSkills(): SkillRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT
+        name,
+        skill_id AS skillId,
+        scope,
+        skill_name AS skillName,
+        description,
+        created_by AS createdBy,
+        owner,
+        maintainers_json AS maintainersJson,
+        visibility,
+        status,
+        git_repo_path AS gitRepoPath
+      FROM skills
+      ORDER BY updated_at DESC, created_at DESC
+    `);
+    return (stmt.all() as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[]).map(deserializeSkill);
+  }
+
   searchSkills(query: string): SkillRecord[] {
     const stmt = this.db.prepare(`
       SELECT
@@ -1215,6 +1237,36 @@ export class TenantOrganizationRepository {
       return result.changes > 0 ? this.get(orgName) : undefined;
     });
     return transaction() as TenantOrganizationRecord | undefined;
+  }
+
+  // 团队显示名(ADR-0029):ESL 侧纯展示字段,键按 Gitea team ID——标识名改名
+  // (Gitea 挂载按 ID 引用)不丢显示名。未设置返回 undefined。
+  getTeamDisplayName(orgName: string, giteaTeamId: number): string | undefined {
+    const row = this.db.prepare(`
+      SELECT display_name
+      FROM org_team_profiles
+      WHERE org_name = ? AND gitea_team_id = ?
+    `).get(orgName, giteaTeamId) as { display_name: string | null } | undefined;
+    return row?.display_name ?? undefined;
+  }
+
+  // 写入团队显示名;displayName 传 null 即清空。不存在则插入,存在则覆盖。
+  setTeamDisplayName(orgName: string, giteaTeamId: number, displayName: string | null): void {
+    this.db.prepare(`
+      INSERT INTO org_team_profiles (org_name, gitea_team_id, display_name, created_at, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(org_name, gitea_team_id) DO UPDATE SET
+        display_name = excluded.display_name,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(orgName, giteaTeamId, displayName);
+  }
+
+  // 自定义团队删除后清理其显示名记录,不留孤儿数据。
+  deleteTeamProfile(orgName: string, giteaTeamId: number): void {
+    this.db.prepare(`
+      DELETE FROM org_team_profiles
+      WHERE org_name = ? AND gitea_team_id = ?
+    `).run(orgName, giteaTeamId);
   }
 }
 

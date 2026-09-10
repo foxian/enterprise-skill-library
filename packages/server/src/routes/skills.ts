@@ -164,6 +164,29 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return accessible;
   });
 
+  // 角色化技能清单(ADR-0025):与 search(只返回已发布、面向安装消费)不同,
+  // 这里返回调用方可见的全部技能(含未发布)及其权限关系,供管理后台的
+  // "我管理的/共享给我的"与超管、组织管理员视图消费。
+  // - 超级管理员:跨组织全部技能(组织冻结状态下仍可治理巡检);
+  // - 组织管理员/成员:本组织技能,组织间完全隔离;
+  // - relation: managed=持有管理权, shared=可读/可写但无管理权。
+  app.get('/api/skills/inventory', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const account = parseGiteaUsername(user.username);
+    const isSuper = !account;
+    const view: Array<SkillRecord & { access: SkillAccessLevel; relation: 'managed' | 'shared' }> = [];
+    for (const skill of repository.listSkills()) {
+      if (!isSuper && skill.scope !== account.org) continue;
+      const access = await getAccessLevel(giteaService, skill, user.username);
+      if (access === 'none') continue;
+      view.push({ ...skill, access, relation: access === 'manage' ? 'managed' : 'shared' });
+    }
+    return view;
+  });
+
   app.get('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
@@ -175,10 +198,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!skill) {
       return reply.status(404).send({ error: 'Skill not found' });
     }
-    if (!canManageSkill(skill, user.username)) {
-      return reply.status(403).send({ error: 'Forbidden: skill owner or organization administrator required' });
+    if (!(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
-    return getPermissionMatrix(giteaService, skill);
+    return getPermissionMatrix(giteaService, tenantOrganizationRepository, skill);
   });
 
   app.post('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
@@ -192,8 +215,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!skill) {
       return reply.status(404).send({ error: 'Skill not found' });
     }
-    if (!canManageSkill(skill, user.username)) {
-      return reply.status(403).send({ error: 'Forbidden: skill owner or organization administrator required' });
+    if (!(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
 
     const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
@@ -203,8 +226,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let payload: PermissionChangePayload;
     switch (body.action) {
       case 'share_all_read':
-      case 'share_all_write': {
-        const teamName = body.action === 'share_all_read' ? 'all-readers' : 'all-writers';
+      case 'share_all_write':
+      case 'share_all_manage': {
+        const teamName =
+          body.action === 'share_all_read'
+            ? 'all-readers'
+            : body.action === 'share_all_write'
+              ? 'all-writers'
+              : 'all-managers';
         const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === teamName);
         if (!team) {
           return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
@@ -225,8 +254,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         break;
       }
       case 'add_member': {
-        if (!body.username || (body.permission !== 'read' && body.permission !== 'write')) {
-          return reply.status(400).send({ error: 'Username and a read or write permission are required' });
+        // ADR-0025 三档:read/write/manage;manage 档由执行器映射为 Gitea admin 级协作者。
+        if (
+          !body.username ||
+          (body.permission !== 'read' && body.permission !== 'write' && body.permission !== 'manage')
+        ) {
+          return reply.status(400).send({ error: 'Username and a read, write, or manage permission are required' });
         }
         payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, username: body.username, permission: body.permission };
         break;
@@ -261,7 +294,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         retryable: true
       });
     }
-    return getPermissionMatrix(giteaService, skill);
+    return getPermissionMatrix(giteaService, tenantOrganizationRepository, skill);
   });
 
   app.post('/api/skills/:scope/:skillName/rename', async (request, reply) => {
@@ -270,8 +303,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(currentName);
     const nextShortName = (request.body as { name?: string }).name ?? '';
-    if (!user || !skill || (skill.owner !== user.username && !skill.maintainers.includes(user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
     if (!/^[a-z0-9-]{1,64}$/.test(nextShortName)) {
       return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
@@ -341,8 +374,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill || !skill.maintainers.includes(user.username)) {
-      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
     if (skill.status === 'archived') {
       return reply.status(409).send({ error: 'Archived skills cannot create releases' });
@@ -485,8 +518,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill || !skill.maintainers.includes(user.username)) {
-      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
     const release = repository.getRelease(name, decodeURIComponent(params.version));
     if (!release) {
@@ -560,8 +593,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill || !skill.maintainers.includes(user.username)) {
-      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
     const version = decodeURIComponent(params.version);
     const body = request.body as { message?: string };
@@ -580,8 +613,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill || (skill.owner !== user.username && !skill.maintainers.includes(user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: Maintainer permission required' });
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
     if (typeof giteaService.setRepositoryArchived === 'function') {
       try {
@@ -731,46 +764,78 @@ function skillRepo(skill: SkillRecord): { owner: string; name: string } {
   };
 }
 
+// ADR-0025 三档权限:Read/Write/Manage,Manage 档隐含读与写。
+// 判定顺序:先看 DB 记录与角色约定(owner/初始 Maintainer/组织管理员/超管,
+// 无网络往返),再查 Git Backend 的团队与协作者授权(Gitea 是权限事实来源)。
+export type SkillAccessLevel = 'none' | 'read' | 'write' | 'manage';
+
+async function getAccessLevel(
+  giteaService: GiteaService,
+  skill: SkillRecord,
+  username: string | undefined
+): Promise<SkillAccessLevel> {
+  if (!username) return 'none';
+  // DB 记录的 owner 与初始 Maintainer(创建者)天然持有管理权(ADR-0025:
+  // maintainers_json 退化为初始创建者记录);组织管理员与超级管理员同理。
+  if (username === skill.owner || skill.maintainers.includes(username)) return 'manage';
+  if (username === `${skill.scope}_admin`) return 'manage';
+  if (giteaService.adminUsername && username === giteaService.adminUsername) return 'manage';
+  // public 技能对任何已登录用户可读,无需向 Git Backend 查询权限。
+  // 也避免对 DB 中存在但 Gitea 侧仓库缺失的孤儿记录触发 Gitea 调用。
+  if (skill.visibility === 'public') return 'read';
+  const hasPermissionSupport =
+    typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
+  if (!hasPermissionSupport) {
+    // Git backends without permission APIs cannot be filtered; keep legacy behavior.
+    return 'read';
+  }
+  const repo = skillRepo(skill);
+  let level: SkillAccessLevel = 'none';
+  if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
+    for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
+      if (!(await giteaService.isTeamMember(team.id, username))) continue;
+      if (team.permission === 'admin' || team.permission === 'owner') return 'manage';
+      if (team.permission === 'write') level = 'write';
+      else if (level === 'none') level = 'read';
+    }
+  }
+  if (typeof giteaService.getCollaboratorPermission === 'function') {
+    const permission = await giteaService.getCollaboratorPermission(repo.owner, repo.name, username);
+    if (permission === 'admin' || permission === 'owner') return 'manage';
+    if (permission === 'write') level = 'write';
+    else if (permission === 'read' && level === 'none') level = 'read';
+  }
+  return level;
+}
+
 async function hasReadAccess(
   giteaService: GiteaService,
   skill: SkillRecord,
   username: string | undefined
 ): Promise<boolean> {
-  if (!username) return false;
-  // public 技能对任何已登录用户可读,无需向 Git Backend 查询权限。
-  // 也避免对 DB 中存在但 Gitea 侧仓库缺失的孤儿记录触发 Gitea 调用。
-  if (skill.visibility === 'public') return true;
-  if (username === `${skill.scope}_admin`) return true;
-  // 技能创建者/维护者拥有管理权，理应可读自己的仓库（API 创建流未自动添加 collaborator）
-  if (username === skill.owner || skill.maintainers.includes(username)) return true;
-  const hasPermissionSupport =
-    typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
-  if (!hasPermissionSupport) {
-    // Git backends without permission APIs cannot be filtered; keep legacy behavior.
-    return true;
-  }
-  if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
-    const repo = skillRepo(skill);
-    for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
-      if (await giteaService.isTeamMember(team.id, username)) {
-        return true;
-      }
-    }
-  }
-  if (typeof giteaService.isCollaborator === 'function') {
-    const repo = skillRepo(skill);
-    return giteaService.isCollaborator(repo.owner, repo.name, username);
-  }
-  return false;
+  return (await getAccessLevel(giteaService, skill, username)) !== 'none';
 }
 
-function canManageSkill(skill: SkillRecord, username: string): boolean {
-  return (
-    skill.owner === username || skill.maintainers.includes(username) || username === `${skill.scope}_admin`
-  );
+// 管理权判定(ADR-0025):publish、rename、archive、权限配置等技能管理操作统一守门。
+async function canManageSkill(
+  giteaService: GiteaService,
+  skill: SkillRecord,
+  username: string | undefined
+): Promise<boolean> {
+  return (await getAccessLevel(giteaService, skill, username)) === 'manage';
 }
 
-async function getPermissionMatrix(giteaService: GiteaService, skill: SkillRecord) {
+// ESL 三档权限词汇(ADR-0025):Gitea 的 admin/owner 仓库访问级别统一呈现为
+// manage,与授权操作的档位词汇保持一致。
+function normalizePermission(permission: string): string {
+  return permission === 'admin' || permission === 'owner' ? 'manage' : permission;
+}
+
+async function getPermissionMatrix(
+  giteaService: GiteaService,
+  tenantOrganizationRepository: TenantOrganizationRepository,
+  skill: SkillRecord
+) {
   const repo = skillRepo(skill);
   const repoTeams =
     typeof giteaService.listRepoTeams === 'function'
@@ -786,14 +851,24 @@ async function getPermissionMatrix(giteaService: GiteaService, skill: SkillRecor
       typeof giteaService.getCollaboratorPermission === 'function'
         ? await giteaService.getCollaboratorPermission(repo.owner, repo.name, member.username)
         : 'read';
-    memberViews.push({ username: member.username, permission });
+    memberViews.push({ username: member.username, permission: normalizePermission(permission) });
   }
   return {
     scope: skill.scope,
     skillName: skill.skillName,
     sharedAllRead: repoTeams.some((team) => team.name === 'all-readers'),
     sharedAllWrite: repoTeams.some((team) => team.name === 'all-writers'),
-    teams: repoTeams.filter((team) => !['all-readers', 'all-writers', 'Owners'].includes(team.name)),
+    // ADR-0026:组织共享级别三档,all-managers 对应"全员可管理"
+    sharedAllManage: repoTeams.some((team) => team.name === 'all-managers'),
+    // 团队授权下拉仅列自定义团队:默认团队由共享级别承载,Owners 与
+    // system-admins 的权限是结构性的,逐技能授予无意义(ADR-0026)。
+    teams: repoTeams
+      .filter((team) => !['all-readers', 'all-writers', 'all-managers', 'system-admins', 'Owners'].includes(team.name))
+      .map((team) => ({
+        ...team,
+        display_name: tenantOrganizationRepository.getTeamDisplayName(skill.scope, team.id),
+        permission: normalizePermission(team.permission)
+      })),
     members: memberViews
   };
 }

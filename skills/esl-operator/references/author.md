@@ -1,7 +1,7 @@
 # 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
 
 只读命令（直接跑）：`validate`。
-写命令（先回显、确认再跑）：`init` `version` `source` `upload` `publish` `share`。
+写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `share`。
 
 ## 初始化新技能
 `esl init @ns/name [--license SPDX]` —— 在当前目录下生成技能文件夹（短名为目录名），含 `SKILL.md`（带 frontmatter）与 `release.json`。`release.json` 的 `schemaVersion` 为 `1`，`license` 默认 `MIT` 可用 `--license` 覆盖。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。
@@ -17,7 +17,7 @@
 - `upload` 只读取 `SKILL.md` 里的短名，不接收、也不需要你提供 namespace；完整身份由服务器按你的租户组织（登录组织）生成，如组织 `esl` 的成员上传 `markdown-master` 得到 `@esl/markdown-master`（ADR-0024）。不要在命令里拼 `@author/...` 之类的身份。
 - 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 1`，`license` 默认 `MIT`，可用 `--license` 覆盖，不再交互询问），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 - **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
-- 已托管目录（有 `esl` remote）上 fetch/push 失败时，`upload` 直接硬报错，提示该源可能由其他账号/组织维护或已不存在，并给出两条出路：**用维护它的账号重新登录后再 `esl upload`**；或确认服务器源已删除时手动 `git remote remove esl` 再重新 `esl upload`（显式两步重建）。CLI 绝不会自动删除 remote 重注册——看到这类报错别提议删 remote，先让用户确认当前登录账号是不是这个源的维护账号。
+- 已托管目录（有 `esl` remote）上 fetch 失败时，`upload` 先用 Registry API 做一次只读探测再报错（ADR-0027），按探测结果分三种文案：**① 技能身份在服务器可见但 Git 源同步不了**——凭据陈旧或缺仓库权限，提示用维护它的账号重新登录后再 `esl upload`；**② 身份可见但服务器 cloneUrl 与 remote 仓库路径不一致**——remote 指向陈旧路径（如改名后），提示核对后手动 `git remote remove esl` 再重新 `esl upload`；**③ 探测失败（不确定）**——降级为统一的两种可能文案（其他账号维护 或 源已不存在），出路上「切维护账号重登」或确认删除后手动 `git remote remove esl` 两步重建。push 失败走同一统一文案并附 `git push esl HEAD:main` 收尾提示。CLI 绝不自动删除 remote 重注册——看到这类报错别提议删 remote，先按文案里的探测结论引导：能确定「身份可见」就只查账号/权限，探测失败才让用户去确认服务器源是否还在。
 
 ## 发布
 `esl publish [./path] [version] [--force|-f] [--license SPDX]` —— 在技能目录内执行，发布当前已推送且等于 `esl/main` 的 `HEAD` 为 Skill Release。技能目录与版本号都是可选位置参数：目录可写位置路径（`esl publish ./markdown-master 1.0.0`）或 `--directory`（默认当前目录）；只给一个位置参数时按形状识别——形如 SemVer（`esl publish 1.0.0`）视为版本号，否则视为技能目录。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 1`，`license` 默认 `MIT`，可用 `--license` 覆盖，不再交互询问），落盘后**提示先 commit + push、再重跑 `publish`**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
@@ -32,6 +32,9 @@
 
 ## 拉别人源码做二次开发
 `esl source @ns/name [./dir]` —— 克隆远端 Git 源码到本地（默认当前目录），可改可修。这拿的是源码仓库，不是 Published Package。
+
+## 重置源链接（源已在服务器删除后重建）
+`esl reset-source [./path] [-f]` —— 把一个已托管目录（有 `esl` remote）还原为未托管的本地源：删除 `esl` remote 并把 `release.json` 改名保留为 `release.json.before-reset`。**它只做本地脱管，绝不删服务器上任何东西，也不自动重新登记**——重传始终是下一条显式的 `esl upload`（将生成全新 Skill ID）。适用场景只有一个：确认服务器源已被删除、本地要按新源重建。执行前的守门：CLI 先向 Registry API 询问一次该身份是否还存在——**身份仍可见时直接拒绝执行**（服务器源还在，别拿它当删除手段；报错会给出两条正途：切维护账号重登后 `esl upload` 同步，或让平台管理员走 Archived/Deleted 流程真正删除），只有 `--force` 能越过阻断；探测失败才对应「确实没删到」的场景静默通过。要求确认，非交互传 `--force`。重传后缺 `release.json` 会自动补最小清单，需要的字段可从 `.before-reset` 备份拷回。别在源只是「维护账号不对」时怂恿用户 `--force`——阻断报错就是在拦这种情况，先让用户去服务器核实。
 
 ## 共享与权限
 `esl share @ns/skill-name --all [--write]` —— 共享给全组织使用（只读）或协作（`--write`）。

@@ -122,6 +122,7 @@ describe('Fastify Server API', () => {
       skillName: 'ghost-skill',
       sharedAllRead: false,
       sharedAllWrite: false,
+      sharedAllManage: false,
       teams: [],
       members: []
     });
@@ -470,7 +471,26 @@ describe('Fastify Server API', () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ status: 'provisioning' });
-    expect(mockGitea.validateToken).not.toHaveBeenCalled();
+  });
+
+  it('lets the platform administrator inspect skills of a non-active tenant (ADR-0025)', async () => {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'provisioning' });
+    db.close();
+    const mockGitea = {
+      validateToken: vi.fn().mockResolvedValue({ username: 'eslroot' }),
+      adminUsername: 'eslroot'
+    };
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/missing',
+      headers: { authorization: 'token token' }
+    });
+
+    // 门禁放行后由技能路由正常处理:仓库不存在返回 404 而非组织状态 409。
+    expect(response.statusCode).toBe(404);
   });
 
   it('logs in an organization member through the CLI endpoint and registers the returned token', async () => {

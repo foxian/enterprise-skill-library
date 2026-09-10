@@ -142,4 +142,13 @@ export const databaseSchema = `
     value TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS org_team_profiles (
+    org_name TEXT NOT NULL,
+    gitea_team_id INTEGER NOT NULL,
+    display_name TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (org_name, gitea_team_id)
+  );
 `;

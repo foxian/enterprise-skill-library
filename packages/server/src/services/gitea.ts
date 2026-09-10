@@ -46,6 +46,22 @@ export interface GiteaTeam {
   permission: 'read' | 'write' | 'admin' | 'owner';
 }
 
+// Gitea 仓库单元全集。创建/编辑团队时以此构建 units_map:单元级只有
+// read/write 两档,admin(Manage)档的单元仍按 write 授予,仓库访问级别由
+// team.permission 表达(ADR-0025/0029)。
+const TEAM_REPO_UNITS = [
+  'repo.actions',
+  'repo.issues',
+  'repo.ext_issues',
+  'repo.wiki',
+  'repo.ext_wiki',
+  'repo.pulls',
+  'repo.releases',
+  'repo.projects',
+  'repo.packages',
+  'repo.code'
+];
+
 export class GiteaService {
   constructor(
     private baseUrl: string,
@@ -427,23 +443,22 @@ export class GiteaService {
     return body.map((org) => ({ id: org.id, name: org.name, created: org.created }));
   }
 
-  async createTeam(org: string, name: string, permission: 'read' | 'write'): Promise<GiteaTeam> {
+  async createTeam(
+    org: string,
+    name: string,
+    permission: 'read' | 'write' | 'admin',
+    options: { includesAllRepositories?: boolean; canCreateOrgRepo?: boolean } = {}
+  ): Promise<GiteaTeam> {
     // Gitea 1.22 创建团队时必须提供 units_map，否则报 "units permission should not be empty"。
     // 将全部仓库单元都授予该权限级别，使新团队默认具备对组织仓库的读写访问。
-    const units = [
-      'repo.actions',
-      'repo.issues',
-      'repo.ext_issues',
-      'repo.wiki',
-      'repo.ext_wiki',
-      'repo.pulls',
-      'repo.releases',
-      'repo.projects',
-      'repo.packages',
-      'repo.code'
-    ];
+    // admin 团队(ADR-0025 Manage 档)的仓库单元仍按 write 授予——单元级只有
+    // read/write 两档,仓库访问级别由 team.permission=admin 表达。
+    // includesAllRepositories / canCreateOrgRepo 用于系统管理团队(ADR-0026):
+    // 全部仓库的结构性 admin 授权与 Git Backend 建库权;普通团队显式为 false,
+    // 不留给 Gitea 默认值。
+    const unitPermission: 'read' | 'write' = permission === 'admin' ? 'write' : permission;
     const unitsMap: Record<string, 'read' | 'write'> = Object.fromEntries(
-      units.map((unit) => [unit, permission])
+      TEAM_REPO_UNITS.map((unit) => [unit, unitPermission])
     );
     const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
       method: 'POST',
@@ -451,7 +466,13 @@ export class GiteaService {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, permission, units_map: unitsMap })
+      body: JSON.stringify({
+        name,
+        permission,
+        units_map: unitsMap,
+        includes_all_repositories: options.includesAllRepositories ?? false,
+        can_create_org_repo: options.canCreateOrgRepo ?? false
+      })
     });
 
     if (!res.ok) {
@@ -473,6 +494,40 @@ export class GiteaService {
       const err = await res.text();
       throw new Error(`Failed to delete Gitea team: ${err}`);
     }
+  }
+
+  // 团队编辑(ADR-0029):可改标识名与权限档。Gitea 的 EditTeam 是部分更新——
+  // 只发 name 不动权限;改权限时必须连带 units_map,否则单元级授权停留在旧档,
+  // 实际仓库访问与顶级权限不一致。标识名按团队 ID 引用,改名不断授权(ADR-0026)。
+  async updateTeam(
+    teamId: number,
+    changes: { name?: string; permission?: 'read' | 'write' | 'admin' }
+  ): Promise<GiteaTeam> {
+    const body: Record<string, unknown> = {};
+    if (changes.name !== undefined) body.name = changes.name;
+    if (changes.permission !== undefined) {
+      body.permission = changes.permission;
+      const unitPermission: 'read' | 'write' = changes.permission === 'admin' ? 'write' : changes.permission;
+      body.units_map = Object.fromEntries(
+        TEAM_REPO_UNITS.map((unit) => [unit, unitPermission])
+      );
+    }
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to update Gitea team: ${err}`);
+    }
+
+    const response = (await res.json()) as { id: number; name: string; permission: GiteaTeam['permission'] };
+    return { id: response.id, name: response.name, permission: response.permission };
   }
 
   async listTeams(org: string): Promise<GiteaTeam[]> {
@@ -582,29 +637,58 @@ export class GiteaService {
   }
 
   async listOrgMembers(org: string): Promise<GiteaUser[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/members`, {
-      headers: { Authorization: `token ${this.adminToken}` }
-    });
+    // Gitea 列表接口有分页且默认单页截断,成员数超过一页后新成员会从列表
+    // 中"消失"(成员管理、org-init 校验、org-delete 级联均依赖全量列表),
+    // 必须循环翻页直到取完。单页上限用 Gitea 允许的最大值 50。
+    const members: GiteaUser[] = [];
+    const pageSize = 50;
+    for (let page = 1; page <= 200; page++) {
+      const res = await this.customFetch(
+        `${this.baseUrl}/api/v1/orgs/${org}/members?limit=${pageSize}&page=${page}`,
+        {
+          headers: { Authorization: `token ${this.adminToken}` }
+        }
+      );
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to list Gitea organization members: ${err}`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Failed to list Gitea organization members: ${err}`);
+      }
+
+      const batch = (await res.json()) as GiteaUser[];
+      members.push(...batch);
+      if (batch.length < pageSize) {
+        return members;
+      }
     }
-
-    return (await res.json()) as GiteaUser[];
+    return members;
   }
 
   async listTeamMembers(teamId: number): Promise<GiteaUser[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/members`, {
-      headers: { Authorization: `token ${this.adminToken}` }
-    });
+    // 同 listOrgMembers:默认团队(all-readers/all-writers)成员会随组织增长,
+    // 单页截断会让权限判定漏人,循环翻页取全量。
+    const members: GiteaUser[] = [];
+    const pageSize = 50;
+    for (let page = 1; page <= 200; page++) {
+      const res = await this.customFetch(
+        `${this.baseUrl}/api/v1/teams/${teamId}/members?limit=${pageSize}&page=${page}`,
+        {
+          headers: { Authorization: `token ${this.adminToken}` }
+        }
+      );
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Failed to list Gitea team members: ${err}`);
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Failed to list Gitea team members: ${err}`);
+      }
+
+      const batch = (await res.json()) as GiteaUser[];
+      members.push(...batch);
+      if (batch.length < pageSize) {
+        return members;
+      }
     }
-
-    return (await res.json()) as GiteaUser[];
+    return members;
   }
 
   async removeOrgMember(org: string, username: string): Promise<void> {

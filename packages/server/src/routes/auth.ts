@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { buildGiteaUsername, deriveOrganizationRole, validatePassword } from '@esl/core';
 import type { AdminRepository, PlatformSettingsRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
+import { isOrganizationAdministrator } from '../services/org-admin-auth.js';
 import { readDefaultOrg } from '../services/platform-config.js';
 
 export interface AuthRouteOptions {
@@ -48,7 +49,16 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       return unauthorized(reply);
     }
 
-    return { token, username, org, role: deriveOrganizationRole(org, username) };
+    return {
+      token,
+      username,
+      org,
+      // 与控制台登录一致:组织管理员是角色(ADR-0026),系统管理团队成员
+      // 登录同样返回 org-admin
+      role: (await isOrganizationAdministrator(giteaService, org, giteaUsername))
+        ? 'org-admin'
+        : deriveOrganizationRole(org, username)
+    };
   });
 
   // 管理后台专用登录:三类角色都收。带组织的账号按 <org>_<username> 解析并校验
@@ -94,7 +104,13 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       token,
       username,
       org,
-      role: org ? deriveOrganizationRole(org, username) : 'super'
+      // 组织管理员是角色而非账号(ADR-0026):admin 账号与系统管理团队成员
+      // 登录后台均为 org-admin
+      role: org
+        ? (await isOrganizationAdministrator(giteaService, org, giteaUsername))
+          ? 'org-admin'
+          : deriveOrganizationRole(org, username)
+        : 'super'
     };
   });
 

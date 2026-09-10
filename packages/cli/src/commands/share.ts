@@ -6,6 +6,7 @@ export interface ShareOptions extends NetworkCommandOptions {
   team?: string;
   user?: string;
   write?: boolean;
+  manage?: boolean;
   reset?: boolean;
 }
 
@@ -13,7 +14,7 @@ export interface ShareTarget {
   action: 'share_all_read' | 'share_all_write' | 'add_team' | 'add_member' | 'reset_to_private';
   team?: string;
   username?: string;
-  permission?: 'read' | 'write';
+  permission?: 'read' | 'write' | 'manage';
 }
 
 export function resolveShareTarget(options: ShareOptions): ShareTarget {
@@ -24,6 +25,9 @@ export function resolveShareTarget(options: ShareOptions): ShareTarget {
   if (selected.length > 1) {
     throw new Error('Choose only one of --all, --team, --user, or --reset');
   }
+  if (options.write && options.manage) {
+    throw new Error('Choose only one permission level: --write or --manage');
+  }
   if (options.all) {
     return { action: options.write ? 'share_all_write' : 'share_all_read' };
   }
@@ -31,7 +35,12 @@ export function resolveShareTarget(options: ShareOptions): ShareTarget {
     return { action: 'add_team', team: options.team };
   }
   if (options.user) {
-    return { action: 'add_member', username: options.user, permission: options.write ? 'write' : 'read' };
+    // ADR-0025 三档:manage 档授予对方协管(配权限、发布)的能力。
+    return {
+      action: 'add_member',
+      username: options.user,
+      permission: options.manage ? 'manage' : options.write ? 'write' : 'read'
+    };
   }
   return { action: 'reset_to_private' };
 }

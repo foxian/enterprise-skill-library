@@ -564,7 +564,7 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['rebase', '--continue'], { cwd: skillDir });
   });
 
-  it('fails with cross-account guidance when the fetch cannot access the hosted source', async () => {
+  it('falls back to unified guidance when the probe itself cannot resolve the identity', async () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
@@ -590,7 +590,76 @@ describe('esl upload', () => {
     expect(error).not.toBeNull();
     expect(error!.message).toMatch(/maintained by another account or organization/);
     expect(error!.message).toMatch(/git remote remove esl/);
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+  });
+
+  it('reports a stale remote path when the probe shows the identity under a different clone URL', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...uploadResponse,
+        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer-renamed.git'
+      })
+    });
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+      }
+      if (args.includes('fetch')) {
+        return Promise.reject(new Error('remote: Repository not found.'));
+      }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    const error = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/stale remote path|clone URL for @platform-ai\/reviewer/);
+    expect(error!.message).toMatch(/reviewer-renamed/);
+    expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+  });
+
+  it('reports a git access problem when the probe shows the identity at the same clone URL', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => uploadResponse
+    });
+    const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
+      if (args[0] === 'remote' && args[1] === 'get-url') {
+        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+      }
+      if (args.includes('fetch')) {
+        return Promise.reject(new Error('remote: Repository not found.'));
+      }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    });
+
+    const error = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    }).then(
+      () => null,
+      (e: Error) => e
+    );
+
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/skill identity @platform-ai\/reviewer exists on the server/);
+    expect(error!.message).toMatch(/stale credential or missing repository access|Log in with the maintaining account/);
+    expect(error!.message).not.toMatch(/or it may no longer exist/);
     expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
   });
 

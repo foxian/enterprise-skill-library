@@ -18,6 +18,7 @@ import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeUpload } from '../commands/upload.js';
+import { executeResetSource } from '../commands/reset-source.js';
 import { executeStatus } from '../commands/status.js';
 import { executeRename } from '../commands/rename.js';
 import { executeNotes } from '../commands/notes.js';
@@ -197,6 +198,25 @@ program
     });
 
   program
+    .command('reset-source')
+    .description('Detach a skill source directory from its server source (remove the esl remote and back up release.json)')
+    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
+    .option('--directory <path>', 'skill directory', process.cwd())
+    .option('--server <url>', 'ESL Server URL')
+    .option('-f, --force', 'reset without confirmation')
+    .addHelpText('after', example('$ esl reset-source ./my-skill --force'))
+    .action(async (skillPath: string | undefined, options: { directory: string; server?: string; force?: boolean }) => {
+      const result = await executeResetSource({
+        directory: skillPath ?? options.directory,
+        server: options.server,
+        force: options.force,
+        noInput: program.opts().input === false
+      });
+      console.log(`Source link reset in ${result.directory}; the directory is now a plain local skill source`);
+      console.log('To register it as a fresh server source, run "esl upload" from the directory');
+    });
+
+  program
     .command('status')
     .description('Show the state of the local skill source vs the server')
     .option('--directory <path>', 'skill directory', process.cwd())
@@ -236,12 +256,13 @@ program
     .argument('<skill-name>')
     .option('--all', 'share with the whole organization (read; add --write for edit)')
     .option('--team <name>', 'share with a team (keeps the team permission level)')
-    .option('--user <username>', 'share with a member (read; add --write for edit)')
+    .option('--user <username>', 'share with a member (read; add --write for edit; add --manage for co-management)')
     .option('--write', 'grant edit (write) permission where applicable')
+    .option('--manage', 'grant manage permission (share, publish, and grant others)')
     .option('--reset', 'reset to private (only you keep access)')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl share @acme/code-review --all'))
-    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; reset?: boolean; server?: string }) => {
+    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; manage?: boolean; reset?: boolean; server?: string }) => {
       await executeShare(identity, options);
       console.log('Skill sharing updated');
     });

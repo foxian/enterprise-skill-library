@@ -10,9 +10,11 @@
     "smoke:git-backend-maintenance-entry": "node scripts/check-git-backend-maintenance-entry.mjs",
     "reset:dev": "node scripts/reset-dev-env.mjs",
     "reload:dev": "npm run build && docker compose build api && docker compose up -d api server",
-    "test": "npm run build --workspace @esl/core && vitest run && npm test --workspace @esl/web"
+    "test": "npm run build --workspace @esl/core && vitest run && npm test --workspace @esl/web",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^20.11.0",
     "toad-cache": "3.3.0",
     "typescript": "^5.3.3",

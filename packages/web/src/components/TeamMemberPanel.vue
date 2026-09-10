@@ -54,9 +54,14 @@ const props = defineProps<{ team: TeamView }>();
 const emit = defineEmits<{ (event: 'changed'): void }>();
 const auth = useAuthStore();
 
-// Owners 团队中的组织管理员账号是治理根基,不可从该团队移除
+// 组织管理员是治理根基:不可从 Owners 团队移除(组织唯一 Owner),也不可从
+// system-admins 团队移除(ADR-0026:admin 自动加入且不可移出)。两者 UI 隐藏
+// 移除按钮、显示管理员徽标,后端同样拒绝。
 function isProtectedOwner(username: string): boolean {
-  return props.team.permission === 'owner' && shortUsername(auth.org, username) === 'admin';
+  return (
+    shortUsername(auth.org, username) === 'admin' &&
+    (props.team.permission === 'owner' || props.team.name === 'system-admins')
+  );
 }
 
 const username = ref('');

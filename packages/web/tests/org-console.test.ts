@@ -25,10 +25,9 @@ async function setDocInput(testId: string, value: string): Promise<void> {
 }
 
 const members = [{ id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }];
+// 服务端 /api/orgs/teams 已过滤 Owners 与三个全员团队,只返回系统管理团队与自定义团队
 const teams = [
-  { id: 1, name: 'Owners', permission: 'owner' },
-  { id: 2, name: 'all-readers', permission: 'read' },
-  { id: 3, name: 'all-writers', permission: 'write' },
+  { id: 5, name: 'system-admins', permission: 'manage', display_name: '系统管理团队' },
   { id: 7, name: 'frontend', permission: 'read' }
 ];
 
@@ -343,7 +342,7 @@ describe('MembersView 成员管理', () => {
 });
 
 describe('TeamsView 团队管理', () => {
-  it('默认团队删除按钮置灰且无删除弹窗', async () => {
+  it('系统管理团队删除按钮置灰且无删除弹窗', async () => {
     const { requests } = useApiMock((_method, url) => {
       if (url === '/api/orgs/teams') {
         return { status: 200, json: teams };
@@ -353,12 +352,11 @@ describe('TeamsView 团队管理', () => {
     wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
     await flushPromises();
 
-    expect((wrapper.find('[data-test="delete-team-all-readers"]').element as HTMLButtonElement).disabled).toBe(true);
-    // Owners 团队是组织治理根基,同样不可删除
-    expect((wrapper.find('[data-test="delete-team-Owners"]').element as HTMLButtonElement).disabled).toBe(true);
+    // 团队管理页只列系统管理团队(默认)与自定义团队;系统管理团队不可删除
+    expect((wrapper.find('[data-test="delete-team-system-admins"]').element as HTMLButtonElement).disabled).toBe(true);
     expect((wrapper.find('[data-test="delete-team-frontend"]').element as HTMLButtonElement).disabled).toBe(false);
     // 置灰按钮点击不触发请求
-    await wrapper.find('[data-test="delete-team-all-readers"]').trigger('click');
+    await wrapper.find('[data-test="delete-team-system-admins"]').trigger('click');
     await flushPromises();
     expect(requests.some((request) => request.method === 'DELETE')).toBe(false);
     expect(wrapper.find('[data-test="default-team-tag"]').exists()).toBe(true);
@@ -387,15 +385,105 @@ describe('TeamsView 团队管理', () => {
     await flushPromises();
 
     const createRequest = requests.find((request) => request.method === 'POST' && request.url === '/api/orgs/teams');
-    expect(createRequest?.body).toEqual({ name: 'backend', permission: 'write' });
+    // ADR-0029:创建请求携带可选的显示名字段(留空即不设置)
+    expect(createRequest?.body).toEqual({ name: 'backend', permission: 'write', display_name: '' });
   });
 
-  it('Owners 团队面板中组织管理员行不可移除', async () => {
+  it('团队管理列表两列展示显示名与标识名', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/orgs/teams') {
+        return { status: 200, json: teams };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    await flushPromises();
+
+    // 系统管理团队显示预置中文显示名;自定义团队未设置显示名显示「—」
+    expect(wrapper.text()).toContain('系统管理团队');
+    expect(wrapper.text()).toContain('system-admins');
+    expect(wrapper.text()).toContain('—');
+  });
+
+  it('编辑团队:修改显示名不触发权限确认,保存后提交三个字段', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/teams') {
+        return { status: 200, json: teams };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="edit-team-frontend"]').trigger('click');
+    await flushPromises();
+    await setDocInput('edit-team-display-name', '前端团队');
+    await doc('edit-team-confirm').trigger('click');
+    await flushPromises();
+
+    const patch = requests.find((request) => request.method === 'PATCH');
+    expect(patch?.body).toEqual({ name: 'frontend', permission: 'read', display_name: '前端团队' });
+  });
+
+  it('编辑团队:改权限级别需二次确认,取消则不提交', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/teams') {
+        return { status: 200, json: teams };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="edit-team-frontend"]').trigger('click');
+    await flushPromises();
+    const manageRadio = doc('edit-team-permission').find('input[value="manage"]');
+    (manageRadio.element as HTMLInputElement).checked = true;
+    await manageRadio.trigger('change');
+    await doc('edit-team-confirm').trigger('click');
+    await flushPromises();
+
+    // 权限档变化弹二次确认(ElMessageBox 渲染到 body)
+    const cancelBtn = document.querySelector('.el-message-box__btns .el-button:not(.el-button--primary)');
+    expect(cancelBtn).not.toBeNull();
+    expect(requests.some((request) => request.method === 'PATCH')).toBe(false);
+    (cancelBtn as HTMLButtonElement).click();
+    await flushPromises();
+    expect(requests.some((request) => request.method === 'PATCH')).toBe(false);
+  });
+
+  it('编辑团队:改权限级别确认后提交 manage 档', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/teams') {
+        return { status: 200, json: teams };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="edit-team-frontend"]').trigger('click');
+    await flushPromises();
+    const manageRadio = doc('edit-team-permission').find('input[value="manage"]');
+    (manageRadio.element as HTMLInputElement).checked = true;
+    await manageRadio.trigger('change');
+    await doc('edit-team-confirm').trigger('click');
+    await flushPromises();
+
+    const confirmBtn = document.querySelector('.el-message-box__btns .el-button--primary');
+    (confirmBtn as HTMLButtonElement).click();
+    await flushPromises();
+
+    const patch = requests.find((request) => request.method === 'PATCH');
+    expect(patch?.body).toEqual({ name: 'frontend', permission: 'manage', display_name: '' });
+  });
+
+  it('系统管理团队面板中组织管理员行不可移除', async () => {
     useApiMock((method, url) => {
       if (url === '/api/orgs/teams') {
         return { status: 200, json: teams };
       }
-      if (url === '/api/orgs/teams/1/members') {
+      if (url === '/api/orgs/teams/5/members') {
         return {
           status: 200,
           json: [
@@ -409,12 +497,12 @@ describe('TeamsView 团队管理', () => {
     wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
     await flushPromises();
 
-    // 展开第 1 行（Owners）加载团队成员面板
+    // 展开第 1 行（system-admins）加载团队成员面板
     await wrapper.findAll('.el-table__expand-icon')[0].trigger('click');
     await flushPromises();
 
-    expect(document.querySelector('[data-test="team-members-Owners"]')).not.toBeNull();
-    // 组织管理员自身:显示"管理员"标识,无移除按钮
+    expect(document.querySelector('[data-test="team-members-system-admins"]')).not.toBeNull();
+    // 组织管理员自身:显示"管理员"标识,无移除按钮(ADR-0026:admin 自动加入且不可移出)
     expect(document.querySelector('[data-test="owner-admin-badge"]')).not.toBeNull();
     expect(document.querySelector('[data-test="team-remove-acme_admin"]')).toBeNull();
     // 普通成员:仍有移除按钮
@@ -462,8 +550,8 @@ describe('TeamsView 团队管理', () => {
     wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
     await flushPromises();
 
-    // 展开第 4 行（frontend）加载团队成员面板
-    await wrapper.findAll('.el-table__expand-icon')[3].trigger('click');
+    // 展开第 2 行（frontend,自定义团队）加载团队成员面板
+    await wrapper.findAll('.el-table__expand-icon')[1].trigger('click');
     await flushPromises();
 
     expect(document.querySelector('[data-test="team-members-frontend"]')).not.toBeNull();
@@ -475,7 +563,7 @@ describe('TeamsView 团队管理', () => {
     ).toBe(true);
 
     // 移除后父列表刷新，展开行折叠；重新展开再添加成员
-    await wrapper.findAll('.el-table__expand-icon')[3].trigger('click');
+    await wrapper.findAll('.el-table__expand-icon')[1].trigger('click');
     await flushPromises();
     await setDocInput('team-add-username', 'zed');
     await doc('team-add-submit').trigger('click');

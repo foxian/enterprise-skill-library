@@ -89,6 +89,17 @@ origin 替换为新 origin 的自动修复动作。验证不通过时按可行�
 新注册、绝不接管（不创建新 Skill ID，不删除既有 Source Remote）。
 _Avoid_: 重新注册、接管（adopt，ADR-0021 语义）。
 
+## 源链接重置 (Source Link Reset)
+
+把一个已托管目录（拥有 Source Remote 的本地技能源目录）还原为未托管
+Local Skill Source 的本地操作。它移除 Source Remote，并把 Release Manifest
+改名保留（`release.json.before-reset`），使后续 Source Upload 按新源重新
+登记、生成新的 Skill ID。它不触碰服务器：不删除任何服务器侧资产，也不
+自动重新登记——重新上传始终是显式的后续步骤。执行前有守门：当该身份在服务器上对当前登录仍可见时，拒绝
+执行并指引核实（切维护账号同步，或走 Archived/Deleted 流程删除）；仅
+`--force` 可越过该阻断。探测失败（身份不可见或不可达）时静默执行。
+_Avoid_: 清理；接管（adopt，ADR-0021 语义）；orphan 重新注册。
+
 ## Active Unreleased Skill Source
 
 已上传但尚未产生 Skill Release、仍可由 Maintainer 协作维护的
@@ -108,7 +119,10 @@ ESL Platform Administrator 执行。
 （与 Archived Skill 的保留式停用相对）。删除是物理的、不可恢复的：移除其
 Git 仓库、Published Skill Package 与全部 DB 记录（含 Release、版本、Tag 与
 名称重定向），Skill Identity 随即不可用且不可复用。只允许 ESL Platform
-Administrator 执行，删除前要求显式确认。
+Administrator 执行，删除前要求显式确认。「Skill Identity 不可复用」这一承诺
+以 Registry 数据存在为前提：同址的服务端数据整体丢失或重建（如开发期的
+Bootstrap Reset）时，承诺无法延续，同一 Identity 物理上可作为全新源再次
+登记，产生新的 Skill ID。
 
 ## Unreleased Skill Source
 
@@ -226,7 +240,7 @@ ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行�
 
 ## Organization Admin
 
-组织创建时自动生成的管理账号（Gitea 用户名为 `<orgname>_admin`），担任该 Gitea Organization 的 Owner 角色。拥有组织内成员、团队、权限矩阵以及全部技能的最高管理与治理权。
+组织内的最高管理与治理角色：管理成员、团队与权限矩阵，可见并管理全部技能。由两类持有者构成：组织创建时自动生成的管理账号（Gitea 用户名 `<orgname>_admin`，担任该 Gitea Organization 的唯一 Owner），以及系统管理团队的成员。
 
 ## Organization-scoped Account Name
 
@@ -235,7 +249,25 @@ _Avoid_: 用 `org_username` 当作面向用户的登录输入。
 
 ## Organization Team
 
-组织内部创建的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的仓库访问级别（Read 或 Write）。组织初始化时自动创建两个默认全员团队：`all-readers` 与 `all-writers`。
+组织内部创建的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的仓库访问级别（Read、Write 或 Manage）。组织初始化时自动创建四个默认团队：三个全员团队 `all-readers`（Read）、`all-writers`（Write）、`all-managers`（Manage），成员自动同步为全部组织成员，仅能被授予指定仓库且不持有建库权；以及系统管理团队。默认团队不可删除、不可改名，全员团队的成员列表不可手动增删；自定义团队可创建、改名、删除。Gitea 默认的 Owners 团队不属于团队管理界面，且仅含组织 admin 账号；三个全员团队同样不展示于团队管理界面——其授权由组织共享级别承载，团队管理页只列自定义团队与系统管理团队。
+
+## 团队标识名 (Team Identifier)
+
+Organization Team 的机器名，仅含小写字母、数字与连字符，是团队的唯一键与授权对象。它在 ESL 与 Git Backend 中保持一致（即 Gitea Team Name），默认团队识别与权限面板授权均以它为准；界面展示优先用团队显示名。标识名变更（重命名）是治理动作。
+_Avoid_: 团队名（当指团队显示名时）。
+
+## 团队显示名 (Team Display Name)
+
+Organization Team 面向人的展示名，与团队标识名解耦，可用中文。它是纯展示概念，不参与唯一性、默认团队识别或授权判定；未设置时回退展示团队标识名。默认团队由平台预置显示名（如 `system-admins` → 系统管理团队）。
+_Avoid_: 团队名（当指团队标识名时）。
+
+## 系统管理团队 (System Management Team)
+
+组织管理权的委托载体（Gitea 团队 `system-admins`）。其成员与组织 admin 账号持有相同的组织管理权限，并持有全部技能仓库的管理员权限与 Git Backend 建库权。组织 admin 账号自动加入且不可移出，其余成员由持有组织管理权者手动增删。它不映射 Gitea Owners 团队。
+
+## 组织共享级别 (Org Sharing Level)
+
+技能对其所在 Tenant Organization 全体成员的开放程度。取值互斥：私有、全员只读、全员读写、全员管理；设置更高级别即取代低级别。个人授权与自定义团队授权与其正交，不受级别影响。
 
 ## Super Administrator
 
@@ -340,7 +372,10 @@ The current business owner or platform owner of the skill.
 
 ## Maintainers
 
-允许修改 Server-hosted Skill Source 并发布 Skill Release 的用户或团队。
+对该技能持有管理权（Manage Permission）的用户或团队。管理权涵盖：修改
+Server-hosted Skill Source、发布 Skill Release、配置技能权限（共享与授权），
+以及授予和撤销他人的管理权。技能创建者自动成为初始 Maintainer；管理权可
+授予组织成员或 Organization Team，也可被撤销。
 
 ## ESL Platform Administrator
 

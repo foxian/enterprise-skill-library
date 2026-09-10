@@ -106,6 +106,26 @@ describe('esl share', () => {
     );
   });
 
+  // SC-G1 (ADR-0025):--manage 授予协管权;与 --write 互斥
+  it('grants manage permission to a member with --manage', async () => {
+    const mockFetch = mockPermissionFetch();
+
+    await executeShare('@acme/reviewer', { user: 'acme_bob', manage: true, homeDir, customFetch: mockFetch as any });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/skills/acme/reviewer/permissions',
+      expect.objectContaining({
+        body: JSON.stringify({ action: 'add_member', username: 'acme_bob', permission: 'manage' })
+      })
+    );
+  });
+
+  it('rejects combining --write and --manage', () => {
+    expect(() => resolveShareTarget({ user: 'acme_bob', write: true, manage: true })).toThrow(
+      /only one permission level/
+    );
+  });
+
   it('requires exactly one sharing target', () => {
     expect(() => resolveShareTarget({})).toThrow(/--all, --team, --user, or --reset/);
     expect(() => resolveShareTarget({ all: true, team: 'frontend' })).toThrow(/only one/i);
@@ -116,11 +136,11 @@ describe('esl share', () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 403,
-      text: async () => 'Forbidden: skill owner or organization administrator required'
+      text: async () => 'Forbidden: manage permission required'
     });
 
     await expect(
       executeShare('@acme/reviewer', { all: true, homeDir, customFetch: mockFetch as any })
-    ).rejects.toThrow('Failed to update skill permissions: Forbidden: skill owner or organization administrator required');
+    ).rejects.toThrow('Failed to update skill permissions: Forbidden: manage permission required');
   });
 });

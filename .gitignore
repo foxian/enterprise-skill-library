@@ -7,6 +7,12 @@ packages/*/dist/
 # Local data directory (default ESL bind-mount location)
 data/
 
+# Playwright E2E 运行产物(.auth 含会话 storageState)
+.auth/
+test-results/
+playwright-report/
+blob-report/
+
 # Smoke-test runtime artifacts (may contain real credentials)
 .scratch/smoke-workspace/
 .scratch/docker-smoke.env

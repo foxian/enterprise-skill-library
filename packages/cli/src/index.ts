@@ -13,6 +13,7 @@ export * from './commands/publish.js';
 export * from './commands/rename.js';
 export * from './commands/repair-tag.js';
 export * from './commands/upload.js';
+export * from './commands/reset-source.js';
 export * from './commands/search.js';
 export * from './commands/update.js';
 export * from './commands/uninstall.js';

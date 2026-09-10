@@ -401,7 +401,7 @@ describe('GiteaService', () => {
       { id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }
     ]);
 
-    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members', {
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7/members?limit=50&page=1', {
       headers: { Authorization: 'token admin-token' }
     });
   });
@@ -605,7 +605,13 @@ describe('GiteaService', () => {
         Authorization: 'token admin-token',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name: 'all-readers', permission: 'read', units_map: expectedUnitsMap })
+      body: JSON.stringify({
+        name: 'all-readers',
+        permission: 'read',
+        units_map: expectedUnitsMap,
+        includes_all_repositories: false,
+        can_create_org_repo: false
+      })
     });
   });
 
@@ -809,9 +815,32 @@ describe('GiteaService', () => {
     await expect(gitea.listOrgMembers('acme')).resolves.toEqual([
       { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }
     ]);
-    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/members', {
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/orgs/acme/members?limit=50&page=1', {
       headers: { Authorization: 'token admin-token' }
     });
+  });
+
+  it('pages through Gitea organization members until a partial page', async () => {
+    const fullPage = Array.from({ length: 50 }, (_, index) => ({
+      id: index + 1,
+      username: `acme_user${index}`
+    }));
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => fullPage })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: 51, username: 'acme_admin', email: 'acme_admin@local.esl' }]
+      });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listOrgMembers('acme')).resolves.toHaveLength(51);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      'http://gitea:3000/api/v1/orgs/acme/members?limit=50&page=2',
+      { headers: { Authorization: 'token admin-token' } }
+    );
   });
 
   it('throws when listing Gitea organization members fails', async () => {
@@ -952,5 +981,96 @@ describe('GiteaService', () => {
     await expect(gitea.listRepoTeams('myorg', 'my-skill')).resolves.toEqual([]);
     await expect(gitea.listCollaborators('myorg', 'my-skill')).resolves.toEqual([]);
     await expect(gitea.getCollaboratorPermission('myorg', 'my-skill', 'foxian_admin')).resolves.toBe('none');
+  });
+
+  it('creates a team with all-repository access and org repo creation rights', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 9, name: 'system-admins', permission: 'admin' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(
+      gitea.createTeam('acme', 'system-admins', 'admin', {
+        includesAllRepositories: true,
+        canCreateOrgRepo: true
+      })
+    ).resolves.toEqual({ id: 9, name: 'system-admins', permission: 'admin' });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('http://gitea:3000/api/v1/orgs/acme/teams');
+    expect(init.method).toBe('POST');
+    const body = JSON.parse(init.body);
+    expect(body.name).toBe('system-admins');
+    expect(body.permission).toBe('admin');
+    expect(body.includes_all_repositories).toBe(true);
+    expect(body.can_create_org_repo).toBe(true);
+  });
+
+  it('renames a team by its id', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 7, name: 'platform-team', permission: 'write' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.updateTeam(7, { name: 'platform-team' })).resolves.toEqual({
+      id: 7,
+      name: 'platform-team',
+      permission: 'write'
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith('http://gitea:3000/api/v1/teams/7', {
+      method: 'PATCH',
+      headers: {
+        Authorization: 'token admin-token',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: 'platform-team' })
+    });
+  });
+
+  it('does not hide a failed team rename', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 422, text: async () => 'name already exists' });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.updateTeam(7, { name: 'taken-name' })).rejects.toThrow('Failed to update Gitea team: name already exists');
+  });
+
+  it('changes team permission together with units_map', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 7, name: 'frontend', permission: 'admin' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.updateTeam(7, { permission: 'admin' })).resolves.toEqual({
+      id: 7,
+      name: 'frontend',
+      permission: 'admin'
+    });
+
+    const [url, init] = mockFetch.mock.calls[0];
+    expect(url).toBe('http://gitea:3000/api/v1/teams/7');
+    const body = JSON.parse(init.body);
+    expect(body.name).toBeUndefined();
+    expect(body.permission).toBe('admin');
+    // ADR-0029:Gitea EditTeam 部分更新,改权限必须连带 units_map,
+    // 否则单元级授权停留在旧档,实际仓库访问与顶级权限不一致。
+    expect(body.units_map['repo.code']).toBe('write');
+    expect(body.units_map['repo.pulls']).toBe('write');
+  });
+
+  it('keeps units untouched when only the name changes', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 7, name: 'new-name', permission: 'read' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await gitea.updateTeam(7, { name: 'new-name' });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body).toEqual({ name: 'new-name' });
   });
 });

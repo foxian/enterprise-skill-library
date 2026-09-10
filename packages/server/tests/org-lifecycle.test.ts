@@ -72,6 +72,121 @@ describe('organization application lifecycle', () => {
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
   });
 
+  it('creates the four default teams and enrolls the admin account in the system team', async () => {
+    const teamIds: Record<string, number> = {
+      'all-readers': 2,
+      'all-writers': 3,
+      'all-managers': 4,
+      'system-admins': 5
+    };
+    const mockGitea = {
+      ...autoModeGitea(),
+      createTeam: vi.fn().mockImplementation(async (_org: string, name: string) => ({
+        id: teamIds[name],
+        name,
+        permission: 'read'
+      }))
+    };
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/apply',
+      body: {
+        orgName: 'acme',
+        adminDisplayName: 'Acme Admin',
+        password: 'initial-password'
+      }
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-readers', 'read');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-managers', 'admin');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'system-admins', 'admin', {
+      includesAllRepositories: true,
+      canCreateOrgRepo: true
+    });
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(5, 'acme_admin');
+  });
+
+  it('provisions the two new default teams for existing active organizations on startup', async () => {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'legacy', status: 'active' });
+    db.close();
+
+    const mockGitea = autoModeGitea();
+    mockGitea.listTeams.mockResolvedValue([
+      { id: 1, name: 'Owners', permission: 'owner' },
+      { id: 2, name: 'all-readers', permission: 'read' },
+      { id: 3, name: 'all-writers', permission: 'write' }
+    ]);
+    mockGitea.listTeamMembers.mockResolvedValue([]);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await app.ready();
+
+    // ADR-0026 存量迁移:补建 all-managers 与 system-admins,admin 自动加入
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('legacy', 'all-managers', 'admin');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('legacy', 'system-admins', 'admin', {
+      includesAllRepositories: true,
+      canCreateOrgRepo: true
+    });
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(9, 'legacy_admin');
+  });
+
+  it('cleans up redundant grants for existing active organizations on startup', async () => {
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'legacy', status: 'active' });
+    db.close();
+
+    const mockGitea = autoModeGitea();
+    mockGitea.listTeams.mockResolvedValue([
+      { id: 1, name: 'Owners', permission: 'owner' },
+      { id: 2, name: 'all-readers', permission: 'read' },
+      { id: 3, name: 'all-writers', permission: 'write' }
+    ]);
+    // 迁移创建的 system-admins 团队 id=9,成员为 admin(自动加入)
+    mockGitea.listTeamMembers.mockResolvedValue([{ id: 1, username: 'legacy_admin' }]);
+    mockGitea.listOrgRepos = vi.fn().mockResolvedValue([
+      { id: 10, name: 'reviewer', full_name: 'legacy/reviewer', clone_url: '', html_url: '' }
+    ]);
+    mockGitea.listCollaborators = vi.fn().mockResolvedValue([
+      { id: 1, username: 'legacy_admin' },
+      { id: 3, username: 'legacy_bob' }
+    ]);
+    // 同时挂了 all-readers 与 all-writers:重复的全员挂载
+    mockGitea.listRepoTeams = vi.fn().mockResolvedValue([
+      { id: 2, name: 'all-readers', permission: 'read' },
+      { id: 3, name: 'all-writers', permission: 'write' }
+    ]);
+    mockGitea.removeCollaborator = vi.fn().mockResolvedValue(undefined);
+    mockGitea.removeTeamRepo = vi.fn().mockResolvedValue(undefined);
+    app = await buildApp({
+      dbPath,
+      giteaService: mockGitea as any,
+      repoOwner: 'esl-skills',
+      applicationEncryptionKey
+    });
+    await app.ready();
+
+    // 撤销对 admin 账号的无意义协作授权,普通成员保留
+    expect(mockGitea.removeCollaborator).toHaveBeenCalledWith('legacy', 'reviewer', 'legacy_admin');
+    expect(mockGitea.removeCollaborator).not.toHaveBeenCalledWith('legacy', 'reviewer', 'legacy_bob');
+    // 重复全员挂载归一:保留更高档(all-writers),卸载 all-readers
+    expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(2, 'legacy', 'reviewer');
+    expect(mockGitea.removeTeamRepo).not.toHaveBeenCalledWith(3, 'legacy', 'reviewer');
+  });
+
   it('stores a pending application and returns its id in manual mode', async () => {
     const settingsDb = initDatabase(dbPath);
     new PlatformSettingsRepository(settingsDb).setSetting('org_registration_mode', 'manual');
@@ -209,7 +324,9 @@ describe('organization application lifecycle', () => {
     mockGitea.listTeams.mockResolvedValueOnce([{ id: 1, name: 'Owners', permission: 'owner' }]).mockResolvedValue([
       { id: 1, name: 'Owners', permission: 'owner' },
       { id: 2, name: 'all-readers', permission: 'read' },
-      { id: 3, name: 'all-writers', permission: 'write' }
+      { id: 3, name: 'all-writers', permission: 'write' },
+      { id: 4, name: 'all-managers', permission: 'admin' },
+      { id: 5, name: 'system-admins', permission: 'admin' }
     ]);
     // 重试时组织已存在,需要校验 Owners 归属(只包含本组织管理员)
     mockGitea.listTeamMembers.mockResolvedValue([

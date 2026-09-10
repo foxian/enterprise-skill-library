@@ -198,15 +198,16 @@ async function uploadSource(
   const authHeader = gitAuthHeaderConfig(authToken);
 
   let uploaded: UploadedSkill;
+  let remoteUrl: string;
   if (await hasEslRemote(execFileAsync, directory)) {
     // Already server-hosted: skip the registration call and sync straight
     // against the existing source.
-    let remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
+    remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
     // ADR-0023：Source Remote 重指——origin 漂移（Server Origin 迁移）时先按
     // 身份向当前 server 验证，再采用服务器 cloneUrl 修复 remote；验证不过则
     // 报可行动错误，绝不重新注册或接管。
     remoteUrl = await rehomeEslRemoteIfNeeded(options, execFileAsync, directory, remoteUrl, server);
-    const remoteShortName = remoteUrl.match(/[^/]+(?=\.git)/)?.[0] ?? '';
+    const remoteShortName = repoPathFromGitUrl(remoteUrl).split('/').pop() ?? '';
     if (remoteShortName && remoteShortName !== skillName) {
       throw new Error(
         `Local skill name "${skillName}" does not match the source repository "${remoteShortName}"; ` +
@@ -231,11 +232,12 @@ async function uploadSource(
     if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {
       throw new Error('Failed to upload skill source: API response is incomplete');
     }
+    remoteUrl = uploaded.cloneUrl;
     await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
   }
 
   try {
-    if ((await syncSource(execFileAsync, directory, authHeader)) === 'up-to-date') {
+    if ((await syncSource(options, execFileAsync, directory, authHeader, remoteUrl)) === 'up-to-date') {
       return { ...uploaded, alreadyUpToDate: true };
     }
   } catch (error) {
@@ -269,9 +271,48 @@ function hostedSourceAccessError(detail: string, options: { includePushHint?: bo
   return new HostedSourceAccessError(`${guidance}${pushHint} (${detail})`);
 }
 
+// ADR-0027：fetch 失败时的只读诊断。向 Registry API 查询 remote 揭示的
+// Skill Identity；只有身份在当前登录下可见时才细分文案——
+//  - 服务器 cloneUrl 与 remote 仓库路径不一致 → remote 指向陈旧路径；
+//  - 路径一致 → 源存在、当前登录具备 Registry 读权限但缺 Git 源访问权限，
+//    指引切回维护账号。
+// 探测失败（404/403/网络）时退回 ADR-0021 的统一文案，不猜测「已删除」。
+async function diagnoseHostedSourceAccess(options: UploadOptions, remoteUrl: string, detail: string): Promise<Error> {
+  if (!remoteUrl.startsWith('http')) return hostedSourceAccessError(detail);
+  const identity = skillNameFromRemote(remoteUrl);
+  let info;
+  try {
+    info = await executeInfo(identity, options);
+  } catch {
+    return hostedSourceAccessError(detail);
+  }
+  const serverClonePath = info.cloneUrl ? repoPathFromGitUrl(info.cloneUrl) : '';
+  const remotePath = repoPathFromGitUrl(remoteUrl);
+  if (!serverClonePath || serverClonePath === remotePath) {
+    return new HostedSourceAccessError(
+      `Failed to sync the skill source with the server: the skill identity ${identity} exists on the server and is visible ` +
+        'with the current login, but the current login cannot access its Git source. ' +
+        'The credential may be stale or the login may lack repository access (the source may be maintained by another ' +
+        'account, or its access was revoked). Log in with the maintaining account and re-run "esl upload". ' +
+        `(${detail})`
+    );
+  }
+  return new HostedSourceAccessError(
+    `The esl remote points at repository path "${remotePath}" but the server's current clone URL for ${identity} is "${serverClonePath}". ` +
+      'The remote path is stale (for example after a rename). Verify the source location ("esl source"), then run ' +
+      '"git remote remove esl" and re-run "esl upload" to re-register or re-sync against the current repository. ' +
+      `(${detail})`
+  );
+}
+
 function skillNameFromRemote(remoteUrl: string): string {
   const match = remoteUrl.match(/\/git\/(.+?)(?:\.git)?\/?$/);
   return match ? `@${match[1]}` : 'source';
+}
+
+// 从服务器 cloneUrl / Source Remote URL 中取出 /git/ 之后的仓库路径。
+function repoPathFromGitUrl(url: string): string {
+  return url.match(/\/git\/(.+?)(?:\.git)?\/?$/)?.[1] ?? '';
 }
 
 // ADR-0023：Source Remote 重指。检测到 Source Remote origin 与当前配置 server
@@ -342,9 +383,11 @@ async function hasEslRemote(
 }
 
 async function syncSource(
+  options: UploadOptions,
   execFileAsync: typeof defaultExecFileAsync,
   directory: string,
-  authHeader: string
+  authHeader: string,
+  remoteUrl: string
 ): Promise<'up-to-date' | 'needs-push'> {
   // Refresh the server-side ref so we can compare and rebase onto it.
   // ADR-0021：已托管源上任何 fetch 失败一律按「凭据不足或源不可达」处理，
@@ -352,7 +395,10 @@ async function syncSource(
   try {
     await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
   } catch (error) {
-    throw hostedSourceAccessError((error as Error).message);
+    // ADR-0027：Git Backend 对「无权限」与「不存在」返回相同 404；报错前用
+    // Registry API 只读探测一次身份，探测成功才细分文案，失败退回统一文案。
+    // 行为不变：不自动接管、不重指。
+    throw await diagnoseHostedSourceAccess(options, remoteUrl, (error as Error).message);
   }
   let remoteHead: string;
   try {

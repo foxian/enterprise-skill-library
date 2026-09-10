@@ -92,6 +92,9 @@ export interface PermissionChangePayload {
   skillOwner?: string;
 }
 
+// 三个全员默认团队:组织共享级别互斥时,设置某档只保留该档团队挂载。
+const ALL_SHARE_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
+
 // 权限变更执行:Gitea 是权限的唯一事实来源,这里只执行变更,不建立本地镜像。
 export async function executePermissionChange(
   deps: Pick<SkillOperationDeps, 'giteaService'>,
@@ -101,6 +104,20 @@ export async function executePermissionChange(
   switch (payload.action) {
     case 'share_all_read':
     case 'share_all_write':
+    case 'share_all_manage':
+      await giteaService.addTeamRepo(payload.teamId!, payload.repoOwner, payload.repoName);
+      // 组织共享级别互斥(ADR-0026):设置更高级别(或同档重置)时,卸载其余
+      // 已挂载的全员团队,保持单一档位语义。自定义团队授权与其正交,不受影响。
+      if (typeof giteaService.listRepoTeams === 'function') {
+        const mountActionName =
+          payload.action === 'share_all_read' ? 'all-readers' : payload.action === 'share_all_write' ? 'all-writers' : 'all-managers';
+        for (const team of await giteaService.listRepoTeams(payload.repoOwner, payload.repoName)) {
+          if (team.name !== mountActionName && ALL_SHARE_TEAM_NAMES.has(team.name)) {
+            await giteaService.removeTeamRepo(team.id, payload.repoOwner, payload.repoName);
+          }
+        }
+      }
+      break;
     case 'add_team':
       await giteaService.addTeamRepo(payload.teamId!, payload.repoOwner, payload.repoName);
       break;
@@ -108,11 +125,12 @@ export async function executePermissionChange(
       await giteaService.removeTeamRepo(payload.teamId!, payload.repoOwner, payload.repoName);
       break;
     case 'add_member':
+      // ADR-0025 三档:ESL 的 manage 档映射为 Gitea admin 级协作者。
       await giteaService.addCollaborator(
         payload.repoOwner,
         payload.repoName,
         payload.username!,
-        payload.permission as 'read' | 'write'
+        payload.permission === 'manage' ? 'admin' : (payload.permission as 'read' | 'write')
       );
       break;
     case 'remove_member':

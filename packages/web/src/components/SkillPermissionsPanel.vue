@@ -10,10 +10,11 @@
     <el-card class="section-card">
       <template #header>当前共享状态</template>
       <el-space wrap>
-        <el-tag v-if="matrix.sharedAllRead" type="success">全员只读</el-tag>
+        <el-tag v-if="matrix.sharedAllManage" type="danger">全员管理</el-tag>
         <el-tag v-if="matrix.sharedAllWrite" type="warning">全员读写</el-tag>
+        <el-tag v-if="matrix.sharedAllRead" type="success">全员只读</el-tag>
         <el-tag v-for="team in matrix.teams" :key="team.id" data-test="granted-team">
-          团队 {{ team.name }}（{{ permissionText(team.permission) }}）
+          团队 {{ teamDisplayName(team) }}（{{ permissionText(team.permission) }}）
         </el-tag>
         <el-tag v-for="member in matrix.members" :key="member.username" type="info" data-test="granted-member">
           {{ shortUsername(props.scope, member.username) }}（{{ permissionText(member.permission) }}）
@@ -22,14 +23,13 @@
     </el-card>
 
     <el-card class="section-card">
-      <template #header>快捷操作</template>
-      <el-space>
-        <el-button data-test="share-all-read" @click="applyAction('share_all_read')">共享全员只读</el-button>
-        <el-button data-test="share-all-write" @click="applyAction('share_all_write')">共享全员读写</el-button>
-        <el-button type="warning" data-test="reset-to-private" @click="applyAction('reset_to_private')">
-          重置为私有
-        </el-button>
-      </el-space>
+      <template #header>组织共享级别</template>
+      <el-radio-group :model-value="shareLevel" data-test="share-level" @change="onShareLevelChange">
+        <el-radio value="none">不共享（私有）</el-radio>
+        <el-radio value="read">全员只读</el-radio>
+        <el-radio value="write">全员读写</el-radio>
+        <el-radio value="manage">全员管理</el-radio>
+      </el-radio-group>
     </el-card>
 
     <el-row :gutter="16">
@@ -50,7 +50,9 @@
             <el-button type="primary" data-test="grant-team" @click="grantTeam">添加授权</el-button>
           </div>
           <el-table v-if="matrix.teams.length" :data="matrix.teams" size="small">
-            <el-table-column prop="name" label="团队" />
+            <el-table-column label="团队">
+              <template #default="{ row }">{{ teamDisplayName(row) }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
                 <el-button
@@ -87,9 +89,10 @@
               />
             </el-select>
             <el-input v-else v-model="selectedMember" data-test="member-input" placeholder="成员用户名（含组织前缀）" style="width: 220px" />
-            <el-select v-model="memberPermission" data-test="member-permission" style="width: 100px">
+            <el-select v-model="memberPermission" data-test="member-permission" style="width: 110px">
               <el-option label="只读" value="read" />
               <el-option label="读写" value="write" />
+              <el-option label="管理" value="manage" />
             </el-select>
             <el-button type="primary" data-test="grant-member" @click="grantMember">添加授权</el-button>
           </div>
@@ -145,6 +148,7 @@ const matrix = ref<PermissionMatrix>({
   skillName: props.skillName,
   sharedAllRead: false,
   sharedAllWrite: false,
+  sharedAllManage: false,
   teams: [],
   members: []
 });
@@ -152,7 +156,7 @@ const errorMessage = ref('');
 
 const selectedTeam = ref('');
 const selectedMember = ref('');
-const memberPermission = ref<'read' | 'write'>('read');
+const memberPermission = ref<'read' | 'write' | 'manage'>('read');
 
 // 组织管理员提供团队/成员下拉建议；普通成员视角退化为手工输入
 const teamOptions = computed(() => props.teamOptions ?? []);
@@ -164,12 +168,40 @@ const stateText = computed(() => shareState.value.text);
 
 const stateTagType = computed(() => shareState.value.tagType);
 
+// 组织共享级别(ADR-0026):由共享状态推导当前单选档位
+const shareLevel = computed<'none' | 'read' | 'write' | 'manage'>(() => {
+  if (matrix.value.sharedAllManage) return 'manage';
+  if (matrix.value.sharedAllWrite) return 'write';
+  if (matrix.value.sharedAllRead) return 'read';
+  return 'none';
+});
+
+const SHARE_LEVEL_ACTIONS: Record<string, string> = {
+  none: 'reset_to_private',
+  read: 'share_all_read',
+  write: 'share_all_write',
+  manage: 'share_all_manage'
+};
+
+async function onShareLevelChange(level: string | number | boolean | undefined): Promise<void> {
+  const action = SHARE_LEVEL_ACTIONS[String(level)];
+  if (action) await applyAction(action);
+}
+
+// ADR-0025 三档:manage 档(Gitea admin 级)呈现为「管理」
 function permissionText(permission: string): string {
+  if (permission === 'manage' || permission === 'admin' || permission === 'owner') return '管理';
   return permission === 'write' ? '读写' : '只读';
 }
 
 function teamLabel(team: TeamOption): string {
-  return `${team.name}（${permissionText(team.permission)}）`;
+  return `${teamDisplayName(team)}（${permissionText(team.permission)}）`;
+}
+
+// ADR-0029:界面优先展示团队显示名(允许中文),未设置回退标识名。
+// 授权 value 与 remove_team 请求体仍用标识名(team.name)。
+function teamDisplayName(team: { name: string; display_name?: string }): string {
+  return team.display_name || team.name;
 }
 
 async function loadMatrix(): Promise<void> {

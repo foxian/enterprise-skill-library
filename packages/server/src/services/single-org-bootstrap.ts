@@ -31,7 +31,7 @@ export async function ensureDeclaredOrgBootstrap(deps: {
     );
   }
   if (!tenant) {
-    await initializeTenantOrganization(giteaService, orgName, adminPassword);
+    await initializeTenantOrganization(giteaService, orgName, adminPassword, tenantOrganizationRepository);
     tenantOrganizationRepository.create({ orgName, status: 'active' });
   }
   // 先写默认组织、再切部署模式:若中途失败,最坏停留在「多组织 + 默认组织」的

@@ -28,6 +28,7 @@ describe('super administrator org console API', () => {
       createOrg: vi.fn().mockResolvedValue(undefined),
       createUser: vi.fn().mockResolvedValue(undefined),
       listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listTeamMembers: vi.fn().mockResolvedValue([]),
       addTeamMember: vi.fn().mockResolvedValue(undefined),
       createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' }),
       listOrgs: vi.fn().mockResolvedValue([{ id: 1, name: 'acme' }]),
@@ -109,6 +110,8 @@ describe('super administrator org console API', () => {
   it('approves a pending application and triggers tenant initialization', async () => {
     createPendingApplication();
     const mockGitea = superAdminGitea();
+    // 新建组织尚无成员,org-init 据此创建管理员账号
+    mockGitea.listOrgMembers.mockResolvedValueOnce([]);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
@@ -126,6 +129,12 @@ describe('super administrator org console API', () => {
     expect(mockGitea.addTeamMember).toHaveBeenCalledWith(1, 'acme_admin');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-readers', 'read');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-managers', 'admin');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'system-admins', 'admin', {
+      includesAllRepositories: true,
+      canCreateOrgRepo: true
+    });
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(9, 'acme_admin');
 
     const db = initDatabase(dbPath);
     expect(new OrgApplicationRepository(db).getApplication('acme')?.status).toBe('approved');

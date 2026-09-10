@@ -339,8 +339,8 @@
 - **前置条件**：组织管理员已登录。
 - **操作步骤**：访问 `/admin/org/teams`。
 - **预期结果**：
-  1. 出现「团队管理」表格（`data-test="teams-table"`），含 `all-readers`、`all-writers` 两个默认团队（带「默认团队」标签 `data-test="default-team-tag"`）。
-  2. 默认团队行的「删除」按钮（`data-test="delete-team-all-readers"` 等）为 `disabled`。
+  1. 出现「团队管理」表格（`data-test="teams-table"`）。三个全员团队（`all-readers`/`all-writers`/`all-managers`）与 Owners 不展示，仅系统管理团队 `system-admins` 保留「默认团队」标签（`data-test="default-team-tag"`）；自定义团队显示「自定义」标签。
+  2. 默认团队行的「删除」按钮（`data-test="delete-team-system-admins"`）为 `disabled`。
   3. 请求路径 `GET /api/orgs/teams`。
 
 ### ORG-08　新建团队（P0）

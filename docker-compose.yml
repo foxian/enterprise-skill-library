@@ -2,6 +2,10 @@ services:
   gitea:
     image: gitea/gitea:1.22
     restart: unless-stopped
+    # 暴露宿主 3001:E2E 与调试经 Git Backend admin API 断言成员关系
+    # (docker-compose.debug.yml 亦声明同一端口)。仅开发栈使用。
+    ports:
+      - "3001:3000"
     volumes:
       - ${ESL_DATA_DIR:-./data}/gitea:/data
       - ./docker/gitea-custom-hooks:/data/gitea/custom/hooks:ro

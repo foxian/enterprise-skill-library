@@ -106,6 +106,59 @@ describe('login with an omitted organization resolving through the default org',
     expect(mockGitea.loginUser).toHaveBeenCalledWith('acme_alice', 'correct-password');
   });
 
+  it('resolves a system management team member to org-admin on console login', async () => {
+    const mockGitea = makeGiteaMock({
+      listTeams: vi.fn().mockResolvedValue([
+        { id: 1, name: 'Owners', permission: 'owner' },
+        { id: 5, name: 'system-admins', permission: 'admin' }
+      ]),
+      isTeamMember: vi.fn().mockResolvedValue(true)
+    });
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    await setDefaultOrg('acme');
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/console/login',
+      payload: { username: 'alice', password: 'correct-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toEqual({
+      token: 'gitea-token',
+      username: 'alice',
+      org: 'acme',
+      role: 'org-admin'
+    });
+    expect(mockGitea.isTeamMember).toHaveBeenCalledWith(5, 'acme_alice');
+  });
+
+  it('resolves a system management team member to org-admin on CLI login', async () => {
+    const mockGitea = makeGiteaMock({
+      listTeams: vi.fn().mockResolvedValue([
+        { id: 1, name: 'Owners', permission: 'owner' },
+        { id: 5, name: 'system-admins', permission: 'admin' }
+      ]),
+      isTeamMember: vi.fn().mockResolvedValue(true)
+    });
+    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    await setDefaultOrg('acme');
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'alice', password: 'correct-password' }
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toEqual({
+      token: 'gitea-token',
+      username: 'alice',
+      org: 'acme',
+      role: 'org-admin'
+    });
+  });
+
   it('still resolves the platform administrator to super when omitting org with a default org set', async () => {
     const mockGitea = makeGiteaMock();
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });

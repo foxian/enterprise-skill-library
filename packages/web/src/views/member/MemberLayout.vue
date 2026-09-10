@@ -9,5 +9,5 @@ import ConsoleShell from '../../components/layout/ConsoleShell.vue';
 import type { ConsoleMenuItem } from '../../components/layout/ConsoleShell.vue';
 import { Files } from '@element-plus/icons-vue';
 
-const menuItems: ConsoleMenuItem[] = [{ index: '/admin/member/skills', label: '我的技能', icon: Files }];
+const menuItems: ConsoleMenuItem[] = [{ index: '/admin/member/skills', label: '我管理的技能', icon: Files }];
 </script>

@@ -4,6 +4,7 @@ import SkillPermissionsPanel from '../src/components/SkillPermissionsPanel.vue';
 import OrgSkillsView from '../src/views/org/SkillsView.vue';
 import MemberSkillsView from '../src/views/member/SkillsView.vue';
 import OrgSkillPermissionsView from '../src/views/org/SkillPermissionsView.vue';
+import SuperSkillsView from '../src/views/super/SkillsView.vue';
 import { deriveShareState } from '../src/skills/skill-list';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
 
@@ -55,10 +56,16 @@ afterEach(async () => {
 });
 
 describe('技能列表视图', () => {
-  it('组织管理员可见全组织技能及共享状态', async () => {
+  it('组织管理员可见全组织技能（含未发布）及共享状态', async () => {
     useApiMock((method, url) => {
-      if (url === '/api/skills/search?q=') {
-        return { status: 200, json: skills };
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            { ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' },
+            { ...skills[1], status: 'active-unreleased', access: 'manage', relation: 'managed' }
+          ]
+        };
       }
       if (url === '/api/skills/acme/reviewer/permissions') {
         return { status: 200, json: matrixFor('reviewer', { sharedAllRead: true }) };
@@ -74,38 +81,24 @@ describe('技能列表视图', () => {
     const table = wrapper.find('[data-test="org-skills-table"]').text();
     expect(table).toContain('@acme/reviewer');
     expect(table).toContain('@acme/secret');
-    expect(table).not.toContain('@other/tool');
+    expect(table).toContain('未发布');
     expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
     expect(wrapper.find('[data-test="skill-state-secret"]').text()).toBe('仅创建者');
   });
 
-  it('成员只能看到自己创建的技能', async () => {
+  it('成员按「我管理的/共享给我的」双视图查看技能', async () => {
+    // member 角色默认账号是 acme 组织的 bob
     useApiMock((_method, url) => {
-      if (url === '/api/skills/search?q=') {
-        return { status: 200, json: skills };
-      }
-      if (url === '/api/skills/acme/reviewer/permissions') {
-        return { status: 200, json: matrixFor('reviewer') };
-      }
-      if (url === '/api/skills/acme/secret/permissions') {
-        return { status: 200, json: matrixFor('secret') };
-      }
-      return { status: 200, json: [] };
-    });
-    // member 角色默认账号是 acme 组织的 bob，创建者为 acme_zed 的 secret 也不可见
-    wrapper = await mountConsoleView(MemberSkillsView, { role: 'member', route: '/admin/member/skills' });
-    await flushPromises();
-
-    const table = wrapper.find('[data-test="member-skills-table"]').text();
-    expect(table).not.toContain('@acme/reviewer');
-    expect(table).not.toContain('@acme/secret');
-    expect(table).not.toContain('@other/tool');
-
-    // bob 自己创建的技能可见
-    wrapper?.unmount();
-    useApiMock((_method, url) => {
-      if (url === '/api/skills/search?q=') {
-        return { status: 200, json: [{ ...skills[0], createdBy: 'acme_bob', owner: 'acme_bob' }] };
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            // bob 自己创建（未发布）的技能 → 我管理的
+            { ...skills[0], createdBy: 'acme_bob', owner: 'acme_bob', status: 'active-unreleased', access: 'manage', relation: 'managed' },
+            // 他人创建、共享给 bob 只读的技能 → 共享给我的
+            { ...skills[1], status: 'active-published', access: 'read', relation: 'shared' }
+          ]
+        };
       }
       if (url === '/api/skills/acme/reviewer/permissions') {
         return { status: 200, json: matrixFor('reviewer', { members: [{ username: 'acme_bob', permission: 'write' }] }) };
@@ -114,7 +107,48 @@ describe('技能列表视图', () => {
     });
     wrapper = await mountConsoleView(MemberSkillsView, { role: 'member', route: '/admin/member/skills' });
     await flushPromises();
-    expect(wrapper.find('[data-test="member-skills-table"]').text()).toContain('@acme/reviewer');
+
+    // 「我管理的」Tab：只显示自己持有管理权的技能
+    const managedTable = wrapper.find('[data-test="member-skills-table"]').text();
+    expect(managedTable).toContain('@acme/reviewer');
+    expect(managedTable).not.toContain('@acme/secret');
+    expect(wrapper.find('[data-test="configure-reviewer"]').exists()).toBe(true);
+
+    // 「共享给我的」Tab：显示可读但无管理权的技能与我的权限
+    const sharedTable = wrapper.find('[data-test="member-shared-table"]').text();
+    expect(sharedTable).toContain('@acme/secret');
+    expect(sharedTable).toContain('只读');
+    expect(wrapper.find('[data-test="member-shared-table"]').find('[data-test="configure-secret"]').exists()).toBe(false);
+  });
+
+  it('超管可见跨组织技能总览（含未发布）', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            { ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' },
+            { ...skills[2], status: 'active-unreleased', access: 'manage', relation: 'managed' }
+          ]
+        };
+      }
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return { status: 200, json: matrixFor('reviewer') };
+      }
+      if (url === '/api/skills/other/tool/permissions') {
+        return { status: 200, json: matrixFor('tool') };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SuperSkillsView, { role: 'super', route: '/admin/super/skills' });
+    await flushPromises();
+
+    const table = wrapper.find('[data-test="super-skills-table"]').text();
+    expect(table).toContain('@acme/reviewer');
+    expect(table).toContain('@other/tool');
+    expect(table).toContain('acme');
+    expect(table).toContain('未发布');
+    expect(wrapper.find('[data-test="configure-tool"]').exists()).toBe(true);
   });
 });
 
@@ -166,26 +200,32 @@ describe('SkillPermissionsPanel 权限配置', () => {
     await flushPromises();
   }
 
-  it('快捷按钮调用全员共享与重置接口并实时刷新状态', async () => {
+  it('组织共享级别控件按档位调用对应接口并实时刷新状态', async () => {
     const { requests } = mockMatrixApi({ sharedAllRead: true });
     wrapper = await mountPanel();
+    const panel = wrapper.findComponent(SkillPermissionsPanel);
 
-    await wrapper.find('[data-test="share-all-read"]').trigger('click');
+    await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('read');
     await flushPromises();
-
     const post = requests.find((request) => request.method === 'POST');
     expect(post?.url).toBe('/api/skills/acme/reviewer/permissions');
     expect(post?.body).toEqual({ action: 'share_all_read' });
     // 响应矩阵直接刷新页面状态
     expect(wrapper.find('[data-test="share-state"]').text()).toBe('全员只读');
 
-    await wrapper.find('[data-test="share-all-write"]').trigger('click');
+    await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('write');
     await flushPromises();
     expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
       action: 'share_all_write'
     });
 
-    await wrapper.find('[data-test="reset-to-private"]').trigger('click');
+    await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('manage');
+    await flushPromises();
+    expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
+      action: 'share_all_manage'
+    });
+
+    await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('none');
     await flushPromises();
     expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
       action: 'reset_to_private'
@@ -207,6 +247,21 @@ describe('SkillPermissionsPanel 权限配置', () => {
     expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'write' });
   });
 
+  it('成员授权支持管理档（manage，ADR-0025）', async () => {
+    const { requests } = mockMatrixApi();
+    wrapper = await mountPanel();
+
+    const input = wrapper.find('[data-test="member-input"]').element as HTMLInputElement;
+    input.value = 'acme_bob';
+    await wrapper.find('[data-test="member-input"]').trigger('input');
+    await setPanelState('memberPermission', 'manage');
+    await wrapper.find('[data-test="grant-member"]').trigger('click');
+    await flushPromises();
+
+    const post = requests.find((request) => request.method === 'POST');
+    expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'manage' });
+  });
+
   it('团队授权通过手工输入团队名提交', async () => {
     const { requests } = mockMatrixApi({ teams: [{ id: 7, name: 'frontend', permission: 'read' }] });
     wrapper = await mountPanel();
@@ -221,6 +276,20 @@ describe('SkillPermissionsPanel 权限配置', () => {
     expect(post?.body).toEqual({ action: 'add_team', team: 'frontend' });
     // 已授权团队来自响应矩阵
     expect(wrapper.find('[data-test="granted-team"]').exists()).toBe(true);
+  });
+
+  it('已授权团队标签优先展示显示名,未设置回退标识名', async () => {
+    mockMatrixApi({
+      teams: [
+        { id: 7, name: 'frontend', permission: 'read', display_name: '前端团队' },
+        { id: 8, name: 'ops', permission: 'write' }
+      ]
+    });
+    wrapper = await mountPanel();
+
+    const granted = wrapper.findAll('[data-test="granted-team"]');
+    expect(granted[0].text()).toContain('前端团队');
+    expect(granted[1].text()).toContain('ops');
   });
 
   it('移除已授权团队与成员调用对应接口', async () => {
@@ -294,8 +363,9 @@ describe('SkillPermissionsPanel 权限配置', () => {
     wrapper = await mountPanel();
     expect(wrapper.find('[data-test="share-state"]').text()).toBe('自定义');
 
-    // 快捷按钮仍可覆盖为全员共享
-    await wrapper.find('[data-test="share-all-write"]').trigger('click');
+    // 共享级别控件仍可覆盖为全员共享
+    const panel = wrapper.findComponent(SkillPermissionsPanel);
+    await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('write');
     await flushPromises();
     expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
       action: 'share_all_write'
@@ -309,6 +379,7 @@ describe('deriveShareState 状态推导', () => {
     skillName: 'reviewer',
     sharedAllRead: false,
     sharedAllWrite: false,
+    sharedAllManage: false,
     teams: [] as Array<{ id: number; name: string; permission: string }>,
     members: [] as Array<{ username: string; permission: string }>
   };
@@ -316,6 +387,13 @@ describe('deriveShareState 状态推导', () => {
   it('读写共享优先于只读共享', () => {
     expect(deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true }).text).toBe('全员读写');
     expect(deriveShareState({ ...baseMatrix, sharedAllRead: true }).text).toBe('全员只读');
+  });
+
+  it('全员管理档位优先于读写与只读', () => {
+    expect(
+      deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true, sharedAllManage: true }).text
+    ).toBe('全员管理');
+    expect(deriveShareState({ ...baseMatrix, sharedAllManage: true }).key).toBe('all-manage');
   });
 
   it('额外团队或成员视为自定义，否则为仅创建者', () => {

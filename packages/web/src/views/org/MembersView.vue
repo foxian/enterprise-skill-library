@@ -9,7 +9,7 @@
       </div>
 
       <el-tabs v-model="activeTab">
-      <el-tab-pane label="在册成员" name="members">
+      <el-tab-pane :label="`在册成员（${members.length}）`" name="members" data-test="members-tab">
         <el-table :data="members" data-test="members-table" v-loading="loading">
           <el-table-column label="成员">
             <template #default="{ row }">{{ shortUsername(auth.org, row.username) }}</template>

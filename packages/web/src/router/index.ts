@@ -7,6 +7,8 @@ import SuperOrgs from '../views/super/OrgsView.vue';
 import SuperOrgDetail from '../views/super/OrgDetailView.vue';
 import SuperApplications from '../views/super/ApplicationsView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
+import SuperSkills from '../views/super/SkillsView.vue';
+import SuperSkillPermissions from '../views/super/SkillPermissionsView.vue';
 import OrgLayout from '../views/org/OrgLayout.vue';
 import OrgMembers from '../views/org/MembersView.vue';
 import OrgTeams from '../views/org/TeamsView.vue';
@@ -32,6 +34,8 @@ export const router = createRouter({
         { path: 'orgs', name: 'super-orgs', component: SuperOrgs, meta: { title: '组织管理', description: '查看平台内全部组织的生命周期与资源概况' } },
         { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: '组织详情' } },
         { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '注册审批', description: '处理组织注册申请，批准后将自动开通组织资源' } },
+        { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: '技能总览', description: '跨组织查看全部技能（含未发布）并代管权限' } },
+        { path: 'skills/:scope/:skillName/permissions', name: 'super-skill-permissions', component: SuperSkillPermissions, meta: { title: '技能权限详情' } },
         { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: '平台设置', description: '配置组织注册的审批模式与平台级策略' } }
       ]
     },
@@ -53,7 +57,7 @@ export const router = createRouter({
       meta: { role: 'member' },
       children: [
         { path: '', redirect: { name: 'member-skills' } },
-        { path: 'skills', name: 'member-skills', component: MemberSkills, meta: { title: '我的技能', description: '查看你创建的技能及其共享状态' } },
+        { path: 'skills', name: 'member-skills', component: MemberSkills, meta: { title: '我管理的技能', description: '查看你管理的技能与共享给你的技能（含未发布）' } },
         { path: 'skills/:scope/:skillName/permissions', name: 'member-skill-permissions', component: MemberSkillPermissions, meta: { title: '技能权限详情' } }
       ]
     },

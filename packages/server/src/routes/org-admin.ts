@@ -11,6 +11,7 @@ import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
 import { readDeploymentMode, readDefaultOrg } from '../services/platform-config.js';
 import { encryptApplicationSecret } from '../services/application-secret.js';
+import { initializeTenantOrganization } from '../services/org-init.js';
 import { validateOrgName, validatePassword } from '@esl/core';
 import crypto from 'node:crypto';
 
@@ -55,14 +56,14 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       }
       const initialPassword = crypto.randomBytes(18).toString('base64url');
       try {
-        await options.giteaService.createOrg(application.orgName);
-        await options.giteaService.createUser(`${application.orgName}_admin`, initialPassword);
-        const teams = await options.giteaService.listTeams(application.orgName);
-        const ownersTeam = teams.find((team) => team.permission === 'owner' || team.permission === 'admin');
-        if (!ownersTeam) throw new Error(`Gitea organization has no Owners team: ${application.orgName}`);
-        await options.giteaService.addTeamMember(ownersTeam.id, `${application.orgName}_admin`);
-        await options.giteaService.createTeam(application.orgName, 'all-readers', 'read');
-        await options.giteaService.createTeam(application.orgName, 'all-writers', 'write');
+        // 遗留路径与 Operation 执行器共用同一开通事实源,保证两个入口创建的
+        // 默认团队完全一致(ADR-0026 四团队模型)。
+        await initializeTenantOrganization(
+          options.giteaService,
+          application.orgName,
+          initialPassword,
+          options.tenantOrganizationRepository
+        );
         orgApplicationRepository.updateApplicationStatusById(id, 'approved');
         return { status: 'approved', orgName: application.orgName, initialPassword };
       } catch (error) {

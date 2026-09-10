@@ -4,6 +4,9 @@
       <el-table :data="rows" data-test="org-skills-table" v-loading="loading">
         <el-table-column prop="name" label="技能名" />
         <el-table-column prop="createdBy" label="创建者" width="160" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">{{ statusText(row.status) }}</template>
+        </el-table-column>
         <el-table-column label="共享状态" width="140">
           <template #default="{ row }">
             <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ row.state.text }}</el-tag>
@@ -30,13 +33,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '../../stores/auth';
-import { deriveShareState, loadSkillSummaries, type SkillSummary } from '../../skills/skill-list';
+import {
+  deriveShareState,
+  loadSkillInventorySummaries,
+  statusText,
+  type PermissionMatrix,
+  type SkillInventoryItem
+} from '../../skills/skill-list';
 
 const router = useRouter();
-const auth = useAuthStore();
 
-type SkillRow = SkillSummary & { state: ReturnType<typeof deriveShareState> };
+interface SkillRow extends SkillInventoryItem {
+  state: ReturnType<typeof deriveShareState>;
+}
 
 const rows = ref<SkillRow[]>([]);
 const loading = ref(false);
@@ -49,13 +58,28 @@ function openPermissions(scope: string, skillName: string): void {
   });
 }
 
+function fallbackMatrix(item: SkillInventoryItem): PermissionMatrix {
+  return {
+    scope: item.scope,
+    skillName: item.skillName,
+    sharedAllRead: false,
+    sharedAllWrite: false,
+    sharedAllManage: false,
+    teams: [],
+    members: []
+  };
+}
+
 onMounted(async () => {
   loading.value = true;
   errorMessage.value = '';
   try {
-    // 组织管理员可读全组织技能，按 scope 收敛到本组织
-    const summaries = await loadSkillSummaries((skill) => skill.scope === auth.org);
-    rows.value = summaries.map((summary) => ({ ...summary, state: deriveShareState(summary.matrix) }));
+    // 服务端已按组织管理员身份收敛到本组织全部技能(含未发布,ADR-0025)
+    const items = await loadSkillInventorySummaries();
+    rows.value = items.map((item) => ({
+      ...item,
+      state: deriveShareState(item.matrix ?? fallbackMatrix(item))
+    }));
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
