@@ -2,8 +2,7 @@
   <div>
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
-        <span class="toolbar-caption">在册成员 {{ members.length }} 人</span>
-        <div>
+        <div class="toolbar-end">
           <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">添加成员</el-button>
         </div>
       </div>
@@ -358,9 +357,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.toolbar-caption {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+.toolbar-end {
+  margin-left: auto;
 }
 
 .page-error {
