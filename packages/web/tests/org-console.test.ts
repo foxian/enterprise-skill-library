@@ -478,6 +478,31 @@ describe('TeamsView 团队管理', () => {
     expect(patch?.body).toEqual({ name: 'frontend', permission: 'manage', display_name: '' });
   });
 
+  it('编辑团队:权限变更提示展示已授权技能数', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/teams/7/skills-count') {
+        return { status: 200, json: { skillsCount: 2 } };
+      }
+      if (url === '/api/orgs/teams') {
+        return { status: 200, json: teams };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="edit-team-frontend"]').trigger('click');
+    await flushPromises();
+    const manageRadio = doc('edit-team-permission').find('input[value="manage"]');
+    (manageRadio.element as HTMLInputElement).checked = true;
+    await manageRadio.trigger('change');
+    await flushPromises();
+
+    // 权限档变化时内联警告展示从 skills-count 接口取回的技能数(ADR-0029)
+    const warning = document.querySelector('.permission-warning');
+    expect(warning?.textContent).toContain('已授权 2 个技能');
+  });
+
   it('系统管理团队面板中组织管理员行不可移除', async () => {
     useApiMock((method, url) => {
       if (url === '/api/orgs/teams') {

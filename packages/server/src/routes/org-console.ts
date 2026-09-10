@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   OperationRepository,
   OperationSecretRepository,
+  SkillRepository,
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
@@ -14,6 +15,7 @@ import { DEFAULT_TEAM_DISPLAY_NAMES } from '../services/org-team-model.js';
 
 export interface OrgConsoleRouteOptions {
   giteaService: GiteaService;
+  repository: SkillRepository;
   passwordMinLength?: number;
   operationRepository: OperationRepository;
   operationSecretRepository: OperationSecretRepository;
@@ -33,7 +35,7 @@ const HIDDEN_DEFAULT_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-ma
 const TEAM_DISPLAY_NAME_MAX = 64;
 
 export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConsoleRouteOptions): void {
-  const { giteaService, tenantOrganizationRepository } = options;
+  const { giteaService, repository, tenantOrganizationRepository } = options;
 
   app.get('/api/orgs/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
@@ -298,6 +300,27 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
     return giteaService.listTeamMembers(teamId);
+  });
+
+  // ADR-0029:该团队已授权的技能数(= 团队挂载仓库中属于本组织技能仓库的数量)。
+  // 供前端编辑对话框在权限档变更时展示影响面("该团队已授权 N 个技能")。
+  // gitRepoPath 与 Gitea repo full_name 同为 "{owner}/{name}",直接匹配。
+  app.get('/api/orgs/teams/:teamId/skills-count', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    if (!org) return;
+    const teamId = Number((request.params as { teamId: string }).teamId);
+    if (!(await orgHasTeam(giteaService, org, teamId))) {
+      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+    }
+    const skillRepoKeys = new Set(
+      repository
+        .listSkills()
+        .filter((skill) => skill.scope === org)
+        .map((skill) => skill.gitRepoPath)
+    );
+    const teamRepos = await giteaService.listTeamRepos(teamId);
+    const skillsCount = teamRepos.filter((repo) => skillRepoKeys.has(repo.full_name)).length;
+    return { teamId, skillsCount };
   });
 
   app.post('/api/orgs/teams/:teamId/members', async (request, reply) => {

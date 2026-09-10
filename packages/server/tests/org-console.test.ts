@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { initDatabase } from '../src/db/database.js';
+import { initDatabase, SkillRepository } from '../src/db/database.js';
 
 describe('organization console API', () => {
   const applicationEncryptionKey = 'a'.repeat(64);
@@ -769,6 +769,60 @@ describe('organization console API', () => {
     );
     expect(backend).toBeDefined();
     expect(backend!.display_name).toBeUndefined();
+  });
+
+  it('counts the skills a team is granted on for the permission-change warning', async () => {
+    const mockGitea = orgAdminGitea();
+    // 团队 7 挂载 2 个 acme 技能仓库 + 1 个非技能仓库;另一个 acme 技能未挂载
+    mockGitea.listTeamRepos = vi.fn().mockResolvedValue([
+      { id: 10, name: 'acme_reviewer', full_name: 'acme/acme_reviewer' },
+      { id: 11, name: 'acme_prompts', full_name: 'acme/acme_prompts' },
+      { id: 99, name: 'not-a-skill', full_name: 'acme/not-a-skill' }
+    ]);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const db = initDatabase(dbPath);
+    const seedSkill = (skillName: string) =>
+      new SkillRepository(db).createSkill({
+        name: `@acme/${skillName}`,
+        scope: 'acme',
+        skillName,
+        description: 'd',
+        createdBy: 'acme_alice',
+        owner: 'acme_alice',
+        maintainers: ['acme_alice'],
+        visibility: 'private',
+        gitRepoPath: `acme/acme_${skillName}`
+      });
+    seedSkill('reviewer');
+    seedSkill('prompts');
+    seedSkill('not-mounted');
+    db.close();
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/teams/7/skills-count',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    // 挂载的 2 个 acme 技能计入,非技能仓库与未挂载技能不计入
+    expect(response.json()).toEqual({ teamId: 7, skillsCount: 2 });
+    expect(mockGitea.listTeamRepos).toHaveBeenCalledWith(7);
+  });
+
+  it('rejects skills-count for a team outside the administrator organization', async () => {
+    const mockGitea = orgAdminGitea();
+    mockGitea.listTeamRepos = vi.fn();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/teams/999/skills-count',
+      headers: { authorization: 'token acme-admin-token' }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(mockGitea.listTeamRepos).not.toHaveBeenCalled();
   });
 
   it('renames a custom team by its id', async () => {

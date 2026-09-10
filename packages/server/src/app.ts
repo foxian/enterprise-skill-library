@@ -477,6 +477,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,
+    repository,
     passwordMinLength: options.passwordMinLength,
     operationRepository,
     operationSecretRepository,

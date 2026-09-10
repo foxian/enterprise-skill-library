@@ -105,7 +105,7 @@
           :closable="false"
           show-icon
           class="permission-warning"
-          title="调整权限级别会实时改变该团队在所有已授权技能上的访问级别，保存时需二次确认。"
+          :title="permissionImpactTitle()"
         />
         <el-form-item label="标识名" required>
           <el-input v-model="editName" data-test="edit-team-name" placeholder="小写字母、数字与连字符" />
@@ -173,10 +173,19 @@ const editName = ref('');
 const editDisplayName = ref('');
 const editPermission = ref<'read' | 'write' | 'manage'>('read');
 const editOriginalPermission = ref<'read' | 'write' | 'manage'>('read');
+// ADR-0029:该团队已授权的技能数,编辑打开时按团队拉取,用于影响面提示。
+const editSkillsCount = ref(0);
 
 // ADR-0029:权限档是跨技能联动开关——矩阵按团队当前权限实时派生,变更即改变
 // 该团队挂载的所有技能上全体成员的访问级别。对话框内内联提示 + 保存时二次确认。
 const editPermissionChanged = computed(() => editPermission.value !== editOriginalPermission.value);
+
+function permissionImpactTitle(): string {
+  if (editSkillsCount.value > 0) {
+    return `该团队已授权 ${editSkillsCount.value} 个技能，变更将实时改变这些技能的访问级别，保存时需二次确认。`;
+  }
+  return '调整权限级别会实时改变该团队在已授权技能上的访问级别，保存时需二次确认。';
+}
 
 async function loadTeams(): Promise<void> {
   loading.value = true;
@@ -232,13 +241,22 @@ async function deleteTeam(): Promise<void> {
 
 // 编辑(ADR-0029):权限级别 + 标识名 + 显示名,一个对话框里改完。标识名按
 // 团队 ID 引用,改名不断授权(ADR-0026);显示名只落 ESL DB。
-function confirmEditTeam(team: TeamView): void {
+async function confirmEditTeam(team: TeamView): Promise<void> {
   editTargetId.value = team.id;
   editName.value = team.name;
   editDisplayName.value = team.display_name ?? '';
   const level = normalizePermission(team.permission);
   editPermission.value = level;
   editOriginalPermission.value = level;
+  // 编辑打开时拉取该团队已授权的技能数,供权限变更影响面提示用;
+  // 取不到则回退泛化文案(计数仅影响提示措辞)。
+  editSkillsCount.value = 0;
+  try {
+    const res = await apiRequest<{ skillsCount: number }>(`/api/orgs/teams/${team.id}/skills-count`);
+    editSkillsCount.value = res.skillsCount;
+  } catch {
+    editSkillsCount.value = 0;
+  }
   editDialogVisible.value = true;
 }
 
@@ -252,12 +270,16 @@ async function editTeam(): Promise<void> {
   // 权限档变更:二次确认。服务端矩阵按团队当前权限实时派生,调高即静默越权
   // 方向,调低即静默降权方向,都要显式确认。
   if (editPermissionChanged.value) {
+    const impact =
+      editSkillsCount.value > 0
+        ? `该团队已授权 ${editSkillsCount.value} 个技能，权限级别变更会实时改变这些技能的访问级别，且不会逐技能提示。确认继续？`
+        : '权限级别变更会实时改变该团队在已授权技能上的访问级别，且不会逐技能提示。确认继续？';
     try {
-      await ElMessageBox.confirm(
-        '权限级别变更会实时改变该团队在所有已授权技能上的访问级别，且不会逐技能提示。确认继续？',
-        '权限级别变更',
-        { type: 'warning', confirmButtonText: '确认变更', cancelButtonText: '取消' }
-      );
+      await ElMessageBox.confirm(impact, '权限级别变更', {
+        type: 'warning',
+        confirmButtonText: '确认变更',
+        cancelButtonText: '取消'
+      });
     } catch {
       return;
     }

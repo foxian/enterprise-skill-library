@@ -757,6 +757,20 @@ export class GiteaService {
     return body.map((team) => ({ id: team.id, name: team.name, permission: team.permission }));
   }
 
+  // 团队挂载的全部仓库(ADR-0029 用于统计该团队已授权的技能数)。
+  async listTeamRepos(teamId: number): Promise<Array<{ id: number; name: string; full_name: string }>> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Failed to list Gitea team repositories: ${err}`);
+    }
+
+    return (await res.json()) as Array<{ id: number; name: string; full_name: string }>;
+  }
+
   async isTeamMember(teamId: number, username: string): Promise<boolean> {
     const res = await this.customFetch(
       `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
