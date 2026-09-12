@@ -47,7 +47,7 @@ test.describe('角色路由 (Role-based Routing)', () => {
     await expect(page).toHaveURL(/\/admin\/org\/members/, { timeout: 30_000 });
     await expect(page.getByRole('menuitem', { name: '成员管理' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: '团队管理' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: '技能权限' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: '技能管理' })).toBeVisible();
     await context.close();
   });
 

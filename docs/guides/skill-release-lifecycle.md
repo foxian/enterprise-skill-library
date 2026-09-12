@@ -85,10 +85,24 @@ git branch -M main
 git add SKILL.md release.json
 git commit -m "Initial demo skill"
 npm exec -- esl upload --directory .
-npm exec -- esl publish 0.1.0 --force
+npm exec -- esl version 0.1.0
+npm exec -- esl publish --force
 Pop-Location
 Pop-Location
 ```
+
+`esl init` scaffolds `release.json` with `version: "0.1.0"`, which is the version
+`esl publish` reads — the version is never passed as a command argument. When
+run in a terminal, `esl init` asks for the skill description, license, and
+keywords; with `--no-input` or a piped stdin it writes the template directly.
+
+`esl version 0.1.0` tags that first release (`v0.1.0`): the version matches what
+`init` seeded, so it creates the tag without a new commit. Every release needs
+its tag on the commit being published.
+
+The first `esl upload` registers the skill with the server (Skill ID, Git
+repository, Source Remote); `esl publish` keeps the source in sync before
+releasing, so later releases do not need a separate upload.
 
 `esl publish` stores a clean ESL Server clone URL in the Git remote and sends
 the Skill User Token through a Git HTTP authentication header. Tokens should not
@@ -116,19 +130,30 @@ The project should now contain `.skills.json`, `.skills-lock.json`, and
 
 ## 5. Author Publishes A Patch Release
 
-Log back in as `author`, make a source change, commit it, and publish the next
-Skill Release. Source-form skills do not store a version locally; the SemVer is
-passed directly to `esl publish`.
+Log back in as `author`, make a source change, commit it, bump the version, and
+publish the next Skill Release. Source-form skills store the version in
+`release.json`; `esl version` bumps it, commits, and tags locally, and
+`esl publish` reads it back and syncs the source before releasing.
 
 ```powershell
 npm exec -- esl login --server http://localhost:3000 --org smoke --username author
 
 Push-Location .scratch\smoke-workspace\demo
 git add SKILL.md release.json
-git commit -m "Release 0.1.1"
-npm exec -- esl publish 0.1.1 --force
+git commit -m "Update demo skill"
+npm exec -- esl version patch
+npm exec -- esl publish --dry-run
+npm exec -- esl publish --force
 Pop-Location
 ```
+
+`esl version patch` rewrites `release.json` to `0.1.1`, commits the bump, and
+creates the annotated tag `v0.1.1` (it does not push). `esl publish` pushes the
+commit and the tag if needed, verifies the tag points at the commit being
+released, and refuses a version lower than the highest already published —
+backporting an old line is still allowed after an explicit confirmation.
+`--dry-run` performs every local check and prints what would be released
+without touching the server.
 
 ## 6. Consumer Updates And Sources
 
@@ -148,9 +173,13 @@ npm exec -- esl source @smoke/demo .scratch\smoke-workspace\source-copy
 
 Expected result:
 
-- `esl info @smoke/demo` lists `0.1.1` before `0.1.0`.
+- `esl info @smoke/demo` lists `0.1.1` before `0.1.0` (highest SemVer first).
 - `esl update @smoke/demo` reports `@smoke/demo: 0.1.0 -> 0.1.1`.
 - `.scratch\smoke-workspace\source-copy` contains the cloned skill source.
+
+Both `esl install` and `esl update` resolve to the highest stable SemVer;
+prerelease versions (such as `0.2.0-rc.1`) are installed only when requested
+explicitly with `--version`.
 
 ## Recovery Notes
 

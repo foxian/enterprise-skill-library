@@ -250,35 +250,57 @@ esl status
 > **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录，`esl upload` 会识别为孤儿场景——交互模式提示"是否移除 esl remote 并重新登记"，同意则自动 `git remote remove esl` 后全新登记；拒绝或非交互则给出 `git remote remove esl` → `esl upload --directory .` 的手动指引。
 
 ### 4. 发布技能 (Publish)
-将当前已推送的源码 HEAD 发布为 Skill Release 到 ESL Server：
+把当前源码发布为 Skill Release 到 ESL Server。版本号取自 `release.json`，不是命令参数：
 ```bash
 cd my-skill
-esl publish 0.1.0
+esl publish
 
 # 指定版本说明（作为发布说明与 release tag 说明）
-esl publish 0.1.0 --message "fix: dead-link regex; feat: docx batch"
+esl publish --message "fix: dead-link regex; feat: docx batch"
+
+# 预演：跑完所有本地校验并展示将要发布的内容，不接触服务端
+esl publish --dry-run
 
 # 跳过交互确认（脚本 / 非交互）
-esl publish 0.1.0 --force
+esl publish --force
 ```
+> 版本号来自被发布 commit 的 `release.json.version`；发布前请先 `esl version`（见下节）。直接传版本号（`esl publish 1.0.0`）会被拒绝并提示改用 `esl version`。
+> 对一个已托管源，`publish` 会自动 `fetch`、必要时 rebase 到服务器最新、并 push 本地领先的提交——忘记 push 不再阻断发布；冲突时保留 rebase 现场，解决后重跑即可。
 > 不传 `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
 
 ```bash
 esl notes @platform-ai/reviewer 1.1.0 --message "修订后的版本说明"
 ```
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
-> `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 1`，`license` 由用户显式确认）并落盘。若尚无 `esl` remote 会报错并提示先 `esl upload`。
+> `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`）并落盘，随后提示先 `esl version` 设定版本、再发布。首次登记仍归 `esl upload`：尚无 `esl` remote 时 `publish` 会报错并提示先 `esl upload`，不会隐式建仓。
+> 发布不可变、不可覆盖，错发只能靠弃用或删除补救。新版本低于服务器最高已发布版本时会被拒绝（防止手滑烧号）；确需回迁旧线时用 `--force` 越过。
 > `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。
 
-### 5. 升级版本号 (Version)
-源码形态（`SKILL.md` + `release.json`）的技能不存储本地版本号，`esl version` 对它不可用；发新版直接指定 SemVer：
+**弃用单个版本**：坏版本（安全缺陷、内容错误）发出后无法覆盖，可用弃用标记劝退消费者：
 ```bash
-# 源码形态：直接向 publish 传 SemVer
-esl publish 0.2.0   # minor
-esl publish 0.2.1   # patch
-esl publish 1.0.0   # major
+# 标记为不推荐：安装该版本时会看到这段说明，但仍可安装
+esl deprecate @platform-ai/reviewer 1.0.0 --message "Use 1.1.0; this release ships a broken regex"
+
+# 传空 message 解除标记
+esl deprecate @platform-ai/reviewer 1.0.0 --message ""
 ```
-`esl version minor|patch|major` 仍可用于含 `skill.json` 的安装副本或包形态目录。
+> 弃用不改变版本解析：被弃用的版本若仍是最高稳定版，默认安装依旧会选中它（只是伴随警告）。
+> 内容必须从服务器消失时（例如误发密钥），走单版本删除接口 `POST /api/skills/:scope/:skillName/releases/:version/delete`——技能 Maintainer 可删除自己技能的版本，被其他技能的依赖锁定引用时须由平台管理员带 `force` 强制。被删除的版本号烧毁，不可重发。
+
+### 5. 升级版本号 (Version)
+源码形态（`SKILL.md` + `release.json`）的版本号存在 `release.json` 的 `version` 字段里，随源码走 Git 历史：
+```bash
+# 递增：改写 release.json + 自动 commit + 打 annotated tag v<SemVer>（不 push）
+esl version patch   # 0.1.0 -> 0.1.1
+esl version minor   # 0.1.1 -> 0.2.0
+esl version major   # 0.2.0 -> 1.0.0
+
+# 显式设值（旧 schemaVersion: 1 清单的迁移入口）
+esl version 1.4.2
+```
+> `esl version` 不 push：推送归 `esl upload` 或下一次 `esl publish`（`publish` 会自动同步）。
+> 工作树有未提交改动时 `version` 会拒绝执行，避免把无关改动卷进版本提交。
+> 旧清单（`schemaVersion: 1`，无 `version` 字段）用递增关键字会报错指路，用显式设值完成迁移；已有的历史 Skill Release 不受影响。
 
 ### 6. 克隆远端源码进行二次开发 (Source)
 若需要对别人发布的技能进行二次开发或修复 Bug，可直接获取其完整 Git 源码：

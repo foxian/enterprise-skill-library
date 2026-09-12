@@ -144,8 +144,9 @@ Bootstrap Reset）时，承诺无法延续，同一 Identity 物理上可作为�
 
 Server-hosted Skill Source 中随源码一起进行 Git 管理的 `release.json`。它声明
 服务器生成 Skill Release 和 Published Skill Package 时所需的发布属性，包括
-`schemaVersion`、许可证、搜索关键词、兼容性约束和技能依赖，但不记录 SemVer、
-源码 commit、checksum、发布时间或发布状态。发布时，服务器从目标源码 commit
+`schemaVersion`、`version`（SemVer，随源码走 Git 历史，见 ADR-0030）、许可
+证、搜索关键词、兼容性约束和技能依赖，但不记录源码 commit、checksum、发布
+时间或发布状态。发布时，服务器从目标源码 commit
 读取并校验该清单，将其内容固化为该 Skill Release 的元数据快照；后续源码修改
 不影响已经创建的 Skill Release。除 `license` 外，其余字段允许为空集合，但
 字段本身必须存在。它是**发布链**的清单：只被 `upload` / `publish` 与服务器
@@ -173,11 +174,12 @@ Release Manifest（`release.json`）。
 
 ## Release Tag
 
-Skill Release 创建成功后，由 `publish` 在 Server-hosted Skill Source 中创建并
-推送的 annotated Git tag，格式为 `v<SemVer>`。它指向 Skill Release 绑定的
-源码 commit，帮助用户在 Git 历史中定位发布源码，但不是 Skill Release 或
-Published Skill Package 的事实来源。Release Tag 推送失败不使已经创建的
-Skill Release 失效；后续发布重试可以在确认 commit 一致后补建或补推该 Tag。
+Skill Release 创建成功前后，由 `esl version` 在本地源码中创建、随 push 上行
+至 Server-hosted Skill Source 的 annotated Git tag，格式为 `v<SemVer>`。它
+指向 Skill Release 绑定的源码 commit，帮助用户在 Git 历史中定位发布源码，
+但不是 Skill Release 或 Published Skill Package 的事实来源。`publish` 校验
+其存在且指向被发布的 commit；缺失时由服务器补建（`repair-tag` 兜底），补建
+失败不使已经创建的 Skill Release 失效。
 
 _Avoid_: Skill Release，用于指代 Git tag 时。
 
@@ -347,10 +349,31 @@ identifier across renames.
 
 A specific published version of a Skill Identity that can be discovered,
 installed, updated to, or used by a Skill User. It is created from a specific
-source commit of a Server-hosted Skill Source. Published Skill Source may
-continue to change, but only a new Skill Release can affect installation or
-update.
+source commit of a Server-hosted Skill Source, and its version is frozen from
+that commit's Release Manifest (`version` field, ADR-0030). Default resolution
+(install/update/use without `--version`) selects the highest stable SemVer and
+excludes prereleases; prerelease versions are installable only by explicit
+`--version`. Published Skill Source may continue to change, but only a new
+Skill Release can affect installation or update.
 _Avoid_: version when referring to the installable skill artifact.
+
+## Deprecated Release
+
+被 Maintainer 显式标记为「不推荐」的 Skill Release。标记携带一段劝退说明；
+安装与解析命中该版本时打印警告，但不阻止安装，也不影响最新版推导。它是
+不可变发布模型的配套手段：坏版本（安全缺陷、内容错误）保留可追溯性的同时
+对消费者给出明确劝退信号，弥补「不可变 + 单版本不可删」下坏版本只能沉默存
+在的缺口。传空说明可解除标记。
+
+## 单版本删除 (Release Deletion)
+
+删除单个 Skill Release 的外科手术式操作：移除其 Published Skill Package
+文件、release 记录、version 条目与对应的 Release Tag，但保留源码 Git 历史、
+技能本身与其余版本。技能 Maintainer 即可执行，前提是无其他技能的 Release
+Dependency Lock 引用该版本且显式确认；被引用的版本仅 ESL Platform
+Administrator 可强制删除（依赖检查降为强警示）。被删除的版本号视为烧毁，
+不得重发。与 Deleted Skill 的整技能物理删除相对（ADR-0030 对 ADR-0014 的
+版本级细化）。
 
 ## Adapted Skill Directory Name
 

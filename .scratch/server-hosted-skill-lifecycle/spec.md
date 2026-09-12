@@ -1,5 +1,7 @@
 Status: ready-for-agent
 
+> **部分约束已被 [ADR-0030](../../docs/adr/0030-semver-in-source-and-npm-style-release-workflow.md) 取代（2026-09-12）**：本 spec 的「SemVer 只作 `publish` 参数、源码不携带版本」「publish 拒绝未推送的 HEAD」「Release Tag 由服务器创建」三条已不再成立——SemVer 现由 `release.json` 的 `version` 字段承载，`esl version` 负责递增并打 tag，`publish` 对已托管源自动同步。下方对应条目已就地标注，实现请以 ADR-0030 与 CONTEXT.md 为准，本 spec 仅作为历史设计记录保留。
+
 ## Problem Statement
 
 ESL 当前把源码托管、版本发布和技能安装混在同一个 `publish` 流程中。服务器没有稳定的 Skill ID，未发布源码无法作为独立对象协作管理，远程 `install` 直接从 Git 仓库获取内容，且发布时无法生成与 Namespace 一致的不可变安装产物。
@@ -90,10 +92,10 @@ ESL 当前把源码托管、版本发布和技能安装混在同一个 `publish`
 - Make unreleased sources readable to authenticated users by explicit identity or Skill ID, but exclude them from default search and reject them from installation.
 - Use `main` as the default source checkout ref for `source`. Permit an explicit Git ref or Skill Release for historical source checkout.
 - Keep Source Update and Release creation as independent operations. A normal Git push only synchronizes source and never creates a Skill Release; `publish` never performs an implicit Git push.
-- Require `publish` to run inside the Skill Source Git working tree, reject a dirty working tree, and publish its current local HEAD. The commit must already exist in the ESL Source Remote and must be exactly `esl/main`; reject an unpushed HEAD or a HEAD that is not on `esl/main` with guidance to push source first. The initial implementation does not support publishing an arbitrary commit with `--commit`.
-- Require a unique SemVer as an explicit `publish` argument. Source files and the Release Manifest do not carry the Skill Release version.
+- Require `publish` to run inside the Skill Source Git working tree, reject a dirty working tree, and publish its current local HEAD. The commit must already exist in the ESL Source Remote and must be exactly `esl/main`；~~reject an unpushed HEAD or a HEAD that is not on `esl/main` with guidance to push source first~~ **[被 ADR-0030 取代]** 对已托管源，`publish` 改为自动 `fetch`/rebase/push 后再发布（忘 push 不再阻断）；首次登记仍归 `esl upload`，缺 `esl` remote 时报错指路而非隐式建仓。`publish` 仍不支持发布任意 commit（无 `--commit`）。
+- ~~Require a unique SemVer as an explicit `publish` argument. Source files and the Release Manifest do not carry the Skill Release version.~~ **[被 ADR-0030 取代]** SemVer 现在由 `release.json` 的 `version` 字段承载（`schemaVersion: 2`），由 `esl version` 递增并打 tag，`publish` 从源码读取——不再接收版本参数。
 - Reject duplicate versions and never overwrite or delete a Published Skill Package. Bind the Release to Skill ID, SemVer, source commit, and package checksum.
-- After the server successfully creates the Skill Release, create and push an annotated Release Tag named `v<SemVer>` to the ESL Source Remote. The server creates the tag so local Git identity does not matter. The tag points to the Release source commit but is not the Release source of truth. A tag push failure does not roll back the Release; a repeated repair can only recreate a missing tag when its commit matches the existing Release.
+- After the server successfully creates the Skill Release, create and push an annotated Release Tag named `v<SemVer>` to the ESL Source Remote. The server creates the tag so local Git identity does not matter. The tag points to the Release source commit but is not the Release source of truth. A tag push failure does not roll back the Release; a repeated repair can only recreate a missing tag when its commit matches the existing Release. **[ADR-0030 起]** tag 改由 `esl version` 在本地创建并随 push 上行，`publish` 校验其存在且指向被发布的 commit；服务端创建降级为兜底（`repair-tag` 不变）。
 - Keep `skill.json` out of Skill Source. Require a Git-managed `release.json` Release Manifest containing `schemaVersion`, `license`, `keywords`, `compatibility`, and `dependencies`; require SPDX license expressions, allow `keywords`/`compatibility`/`dependencies` to be empty but present, resolve dependencies only to published remote Skill Releases, enforce compatibility by default, and do not allow publish-time arguments to override the manifest.
 - Create and persist a Release Dependency Lock at publish time so the same Release always resolves the same dependency graph.
 - Reject direct or indirect dependency cycles during publish.

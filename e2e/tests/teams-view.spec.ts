@@ -56,15 +56,15 @@ test.describe('团队管理页 (TeamsView)', () => {
     await expect(table.getByRole('row').filter({ hasText: 'Owners' })).toHaveCount(0);
   });
 
-  test('A-02 默认团队不可删除、不可改名（按钮禁用 + 后端拒绝）', async ({ adminApi, orgAdminPage }) => {
+  test('A-02 默认团队不可删除、不可编辑（按钮禁用 + 后端拒绝）', async ({ adminApi, orgAdminPage }) => {
     // 1. 导航到 /admin/org/teams，等待 teams-table 可见
     const page = orgAdminPage;
     await page.goto('/admin/org/teams');
     const table = page.getByTestId('teams-table');
     await expect(table).toBeVisible();
 
-    // 2. 团队管理页可见的默认团队只有系统管理团队:rename/delete 按钮均 disabled
-    await expect(page.getByTestId('rename-team-system-admins')).toBeDisabled();
+    // 2. 团队管理页可见的默认团队只有系统管理团队:edit/delete 按钮均 disabled
+    await expect(page.getByTestId('edit-team-system-admins')).toBeDisabled();
     await expect(page.getByTestId('delete-team-system-admins')).toBeDisabled();
 
     // 3. 后端防护：PATCH 默认团队传新名返回 400
@@ -74,7 +74,7 @@ test.describe('团队管理页 (TeamsView)', () => {
     const patch = await adminApi.patch(`/api/orgs/teams/${systemAdmins!.id}`, { data: { name: 'should-not-work' } });
     expect(patch.status()).toBe(400);
     expect((await patch.json()) as { error: string }).toMatchObject({
-      error: expect.stringContaining('System teams cannot be renamed')
+      error: expect.stringContaining('System teams cannot be edited')
     });
 
     // 4. 后端防护：DELETE 默认团队返回 400
@@ -116,8 +116,11 @@ test.describe('团队管理页 (TeamsView)', () => {
         created.push(c.name);
       }
 
-      // 4. 断言工具栏团队计数为初始值 +3
-      await expect.poll(async () => table.locator('tbody tr').count(), { timeout: 15_000 }).toBe(initialCount + 3);
+      // 4. 断言计数至少 +3。刻意不用绝对相等：组织是共享的，且 fullyParallel 下
+      //    其它 spec（如 share-levels D-02 会建团队）会在同一窗口增删团队。
+      await expect
+        .poll(async () => table.locator('tbody tr').count(), { timeout: 15_000 })
+        .toBeGreaterThanOrEqual(initialCount + 3);
       for (const c of cases) {
         await expect(table.getByRole('row').filter({ hasText: c.name })).toBeVisible();
       }
@@ -129,11 +132,11 @@ test.describe('团队管理页 (TeamsView)', () => {
     }
   });
 
-  test('A-04 自定义团队可改名且权限保留', async ({ adminApi, orgAdminPage }) => {
+  test('A-04 自定义团队可编辑标识名与显示名且权限保留', async ({ adminApi, orgAdminPage }) => {
     const page = orgAdminPage;
     const suffix = randomUUID().slice(0, 8);
-    const oldName = `e2e-team-rename-${suffix}`;
-    const newName = `e2e-team-renamed-${suffix}`;
+    const oldName = `e2e-team-edit-${suffix}`;
+    const newName = `e2e-team-edited-${suffix}`;
 
     // 1. 创建自定义团队（权限=读写）
     await page.goto('/admin/org/teams');
@@ -143,20 +146,23 @@ test.describe('团队管理页 (TeamsView)', () => {
     await expect(table.getByRole('row').filter({ hasText: oldName })).toBeVisible({ timeout: 15_000 });
 
     try {
-      // 2. 点击改名，输入新名并确认，断言成功提示「团队已重命名」
-      await page.getByTestId(`rename-team-${oldName}`).click();
-      await page.getByTestId('rename-team-name').fill(newName);
-      await page.getByTestId('rename-team-confirm').click();
-      await expect(page.getByText('团队已重命名')).toBeVisible({ timeout: 10_000 });
+      // 2. 点击编辑，同时改标识名与显示名（权限不动，因此不触发权限变更的二次确认），
+      //    保存后断言成功提示「团队已更新」
+      await page.getByTestId(`edit-team-${oldName}`).click();
+      await page.getByTestId('edit-team-name').fill(newName);
+      await page.getByTestId('edit-team-display-name').fill('编辑后的团队');
+      await page.getByTestId('edit-team-confirm').click();
+      await expect(page.getByText('团队已更新')).toBeVisible({ timeout: 10_000 });
 
-      // 3. 断言新名出现、旧名消失
-      const renamedRow = table.getByRole('row').filter({ hasText: newName });
-      await expect(renamedRow).toBeVisible({ timeout: 15_000 });
+      // 3. 断言新显示名与标识名出现、旧标识名消失
+      const editedRow = table.getByRole('row').filter({ hasText: newName });
+      await expect(editedRow).toBeVisible({ timeout: 15_000 });
+      await expect(editedRow).toContainText('编辑后的团队');
       await expect(table.getByRole('row').filter({ hasText: oldName })).toHaveCount(0);
 
-      // 4. 断言权限档位与类型保持不变（改名按团队 ID 引用，不断授权）
-      await expect(renamedRow).toContainText('读写');
-      await expect(renamedRow.getByText('自定义')).toBeVisible();
+      // 4. 断言权限档位与类型保持不变（标识名变更按团队 ID 引用，不断授权）
+      await expect(editedRow).toContainText('读写');
+      await expect(editedRow.getByText('自定义')).toBeVisible();
     } finally {
       // 5. 清理删除该自定义团队
       await deleteTeamByName(adminApi, newName);
