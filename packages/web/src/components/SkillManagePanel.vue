@@ -66,6 +66,18 @@
             <el-table-column label="发布人" width="120">
               <template #default="{ row }">{{ shortUsername(props.scope, row.createdBy) }}</template>
             </el-table-column>
+            <el-table-column label="操作" width="80">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="danger"
+                  :data-test="`delete-release-${row.version}`"
+                  @click="deleteRelease(row.version)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-collapse-item>
       </el-collapse>
@@ -175,7 +187,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { apiRequest } from '../api/client';
 import { shortUsername } from '../utils/short-username';
 import {
@@ -294,6 +306,45 @@ function assignPermissionsResponse(response: PermissionsResponse): void {
   const { skill, ...matrixResponse } = response;
   context.value = skill;
   matrix.value = matrixResponse;
+}
+
+// 单版本删除(CONTEXT:单版本删除):不可变发布模型下的外科手术式清理。服务端以
+// 「confirm 必须等于版本号」表达显式确认,这里用输入框承载;依赖引用等守卫由服务端
+// 判定,拒绝原因(含引用方)原样呈现,不在这里替用户做取舍。
+async function deleteRelease(version: string): Promise<void> {
+  errorMessage.value = '';
+  let answer: string;
+  try {
+    const result = await ElMessageBox.prompt(
+      `删除 v${version} 会移除该版本的发布包、版本记录与 Release Tag（源码 Git 历史与其他版本保留），且该版本号不可再发布。请输入 ${version} 确认：`,
+      '删除 Skill Release',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        inputPlaceholder: version,
+        type: 'warning'
+      }
+    );
+    answer = result.value ?? '';
+  } catch {
+    return; // 用户取消
+  }
+  if (answer.trim() !== version) {
+    errorMessage.value = `确认失败：请输入完整版本号 ${version}`;
+    return;
+  }
+
+  try {
+    await apiRequest(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}` +
+        `/releases/${encodeURIComponent(version)}/delete`,
+      { method: 'POST', body: { confirm: version } }
+    );
+    ElMessage.success(`已删除 v${version}`);
+    await loadMatrix();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
 }
 
 // 返回操作是否成功，便于调用方决定是否清空输入并提示成功
