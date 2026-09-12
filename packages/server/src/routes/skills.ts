@@ -31,6 +31,16 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   const { repository, adminRepository, giteaService, repoOwner, tenantOrganizationRepository, operationRepository, operationExecutor } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
+  // 权限矩阵的响应体;读路径(GET)与变更路径(POST)共用同一形状——客户端用响应整体
+  // 替换本地状态,两个路由少一个字段就会让界面状态退化(变更后控件集体失效)。
+  const buildPermissionsResponse = async (skill: SkillRecord, username: string) => ({
+    ...(await getPermissionMatrix(giteaService, tenantOrganizationRepository, skill)),
+    skill: buildSkillContext(repository, skill),
+    // 查看者自己的权限档:与变更守门、技能列表的 access 用同一套判定(getAccessLevel),
+    // 前端据此决定变更类控件是否可用,避免「点了才知道 403」。
+    viewerAccess: await getAccessLevel(giteaService, skill, username)
+  });
+
   app.post('/api/skills/upload', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
@@ -209,13 +219,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
       return reply.status(403).send({ error: 'Forbidden: read access required' });
     }
-    return {
-      ...(await getPermissionMatrix(giteaService, tenantOrganizationRepository, skill)),
-      skill: buildSkillContext(repository, skill),
-      // 查看者自己的权限档:与 POST 变更守门、技能列表的 access 用同一套判定
-      // (getAccessLevel),前端据此决定变更类控件是否可用,避免「点了才 403」。
-      viewerAccess: await getAccessLevel(giteaService, skill, user.username)
-    };
+    return buildPermissionsResponse(skill, user.username);
   });
 
   // 技能描述随 Source Upload 更新(CONTEXT:Skill Description):仅 Maintainer
@@ -332,7 +336,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         retryable: true
       });
     }
-    return getPermissionMatrix(giteaService, tenantOrganizationRepository, skill);
+    return buildPermissionsResponse(skill, user.username);
   });
 
   app.post('/api/skills/:scope/:skillName/rename', async (request, reply) => {

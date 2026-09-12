@@ -920,6 +920,31 @@ describe('skill RBAC permissions', () => {
     expect(change.statusCode).toBe(403);
   });
 
+  it('returns the same shape from the read and the mutate paths', async () => {
+    const mockGitea = createRbacGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const headers = { authorization: 'token alice-token' };
+
+    const read = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers
+    });
+    const mutate = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers,
+      payload: { action: 'share_all_read' }
+    });
+
+    expect(mutate.statusCode).toBe(200);
+    // 客户端用 POST 响应整体替换本地状态,两个路由必须同形状,否则变更后
+    // 技能上下文会消失、viewerAccess 会退化为空,控件随之全部禁用。
+    expect(Object.keys(mutate.json()).sort()).toEqual(Object.keys(read.json()).sort());
+    expect(mutate.json().viewerAccess).toBe('manage');
+    expect(mutate.json().skill).toMatchObject({ name: '@acme/reviewer' });
+  });
+
   it('reports the viewer access level alongside the matrix', async () => {
     const mockGitea = createRbacGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });

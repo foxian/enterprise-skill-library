@@ -94,7 +94,12 @@
 
     <el-card class="section-card">
       <template #header>组织共享级别</template>
-      <el-radio-group :model-value="shareLevel" data-test="share-level" @change="onShareLevelChange">
+      <el-radio-group
+        :model-value="shareLevel"
+        :disabled="!canManage"
+        data-test="share-level"
+        @change="onShareLevelChange"
+      >
         <el-radio value="none">不共享（私有）</el-radio>
         <el-radio value="read">全员只读</el-radio>
         <el-radio value="write">全员读写</el-radio>
@@ -110,14 +115,22 @@
             <el-select
               v-if="teamOptions.length"
               v-model="selectedTeam"
+              :disabled="!canManage"
               data-test="team-select"
               placeholder="选择团队"
               style="width: 220px"
             >
               <el-option v-for="team in teamOptions" :key="team.name" :label="teamLabel(team)" :value="team.name" />
             </el-select>
-            <el-input v-else v-model="selectedTeam" data-test="team-input" placeholder="团队名" style="width: 220px" />
-            <el-button type="primary" data-test="grant-team" @click="grantTeam">添加授权</el-button>
+            <el-input
+              v-else
+              v-model="selectedTeam"
+              :disabled="!canManage"
+              data-test="team-input"
+              placeholder="团队名"
+              style="width: 220px"
+            />
+            <el-button type="primary" :disabled="!canManage" data-test="grant-team" @click="grantTeam">添加授权</el-button>
           </div>
           <el-table v-if="matrix.teams.length" :data="matrix.teams" size="small">
             <el-table-column label="团队">
@@ -128,6 +141,7 @@
                 <el-button
                   link
                   type="danger"
+                  :disabled="!canManage"
                   :data-test="`revoke-team-${row.name}`"
                   @click="applyAction('remove_team', { team: row.name })"
                 >
@@ -145,6 +159,7 @@
             <el-select
               v-if="memberOptions.length"
               v-model="selectedMember"
+              :disabled="!canManage"
               filterable
               allow-create
               data-test="member-select"
@@ -158,13 +173,20 @@
                 :value="member.username"
               />
             </el-select>
-            <el-input v-else v-model="selectedMember" data-test="member-input" placeholder="成员用户名（含组织前缀）" style="width: 220px" />
-            <el-select v-model="memberPermission" data-test="member-permission" style="width: 110px">
+            <el-input
+              v-else
+              v-model="selectedMember"
+              :disabled="!canManage"
+              data-test="member-input"
+              placeholder="成员用户名（含组织前缀）"
+              style="width: 220px"
+            />
+            <el-select v-model="memberPermission" :disabled="!canManage" data-test="member-permission" style="width: 110px">
               <el-option label="只读" value="read" />
               <el-option label="读写" value="write" />
               <el-option label="管理" value="manage" />
             </el-select>
-            <el-button type="primary" data-test="grant-member" @click="grantMember">添加授权</el-button>
+            <el-button type="primary" :disabled="!canManage" data-test="grant-member" @click="grantMember">添加授权</el-button>
           </div>
           <el-table v-if="matrix.members.length" :data="matrix.members" size="small">
             <el-table-column label="成员">
@@ -178,6 +200,7 @@
                 <el-button
                   link
                   type="danger"
+                  :disabled="!canManage"
                   :data-test="`revoke-member-${row.username}`"
                   @click="applyAction('remove_member', { username: row.username })"
                 >

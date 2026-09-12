@@ -41,6 +41,8 @@ function matrixFor(skillName: string, overrides: Record<string, unknown> = {}) {
     sharedAllWrite: false,
     teams: [],
     members: [{ username: owner, permission: 'write' }],
+    // 变更类控件按 viewerAccess 门控；基座默认给管理权，读级视角由用例单独覆盖
+    viewerAccess: 'manage',
     ...overrides
   };
 }
@@ -199,6 +201,27 @@ describe('SkillManagePanel 权限配置', () => {
     (panel.vm as unknown as Record<string, unknown>)[name] = value;
     await flushPromises();
   }
+
+  it('读级查看者的配置控件全部不可用', async () => {
+    const { requests } = mockMatrixApi({
+      viewerAccess: 'read',
+      teams: [{ id: 7, name: 'frontend', permission: 'read' }],
+      members: [{ username: 'acme_bob', permission: 'read' }]
+    });
+    wrapper = await mountPanel();
+
+    const disabled = (selector: string) => wrapper!.find(selector).attributes('disabled') !== undefined;
+    expect(wrapper!.findAll('[data-test="share-level"] input').every((input) => input.attributes('disabled') !== undefined)).toBe(true);
+    expect(disabled('[data-test="grant-team"]')).toBe(true);
+    expect(disabled('[data-test="revoke-team-frontend"]')).toBe(true);
+    expect(disabled('[data-test="grant-member"]')).toBe(true);
+    expect(disabled('[data-test="revoke-member-acme_bob"]')).toBe(true);
+
+    // 点了也不会发请求
+    await wrapper!.find('[data-test="grant-team"]').trigger('click');
+    await flushPromises();
+    expect(requests.some((request) => request.method === 'POST')).toBe(false);
+  });
 
   it('组织共享级别控件按档位调用对应接口并实时刷新状态', async () => {
     const { requests } = mockMatrixApi({ sharedAllRead: true });
