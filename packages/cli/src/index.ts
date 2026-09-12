@@ -11,6 +11,7 @@ export * from './commands/install.js';
 export * from './commands/login.js';
 export * from './commands/publish.js';
 export * from './commands/deprecate.js';
+export * from './commands/release-delete.js';
 export * from './commands/rename.js';
 export * from './commands/repair-tag.js';
 export * from './commands/upload.js';

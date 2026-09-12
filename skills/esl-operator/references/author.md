@@ -1,7 +1,7 @@
 # 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
 
 只读命令（直接跑）：`validate`。
-写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `share`。
+写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
 
 ## 初始化新技能
 `esl init @ns/name [--license SPDX] [--description <text>] [--keywords a,b]` —— 在当前目录下生成技能文件夹（短名为目录名），含 `SKILL.md`（带 frontmatter）与 `release.json`。`release.json` 的 `schemaVersion` 为 `2`，含 `version`（初始 `0.1.0`），`license` 默认 `MIT`。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。
@@ -50,7 +50,9 @@
 坏版本（安全缺陷、内容错误）发出后不可覆盖、不可重发同号，只能劝退或删除：
 
 - `esl deprecate @ns/name <version> --message "说明"` —— 标记为不推荐。安装该版本的人会看到这段说明，但**仍可安装**；弃用不改变版本解析（被弃用版本若仍是最高稳定版，默认安装依旧选中它）。传空 message 解除标记。需要技能管理权。
-- 单版本删除走服务端接口 `POST /api/skills/:scope/:skillName/releases/:version/delete`（**目前没有对应的 CLI 命令**，CLI 侧只有弃用）——用于内容必须从服务器消失的场景（如误发密钥）。技能 Maintainer 可删自己技能的版本（需 `confirm` 传版本号）；该版本被其他技能的依赖锁定引用时会拒绝并列出引用方，只有平台管理员能带 `force` 强制删除。被删版本号烧毁，不可重发。
+- `esl release-delete @ns/name <version> --confirm <version>` —— 删除单个 Release，用于内容必须从服务器消失的场景（如误发密钥）。移除该版本的发布包、版本记录与 Release Tag，**保留源码 Git 历史、技能本身与其他版本**。必须用 `--confirm` 回显版本号（版本号烧毁、不可重发，所以要显式确认，别替用户省这一步）。
+  - 技能 Maintainer 可删自己技能的版本；若该版本被其他技能的 Release Dependency Lock 引用，服务端会拒绝并列出引用方，此时只有平台管理员能加 `--force` 强制删除（强制后相关技能的安装会因依赖缺失而失败——报错里会说明，别默认加 `--force`）。
+  - 想「劝退但不删除」用 `deprecate`；`release-delete` 只在内容必须消失时用。
 
 ## 拉别人源码做二次开发
 `esl source @ns/name [./dir]` —— 克隆远端 Git 源码到本地（默认当前目录），可改可修。这拿的是源码仓库，不是 Published Package。

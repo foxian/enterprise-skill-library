@@ -18,6 +18,7 @@ import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import { executeDeprecate } from '../commands/deprecate.js';
+import { executeReleaseDelete } from '../commands/release-delete.js';
 import { executeUpload } from '../commands/upload.js';
 import { executeResetSource } from '../commands/reset-source.js';
 import { executeStatus } from '../commands/status.js';
@@ -325,6 +326,21 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
           ? `Marked ${name}@${version} as deprecated`
           : `Cleared the deprecation mark on ${name}@${version}`
       );
+    });
+
+  program
+    .command('release-delete')
+    .description('Delete a single published version (the version number is burned)')
+    .argument('<skill-name>', 'scoped skill name, e.g. @acme/code-review')
+    .argument('<version>', 'published version to delete')
+    .requiredOption('--confirm <version>', 'echo the version to confirm the deletion')
+    .option('--force', 'override the dependency-pinning guard (platform administrator only)')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl release-delete @acme/code-review 1.0.0 --confirm 1.0.0'))
+    .action(async (name: string, version: string, options: { confirm: string; force?: boolean; server?: string }) => {
+      const result = await executeReleaseDelete(name, version, options);
+      const dependents = result.dependents?.length ? ` (was required by ${result.dependents.join(', ')})` : '';
+      console.log(`Deleted ${name}@${version}${dependents}`);
     });
 
   program

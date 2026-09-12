@@ -283,9 +283,13 @@ esl deprecate @platform-ai/reviewer 1.0.0 --message "Use 1.1.0; this release shi
 
 # 传空 message 解除标记
 esl deprecate @platform-ai/reviewer 1.0.0 --message ""
+
+# 内容必须从服务器消失时（例如误发密钥）：删除单个版本，需回显版本号确认
+esl release-delete @platform-ai/reviewer 1.0.0 --confirm 1.0.0
 ```
 > 弃用不改变版本解析：被弃用的版本若仍是最高稳定版，默认安装依旧会选中它（只是伴随警告）。
-> 内容必须从服务器消失时（例如误发密钥），走单版本删除接口 `POST /api/skills/:scope/:skillName/releases/:version/delete`——技能 Maintainer 可删除自己技能的版本，被其他技能的依赖锁定引用时须由平台管理员带 `force` 强制。被删除的版本号烧毁，不可重发。
+> `release-delete` 移除该版本的发布包、版本记录与 Release Tag，保留源码 Git 历史、技能本身与其他版本；**版本号烧毁、不可重发**，所以要求 `--confirm` 回显。技能 Maintainer 可删自己技能的版本；被其他技能的依赖锁定引用时服务端会拒绝并列出引用方，只有平台管理员能加 `--force` 强制（强制后依赖它的技能安装会失败）。
+> 管理后台的技能管理页面「发布历史」里也有同样的删除入口（需回显版本号确认），Web 与 CLI 走同一个接口。
 
 ### 5. 升级版本号 (Version)
 源码形态（`SKILL.md` + `release.json`）的版本号存在 `release.json` 的 `version` 字段里，随源码走 Git 历史：
