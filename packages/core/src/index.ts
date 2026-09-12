@@ -14,4 +14,3 @@ export * from './skill/skill-md.js';
 export * from './store/file-copy.js';
 export * from './store/local-store.js';
 export * from './store/skills-json.js';
-export * from './version/version.js';

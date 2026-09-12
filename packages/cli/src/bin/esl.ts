@@ -443,14 +443,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
   program
     .command('version')
-    .argument('<release>', 'major, minor, or patch')
-    .addHelpText('after', example('$ esl version minor'))
+    .argument('<release>', 'major, minor, patch, or an explicit SemVer (e.g. 1.2.3)')
+    .addHelpText('after', example('$ esl version minor\n$ esl version 1.2.3'))
     .action(async (release: string) => {
-      if (release !== 'major' && release !== 'minor' && release !== 'patch') {
-        console.error('release must be major, minor, or patch');
-        process.exitCode = 1;
-        return;
-      }
       const version = await executeVersion(release);
       console.log(version);
     });
