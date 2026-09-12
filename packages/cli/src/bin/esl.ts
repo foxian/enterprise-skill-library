@@ -36,19 +36,8 @@ function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
 }
 
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-
-function resolvePublishPositional(first: string | undefined, second: string | undefined): { path?: string; version?: string } {
-  if (!first) {
-    return {};
-  }
-  if (!second) {
-    return SEMVER_PATTERN.test(first) ? { version: first } : { path: first };
-  }
-  return SEMVER_PATTERN.test(first) && !SEMVER_PATTERN.test(second)
-    ? { version: first, path: second }
-    : { path: first, version: second };
-}
+/** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
+const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 export function createProgram(): Command {
   const program = new Command();
@@ -282,23 +271,49 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   program
     .command('publish')
     .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
-    .argument('[version]', 'Skill Release SemVer for release.json sources (also accepted as the only argument)')
     .option('--directory <path>', 'skill directory', process.cwd())
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('--message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
-    .addHelpText('after', example('$ esl publish ./my-skill 1.1.0 --message "fix: dead-link regex"'))
-    .action(async (first: string | undefined, second: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean }) => {
-      const { path: skillPath, version } = resolvePublishPositional(first, second);
+    .option('--dry-run', 'validate and preview the release without touching the server')
+    .addHelpText('after', example('$ esl publish ./my-skill --message "fix: dead-link regex"'))
+    .action(async (skillPath: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
+      if (skillPath && SEMVER_ARGUMENT_PATTERN.test(skillPath)) {
+        console.error(
+          `esl publish no longer takes a version argument (got ${skillPath}). Run \`esl version <release>\` to set the version, then run esl publish.`
+        );
+        process.exitCode = 1;
+        return;
+      }
       await executePublish({
         ...options,
         directory: skillPath ?? options.directory,
-        version,
         noInput: program.opts().input === false
       });
-      console.log('Skill published');
+      if (options.dryRun) {
+        console.log('Dry run complete — no release was created.');
+      } else {
+        console.log('Skill published');
+      }
+    });
+
+  program
+    .command('deprecate')
+    .description('Mark a published version as deprecated, or clear the mark')
+    .argument('<skill-name>', 'scoped skill name, e.g. @acme/code-review')
+    .argument('<version>', 'published version to deprecate')
+    .option('--message <text>', 'warning shown to anyone installing this version; empty clears the mark', '')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl deprecate @acme/code-review 1.2.0 --message "Use 1.3.0 instead"'))
+    .action(async (name: string, version: string, options: { message: string; server?: string }) => {
+      await executeDeprecate(name, version, options);
+      console.log(
+        options.message.trim()
+          ? `Marked ${name}@${version} as deprecated`
+          : `Cleared the deprecation mark on ${name}@${version}`
+      );
     });
 
   program

@@ -2,11 +2,18 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fileExists, isBuiltinIdentity, validateSkillSourceDirectory } from '@esl/core';
+import semver from 'semver';
+import {
+  fileExists,
+  highestStableVersion,
+  isBuiltinIdentity,
+  validateSkillSourceDirectory
+} from '@esl/core';
 import { confirm, isInteractive, readText } from '../prompt.js';
 import {
   apiUrl,
   fetchWithTimeout,
+  gitAuthHeaderConfig,
   requireFreshToken,
   resolveNetworkConfig,
   type NetworkCommandOptions
@@ -17,6 +24,7 @@ const defaultExecFileAsync = promisify(execFile);
 
 export interface PublishOptions extends NetworkCommandOptions {
   directory?: string;
+  /** @deprecated Version is now read from release.json; pass --version to point users at `esl version` */
   version?: string;
   visibility?: string;
   force?: boolean;
@@ -26,6 +34,7 @@ export interface PublishOptions extends NetworkCommandOptions {
   confirmInput?: () => Promise<boolean>;
   noteInput?: (collected: string) => Promise<string>;
   execFileAsync?: typeof defaultExecFileAsync;
+  dryRun?: boolean;
 }
 
 export async function executePublish(options: PublishOptions = {}): Promise<unknown> {
@@ -41,21 +50,23 @@ export async function executePublish(options: PublishOptions = {}): Promise<unkn
   if (!(await fileExists(`${directory}/release.json`))) {
     await ensureReleaseManifest(options, directory);
     throw new Error(
-      'Created release.json in the source directory; commit it and push to esl/main, then run esl publish <version> again'
+      'Created release.json in the source directory; commit it, then run `esl version <SemVer>` to set the version before publishing.'
+    );
+  }
+  if (options.version !== undefined) {
+    throw new Error(
+      '`esl publish` no longer takes a version argument. The version is read from release.json. Use `esl version` (major | minor | patch | <SemVer>) to set the version first.'
     );
   }
   return executeSourceRelease(options, directory);
 }
 
 async function executeSourceRelease(options: PublishOptions, directory: string): Promise<unknown> {
-  const version = options.version;
-  if (!version) {
-    throw new Error('Release version is required; use esl publish <version>');
-  }
   const validation = await validateSkillSourceDirectory(directory);
   if (!validation.success) {
     throw new Error(`Invalid skill source: ${validation.errors.join(', ')}`);
   }
+  const version = validation.data.releaseManifest.version;
 
   const status = await git(options, directory, ['status', '--porcelain']);
   if (status.trim()) {
@@ -71,13 +82,25 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
   if (identity.startsWith('@local/')) {
     throw new Error('@local/* skills use the local namespace and must be renamed to a stable namespace before publishing');
   }
-  await confirmPublish(options, identity, version);
-  const head = (await git(options, directory, ['rev-parse', 'HEAD'])).trim();
-  const remoteHead = (await git(options, directory, ['rev-parse', 'esl/main'])).trim();
-  if (head !== remoteHead) {
-    throw new Error('Cannot publish: local HEAD must be pushed and equal to esl/main');
-  }
+  // A dry run stays entirely local: it validates the source and previews what
+  // would be released, without syncing the source or creating a Skill Release.
+  const head = options.dryRun
+    ? (await git(options, directory, ['rev-parse', 'HEAD'])).trim()
+    : await syncSource(options, directory, await requireFreshToken(options));
+  await verifyReleaseTag(options, directory, version, head);
   const notes = await resolveReleaseNotes(options, directory);
+  if (options.dryRun) {
+    return {
+      dryRun: true,
+      name: identity,
+      version,
+      sourceCommit: head,
+      files: Object.keys(await collectSourceFiles(directory)).sort(),
+      notes
+    };
+  }
+  await assertNotOlderThanPublished(options, identity, version);
+  await confirmPublish(options, identity, version);
   const fetchImpl = options.customFetch ?? fetch;
   const { server } = await resolveNetworkConfig(options);
   const authToken = await requireFreshToken(options);
@@ -165,6 +188,130 @@ async function collectChangesSinceLastTag(options: PublishOptions, directory: st
     return subjects.split('\n').map((subject) => `- ${subject.trim()}`).join('\n');
   } catch {
     return '';
+  }
+}
+
+/**
+ * Guard against publishing a version older than what is already released, which
+ * would silently burn a version number on an immutable release. Releasing an
+ * older line on purpose (a backport) stays possible through --force, which skips
+ * this check along with the confirmation prompt.
+ */
+async function assertNotOlderThanPublished(
+  options: PublishOptions,
+  identity: string,
+  version: string
+): Promise<void> {
+  if (options.force) {
+    return;
+  }
+  const fetchImpl = options.customFetch ?? fetch;
+  const { server } = await resolveNetworkConfig(options);
+  const authToken = await requireFreshToken(options);
+
+  let published: string[] = [];
+  try {
+    const response = await fetchWithTimeout(
+      fetchImpl,
+      apiUrl(server, `/api/skills/${encodeURIComponent(identity)}`),
+      { headers: { Authorization: `token ${authToken}` } }
+    );
+    if (!response.ok) {
+      return; // best effort: an unreachable listing must not block a release
+    }
+    const info = (await response.json()) as { versions?: string[] };
+    published = info.versions ?? [];
+  } catch {
+    return;
+  }
+
+  const highest = highestStableVersion(published);
+  if (highest && semver.lt(version, highest)) {
+    throw new Error(
+      `Cannot publish ${version}: ${highest} is already published and versions must move forward. Bump with \`esl version\` instead, or pass --force to release the older version on purpose.`
+    );
+  }
+}
+
+/**
+ * Bring the server source up to date with the local branch before releasing, and
+ * return the commit that will be released. An already-synced source is left
+ * untouched (no push); a source that is behind is rebased and then pushed.
+ */
+async function syncSource(
+  options: PublishOptions,
+  directory: string,
+  authToken: string
+): Promise<string> {
+  const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  const authHeader = gitAuthHeaderConfig(authToken);
+
+  try {
+    await execFileAsync('git', ['-c', authHeader, 'fetch', 'esl'], { cwd: directory });
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Cannot publish: failed to read the server source. Check that you are logged in and have access to this skill. (${detail})`
+    );
+  }
+
+  let remoteHead = '';
+  try {
+    remoteHead = (await git(options, directory, ['rev-parse', 'esl/main'])).trim();
+  } catch {
+    remoteHead = ''; // the server source has no commits yet
+  }
+
+  if ((await git(options, directory, ['rev-parse', 'HEAD'])).trim() === remoteHead) {
+    return remoteHead;
+  }
+
+  const behind = parseInt(
+    (await git(options, directory, ['rev-list', '--count', 'HEAD..esl/main'])).trim() || '0',
+    10
+  );
+  if (behind > 0) {
+    try {
+      await execFileAsync('git', ['rebase', 'esl/main'], { cwd: directory });
+    } catch {
+      throw new Error(
+        'Cannot publish: the server source has newer commits and rebasing onto them hit a conflict. Resolve the conflicted files, finish the rebase, then run esl publish again.'
+      );
+    }
+  }
+
+  try {
+    await execFileAsync('git', ['-c', authHeader, 'push', 'esl', 'HEAD:main'], { cwd: directory });
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot publish: failed to push the source to the server. (${detail})`);
+  }
+
+  return (await git(options, directory, ['rev-parse', 'HEAD'])).trim();
+}
+
+async function verifyReleaseTag(
+  options: PublishOptions,
+  directory: string,
+  version: string,
+  head: string
+): Promise<void> {
+  const tag = `v${version}`;
+  try {
+    const tagCommit = (await git(options, directory, ['rev-list', '-n', '1', tag])).trim();
+    if (tagCommit !== head) {
+      throw new Error(
+        `Tag ${tag} points to a different commit than HEAD. Run \`esl version\` on the commit you want to release.`
+      );
+    }
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('unknown revision') || msg.includes('bad revision') || msg.includes('fatal')) {
+      throw new Error(
+        `No release tag ${tag} found on HEAD. Run \`esl version <release>\` to bump the version and create the tag before publishing.`
+      );
+    }
+    throw error;
   }
 }
 

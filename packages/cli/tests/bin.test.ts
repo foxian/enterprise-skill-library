@@ -190,15 +190,14 @@ describe('upload / publish positional path', () => {
     vi.mocked(executePublish).mockResolvedValue({});
   });
 
-  it('registers the optional positional arguments on upload and publish', () => {
+  it('registers only the optional path positional on upload and publish', () => {
     const program = createProgram();
     const upload = program.commands.find((command) => command.name() === 'upload');
     const publish = program.commands.find((command) => command.name() === 'publish');
 
     expect(upload?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual(['path:false']);
     expect(publish?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual([
-      'path:false',
-      'version:false'
+      'path:false'
     ]);
   });
 
@@ -223,33 +222,23 @@ describe('upload / publish positional path', () => {
     expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: process.cwd() }));
   });
 
-  it('resolves publish positional path and version in path-first order', async () => {
-    const program = createProgram();
-    await program.parseAsync(['publish', './x', '1.0.0'], { from: 'user' });
-
-    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: '1.0.0' }));
-  });
-
-  it('keeps "esl publish <version>" backward compatible', async () => {
-    const program = createProgram();
-    await program.parseAsync(['publish', '1.0.0'], { from: 'user' });
-
-    expect(executePublish).toHaveBeenCalledWith(
-      expect.objectContaining({ version: '1.0.0', directory: process.cwd() })
-    );
-  });
-
-  it('resolves publish positional path and version in version-first order', async () => {
-    const program = createProgram();
-    await program.parseAsync(['publish', '1.0.0', './x'], { from: 'user' });
-
-    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: '1.0.0' }));
-  });
-
-  it('accepts a publish path as the only positional argument', async () => {
+  it('passes the publish positional path as the directory', async () => {
     const program = createProgram();
     await program.parseAsync(['publish', './x'], { from: 'user' });
 
-    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x', version: undefined }));
+    expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x' }));
+  });
+
+  it('treats a bare version argument as a mistake and points at esl version', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.exitCode = undefined;
+    const program = createProgram();
+
+    await program.parseAsync(['publish', '1.0.0'], { from: 'user' });
+
+    expect(executePublish).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('esl version'));
+    errorSpy.mockRestore();
+    process.exitCode = undefined;
   });
 });

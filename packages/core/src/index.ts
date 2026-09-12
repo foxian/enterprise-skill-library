@@ -11,6 +11,7 @@ export * from './skill/builtin-package.js';
 export * from './skill/directory-validator.js';
 export * from './skill/published-package.js';
 export * from './skill/skill-md.js';
+export * from './version/select-version.js';
 export * from './store/file-copy.js';
 export * from './store/local-store.js';
 export * from './store/skills-json.js';

@@ -8,7 +8,11 @@
     "build": "tsc"
   },
   "dependencies": {
+    "semver": "^7.6.0",
     "yaml": "^2.3.4",
     "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.5.8"
   }
 }
