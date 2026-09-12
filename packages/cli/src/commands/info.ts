@@ -8,7 +8,7 @@ import {
   type NetworkCommandOptions,
   resolveNetworkConfig
 } from './network-options.js';
-import { isBuiltinIdentity, loadBuiltinPackageOrThrow } from '@esl/core';
+import { isBuiltinIdentity, loadBuiltinPackageOrThrow, sortVersionsDescending } from '@esl/core';
 import { resolveBuiltinDir } from '../builtin-dir.js';
 
 export interface SkillInfo {
@@ -24,7 +24,13 @@ export interface SkillInfo {
   skillId?: string;
   status?: string;
   packageUrl?: string;
-  releases?: Array<{ version: string; checksum: string; packageUrl?: string }>;
+  releases?: Array<{
+    version: string;
+    checksum: string;
+    packageUrl?: string;
+    /** Present when the release is deprecated: the warning shown on install. */
+    deprecatedMessage?: string | null;
+  }>;
   currentName?: string;
   oldName?: string;
 }
@@ -82,7 +88,7 @@ export function formatSkillInfo(info: SkillInfo): string {
     lines.push(`Description: ${info.description}`);
   }
   if (info.versions && info.versions.length > 0) {
-    lines.push(`Versions: ${info.versions.join(', ')}`);
+    lines.push(`Versions: ${sortVersionsDescending(info.versions).join(', ')}`);
   }
   if (info.gitRepoPath) {
     lines.push(`Repository: ${info.gitRepoPath}`);

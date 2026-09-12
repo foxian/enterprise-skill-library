@@ -3,7 +3,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeLocalStore, saveCredentials } from '@esl/core';
-import { executeInfo } from '../src/commands/info.js';
+import { executeInfo, formatSkillInfo } from '../src/commands/info.js';
+
+describe('esl info output', () => {
+  it('lists versions newest first regardless of the order they arrive in', () => {
+    const output = formatSkillInfo({
+      name: '@alice/code-review',
+      description: 'Review code',
+      versions: ['1.0.0', '1.10.0', '1.9.0']
+    });
+
+    expect(output).toContain('Versions: 1.10.0, 1.9.0, 1.0.0');
+  });
+});
 
 describe('esl info authentication', () => {
   let homeDir: string;

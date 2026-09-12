@@ -852,6 +852,21 @@ export class GiteaService {
     }
   }
 
+  async deleteReleaseTag(owner: string, repository: string, tag: string): Promise<void> {
+    const res = await this.customFetch(
+      `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/refs/tags/${encodeURIComponent(tag)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `token ${this.adminToken}` }
+      }
+    );
+    // A missing tag is not an error: the release is being removed either way.
+    if (!res.ok && res.status !== 404) {
+      const err = await res.text();
+      throw new Error(`Failed to delete Gitea release tag: ${err}`);
+    }
+  }
+
   async getReleaseTag(owner: string, repository: string, tag: string): Promise<GiteaTag | null> {
     const res = await this.customFetch(
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/refs/tags/${encodeURIComponent(tag)}`,

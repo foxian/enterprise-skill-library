@@ -17,6 +17,7 @@ import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
+import { executeDeprecate } from '../commands/deprecate.js';
 import { executeUpload } from '../commands/upload.js';
 import { executeResetSource } from '../commands/reset-source.js';
 import { executeStatus } from '../commands/status.js';

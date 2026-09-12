@@ -202,6 +202,81 @@ describe('esl update', () => {
     expect(fs.existsSync(path.join(projectDir, '.skills', '@alice', 'code-review'))).toBe(false);
   });
 
+  it('does not move an installed skill backwards when a lower version was published later', async () => {
+    const globalRoot = path.join(homeDir, '.skill-library');
+    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
+    await saveSkillsLock(globalRoot, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.2.0',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          integrity: ''
+        }
+      }
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        versions: ['1.0.0', '1.2.0']
+      })
+    });
+    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+
+    const result = await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      global: true,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      noAdapt: true
+    });
+
+    expect(result).toEqual([]);
+    expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('clone'))).toBe(false);
+  });
+
+  it('does not upgrade to a prerelease without an explicit version', async () => {
+    const globalRoot = path.join(homeDir, '.skill-library');
+    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
+    await saveSkillsLock(globalRoot, {
+      lockfileVersion: 1,
+      skills: {
+        '@alice/code-review': {
+          version: '1.0.0',
+          resolved: 'http://localhost:3000/git/esl-skills/alice_code_review.git',
+          integrity: ''
+        }
+      }
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code_review.git',
+        versions: ['1.3.0-beta.1', '1.0.0']
+      })
+    });
+    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+
+    const result = await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      global: true,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      noAdapt: true
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it('migrates an installed skill after a server-side rename even when the version is unchanged', async () => {
     await saveSkillsJson(projectDir, {
       skills: { '@alice/code-review': '^1.0.0' }

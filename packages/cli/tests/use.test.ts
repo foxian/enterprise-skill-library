@@ -78,4 +78,40 @@ describe('esl use', () => {
     ]);
     await fs.rm(homeDir, { recursive: true });
   });
+
+  it('checks out the highest stable version, not the most recently published one', async () => {
+    const homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-use-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        versions: ['1.0.0', '1.2.0', '1.3.0-beta.1']
+      })
+    });
+    const checkedOut: string[] = [];
+    const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes('clone')) {
+        const cloneDir = args.at(-1)!;
+        fsSync.mkdirSync(cloneDir, { recursive: true });
+        fsSync.writeFileSync(path.join(cloneDir, 'SKILL.md'), '---\nname: code-review\ndescription: Test.\n---\n');
+      }
+      if (args.includes('checkout')) {
+        checkedOut.push(args[args.length - 1]);
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    await executeUse('@alice/code-review', {
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(checkedOut).toEqual(['1.2.0']);
+    await fs.rm(homeDir, { recursive: true });
+  });
 });

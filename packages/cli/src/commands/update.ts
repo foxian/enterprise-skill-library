@@ -1,9 +1,11 @@
 ﻿import fs from 'node:fs/promises';
 import path from 'node:path';
+import semver from 'semver';
 import {
   adaptGlobal,
   adaptProject,
   BUILTIN_SPECIFIER_PREFIX,
+  highestStableVersion,
   isBuiltinIdentity,
   loadSkillsJson,
   loadSkillsLock,
@@ -89,13 +91,17 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     try {
       const info = await executeInfo(name, options);
       const resolvedName = info.currentName ?? name;
-      const latestVersion = info.versions?.[0];
+      const latestVersion = highestStableVersion(info.versions ?? []);
       if (!latestVersion) {
         continue;
       }
 
       const currentVersion = lockJson.skills[name]?.version;
-      if (currentVersion !== latestVersion) {
+      // An update only ever moves forward: a lower version published later must
+      // not pull an installed skill backwards.
+      const needsUpdate = !currentVersion || semver.gt(latestVersion, currentVersion);
+
+      if (needsUpdate) {
         await executeInstall(resolvedName, {
           ...options,
           projectRoot: manifestRoot,
@@ -111,16 +117,22 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
         const newDirectory = options.global
           ? publishedInstallTargetDir(resolvedName, options)
           : publishedProjectSkillsDir(manifestRoot, resolvedName);
-        if (currentVersion === latestVersion && await directoryExists(oldDirectory)) {
+        if (!needsUpdate && await directoryExists(oldDirectory)) {
           await fs.mkdir(path.dirname(newDirectory), { recursive: true });
           await fs.rename(oldDirectory, newDirectory);
         } else {
           await fs.rm(oldDirectory, { recursive: true, force: true });
         }
         await renameSkillState(manifestRoot, name, resolvedName);
+        results.push({
+          name: resolvedName,
+          from: currentVersion ?? 'unknown',
+          to: needsUpdate ? latestVersion : (currentVersion ?? latestVersion)
+        });
+        continue;
       }
 
-      if (currentVersion === latestVersion && resolvedName === name) {
+      if (!needsUpdate) {
         continue;
       }
 

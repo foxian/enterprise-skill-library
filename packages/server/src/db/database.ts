@@ -13,6 +13,9 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'skill_id', 'TEXT');
   ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
   ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
+  ensureColumn(db, 'deprecated_message', 'TEXT', 'skill_releases');
+  ensureColumn(db, 'deleted_at', 'DATETIME', 'skill_releases');
+  ensureColumn(db, 'deleted_by', 'TEXT', 'skill_releases');
   ensureColumn(db, 'encrypted_password', 'TEXT', 'org_applications');
   ensureOrgApplicationStatuses(db);
   db.exec(`
@@ -84,7 +87,13 @@ export interface SkillReleaseRecord {
   releaseManifest: unknown;
   dependencyLock: unknown;
   notes?: string;
+  /** Set when the release is deprecated: the message shown to anyone installing it. */
+  deprecatedMessage?: string | null;
+  /** Set on a tombstone left behind by deleting a release; the version stays burned. */
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdBy: string;
+  createdAt?: string;
 }
 
 export class SkillRepository {
@@ -416,7 +425,79 @@ export class SkillRepository {
     return this.getRelease(skillName, version);
   }
 
-  getRelease(skillName: string, version: string): SkillReleaseRecord | undefined {
+  /**
+   * Mark a release as deprecated (npm-style), or clear the mark with an empty
+   * message. The release itself is untouched: it stays installable, it just
+   * carries a warning for anyone who lands on it.
+   */
+  setReleaseDeprecation(
+    skillName: string,
+    version: string,
+    message: string
+  ): SkillReleaseRecord | undefined {
+    const result = this.db.prepare(`
+      UPDATE skill_releases
+      SET deprecated_message = ?
+      WHERE skill_name = ? AND version = ?
+    `).run(message.trim() ? message.trim() : null, skillName, version);
+    if (result.changes === 0) {
+      return undefined;
+    }
+    return this.getRelease(skillName, version);
+  }
+
+  /**
+   * Delete a single Skill Release. The row is kept as a tombstone (who deleted it
+   * and when) so the version number stays burned and cannot be republished; the
+   * package file, version entry, and release tag are removed by the caller.
+   */
+  deleteRelease(skillName: string, version: string, deletedBy: string): SkillReleaseRecord | undefined {
+    const result = this.db.prepare(`
+      UPDATE skill_releases
+      SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?
+      WHERE skill_name = ? AND version = ? AND deleted_at IS NULL
+    `).run(deletedBy, skillName, version);
+    if (result.changes === 0) {
+      return undefined;
+    }
+    return this.getRelease(skillName, version, { includeDeleted: true });
+  }
+
+  /** Drop a version from the published version list (the tombstone keeps it burned). */
+  removeVersion(skillName: string, version: string): void {
+    this.db
+      .prepare('DELETE FROM skill_versions WHERE skill_name = ? AND version = ?')
+      .run(skillName, version);
+  }
+
+  /**
+   * Skills whose frozen dependency lock points at this exact release. Deleting a
+   * release they depend on would break their installs.
+   */
+  findDependentReleases(skillId: string, version: string): string[] {
+    const rows = this.db
+      .prepare('SELECT skill_name AS skillName, dependency_lock_json AS dependencyLockJson FROM skill_releases WHERE deleted_at IS NULL')
+      .all() as { skillName: string; dependencyLockJson: string }[];
+    return rows
+      .filter((row) => {
+        let lock: Record<string, { skillId?: string; version?: string }>;
+        try {
+          lock = JSON.parse(row.dependencyLockJson) as Record<string, { skillId?: string; version?: string }>;
+        } catch {
+          return false;
+        }
+        return Object.values(lock).some(
+          (entry) => entry?.skillId === skillId && entry?.version === version
+        );
+      })
+      .map((row) => row.skillName);
+  }
+
+  getRelease(
+    skillName: string,
+    version: string,
+    options: { includeDeleted?: boolean } = {}
+  ): SkillReleaseRecord | undefined {
     const row = this.db.prepare(`
       SELECT
         skill_id AS skillId,
@@ -428,10 +509,15 @@ export class SkillRepository {
         release_manifest_json AS releaseManifestJson,
         dependency_lock_json AS dependencyLockJson,
         notes,
-        created_by AS createdBy
+        deprecated_message AS deprecatedMessage,
+        deleted_at AS deletedAt,
+        deleted_by AS deletedBy,
+        created_by AS createdBy,
+        created_at AS createdAt
       FROM skill_releases
       WHERE skill_name = ? AND version = ?
-    `).get(skillName, version) as ({
+        AND (? = 1 OR deleted_at IS NULL)
+    `).get(skillName, version, options.includeDeleted ? 1 : 0) as ({
       releaseManifestJson: string;
       dependencyLockJson: string;
     } & Omit<SkillReleaseRecord, 'releaseManifest' | 'dependencyLock'>) | undefined;
@@ -455,9 +541,13 @@ export class SkillRepository {
         release_manifest_json AS releaseManifestJson,
         dependency_lock_json AS dependencyLockJson,
         notes,
-        created_by AS createdBy
+        deprecated_message AS deprecatedMessage,
+        deleted_at AS deletedAt,
+        deleted_by AS deletedBy,
+        created_by AS createdBy,
+        created_at AS createdAt
       FROM skill_releases
-      WHERE skill_name = ?
+      WHERE skill_name = ? AND deleted_at IS NULL
       ORDER BY id DESC
     `).all(skillName) as ({
       releaseManifestJson: string;

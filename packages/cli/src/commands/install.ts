@@ -13,11 +13,13 @@ import {
   createMinimalSkillManifest,
   evaluateCompatibility,
   fileExists,
+  highestStableVersion,
   isBuiltinIdentity,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
   removeDirectory,
   resolveLocalStorePaths,
+  validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
   preparePublishedSkillPackage
@@ -61,6 +63,35 @@ function isLocalPath(nameOrPath: string): boolean {
   return nameOrPath.startsWith('.') || nameOrPath.startsWith('/') || nameOrPath.startsWith('\\') || path.isAbsolute(nameOrPath);
 }
 
+/**
+ * A deprecated release stays installable — it just carries a warning for whoever
+ * lands on it. Silence would hide that a safer release exists.
+ */
+function warnIfDeprecated(name: string, version: string, message?: string | null): void {
+  if (!message) {
+    return;
+  }
+  console.warn(`Warning: ${name}@${version} is deprecated — ${message}`);
+}
+
+/**
+ * The version to record for a skill installed from a bare source directory: the
+ * Release Manifest's version when the source carries one, and 0.1.0 for a draft
+ * directory that has no manifest yet.
+ */
+async function readSourceVersion(directory: string): Promise<string> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(directory, 'release.json'), 'utf8')) as unknown;
+    const validation = validateReleaseManifest(parsed);
+    if (validation.success) {
+      return validation.data.version;
+    }
+  } catch {
+    // No manifest, or an unreadable one: fall back to the draft version.
+  }
+  return '0.1.0';
+}
+
 async function installFromLocalPath(
   sourcePath: string,
   projectRoot: string,
@@ -90,7 +121,7 @@ async function installFromLocalPath(
       throw new Error(`Invalid skill package at ${resolved}: ${skillMdValidation.errors.join(', ')}`);
     }
     identity = `@local/${skillMdValidation.data.name}`;
-    version = '0.1.0';
+    version = await readSourceVersion(resolved);
     needsGeneratedSkillJson = true;
     generatedDescription = skillMdValidation.data.description;
   }
@@ -100,11 +131,14 @@ async function installFromLocalPath(
   await copySkillDirectory(resolved, targetDir);
   if (needsGeneratedSkillJson) {
     const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
-    const skillJson = createMinimalSkillManifest({
-      name: identity,
-      description: generatedDescription,
-      author
-    });
+    const skillJson = {
+      ...createMinimalSkillManifest({
+        name: identity,
+        description: generatedDescription,
+        author
+      }),
+      version
+    };
     await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
   }
   await addSkillDependency(installRoot, identity, `file:${resolved}`);
@@ -156,12 +190,14 @@ async function installFromServer(
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
   const authHeader = gitAuthHeaderConfig(authToken);
-  const version = options.version ?? info.versions?.[0];
+  const version = options.version ?? highestStableVersion(info.versions ?? []);
   if (!version) {
     throw new Error(`Skill ${name} has no published Skill Release; use esl source for source access`);
   }
 
-  const requestedPackageUrl = info.releases?.find((release) => release.version === version)?.packageUrl ?? info.packageUrl;
+  const requestedRelease = info.releases?.find((release) => release.version === version);
+  warnIfDeprecated(name, version, requestedRelease?.deprecatedMessage);
+  const requestedPackageUrl = requestedRelease?.packageUrl ?? info.packageUrl;
   if (requestedPackageUrl) {
     return installPublishedPackage(name, version, requestedPackageUrl, projectRoot, options, authToken);
   }

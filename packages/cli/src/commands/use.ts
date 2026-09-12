@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { isBuiltinIdentity, loadBuiltinPackageOrThrow, removeDirectory } from '@esl/core';
+import {
+  highestStableVersion,
+  isBuiltinIdentity,
+  loadBuiltinPackageOrThrow,
+  removeDirectory
+} from '@esl/core';
 import {
   gitAuthHeaderConfig,
   requireConfigured,
@@ -36,7 +41,7 @@ async function readSkillMdFromServer(name: string, options: UseOptions): Promise
   const info = await executeInfo(name, options);
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
   const authHeader = gitAuthHeaderConfig(authToken);
-  const version = options.version ?? info.versions?.[0];
+  const version = options.version ?? highestStableVersion(info.versions ?? []);
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-use-'));
   try {

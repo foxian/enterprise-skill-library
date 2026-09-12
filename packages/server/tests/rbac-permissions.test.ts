@@ -918,4 +918,76 @@ describe('skill RBAC permissions', () => {
     expect(change.statusCode).toBe(403);
   });
 
+  it('reports the highest stable release as latestRelease, not the most recently published one', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.repoMountedTeams('reviewer').add(7);
+    const db = initDatabase(dbPath);
+    const repository = new SkillRepository(db);
+    const createRelease = (version: string) =>
+      repository.createRelease({
+        skillId: 'sk_test_reviewer',
+        skillName: '@acme/reviewer',
+        version,
+        sourceCommit: `commit-${version}`,
+        packagePath: `packages/sk_test_reviewer/${version}/skill-package.tar.gz`,
+        checksum: `sha256:${version}`,
+        releaseManifest: {},
+        dependencyLock: {},
+        notes: `${version} release`,
+        createdBy: 'acme_alice'
+      });
+    createRelease('1.0.0');
+    createRelease('0.9.0'); // published later, but lower
+    createRelease('2.0.0-beta.1'); // newest, but a prerelease
+    db.close();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const get = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+
+    expect(get.statusCode).toBe(200);
+    expect(get.json().skill.latestRelease).toMatchObject({ version: '1.0.0', notes: '1.0.0 release' });
+  });
+
+  // 技能描述(CONTEXT:Skill Description)随 Source Update 更新:专用端点,仅 Maintainer
+  it('updates the skill description through the maintainer-only endpoint', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.repoMountedTeams('reviewer').add(7);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const denied = await app.inject({
+      method: 'PUT',
+      url: '/api/skills/acme/reviewer/description',
+      headers: { authorization: 'token bob-token' },
+      payload: { description: 'nope' }
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const invalid = await app.inject({
+      method: 'PUT',
+      url: '/api/skills/acme/reviewer/description',
+      headers: { authorization: 'token alice-token' },
+      payload: { description: '   ' }
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const updated = await app.inject({
+      method: 'PUT',
+      url: '/api/skills/acme/reviewer/description',
+      headers: { authorization: 'token alice-token' },
+      payload: { description: 'Code reviewer skill' }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toEqual({ name: '@acme/reviewer', description: 'Code reviewer skill' });
+
+    const get = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(get.json().skill.description).toBe('Code reviewer skill');
+  });
 });

@@ -115,6 +115,115 @@ describe('esl install (global mode)', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
+  it('installs the highest stable release, not the most recently published one', async () => {
+    const packageBytes = Buffer.from(JSON.stringify({
+      name: '@platform-ai/reviewer',
+      skillId: 'sk_01J00000000000000000000000',
+      version: '1.2.0',
+      sourceCommit: 'abc123',
+      releaseManifest: {
+        schemaVersion: 2,
+        version: '1.2.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      files: {
+        'SKILL.md': '---\nname: platform-ai:reviewer\ndescription: Review code\n---\n\n# Reviewer\n',
+        'skill.json': '{\n  "name": "@platform-ai/reviewer",\n  "version": "1.2.0"\n}\n'
+      }
+    }));
+    const packageChecksum = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/reviewer',
+          skillId: 'sk_01J00000000000000000000000',
+          // Newest published first: 0.1.0 was published after 1.2.0.
+          versions: ['0.1.0', '1.2.0', '1.3.0-beta.1'],
+          releases: [
+            { version: '0.1.0', packageUrl: `/api/packages/sk_01J00000000000000000000000/0.1.0/stale.json` },
+            {
+              version: '1.2.0',
+              packageUrl: `/api/packages/sk_01J00000000000000000000000/1.2.0/${packageChecksum}.json`
+            }
+          ],
+          packageUrl: `/api/packages/sk_01J00000000000000000000000/0.1.0/stale.json`
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => packageBytes });
+
+    const target = await executeInstall('@platform-ai/reviewer', {
+      homeDir,
+      global: true,
+      noAdapt: true,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: vi.fn() as any
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      expect.stringContaining('/1.2.0/'),
+      expect.anything()
+    );
+    expect(JSON.parse(fs.readFileSync(path.join(target, 'skill.json'), 'utf8')).version).toBe('1.2.0');
+  });
+
+  it('warns about a deprecated release but installs it anyway', async () => {
+    const packageBytes = Buffer.from(JSON.stringify({
+      name: '@platform-ai/reviewer',
+      skillId: 'sk_01J00000000000000000000000',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      releaseManifest: {
+        schemaVersion: 2,
+        version: '1.0.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      files: {
+        'SKILL.md': '---\nname: platform-ai:reviewer\ndescription: Review code\n---\n\n# Reviewer\n',
+        'skill.json': '{\n  "name": "@platform-ai/reviewer",\n  "version": "1.0.0"\n}\n'
+      }
+    }));
+    const packageChecksum = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/reviewer',
+          skillId: 'sk_01J00000000000000000000000',
+          versions: ['1.0.0'],
+          releases: [
+            {
+              version: '1.0.0',
+              packageUrl: `/api/packages/sk_01J00000000000000000000000/1.0.0/${packageChecksum}.json`,
+              deprecatedMessage: 'Use 1.1.0; this release ships a broken regex'
+            }
+          ]
+        })
+      })
+      .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => packageBytes });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const target = await executeInstall('@platform-ai/reviewer', {
+      homeDir,
+      global: true,
+      noAdapt: true,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: vi.fn() as any
+    });
+
+    expect(target).toContain('platform-ai_reviewer');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Use 1.1.0; this release ships a broken regex'));
+    warnSpy.mockRestore();
+  });
+
   it('rejects a package whose bytes do not match the Registry checksum before installation', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce({

@@ -13,6 +13,8 @@ describe('Skill Release API', () => {
     createOrganizationRepo: ReturnType<typeof vi.fn>;
     createReleaseTag: ReturnType<typeof vi.fn>;
     getReleaseTag: ReturnType<typeof vi.fn>;
+    deleteReleaseTag: ReturnType<typeof vi.fn>;
+    validateAdminUserToken: ReturnType<typeof vi.fn>;
     readSourceTree?: ReturnType<typeof vi.fn>;
   };
 
@@ -22,7 +24,9 @@ describe('Skill Release API', () => {
       validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
       createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
-      getReleaseTag: vi.fn().mockResolvedValue(null)
+      getReleaseTag: vi.fn().mockResolvedValue(null),
+      deleteReleaseTag: vi.fn().mockResolvedValue(undefined),
+      validateAdminUserToken: vi.fn().mockResolvedValue(null)
     };
     const db = initDatabase(path.join(tmpDir, 'test.db'));
     new TenantOrganizationRepository(db).create({ orgName: 'platform-ai', status: 'active' });
@@ -85,6 +89,204 @@ describe('Skill Release API', () => {
       status: 'published'
     });
     expect(fs.readdirSync(path.join(tmpDir, 'packages'))).toHaveLength(1);
+  });
+
+  async function upload(name: string) {
+    return app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name, description: `${name} skill` }
+    });
+  }
+
+  async function publish(target: string, version: string, dependencies: Record<string, string> = {}) {
+    const manifest = {
+      schemaVersion: 2,
+      version: '0.1.0',
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies
+    };
+    return app.inject({
+      method: 'POST',
+      url: `/api/skills/${target}/releases`,
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version,
+        sourceCommit: `commit-${version}`,
+        releaseManifest: manifest,
+        files: {
+          'SKILL.md': '---\nname: reviewer\ndescription: Review code\n---\n',
+          'release.json': JSON.stringify(manifest)
+        }
+      }
+    });
+  }
+
+  it('serves the highest stable release as the default and lists versions newest first', async () => {
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.2.0');
+    await publish('@platform-ai/reviewer', '0.9.0');
+    await publish('@platform-ai/reviewer', '2.0.0-beta.1');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    // Newest first, prerelease included in the listing ...
+    expect(response.json().versions).toEqual(['2.0.0-beta.1', '1.2.0', '0.9.0']);
+    // ... but the default package stays on the highest stable release.
+    expect(response.json().packageUrl).toContain('/1.2.0/');
+  });
+
+  it('freezes a dependency lock at the highest version that satisfies the range', async () => {
+    await upload('dep');
+    await publish('@platform-ai/dep', '1.2.0');
+    await publish('@platform-ai/dep', '1.0.0');
+    await upload('reviewer');
+
+    const response = await publish('@platform-ai/reviewer', '1.0.0', { '@platform-ai/dep': '^1.0.0' });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().dependencyLock['@platform-ai/dep'].version).toBe('1.2.0');
+  });
+
+  it('marks a release as deprecated with a message, and clears the mark', async () => {
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.0.0');
+
+    const mark = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      headers: { authorization: 'token alice-token' },
+      payload: { message: 'Use 1.1.0 instead; this release ships a broken regex' }
+    });
+
+    expect(mark.statusCode).toBe(200);
+    expect(mark.json().deprecatedMessage).toBe('Use 1.1.0 instead; this release ships a broken regex');
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(listed.json().releases[0].deprecatedMessage).toBe(
+      'Use 1.1.0 instead; this release ships a broken regex'
+    );
+
+    const clear = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      headers: { authorization: 'token alice-token' },
+      payload: { message: '' }
+    });
+
+    expect(clear.statusCode).toBe(200);
+    expect(clear.json().deprecatedMessage).toBeNull();
+  });
+
+  it('rejects deprecating a release of an archived skill', async () => {
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.0.0');
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/archive',
+      headers: { authorization: 'token alice-token' },
+      payload: {}
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      headers: { authorization: 'token alice-token' },
+      payload: { message: 'too late' }
+    });
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('deletes a single release and burns its version number', async () => {
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.0.0');
+    await publish('@platform-ai/reviewer', '0.9.0');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/0.9.0/delete',
+      headers: { authorization: 'token alice-token' },
+      payload: { confirm: '0.9.0' }
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@platform-ai/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(info.json().versions).toEqual(['1.0.0']);
+    expect(info.json().releases.map((release: { version: string }) => release.version)).toEqual(['1.0.0']);
+    // The remaining release is untouched.
+    expect(info.json().packageUrl).toContain('/1.0.0/');
+
+    // The deleted version number stays burned.
+    const republish = await publish('@platform-ai/reviewer', '0.9.0');
+    expect(republish.statusCode).toBe(409);
+  });
+
+  it('requires the version as confirmation before deleting a release', async () => {
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.0.0');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/delete',
+      headers: { authorization: 'token alice-token' },
+      payload: { confirm: 'not-the-version' }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('refuses to delete a release another skill depends on unless a platform administrator forces it', async () => {
+    await upload('dep');
+    await publish('@platform-ai/dep', '1.0.0');
+    await upload('reviewer');
+    await publish('@platform-ai/reviewer', '1.0.0', { '@platform-ai/dep': '^1.0.0' });
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      headers: { authorization: 'token alice-token' },
+      payload: { confirm: '1.0.0' }
+    });
+
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error).toContain('@platform-ai/reviewer');
+
+    // A maintainer cannot force it ...
+    const maintainerForce = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      headers: { authorization: 'token alice-token' },
+      payload: { confirm: '1.0.0', force: true }
+    });
+    expect(maintainerForce.statusCode).toBe(403);
+
+    // ... a platform administrator can.
+    gitea.validateAdminUserToken = vi.fn().mockResolvedValue({ username: 'eslroot' });
+    const adminForce = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      headers: { authorization: 'token admin-token' },
+      payload: { confirm: '1.0.0', force: true }
+    });
+    expect(adminForce.statusCode).toBe(200);
   });
 
   it('builds public package and clone URLs from forwarded proxy headers', async () => {

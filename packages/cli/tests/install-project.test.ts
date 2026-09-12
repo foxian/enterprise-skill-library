@@ -95,6 +95,36 @@ describe('esl install (project-level)', () => {
     expect(skillsJson.skills['@local/unprepared-skill']).toBe(`file:${unpreparedSkillDir}`);
   });
 
+  it('records the release manifest version when installing a local source', async () => {
+    const sourceDir = path.join(projectDir, 'versioned-local-skill');
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(
+      path.join(sourceDir, 'SKILL.md'),
+      '---\nname: versioned-local-skill\ndescription: Versioned local skill.\n---\n\n# Versioned\n'
+    );
+    fs.writeFileSync(
+      path.join(sourceDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 2,
+        version: '2.5.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+
+    const targetDir = await executeInstall(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      noAdapt: true
+    });
+
+    expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'skill.json'), 'utf8')).version).toBe('2.5.0');
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@local/versioned-local-skill']?.version).toBe('2.5.0');
+  });
+
   it('installs from server to project .skills/', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

@@ -1,4 +1,11 @@
-import { parseSkillName, parseGiteaUsername, validateReleaseManifest } from '@esl/core';
+import {
+  highestSatisfyingVersion,
+  highestStableVersion,
+  parseSkillName,
+  parseGiteaUsername,
+  sortVersionsDescending,
+  validateReleaseManifest
+} from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -441,7 +448,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!skill.skillId) {
       return reply.status(409).send({ error: 'Skill has no Skill ID' });
     }
-    if (repository.getRelease(name, body.version)) {
+    // Tombstones included on purpose: deleting a release burns its version number.
+    if (repository.getRelease(name, body.version, { includeDeleted: true })) {
       return reply.status(409).send({ error: `Skill Release ${body.version} already exists` });
     }
     const releaseTag = `v${body.version}`;
@@ -639,6 +647,82 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return reply.send(updated);
   });
 
+  // 单版本删除(CONTEXT:单版本删除):外科手术式移除一个 Skill Release,保留
+  // 源码 Git 历史、技能本身与其余版本。Maintainer 可执行,但被其他技能的
+  // Release Dependency Lock 引用时须由平台管理员强制。版本号烧毁不可重发。
+  app.post('/api/skills/:scope/:skillName/releases/:version/delete', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string; version: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const version = decodeURIComponent(params.version);
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+    }
+    const body = (request.body ?? {}) as { confirm?: string; force?: boolean };
+    if (body.confirm !== version) {
+      return reply.status(400).send({ error: 'Deletion requires confirm matching the release version' });
+    }
+    const release = repository.getRelease(name, version);
+    if (!release || !skill.skillId) {
+      return reply.status(404).send({ error: 'Skill Release not found' });
+    }
+    const dependents = repository.findDependentReleases(skill.skillId, version);
+    if (dependents.length > 0) {
+      if (!body.force) {
+        return reply.status(409).send({
+          error: `Release ${version} is required by ${dependents.join(', ')}; deleting it would break their installs. Pass force to override.`
+        });
+      }
+      if (!(await authorizePlatformAdministrator(request, adminRepository, giteaService))) {
+        return reply.status(403).send({
+          error: 'Forbidden: forcing past a pinned dependency requires a platform administrator'
+        });
+      }
+    }
+    // Git tag first: an orphaned tag is harmless, a release without its tag is not.
+    if (typeof giteaService.deleteReleaseTag === 'function') {
+      try {
+        const repo = skillRepo(skill);
+        await giteaService.deleteReleaseTag(repo.owner, repo.name, `v${version}`);
+      } catch {
+        // Best-effort: the tag can be repaired later; the release still goes.
+      }
+    }
+    await fs.rm(release.packagePath, { force: true });
+    repository.deleteRelease(name, version, user.username);
+    repository.removeVersion(name, version);
+    return reply.send({ deleted: true, name, version, dependents });
+  });
+
+  // 弃用标记(npm deprecate 的对应物):不可变发布模型下,坏版本无法删除,只能
+  // 保留可追溯性并对消费者给出劝退信号。空 message 解除标记。不改变版本解析。
+  app.post('/api/skills/:scope/:skillName/releases/:version/deprecate', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string; version: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+    }
+    if (skill.status === 'archived') {
+      return reply.status(409).send({ error: 'Archived skills do not accept release changes' });
+    }
+    const body = request.body as { message?: string };
+    if (body.message !== undefined && typeof body.message !== 'string') {
+      return reply.status(400).send({ error: 'Deprecation message must be a string' });
+    }
+    const updated = repository.setReleaseDeprecation(
+      name,
+      decodeURIComponent(params.version),
+      body.message ?? ''
+    );
+    if (!updated) {
+      return reply.status(404).send({ error: 'Skill Release not found' });
+    }
+    return reply.send(updated);
+  });
+
   app.post('/api/skills/:scope/:skillName/archive', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
@@ -733,12 +817,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     const releases = repository.getReleases(name);
-    const latest = releases[0];
+    const latest = newestStableRelease(releases);
     return withCloneUrl(request, {
       ...skill,
-      versions: repository.getVersions(name),
+      versions: sortVersionsDescending(repository.getVersions(name)),
       releases: releases.map((release) => ({
         ...release,
+        deprecatedMessage: release.deprecatedMessage ?? null,
         packageUrl: `${requestOrigin(request)}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
       })),
       packageUrl: latest
@@ -746,6 +831,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         : undefined
     });
   });
+}
+
+function newestStableRelease<T extends { version: string }>(
+  releases: readonly T[]
+): T | undefined {
+  const version = highestStableVersion(releases.map((release) => release.version));
+  return version ? releases.find((release) => release.version === version) : undefined;
 }
 
 function resolveDependencyLock(
@@ -761,7 +853,13 @@ function resolveDependencyLock(
       throw new Error(`Dependency cycle detected: ${[...visiting, name].join(' -> ')}`);
     }
     const releases = repository.getReleases(name);
-    const selected = releases.find((release) => semver.satisfies(release.version, range));
+    const selectedVersion = highestSatisfyingVersion(
+      releases.map((release) => release.version),
+      range
+    );
+    const selected = selectedVersion
+      ? releases.find((release) => release.version === selectedVersion)
+      : undefined;
     if (!selected?.skillId) {
       throw new Error(`Dependency ${name}@${range} has no published Release`);
     }
@@ -905,10 +1003,10 @@ async function getPermissionMatrix(
 }
 
 // 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
-// Skill Release 列表。releases 按 id 倒序返回,最新一条即 latestRelease。
+// Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
 function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
   const releases = repository.getReleases(skill.name);
-  const latest = releases[0];
+  const latest = newestStableRelease(releases);
   const releaseViews = releases.map((release) => ({
     version: release.version,
     createdAt: release.createdAt,
