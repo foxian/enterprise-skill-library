@@ -13,6 +13,13 @@ test-results/
 playwright-report/
 blob-report/
 
+# 本地工具 / Agent 工作区(因人而异,不属于项目内容)
+.playwright-mcp/
+.agents/
+.claude/settings.local.json
+.claude/agents/
+.mcp.json
+
 # Smoke-test runtime artifacts (may contain real credentials)
 .scratch/smoke-workspace/
 .scratch/docker-smoke.env
