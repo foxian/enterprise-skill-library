@@ -139,7 +139,8 @@ describe('API Server Database', () => {
       packagePath: '/packages/reviewer.json',
       checksum: 'sha256-abc',
       releaseManifest: {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        version: '0.1.0',
         license: 'MIT',
         keywords: [],
         compatibility: {},
@@ -189,7 +190,7 @@ describe('API Server Database', () => {
       sourceCommit: 'abc123',
       packagePath: path.join(tmpDir, 'pkg.json'),
       checksum: 'sha256-abc',
-      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      releaseManifest: { schemaVersion: 2, version: '0.1.0', license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
       dependencyLock: {},
       createdBy: 'alice'
     });
@@ -226,7 +227,7 @@ describe('API Server Database', () => {
       sourceCommit: 'abc123',
       packagePath: path.join(tmpDir, 'pkg.json'),
       checksum: 'sha256-abc',
-      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      releaseManifest: { schemaVersion: 2, version: '0.1.0', license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
       dependencyLock: {},
       createdBy: 'alice',
       notes: '- fix: dead-link regex\n- feat: docx batch'
@@ -260,7 +261,7 @@ describe('API Server Database', () => {
       sourceCommit: 'abc123',
       packagePath: path.join(tmpDir, 'pkg.json'),
       checksum: 'sha256-abc',
-      releaseManifest: { schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      releaseManifest: { schemaVersion: 2, version: '0.1.0', license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
       dependencyLock: {},
       createdBy: 'alice',
       notes: 'original note'

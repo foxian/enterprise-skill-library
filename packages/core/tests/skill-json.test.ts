@@ -51,6 +51,20 @@ describe('skill.json validation', () => {
     );
   });
 
+  it('rejects versions carrying build metadata', () => {
+    const result = validateSkillJson({
+      name: '@myorg/debugging-helper',
+      version: '1.2.0+build.7',
+      description: 'Systematic debugging skill',
+      author: 'zhangsan'
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.success ? [] : result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('version')])
+    );
+  });
+
   it('parses scoped skill names', () => {
     expect(parseSkillName('@frontend-team/react-component-gen')).toEqual({
       scope: 'frontend-team',

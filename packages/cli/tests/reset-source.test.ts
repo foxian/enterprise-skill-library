@@ -16,7 +16,7 @@ describe('esl reset-source', () => {
     fs.mkdirSync(skillDir);
     fs.writeFileSync(
       path.join(skillDir, 'release.json'),
-      JSON.stringify({ schemaVersion: 1, license: 'MIT', keywords: [], compatibility: {}, dependencies: {} })
+      JSON.stringify({ schemaVersion: 2, version: '0.1.0', license: 'MIT', keywords: [], compatibility: {}, dependencies: {} })
     );
     fs.mkdirSync(path.join(skillDir, '.git'));
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-reset-home-'));

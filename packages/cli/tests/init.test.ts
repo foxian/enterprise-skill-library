@@ -32,7 +32,8 @@ describe('esl init', () => {
 
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      version: '0.1.0',
       license: 'MIT',
       keywords: [],
       compatibility: {},

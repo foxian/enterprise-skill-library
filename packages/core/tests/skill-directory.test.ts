@@ -40,6 +40,19 @@ author: zhangsan
 
     expect(result.success).toBe(false);
   });
+
+  it('rejects a version in frontmatter', () => {
+    const result = validateSkillMd(`---
+name: debugging-helper
+description: Use when debugging failures, test regressions, stack traces, or unexplained behavior.
+version: 1.0.0
+---
+
+# Debugging Helper
+`);
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('skill directory validation', () => {

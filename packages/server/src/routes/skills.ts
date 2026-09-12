@@ -473,13 +473,16 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const contentChecksum = `sha256-${crypto.createHash('sha256')
       .update(JSON.stringify(publishedFiles))
       .digest('hex')}`;
+    // The install manifest is generated, so its version is the Skill Release
+    // version — it must win over the Release Manifest's `version` field, which
+    // describes the source rather than the release.
     publishedFiles['skill.json'] = `${JSON.stringify({
+      ...manifest.data,
       name,
       version: body.version,
       skillId: skill.skillId,
       sourceCommit: body.sourceCommit,
-      contentChecksum,
-      ...manifest.data
+      contentChecksum
     }, null, 2)}\n`;
     const packageManifest = {
       name,

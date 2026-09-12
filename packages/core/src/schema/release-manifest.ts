@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import type { ValidationResult } from './validation-result.js';
+import { SemVerSchema } from './skill-json.js';
 import { validateSkillMd, type SkillMdMetadata } from '../skill/skill-md.js';
 
 const SpdxLicenseSchema = z.string().regex(
@@ -17,7 +18,8 @@ const LicenseSchema = z.union([
 ]);
 
 export const ReleaseManifestSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
+  version: SemVerSchema,
   license: LicenseSchema,
   keywords: z.array(z.string().min(1)),
   compatibility: z.object({
@@ -30,19 +32,40 @@ export const ReleaseManifestSchema = z.object({
 export type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
 
 export function createMinimalReleaseManifest(license: string): ReleaseManifest {
-  return { schemaVersion: 1, license, keywords: [], compatibility: {}, dependencies: {} };
+  return {
+    schemaVersion: 2,
+    version: '0.1.0',
+    license,
+    keywords: [],
+    compatibility: {},
+    dependencies: {}
+  };
 }
 
 export function validateReleaseManifest(data: unknown): ValidationResult<ReleaseManifest> {
   const result = ReleaseManifestSchema.safeParse(data);
   if (result.success) return { success: true, data: result.data };
-  return {
-    success: false,
-    errors: result.error.issues.map((issue) => {
-      const field = issue.path.join('.') || 'release.json';
-      return `${field}: ${issue.message}`;
-    })
-  };
+
+  const errors = result.error.issues.map((issue) => {
+    const field = issue.path.join('.') || 'release.json';
+    return `${field}: ${issue.message}`;
+  });
+
+  if (isPreVersionManifest(data)) {
+    errors.push(
+      'release.json: schemaVersion 1 is no longer supported; run `esl version <SemVer>` to record the version, then commit and push the source'
+    );
+  }
+
+  return { success: false, errors };
+}
+
+function isPreVersionManifest(data: unknown): boolean {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { schemaVersion?: unknown }).schemaVersion === 1
+  );
 }
 
 export interface SkillSourceDirectory {

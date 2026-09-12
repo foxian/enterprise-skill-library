@@ -54,7 +54,8 @@ describe('Skill Source Upload API', () => {
     });
 
   const releaseManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    version: '0.1.0',
     license: 'MIT',
     keywords: [],
     compatibility: {},

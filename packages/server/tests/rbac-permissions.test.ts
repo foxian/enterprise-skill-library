@@ -517,7 +517,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          version: '0.1.0',
           license: 'MIT',
           keywords: [],
           compatibility: {},
@@ -558,7 +559,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          version: '0.1.0',
           license: 'MIT',
           keywords: [],
           compatibility: {},
@@ -706,7 +708,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 1,
+          schemaVersion: 2,
+          version: '0.1.0',
           license: 'MIT',
           keywords: [],
           compatibility: {},
