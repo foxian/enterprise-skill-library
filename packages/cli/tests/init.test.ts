@@ -56,6 +56,93 @@ describe('esl init', () => {
     expect(releaseJson.license).toBe('Apache-2.0');
   });
 
+  it('asks for description, license, and keywords when prompted', async () => {
+    const asked: string[] = [];
+    const promptText = async (question: string, fallback: string) => {
+      asked.push(question);
+      if (question.includes('escription')) return 'Review code changes for dead links.';
+      if (question.includes('icense')) return 'Apache-2.0';
+      if (question.includes('eywords')) return 'review, docs';
+      return fallback;
+    };
+
+    const targetDir = await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      promptText
+    });
+
+    expect(asked).toHaveLength(3);
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson.license).toBe('Apache-2.0');
+    expect(releaseJson.keywords).toEqual(['review', 'docs']);
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain(
+      'description: Review code changes for dead links.'
+    );
+  });
+
+  it('keeps the defaults when the answers are empty', async () => {
+    const targetDir = await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      promptText: async (_question: string, fallback: string) => fallback
+    });
+
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson.license).toBe('MIT');
+    expect(releaseJson.keywords).toEqual([]);
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('description: Use when');
+  });
+
+  it('does not ask about fields already given on the command line', async () => {
+    const asked: string[] = [];
+    const targetDir = await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      license: 'Apache-2.0',
+      keywords: ['review'],
+      description: 'Review code.',
+      promptText: async (question: string, fallback: string) => {
+        asked.push(question);
+        return fallback;
+      }
+    });
+
+    expect(asked).toHaveLength(0);
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson.license).toBe('Apache-2.0');
+    expect(releaseJson.keywords).toEqual(['review']);
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('description: Review code.');
+  });
+
+  it('quotes a description that would otherwise break the frontmatter', async () => {
+    const targetDir = await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      description: 'Review: dead links, "stale" docs'
+    });
+
+    const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
+    expect(skillMd).toContain('description: "Review: dead links, \\"stale\\" docs"');
+    // The generated source must still validate.
+    expect(skillMd).toMatch(/^---\n[\s\S]*\n---\n/);
+  });
+
+  it('does not prompt when input is disabled', async () => {
+    const asked: string[] = [];
+    await executeInit('@myorg/my-skill', {
+      cwd: tmpDir,
+      runGitInit: false,
+      noInput: true,
+      promptText: async (question: string, fallback: string) => {
+        asked.push(question);
+        return fallback;
+      }
+    });
+
+    expect(asked).toHaveLength(0);
+  });
+
   it('rejects invalid skill names', async () => {
     await expect(executeInit('my-skill', { cwd: tmpDir, runGitInit: false })).rejects.toThrow(
       '@namespace/skill-name'

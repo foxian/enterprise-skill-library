@@ -51,9 +51,19 @@ export function createProgram(): Command {
     .command('init')
     .argument('<skill-name>')
     .option('--license <spdx>', 'release.json license (default MIT)')
+    .option('--description <text>', 'SKILL.md description (asked interactively when omitted)')
+    .option('--keywords <list>', 'comma-separated release.json keywords')
     .addHelpText('after', example('$ esl init my-skill'))
-    .action(async (skillName: string, options: { license?: string }) => {
-      const targetDir = await executeInit(skillName, { license: options.license });
+    .action(async (skillName: string, options: { license?: string; description?: string; keywords?: string }) => {
+      const targetDir = await executeInit(skillName, {
+        license: options.license,
+        description: options.description,
+        keywords: options.keywords
+          ?.split(',')
+          .map((keyword: string) => keyword.trim())
+          .filter((keyword: string) => keyword.length > 0),
+        noInput: program.opts().input === false
+      });
       console.log(`Skill initialized at ${targetDir}`);
     });
 
