@@ -198,10 +198,38 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!skill) {
       return reply.status(404).send({ error: 'Skill not found' });
     }
+    // 读矩阵与技能上下文不是敏感数据:任何对该技能有可见性的用户都能查看;变更仍走 POST 的管理权守门。
+    if (!(await hasReadAccess(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: read access required' });
+    }
+    return {
+      ...(await getPermissionMatrix(giteaService, tenantOrganizationRepository, skill)),
+      skill: buildSkillContext(repository, skill)
+    };
+  });
+
+  // 技能描述随 Source Upload 更新(CONTEXT:Skill Description):仅 Maintainer
+  // 可改,直接落库,不涉及 Git Backend,因此不经 Operation 幂等。
+  app.put('/api/skills/:scope/:skillName/description', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
     if (!(await canManageSkill(giteaService, skill, user.username))) {
       return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
-    return getPermissionMatrix(giteaService, tenantOrganizationRepository, skill);
+    const body = request.body as { description?: string };
+    if (typeof body.description !== 'string' || !body.description.trim()) {
+      return reply.status(400).send({ error: 'Skill description is required' });
+    }
+    repository.updateSkillDescription(name, body.description.trim());
+    return { name: skill.name, description: body.description.trim() };
   });
 
   app.post('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
@@ -870,6 +898,31 @@ async function getPermissionMatrix(
         permission: normalizePermission(team.permission)
       })),
     members: memberViews
+  };
+}
+
+// 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
+// Skill Release 列表。releases 按 id 倒序返回,最新一条即 latestRelease。
+function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
+  const releases = repository.getReleases(skill.name);
+  const latest = releases[0];
+  const releaseViews = releases.map((release) => ({
+    version: release.version,
+    createdAt: release.createdAt,
+    notes: release.notes,
+    deprecatedMessage: release.deprecatedMessage ?? null,
+    sourceCommit: release.sourceCommit,
+    createdBy: release.createdBy
+  }));
+  return {
+    name: skill.name,
+    description: skill.description,
+    status: skill.status,
+    createdBy: skill.createdBy,
+    latestRelease: latest
+      ? { version: latest.version, createdAt: latest.createdAt, notes: latest.notes }
+      : undefined,
+    releases: releaseViews
   };
 }
 

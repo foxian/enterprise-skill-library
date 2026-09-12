@@ -215,6 +215,34 @@ async function uploadSource(
       );
     }
     uploaded = { name: skillNameFromRemote(remoteUrl), skillId: '', cloneUrl: remoteUrl };
+    // 技能描述(CONTEXT:Skill Description)随每次 Source Update 登记到服务器:
+    // 它是纯元数据更新,尽力而为——失败不阻断源码同步,仅在输出中提示。
+    try {
+      const [scope, shortName] = uploaded.name.split('/');
+      const descriptionImpl = options.customFetch ?? fetch;
+      const descriptionResponse = await fetchWithTimeout(
+        descriptionImpl,
+        apiUrl(
+          server,
+          `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}/description`
+        ),
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `token ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ description })
+        }
+      );
+      if (!descriptionResponse.ok) {
+        console.warn(
+          `Note: the server rejected the description update (${descriptionResponse.status}); the source sync is unaffected.`
+        );
+      }
+    } catch {
+      console.warn('Note: the description update could not reach the server; the source sync is unaffected.');
+    }
   } else {
     const fetchImpl = options.customFetch ?? fetch;
     const response = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills/upload'), {

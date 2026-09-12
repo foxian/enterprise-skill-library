@@ -8,15 +8,15 @@ import SuperOrgDetail from '../views/super/OrgDetailView.vue';
 import SuperApplications from '../views/super/ApplicationsView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
 import SuperSkills from '../views/super/SkillsView.vue';
-import SuperSkillPermissions from '../views/super/SkillPermissionsView.vue';
+import SuperSkillManage from '../views/super/SkillManageView.vue';
 import OrgLayout from '../views/org/OrgLayout.vue';
 import OrgMembers from '../views/org/MembersView.vue';
 import OrgTeams from '../views/org/TeamsView.vue';
 import OrgSkills from '../views/org/SkillsView.vue';
-import OrgSkillPermissions from '../views/org/SkillPermissionsView.vue';
+import OrgSkillManage from '../views/org/SkillManageView.vue';
 import MemberLayout from '../views/member/MemberLayout.vue';
 import MemberSkills from '../views/member/SkillsView.vue';
-import MemberSkillPermissions from '../views/member/SkillPermissionsView.vue';
+import MemberSkillManage from '../views/member/SkillManageView.vue';
 import { useAuthStore } from '../stores/auth';
 
 export const router = createRouter({
@@ -35,7 +35,7 @@ export const router = createRouter({
         { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: '组织详情' } },
         { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '注册审批', description: '处理组织注册申请，批准后将自动开通组织资源' } },
         { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: '技能总览', description: '跨组织查看全部技能（含未发布）并代管权限' } },
-        { path: 'skills/:scope/:skillName/permissions', name: 'super-skill-permissions', component: SuperSkillPermissions, meta: { title: '技能权限详情' } },
+        { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: '技能管理' } },
         { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: '平台设置', description: '配置组织注册的审批模式与平台级策略' } }
       ]
     },
@@ -47,8 +47,8 @@ export const router = createRouter({
         { path: '', redirect: { name: 'org-members' } },
         { path: 'members', name: 'org-members', component: OrgMembers, meta: { title: '成员管理', description: '管理组织内成员账号，支持添加、重置密码与禁用' } },
         { path: 'teams', name: 'org-teams', component: OrgTeams, meta: { title: '团队管理', description: '按团队分配技能读写权限，系统团队不可删除' } },
-        { path: 'skills', name: 'org-skills', component: OrgSkills, meta: { title: '技能权限', description: '管理组织内技能的共享范围与访问权限' } },
-        { path: 'skills/:scope/:skillName/permissions', name: 'org-skill-permissions', component: OrgSkillPermissions, meta: { title: '技能权限详情' } }
+        { path: 'skills', name: 'org-skills', component: OrgSkills, meta: { title: '技能管理', description: '管理组织内技能，配置共享范围与访问权限' } },
+        { path: 'skills/:scope/:skillName/manage', name: 'org-skill-manage', component: OrgSkillManage, meta: { title: '技能管理' } }
       ]
     },
     {
@@ -58,7 +58,7 @@ export const router = createRouter({
       children: [
         { path: '', redirect: { name: 'member-skills' } },
         { path: 'skills', name: 'member-skills', component: MemberSkills, meta: { title: '我管理的技能', description: '查看你管理的技能与共享给你的技能（含未发布）' } },
-        { path: 'skills/:scope/:skillName/permissions', name: 'member-skill-permissions', component: MemberSkillPermissions, meta: { title: '技能权限详情' } }
+        { path: 'skills/:scope/:skillName/manage', name: 'member-skill-manage', component: MemberSkillManage, meta: { title: '技能管理' } }
       ]
     },
     { path: '/admin', redirect: '/admin/login' },

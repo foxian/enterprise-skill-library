@@ -63,8 +63,8 @@ async function openPermissions(page: Page, skillName: string): Promise<void> {
   await skills.goto();
   await expect(skills.skillRow(skillName)).toBeVisible({ timeout: 60_000 });
   await page.getByTestId(`configure-${skillName}`).click();
-  await expect(page.getByTestId('skill-permissions-panel')).toBeVisible();
-  await expect(page).toHaveURL(/\/permissions$/);
+  await expect(page.getByTestId('skill-manage-panel')).toBeVisible();
+  await expect(page).toHaveURL(/\/manage$/);
 }
 
 test.describe('组织共享级别与授权下拉 (Skill Permissions)', () => {

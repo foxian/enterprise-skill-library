@@ -19,7 +19,7 @@
                   :data-test="`configure-${row.skillName}`"
                   @click="openPermissions(row.scope, row.skillName)"
                 >
-                  配置权限
+                  管理
                 </el-button>
               </template>
             </el-table-column>
@@ -71,7 +71,7 @@ const errorMessage = ref('');
 
 function openPermissions(scope: string, skillName: string): void {
   void router.push({
-    name: 'member-skill-permissions',
+    name: 'member-skill-manage',
     params: { scope, skillName }
   });
 }

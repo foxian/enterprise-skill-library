@@ -124,7 +124,13 @@ describe('Fastify Server API', () => {
       sharedAllWrite: false,
       sharedAllManage: false,
       teams: [],
-      members: []
+      members: [],
+      skill: {
+        name: '@foxian/ghost-skill',
+        description: 'orphan',
+        createdBy: 'foxian_admin',
+        releases: []
+      }
     });
     db.close();
   });

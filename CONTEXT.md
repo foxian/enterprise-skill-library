@@ -37,6 +37,11 @@ Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release
 自动迁移本地安装目录、依赖键、锁文件和适配输出的操作。固定旧 Release 的
 安装不受影响。
 
+## 技能描述 (Skill Description)
+
+Server-hosted Skill 的展示性一句话元数据，由 Source Upload 从源码登记，随后续 Source Update 更新。它描述当前源码，不属于任何 Skill Release 的固化内容；每个 Published Skill Package 携带的是自己发布时刻的描述快照。
+_Avoid_: Release 描述（当指技能当前描述时）。
+
 ## Server-hosted Skill Source
 
 技能上传至其所属 Tenant Organization 后形成的协作维护源码仓库（ADR-0024）。
@@ -277,6 +282,11 @@ ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_U
 
 ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载三类角色：Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）与普通成员（`/admin/member/`），通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由 ESL Server 判定并随登录响应返回，客户端不自行按命名约定推导。
 _Avoid_: Web Console，当指代该 Web 界面时（易被误解为网页终端）；后台，当单独指代 ESL Server 或 Git Backend 时。
+
+## 技能管理页面 (Skill Management Page)
+
+管理后台中面向单个 Server-hosted Skill 的管理界面：承载其权限矩阵的查看与配置（组织共享级别、团队授权与成员授权），由超管、组织管理员与普通成员三种角色视角共用；普通成员视角按其权限为只读。
+_Avoid_: 技能权限页面、权限页（旧称）。
 
 ## Local Scope
 

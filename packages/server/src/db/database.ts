@@ -157,6 +157,15 @@ export class SkillRepository {
     this.db.prepare(`UPDATE skills SET status = 'active-unreleased', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
   }
 
+  // 技能描述(CONTEXT:Skill Description)由 Source Upload 登记,随后续 Source
+  // Update 经专用端点更新;它不属于任何 Skill Release 的固化内容。
+  updateSkillDescription(name: string, description: string): boolean {
+    const result = this.db
+      .prepare(`UPDATE skills SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+      .run(description, name);
+    return result.changes > 0;
+  }
+
   deleteSkill(name: string): { skillId?: string; releases: number } {
     const skill = this.getSkill(name);
     if (!skill) throw new Error(`Skill not found: ${name}`);
@@ -396,8 +405,7 @@ export class SkillRepository {
     return this.getRelease(release.skillName, release.version)!;
   }
 
-  updateReleaseNotes(skillName: string, version: string, notes: string): SkillReleaseRecord | undefined {
-    const result = this.db.prepare(`
+  updateReleaseNotes(skillName: string, version: string, notes: string): SkillReleaseRecord | undefined {    const result = this.db.prepare(`
       UPDATE skill_releases
       SET notes = ?
       WHERE skill_name = ? AND version = ?

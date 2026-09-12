@@ -1,6 +1,6 @@
 <template>
   <div>
-    <SkillPermissionsPanel
+    <SkillManagePanel
       :scope="scope"
       :skill-name="skillName"
       :team-options="teams"
@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import SkillPermissionsPanel from '../../components/SkillPermissionsPanel.vue';
+import SkillManagePanel from '../../components/SkillManagePanel.vue';
 import { apiRequest } from '../../api/client';
 import type { MemberOption, TeamOption } from '../../skills/skill-list';
 

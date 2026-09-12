@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
-import SkillPermissionsPanel from '../src/components/SkillPermissionsPanel.vue';
+import SkillManagePanel from '../src/components/SkillManagePanel.vue';
 import OrgSkillsView from '../src/views/org/SkillsView.vue';
 import MemberSkillsView from '../src/views/member/SkillsView.vue';
-import OrgSkillPermissionsView from '../src/views/org/SkillPermissionsView.vue';
+import OrgSkillManageView from '../src/views/org/SkillManageView.vue';
 import SuperSkillsView from '../src/views/super/SkillsView.vue';
 import { deriveShareState } from '../src/skills/skill-list';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
@@ -152,7 +152,7 @@ describe('技能列表视图', () => {
   });
 });
 
-describe('SkillPermissionsPanel 权限配置', () => {
+describe('SkillManagePanel 权限配置', () => {
   function mockMatrixApi(overrides: Record<string, unknown> = {}) {
     return useApiMock((method, url) => {
       if (url === '/api/skills/acme/reviewer/permissions') {
@@ -180,13 +180,13 @@ describe('SkillPermissionsPanel 权限配置', () => {
         }
         return { status: 200, json: [] };
       });
-      wrapper = await mountConsoleView(OrgSkillPermissionsView, {
+      wrapper = await mountConsoleView(OrgSkillManageView, {
         role: 'org-admin',
-        route: '/admin/org/skills/acme/reviewer/permissions'
+        route: '/admin/org/skills/acme/reviewer/manage'
       });
     } else {
       wrapper = await mountConsoleView(
-        { components: { SkillPermissionsPanel }, template: '<SkillPermissionsPanel scope="acme" skill-name="reviewer" />' } as never,
+        { components: { SkillManagePanel }, template: '<SkillManagePanel scope="acme" skill-name="reviewer" />' } as never,
         { role: 'member', route: '/admin/member/skills' }
       );
     }
@@ -195,7 +195,7 @@ describe('SkillPermissionsPanel 权限配置', () => {
   }
 
   async function setPanelState(name: string, value: unknown): Promise<void> {
-    const panel = wrapper!.findComponent(SkillPermissionsPanel);
+    const panel = wrapper!.findComponent(SkillManagePanel);
     (panel.vm as unknown as Record<string, unknown>)[name] = value;
     await flushPromises();
   }
@@ -203,7 +203,7 @@ describe('SkillPermissionsPanel 权限配置', () => {
   it('组织共享级别控件按档位调用对应接口并实时刷新状态', async () => {
     const { requests } = mockMatrixApi({ sharedAllRead: true });
     wrapper = await mountPanel();
-    const panel = wrapper.findComponent(SkillPermissionsPanel);
+    const panel = wrapper.findComponent(SkillManagePanel);
 
     await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('read');
     await flushPromises();
@@ -324,7 +324,7 @@ describe('SkillPermissionsPanel 权限配置', () => {
     expect(wrapper.find('[data-test="team-select"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="member-select"]').exists()).toBe(true);
 
-    const panel = wrapper.findComponent(SkillPermissionsPanel);
+    const panel = wrapper.findComponent(SkillManagePanel);
     expect((panel.vm as unknown as { teamOptions: Array<{ name: string }> }).teamOptions.map((team) => team.name))
       .toEqual(['frontend']);
   });
@@ -364,12 +364,66 @@ describe('SkillPermissionsPanel 权限配置', () => {
     expect(wrapper.find('[data-test="share-state"]').text()).toBe('自定义');
 
     // 共享级别控件仍可覆盖为全员共享
-    const panel = wrapper.findComponent(SkillPermissionsPanel);
+    const panel = wrapper.findComponent(SkillManagePanel);
     await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('write');
     await flushPromises();
     expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
       action: 'share_all_write'
     });
+  });
+
+  it('展示技能上下文与完整发布历史（技能管理页面）', async () => {
+    mockMatrixApi({
+      skill: {
+        name: '@acme/reviewer',
+        description: '共享评审技能',
+        status: 'active-published',
+        createdBy: 'acme_alice',
+        latestRelease: { version: '1.1.0', createdAt: '2026-09-01 10:00:00', notes: 'fix' },
+        releases: [
+          {
+            version: '1.1.0',
+            createdAt: '2026-09-01 10:00:00',
+            notes: 'fix',
+            sourceCommit: 'abcdef1234567890',
+            createdBy: 'acme_alice'
+          },
+          {
+            version: '1.0.0',
+            createdAt: '2026-08-01 08:00:00',
+            notes: 'first',
+            sourceCommit: '1111222233334444',
+            createdBy: 'acme_alice'
+          }
+        ]
+      }
+    });
+    wrapper = await mountPanel();
+
+    expect(wrapper.find('[data-test="skill-context-card"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="skill-description"]').text()).toBe('共享评审技能');
+    expect(wrapper.find('[data-test="skill-context-status"]').text()).toBe('已发布');
+    expect(wrapper.find('[data-test="skill-latest-release"]').text()).toContain('v1.1.0');
+
+    const history = wrapper.find('[data-test="release-history-card"]').text();
+    expect(history).toContain('发布历史（2）');
+    expect(history).toContain('v1.0.0');
+    expect(history).toContain('first');
+    // commit 以短 SHA 展示
+    expect(history).toContain('abcdef12');
+    // 发布人展示短用户名
+    expect(history).toContain('alice');
+  });
+
+  it('未发布技能的上下文按空态展示', async () => {
+    mockMatrixApi({
+      skill: { name: '@acme/reviewer', description: '共享评审技能', status: 'active-unreleased', createdBy: 'acme_alice', releases: [] }
+    });
+    wrapper = await mountPanel();
+
+    expect(wrapper.find('[data-test="skill-context-status"]').text()).toBe('未发布');
+    expect(wrapper.find('[data-test="skill-latest-release"]').text()).toContain('尚未发布');
+    expect(wrapper.find('[data-test="release-history-card"]').exists()).toBe(false);
   });
 });
 

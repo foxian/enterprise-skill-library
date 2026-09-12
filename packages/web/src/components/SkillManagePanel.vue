@@ -1,11 +1,31 @@
 <template>
-  <div data-test="skill-permissions-panel">
+  <div data-test="skill-manage-panel">
     <div class="console-toolbar">
       <h2 class="panel-title">
-        技能权限：<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        技能管理：<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
       </h2>
       <el-tag :type="stateTagType" data-test="share-state">{{ stateText }}</el-tag>
     </div>
+
+    <el-card class="section-card" data-test="skill-context-card">
+      <template #header>技能信息</template>
+      <div class="skill-context">
+        <div class="skill-desc-row">
+          <span v-if="context?.description" data-test="skill-description">{{ context.description }}</span>
+          <span v-else class="context-empty" data-test="skill-description">暂无描述</span>
+        </div>
+        <el-space wrap class="skill-meta-row">
+          <el-tag :type="contextStatusType" size="small" data-test="skill-context-status">{{ contextStatusText }}</el-tag>
+          <span v-if="context?.latestRelease" class="skill-meta" data-test="skill-latest-release">
+            最新发布
+            <code class="skill-version">v{{ context.latestRelease.version }}</code>
+            <template v-if="context.latestRelease.createdAt">（{{ formatDate(context.latestRelease.createdAt) }}）</template>
+          </span>
+          <span v-else class="skill-meta" data-test="skill-latest-release">尚未发布任何 Skill Release</span>
+          <span v-if="context?.createdBy" class="skill-meta">创建者：{{ shortUsername(props.scope, context.createdBy) }}</span>
+        </el-space>
+      </div>
+    </el-card>
 
     <el-card class="section-card">
       <template #header>当前共享状态</template>
@@ -20,6 +40,35 @@
           {{ shortUsername(props.scope, member.username) }}（{{ permissionText(member.permission) }}）
         </el-tag>
       </el-space>
+    </el-card>
+
+    <el-card v-if="(context?.releases?.length ?? 0) > 0" class="section-card" data-test="release-history-card">
+      <template #header>发布历史（{{ context!.releases.length }}）</template>
+      <el-collapse>
+        <el-collapse-item title="展开全部 Skill Release">
+          <el-table :data="context!.releases" size="small" data-test="release-history-table">
+            <el-table-column label="版本" width="90">
+              <template #default="{ row }">
+                <code class="skill-version">v{{ row.version }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column label="发布时间" width="170">
+              <template #default="{ row }">{{ row.createdAt ? formatDate(row.createdAt) : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="发布说明">
+              <template #default="{ row }">{{ row.notes || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="来源 commit" width="120">
+              <template #default="{ row }">
+                <code class="skill-version">{{ shortCommit(row.sourceCommit) }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column label="发布人" width="120">
+              <template #default="{ row }">{{ shortUsername(props.scope, row.createdBy) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-collapse-item>
+      </el-collapse>
     </el-card>
 
     <el-card class="section-card">
@@ -131,8 +180,11 @@ import { apiRequest } from '../api/client';
 import { shortUsername } from '../utils/short-username';
 import {
   deriveShareState,
+  statusText,
   type MemberOption,
   type PermissionMatrix,
+  type PermissionsResponse,
+  type SkillContext,
   type TeamOption
 } from '../skills/skill-list';
 
@@ -152,6 +204,7 @@ const matrix = ref<PermissionMatrix>({
   teams: [],
   members: []
 });
+const context = ref<SkillContext | undefined>();
 const errorMessage = ref('');
 
 const selectedTeam = ref('');
@@ -204,15 +257,43 @@ function teamDisplayName(team: { name: string; display_name?: string }): string 
   return team.display_name || team.name;
 }
 
+// 上下文状态与列表页 statusText 一致,但已归档是明确的终态,如实单列
+const contextStatusText = computed(() => {
+  const status = context.value?.status;
+  if (status === 'archived') return '已归档';
+  return statusText(status);
+});
+
+const contextStatusType = computed<'success' | 'warning'>(() => (context.value?.status === 'archived' ? 'warning' : 'success'));
+
+function formatDate(value: string): string {
+  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+// Release Tag 指向的 commit 以短 SHA 展示
+function shortCommit(commit: string): string {
+  return commit.length > 8 ? commit.slice(0, 8) : commit;
+}
+
 async function loadMatrix(): Promise<void> {
   errorMessage.value = '';
   try {
-    matrix.value = await apiRequest<PermissionMatrix>(
-      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/permissions`
+    await assignPermissionsResponse(
+      await apiRequest<PermissionsResponse>(
+        `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/permissions`
+      )
     );
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }
+}
+
+// permissions 响应聘带只读技能上下文,统一在此拆分:矩阵进 matrix,skill 块进 context
+function assignPermissionsResponse(response: PermissionsResponse): void {
+  const { skill, ...matrixResponse } = response;
+  context.value = skill;
+  matrix.value = matrixResponse;
 }
 
 // 返回操作是否成功，便于调用方决定是否清空输入并提示成功
@@ -220,9 +301,11 @@ async function applyAction(action: string, extra: Record<string, unknown> = {}):
   errorMessage.value = '';
   try {
     // 每次操作返回最新权限矩阵，直接刷新页面状态
-    matrix.value = await apiRequest<PermissionMatrix>(
-      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/permissions`,
-      { method: 'POST', body: { action, ...extra } }
+    await assignPermissionsResponse(
+      await apiRequest<PermissionsResponse>(
+        `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/permissions`,
+        { method: 'POST', body: { action, ...extra } }
+      )
     );
     return true;
   } catch (error) {
@@ -274,6 +357,37 @@ onMounted(loadMatrix);
   background-color: var(--celadon-50);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
+}
+
+.skill-version {
+  font-family: var(--font-family-mono);
+  color: var(--celadon-600);
+}
+
+.skill-context {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-desc-row {
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+}
+
+.context-empty {
+  color: var(--el-text-color-secondary);
+}
+
+.skill-meta-row {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.skill-meta {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
 }
 
 .section-card {

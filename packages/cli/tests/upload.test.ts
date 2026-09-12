@@ -256,7 +256,7 @@ describe('esl upload', () => {
     });
 
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:3000/api/skills/upload', expect.anything());
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
       ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
@@ -410,9 +410,69 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['add', '-A'], { cwd: skillDir });
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
-      ['commit', '-m', 'chore: commit skill source for esl upload'],
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
       { cwd: skillDir }
     );
+  });
+
+  it('updates the skill description through the dedicated endpoint when syncing an existing source', async () => {
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/api/skills/%40platform-ai/reviewer/description')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ name: '@platform-ai/reviewer', description: 'Updated description' })
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => uploadResponse });
+    });
+    const execFileAsync = gitMock({});
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/%40platform-ai/reviewer/description',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ description: 'Shared reviewer' })
+      })
+    );
+  });
+
+  it('does not block the source sync when the description update fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/description')) {
+        return Promise.resolve({ ok: false, status: 403, text: async () => 'forbidden' });
+      }
+      return Promise.resolve({ ok: true, json: async () => uploadResponse });
+    });
+    const execFileAsync = gitMock({});
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+      { cwd: skillDir }
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('rejected the description update (403)')
+    );
+    warnSpy.mockRestore();
   });
 
   it('skips the auto-commit when the working tree is clean', async () => {

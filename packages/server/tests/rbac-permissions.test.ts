@@ -139,7 +139,14 @@ describe('skill RBAC permissions', () => {
       sharedAllWrite: false,
       sharedAllManage: false,
       teams: [],
-      members: [{ username: 'acme_alice', permission: 'write' }]
+      members: [{ username: 'acme_alice', permission: 'write' }],
+      skill: {
+        name: '@acme/reviewer',
+        description: 'Reviewer skill',
+        status: 'active-published',
+        createdBy: 'acme_alice',
+        releases: []
+      }
     });
   });
 
@@ -173,7 +180,14 @@ describe('skill RBAC permissions', () => {
       sharedAllWrite: false,
       sharedAllManage: true,
       teams: [],
-      members: [{ username: 'acme_alice', permission: 'write' }]
+      members: [{ username: 'acme_alice', permission: 'write' }],
+      skill: {
+        name: '@acme/reviewer',
+        description: 'Reviewer skill',
+        status: 'active-published',
+        createdBy: 'acme_alice',
+        releases: []
+      }
     });
   });
 
@@ -852,4 +866,53 @@ describe('skill RBAC permissions', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().teams).toContainEqual({ id: 8, name: 'admins', permission: 'manage' });
   });
+
+  // 技能管理页面:读级成员可查看矩阵与只读技能上下文,但变更仍需管理权
+  it('serves the matrix and skill context to a read-level member while blocking changes', async () => {
+    const mockGitea = createRbacGitea();
+    // frontend 团队(只读)挂载到 reviewer 仓库,acme_bob 因此成为读级访问者
+    mockGitea.__state.repoMountedTeams('reviewer').add(7);
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createRelease({
+      skillId: 'sk_test_reviewer',
+      skillName: '@acme/reviewer',
+      version: '1.0.0',
+      sourceCommit: 'abc1234',
+      packagePath: 'packages/sk_test_reviewer/1.0.0/skill-package.tar.gz',
+      checksum: 'sha256:deadbeef',
+      releaseManifest: {},
+      dependencyLock: {},
+      notes: 'first release',
+      createdBy: 'acme_alice'
+    });
+    db.close();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const get = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+    expect(get.statusCode).toBe(200);
+    // createdAt 为动态时间戳,不纳入断言
+    expect(get.json().skill).toMatchObject({
+      name: '@acme/reviewer',
+      description: 'Reviewer skill',
+      status: 'active-published',
+      createdBy: 'acme_alice',
+      latestRelease: { version: '1.0.0', notes: 'first release' },
+      releases: [
+        { version: '1.0.0', notes: 'first release', sourceCommit: 'abc1234', createdBy: 'acme_alice' }
+      ]
+    });
+
+    const change = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'share_all_read' }
+    });
+    expect(change.statusCode).toBe(403);
+  });
+
 });

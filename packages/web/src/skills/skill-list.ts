@@ -10,6 +10,27 @@ export interface PermissionMatrix {
   members: Array<{ username: string; permission: string }>;
 }
 
+// 技能管理页面的只读技能上下文(CONTEXT:技能管理页面):描述、发布状态、
+// 最新与全部 Skill Release;由 permissions GET 响应的 skill 字段携带。
+export interface ReleaseView {
+  version: string;
+  createdAt?: string;
+  notes?: string;
+  sourceCommit: string;
+  createdBy: string;
+}
+
+export interface SkillContext {
+  name: string;
+  description: string;
+  status?: string;
+  createdBy: string;
+  latestRelease?: { version: string; createdAt?: string; notes?: string };
+  releases: ReleaseView[];
+}
+
+export type PermissionsResponse = PermissionMatrix & { skill?: SkillContext };
+
 export interface TeamOption {
   id: number;
   name: string;

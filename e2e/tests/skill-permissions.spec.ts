@@ -86,7 +86,7 @@ test.describe('ADR-0025 管理权档位与角色化技能可见性', () => {
     const skillsPage = new MemberSkillsPage(page);
     await expect(skillsPage.managedRow(skillName)).toBeVisible({ timeout: 60_000 });
     await skillsPage.openPermissions(skillName);
-    await expect(page.getByTestId('skill-permissions-panel')).toBeVisible();
+    await expect(page.getByTestId('skill-manage-panel')).toBeVisible();
     // 成员视角面板无成员下拉建议,退化为手工输入(需完整 Gitea 用户名)
     await page.getByTestId('member-input').fill(`${env.org}_${guestShort}`);
     await page.getByTestId('member-permission').click();
