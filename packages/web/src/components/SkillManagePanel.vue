@@ -68,14 +68,23 @@
             </el-table-column>
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
-                <el-button
-                  link
-                  type="danger"
-                  :data-test="`delete-release-${row.version}`"
-                  @click="deleteRelease(row.version)"
+                <el-tooltip
+                  :disabled="canManage"
+                  content="需要该技能的管理权"
+                  placement="top"
                 >
-                  删除
-                </el-button>
+                  <span>
+                    <el-button
+                      link
+                      type="danger"
+                      :disabled="!canManage"
+                      :data-test="`delete-release-${row.version}`"
+                      @click="deleteRelease(row.version)"
+                    >
+                      删除
+                    </el-button>
+                  </span>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -217,6 +226,10 @@ const matrix = ref<PermissionMatrix>({
   members: []
 });
 const context = ref<SkillContext | undefined>();
+// 变更类控件的可用性以服务端的判定为准(POST 仍会守门);旧服务端不带该字段时
+// 退化为不可用,不出现「能点但必然 403」的按钮。
+const viewerAccess = ref<PermissionsResponse['viewerAccess']>(undefined);
+const canManage = computed(() => viewerAccess.value === 'manage');
 const errorMessage = ref('');
 
 const selectedTeam = ref('');
@@ -301,10 +314,12 @@ async function loadMatrix(): Promise<void> {
   }
 }
 
-// permissions 响应聘带只读技能上下文,统一在此拆分:矩阵进 matrix,skill 块进 context
+// permissions 响应携带只读技能上下文与查看者权限档,统一在此拆分:矩阵进 matrix,
+// skill 块进 context,viewerAccess 单独存——它描述的是「我是谁」,不是矩阵内容。
 function assignPermissionsResponse(response: PermissionsResponse): void {
-  const { skill, ...matrixResponse } = response;
+  const { skill, viewerAccess: accessLevel, ...matrixResponse } = response;
   context.value = skill;
+  viewerAccess.value = accessLevel;
   matrix.value = matrixResponse;
 }
 

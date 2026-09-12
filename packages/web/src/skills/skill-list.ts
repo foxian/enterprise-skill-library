@@ -29,7 +29,13 @@ export interface SkillContext {
   releases: ReleaseView[];
 }
 
-export type PermissionsResponse = PermissionMatrix & { skill?: SkillContext };
+/** 查看者在该技能上的权限档,与列表 access、服务端变更守门同源。 */
+export type SkillAccessLevel = 'read' | 'write' | 'manage';
+
+export type PermissionsResponse = PermissionMatrix & {
+  skill?: SkillContext;
+  viewerAccess?: SkillAccessLevel;
+};
 
 export interface TeamOption {
   id: number;

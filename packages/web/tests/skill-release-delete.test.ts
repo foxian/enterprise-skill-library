@@ -39,6 +39,7 @@ function matrixWithContext(overrides: Record<string, unknown> = {}) {
     teams: [],
     members: [{ username: 'acme_alice', permission: 'write' }],
     skill: skillContext(),
+    viewerAccess: 'manage',
     ...overrides
   };
 }
@@ -90,6 +91,23 @@ describe('单版本删除', () => {
     expect(wrapper!.find('[data-test="release-history-table"]').exists()).toBe(true);
     expect(wrapper!.find('[data-test="delete-release-1.2.0"]').exists()).toBe(true);
     expect(wrapper!.find('[data-test="delete-release-1.0.0"]').exists()).toBe(true);
+  });
+
+  it('读级查看者的删除入口不可用，且不发起请求', async () => {
+    const { requests } = useApiMock(() => ({
+      status: 200,
+      json: matrixWithContext({ viewerAccess: 'read' })
+    }));
+    await mountPanel();
+
+    const button = wrapper!.find('[data-test="delete-release-1.0.0"]');
+    expect(button.exists()).toBe(true);
+    expect(button.attributes('disabled')).toBeDefined();
+
+    await button.trigger('click');
+    await flushPromises();
+    expect(messageBox()).toBeNull();
+    expect(requests.some((request) => request.url.endsWith('/delete'))).toBe(false);
   });
 
   it('回显版本号确认后才提交删除请求', async () => {

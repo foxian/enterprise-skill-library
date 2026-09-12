@@ -146,7 +146,8 @@ describe('skill RBAC permissions', () => {
         status: 'active-published',
         createdBy: 'acme_alice',
         releases: []
-      }
+      },
+      viewerAccess: 'manage'
     });
   });
 
@@ -187,7 +188,8 @@ describe('skill RBAC permissions', () => {
         status: 'active-published',
         createdBy: 'acme_alice',
         releases: []
-      }
+      },
+      viewerAccess: 'manage'
     });
   });
 
@@ -916,6 +918,31 @@ describe('skill RBAC permissions', () => {
       payload: { action: 'share_all_read' }
     });
     expect(change.statusCode).toBe(403);
+  });
+
+  it('reports the viewer access level alongside the matrix', async () => {
+    const mockGitea = createRbacGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const headers = (token: string) => ({ authorization: `token ${token}` });
+
+    // 技能 owner 天然持管理权
+    const owner = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: headers('alice-token')
+    });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json().viewerAccess).toBe('manage');
+
+    // frontend 团队(只读)挂载到 reviewer 后,acme_bob 是读级访问者
+    mockGitea.__state.repoMountedTeams('reviewer').add(7);
+    const reader = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: headers('bob-token')
+    });
+    expect(reader.statusCode).toBe(200);
+    expect(reader.json().viewerAccess).toBe('read');
   });
 
   it('reports the highest stable release as latestRelease, not the most recently published one', async () => {

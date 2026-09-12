@@ -211,7 +211,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     return {
       ...(await getPermissionMatrix(giteaService, tenantOrganizationRepository, skill)),
-      skill: buildSkillContext(repository, skill)
+      skill: buildSkillContext(repository, skill),
+      // 查看者自己的权限档:与 POST 变更守门、技能列表的 access 用同一套判定
+      // (getAccessLevel),前端据此决定变更类控件是否可用,避免「点了才 403」。
+      viewerAccess: await getAccessLevel(giteaService, skill, user.username)
     };
   });
 

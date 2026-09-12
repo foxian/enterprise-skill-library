@@ -130,7 +130,8 @@ describe('Fastify Server API', () => {
         description: 'orphan',
         createdBy: 'foxian_admin',
         releases: []
-      }
+      },
+      viewerAccess: 'manage'
     });
     db.close();
   });
