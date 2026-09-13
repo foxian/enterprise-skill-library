@@ -9,12 +9,11 @@
     </div>
     <el-table :data="members" size="small" :data-test="`team-members-${team.name}`">
       <el-table-column label="成员">
-        <template #default="{ row }">{{ shortUsername(auth.org, row.username) }}</template>
+        <template #default="{ row }">{{ row.username }}</template>
       </el-table-column>
       <el-table-column label="操作" width="100">
         <template #default="{ row }">
           <el-button
-            v-if="!isProtectedOwner(row.username)"
             link
             type="danger"
             :data-test="`team-remove-${row.username}`"
@@ -22,8 +21,6 @@
           >
             移除
           </el-button>
-          <!-- 组织管理员是组织唯一 Owner,不可从 Owners 团队移除(后端同样拒绝) -->
-          <el-tag v-else type="warning" data-test="owner-admin-badge">管理员</el-tag>
         </template>
       </el-table-column>
     </el-table>
@@ -35,8 +32,6 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
-import { useAuthStore } from '../stores/auth';
-import { shortUsername } from '../utils/short-username';
 
 interface TeamView {
   id: number;
@@ -50,19 +45,9 @@ interface GiteaUserView {
   email: string;
 }
 
-const props = defineProps<{ team: TeamView }>();
+// org 由父组件（组织控制台路由上下文）提供；成员为全局账号（ADR-0032）。
+const props = defineProps<{ team: TeamView; org: string }>();
 const emit = defineEmits<{ (event: 'changed'): void }>();
-const auth = useAuthStore();
-
-// 组织管理员是治理根基:不可从 Owners 团队移除(组织唯一 Owner),也不可从
-// system-admins 团队移除(ADR-0026:admin 自动加入且不可移出)。两者 UI 隐藏
-// 移除按钮、显示管理员徽标,后端同样拒绝。
-function isProtectedOwner(username: string): boolean {
-  return (
-    shortUsername(auth.org, username) === 'admin' &&
-    (props.team.permission === 'owner' || props.team.name === 'system-admins')
-  );
-}
 
 const username = ref('');
 const members = ref<GiteaUserView[]>([]);
@@ -71,7 +56,7 @@ const errorMessage = ref('');
 async function loadMembers(): Promise<void> {
   errorMessage.value = '';
   try {
-    members.value = await apiRequest<GiteaUserView[]>(`/api/orgs/teams/${props.team.id}/members`);
+    members.value = await apiRequest<GiteaUserView[]>(`/api/orgs/${props.org}/teams/${props.team.id}/members`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }
@@ -80,7 +65,7 @@ async function loadMembers(): Promise<void> {
 async function addMember(): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest(`/api/orgs/teams/${props.team.id}/members`, {
+    await apiRequest(`/api/orgs/${props.org}/teams/${props.team.id}/members`, {
       method: 'POST',
       body: { username: username.value }
     });
@@ -96,11 +81,11 @@ async function addMember(): Promise<void> {
 async function removeMember(member: GiteaUserView): Promise<void> {
   errorMessage.value = '';
   try {
-    // API 路径使用短名(后端在组织上下文拼装完整用户名),提示同样展示短名
-    await apiRequest(`/api/orgs/teams/${props.team.id}/members/${encodeURIComponent(shortUsername(auth.org, member.username))}`, {
+    // Owners 成员由服务端拒绝移出（治理兜底），前端不做重复推断
+    await apiRequest(`/api/orgs/${props.org}/teams/${props.team.id}/members/${encodeURIComponent(member.username)}`, {
       method: 'DELETE'
     });
-    ElMessage.success(`已移除 ${shortUsername(auth.org, member.username)}`);
+    ElMessage.success(`已移除 ${member.username}`);
     await loadMembers();
     emit('changed');
   } catch (error) {

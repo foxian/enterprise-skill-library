@@ -89,6 +89,16 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
         .map((org) => ({ id: org.name.length, name: org.name }))
     ),
 
+    listOrgMembers: vi.fn(async (orgName: string) => {
+      const org = orgs.get(orgName);
+      if (!org) return [];
+      const usernames = new Set<string>();
+      for (const team of org.teams) {
+        for (const member of team.members) usernames.add(member);
+      }
+      return Array.from(usernames).map((username) => ({ id: 1, username, email: `${username}@local.esl` }));
+    }),
+
     listTeams: vi.fn(async (org: string) =>
       (orgs.get(org)?.teams ?? []).map((team) => ({ id: team.id, name: team.name, permission: team.permission }))
     ),
@@ -160,6 +170,38 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
     createTeam: vi.fn(async (org: string, name: string, permission: FakeGiteaTeam['permission']) =>
       ensureTeam(org, name, permission)
     ),
+
+    updateTeam: vi.fn(async (teamId: number, changes: { name?: string; permission?: FakeGiteaTeam['permission'] }) => {
+      for (const org of orgs.values()) {
+        const team = org.teams.find((candidate) => candidate.id === teamId);
+        if (team) {
+          if (changes.name !== undefined) team.name = changes.name;
+          if (changes.permission !== undefined) team.permission = changes.permission;
+          return { id: team.id, name: team.name, permission: team.permission };
+        }
+      }
+      throw new Error(`No such team: ${teamId}`);
+    }),
+
+    deleteTeam: vi.fn(async (teamId: number) => {
+      for (const org of orgs.values()) {
+        const index = org.teams.findIndex((candidate) => candidate.id === teamId);
+        if (index >= 0) {
+          org.teams.splice(index, 1);
+          return;
+        }
+      }
+    }),
+
+    listTeamRepos: vi.fn(async (_teamId: number) => []),
+
+    removeOrgMember: vi.fn(async (orgName: string, username: string) => {
+      const org = orgs.get(orgName);
+      if (!org) return;
+      for (const team of org.teams) {
+        team.members.delete(username);
+      }
+    }),
 
     addTeamMember: vi.fn(async (teamId: number, username: string) => {
       for (const org of orgs.values()) {

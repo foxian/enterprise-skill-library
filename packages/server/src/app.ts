@@ -26,7 +26,7 @@ import type { PermissionChangePayload, SkillCreationPayload } from './services/s
 import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
 import { registerUserRoutes } from './routes/register.js';
-import { UserRegistrationRepository } from './db/database.js';
+import { OrgInvitationRepository, UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
 import { readPlatformInfo } from './services/platform-config.js';
@@ -46,10 +46,6 @@ export interface AppOptions {
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-
-// 三个全员默认团队(ADR-0026):成员创建/启用时自动加入;system-admins 是
-// 手动管理的委托团队,不在此列(禁用清出后启用不自动恢复)。
-const ALL_MEMBER_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
 
 // 统一的 token → 调用方身份解析:token 可来自平台管理员、Skill User 或 Gitea
 // 用户,DB 内先查(已登记 token,无网络往返)再回退 Gitea。单组织门禁与
@@ -144,39 +140,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
       { giteaService: options.giteaService },
       operation.payload as PermissionChangePayload
     );
-  });
-  operationExecutor.register('member.create', async (operation) => {
-    const payload = operation.payload as { orgName: string; username: string };
-    const password = readOperationSecret(operation.id);
-    await options.giteaService.createUser(payload.username, password);
-    for (const team of await options.giteaService.listTeams(payload.orgName)) {
-      if (ALL_MEMBER_TEAM_NAMES.has(team.name)) {
-        await options.giteaService.addTeamMember(team.id, payload.username);
-      }
-    }
-    operationSecretRepository.clear(operation.id);
-  });
-  operationExecutor.register('member.disable', async (operation) => {
-    const payload = operation.payload as { orgName: string; username: string };
-    await options.giteaService.disableUser(payload.username);
-    for (const team of await options.giteaService.listTeams(payload.orgName)) {
-      await options.giteaService.removeTeamMember(team.id, payload.username);
-    }
-    await options.giteaService.removeOrgMember(payload.orgName, payload.username);
-  });
-  operationExecutor.register('member.enable', async (operation) => {
-    const payload = operation.payload as { orgName: string; username: string };
-    await options.giteaService.enableUser(payload.username);
-    for (const team of await options.giteaService.listTeams(payload.orgName)) {
-      if (ALL_MEMBER_TEAM_NAMES.has(team.name)) {
-        await options.giteaService.addTeamMember(team.id, payload.username);
-      }
-    }
-  });
-  operationExecutor.register('member.password', async (operation) => {
-    const payload = operation.payload as { username: string };
-    await options.giteaService.changeUserPassword(payload.username, readOperationSecret(operation.id));
-    operationSecretRepository.clear(operation.id);
   });
   expireStalePendingApplications();
   void operationExecutor.processPending();
@@ -394,12 +357,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,
     repository,
-    passwordMinLength: options.passwordMinLength,
-    operationRepository,
-    operationSecretRepository,
-    operationExecutor,
-    tenantOrganizationRepository,
-    applicationEncryptionKey: options.applicationEncryptionKey
+    platformSettingsRepository,
+    orgInvitationRepository: new OrgInvitationRepository(db),
+    tenantOrganizationRepository
   });
   registerAdminRoutes(app, {
     repository: adminRepository,

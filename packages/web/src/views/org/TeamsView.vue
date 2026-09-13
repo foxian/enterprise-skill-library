@@ -26,7 +26,7 @@
       </el-table-column>
       <el-table-column type="expand">
         <template #default="{ row }">
-          <TeamMemberPanel :team="row" @changed="loadTeams" />
+          <TeamMemberPanel v-if="auth.org" :team="row" :org="auth.org" @changed="loadTeams" />
         </template>
       </el-table-column>
       <el-table-column label="操作" width="140">
@@ -132,6 +132,9 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import TeamMemberPanel from '../../components/TeamMemberPanel.vue';
+import { useAuthStore } from '../../stores/auth';
+
+const auth = useAuthStore();
 
 interface TeamView {
   id: number;
@@ -140,8 +143,8 @@ interface TeamView {
   display_name?: string;
 }
 
-// ADR-0026 默认团队:服务端 /api/orgs/teams 已过滤三个全员团队与 Owners,
-// 团队管理页只展示系统管理团队(唯一可增删成员的默认团队)与自定义团队。
+// ADR-0032 常设团队:服务端 /api/orgs/:org/teams 已过滤 Owners 与三个常设
+// 团队,团队管理页只展示自定义团队。
 // 系统管理团队不可编辑、不可删除(ADR-0029 编辑 = 标识名/权限/显示名三合一)。
 const DEFAULT_TEAM_NAMES = new Set(['system-admins']);
 
@@ -191,7 +194,7 @@ async function loadTeams(): Promise<void> {
   loading.value = true;
   errorMessage.value = '';
   try {
-    teams.value = await apiRequest<TeamView[]>('/api/orgs/teams');
+    teams.value = await apiRequest<TeamView[]>(`/api/orgs/${auth.org}/teams`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   } finally {
@@ -202,7 +205,7 @@ async function loadTeams(): Promise<void> {
 async function createTeam(): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest('/api/orgs/teams', {
+    await apiRequest(`/api/orgs/${auth.org}/teams`, {
       method: 'POST',
       body: {
         name: newTeamName.value,
@@ -230,7 +233,7 @@ function confirmDeleteTeam(team: TeamView): void {
 async function deleteTeam(): Promise<void> {
   errorMessage.value = '';
   try {
-    await apiRequest(`/api/orgs/teams/${deleteTargetId.value}`, { method: 'DELETE' });
+    await apiRequest(`/api/orgs/${auth.org}/teams/${deleteTargetId.value}`, { method: 'DELETE' });
     deleteDialogVisible.value = false;
     ElMessage.success(`团队 ${deleteTargetName.value} 已删除`);
     await loadTeams();
@@ -252,7 +255,7 @@ async function confirmEditTeam(team: TeamView): Promise<void> {
   // 取不到则回退泛化文案(计数仅影响提示措辞)。
   editSkillsCount.value = 0;
   try {
-    const res = await apiRequest<{ skillsCount: number }>(`/api/orgs/teams/${team.id}/skills-count`);
+    const res = await apiRequest<{ skillsCount: number }>(`/api/orgs/${auth.org}/teams/${team.id}/skills-count`);
     editSkillsCount.value = res.skillsCount;
   } catch {
     editSkillsCount.value = 0;
@@ -285,7 +288,7 @@ async function editTeam(): Promise<void> {
     }
   }
   try {
-    await apiRequest(`/api/orgs/teams/${editTargetId.value}`, {
+    await apiRequest(`/api/orgs/${auth.org}/teams/${editTargetId.value}`, {
       method: 'PATCH',
       body: {
         name: editName.value,

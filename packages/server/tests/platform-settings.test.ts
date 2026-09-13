@@ -52,7 +52,7 @@ describe('platform settings', () => {
     const info = await app!.inject({ method: 'GET', url: '/api/public/platform-info' });
 
     expect(info.statusCode).toBe(200);
-    expect(info.json()).toEqual({ registrationMode: 'open' });
+    expect(info.json()).toEqual({ registrationMode: 'open', memberAddMode: 'direct' });
   });
 
   it('lets the super administrator switch org_registration_mode', async () => {

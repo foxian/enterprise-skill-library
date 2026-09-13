@@ -155,6 +155,18 @@ export const databaseSchema = `
     PRIMARY KEY (org_name, gitea_team_id)
   );
 
+  -- 组织邀请（ADR-0032）：邀请制拉人方式下的入组凭证，被邀请人接受后入组。
+  CREATE TABLE IF NOT EXISTS org_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_name TEXT NOT NULL,
+    username TEXT NOT NULL,
+    invited_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (org_name, username, status)
+  );
+
   -- 用户注册申请（ADR-0032）：approval 模式下账号先建后禁用，审批激活、
   -- 拒绝删除（名字随之释放）。open 模式不写此表。
   CREATE TABLE IF NOT EXISTS user_registrations (

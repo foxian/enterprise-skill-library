@@ -168,10 +168,10 @@ describe('SkillManagePanel 权限配置', () => {
   async function mountPanel(options?: { teamOptions?: boolean }) {
     if (options?.teamOptions) {
       useApiMock((method, url) => {
-        if (url === '/api/orgs/teams') {
+        if (url === '/api/orgs/acme/teams') {
           return { status: 200, json: [{ id: 7, name: 'frontend', permission: 'read' }] };
         }
-        if (url === '/api/orgs/members') {
+        if (url === '/api/orgs/acme/members') {
           return { status: 200, json: [{ username: 'acme_bob' }] };
         }
         if (url === '/api/skills/acme/reviewer/permissions') {

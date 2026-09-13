@@ -26,7 +26,7 @@ export function initDatabase(dbPath: string): Database.Database {
   `);
   db.exec(`
     INSERT OR IGNORE INTO platform_settings (key, value)
-    VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open')
+    VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open'), ('member_add_mode', 'direct')
   `);
   return db;
 }
@@ -959,6 +959,100 @@ export class UserRegistrationRepository {
     return {
       id: row.id,
       username: row.username,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+}
+
+export type OrgInvitationStatus = 'pending' | 'accepted' | 'declined';
+
+export interface OrgInvitationRecord {
+  id: number;
+  orgName: string;
+  username: string;
+  invitedBy: string;
+  status: OrgInvitationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 组织邀请（ADR-0032）：邀请制拉人方式下，组织管理员发出邀请，
+// 被邀请人接受后加入组织并自动进入三个常设团队。
+export class OrgInvitationRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  create(orgName: string, username: string, invitedBy: string): OrgInvitationRecord {
+    // 同名待处理邀请唯一（UNIQUE(org,username,status)）：复用已有 pending 记录。
+    const existing = this.db.prepare(`
+      SELECT id FROM org_invitations
+      WHERE org_name = ? AND username = ? AND status = 'pending'
+    `).get(orgName, username) as { id: number } | undefined;
+    if (existing) {
+      return this.getById(existing.id)!;
+    }
+    this.db.prepare(`
+      INSERT INTO org_invitations (org_name, username, invited_by, status)
+      VALUES (?, ?, ?, 'pending')
+    `).run(orgName, username, invitedBy);
+    return this.getById(
+      (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id
+    )!;
+  }
+
+  getById(id: number): OrgInvitationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, org_name, username, invited_by, status, created_at, updated_at
+      FROM org_invitations
+      WHERE id = ?
+    `).get(id) as Parameters<OrgInvitationRepository['deserialize']>[0] | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
+  listByOrg(orgName: string, status: OrgInvitationStatus = 'pending'): OrgInvitationRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, org_name, username, invited_by, status, created_at, updated_at
+      FROM org_invitations
+      WHERE org_name = ? AND status = ?
+      ORDER BY id ASC
+    `).all(orgName, status) as Parameters<OrgInvitationRepository['deserialize']>[0][];
+    return rows.map((row) => this.deserialize(row));
+  }
+
+  listForUser(username: string, status: OrgInvitationStatus = 'pending'): OrgInvitationRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, org_name, username, invited_by, status, created_at, updated_at
+      FROM org_invitations
+      WHERE username = ? AND status = ?
+      ORDER BY id ASC
+    `).all(username, status) as Parameters<OrgInvitationRepository['deserialize']>[0][];
+    return rows.map((row) => this.deserialize(row));
+  }
+
+  updateStatusById(id: number, status: OrgInvitationStatus): OrgInvitationRecord | undefined {
+    this.db.prepare(`
+      UPDATE org_invitations
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(status, id);
+    return this.getById(id);
+  }
+
+  private deserialize(row: {
+    id: number;
+    org_name: string;
+    username: string;
+    invited_by: string;
+    status: OrgInvitationStatus;
+    created_at: string;
+    updated_at: string;
+  }): OrgInvitationRecord {
+    return {
+      id: row.id,
+      orgName: row.org_name,
+      username: row.username,
+      invitedBy: row.invited_by,
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at

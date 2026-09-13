@@ -522,6 +522,8 @@ describe('organization lifecycle access control', () => {
       organizationExists: vi.fn().mockResolvedValue(true),
       listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_bob' }]),
       listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listOrgOwners: vi.fn().mockResolvedValue([{ username: 'acme_admin' }]),
+      getUser: vi.fn().mockResolvedValue({ id: 3, username: 'bob', email: 'bob@local.esl' }),
       createTeam: vi.fn().mockResolvedValue({ id: 5, name: 'dev', permission: 'read' })
     };
   }
@@ -555,7 +557,7 @@ describe('organization lifecycle access control', () => {
 
       const memberCreate = await app.inject({
         method: 'POST',
-        url: '/api/orgs/members',
+        url: '/api/orgs/acme/members',
         headers: { authorization: 'token acme-token' },
         payload: { username: 'bob', password: 'a-strong-password' }
       });
@@ -563,7 +565,7 @@ describe('organization lifecycle access control', () => {
 
       const teamCreate = await app.inject({
         method: 'POST',
-        url: '/api/orgs/teams',
+        url: '/api/orgs/acme/teams',
         headers: { authorization: 'token acme-token' },
         payload: { name: 'dev', permission: 'read' }
       });
@@ -584,7 +586,7 @@ describe('organization lifecycle access control', () => {
 
     const members = await app.inject({
       method: 'GET',
-      url: '/api/orgs/members',
+      url: '/api/orgs/acme/members',
       headers: { authorization: 'token acme-token' }
     });
     expect(members.statusCode).toBe(200);
