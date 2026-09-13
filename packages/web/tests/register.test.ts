@@ -110,8 +110,8 @@ describe('RegisterView', () => {
     wrapper = await mountRegister();
 
     await setField(wrapper, '[data-test="org-name"]', 'acme');
-    await setField(wrapper, '[data-test="password"]', 'short-pass');
-    await setField(wrapper, '[data-test="confirm-password"]', 'short-pass');
+    await setField(wrapper, '[data-test="password"]', 'short');
+    await setField(wrapper, '[data-test="confirm-password"]', 'short');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
 

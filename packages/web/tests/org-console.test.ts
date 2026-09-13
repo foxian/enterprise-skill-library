@@ -178,7 +178,7 @@ describe('MembersView 成员管理', () => {
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
     await flushPromises();
     await setDocInput('add-member-username', 'zed');
-    await setDocInput('add-member-password', 'short-pass');
+    await setDocInput('add-member-password', 'short');
     await doc('add-member-submit').trigger('click');
     await flushPromises();
 
