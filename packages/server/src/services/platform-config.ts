@@ -17,8 +17,10 @@ export function readDefaultOrg(repository: PlatformSettingsRepository): string |
 export function readPlatformInfo(repository: PlatformSettingsRepository): {
   mode: DeploymentMode;
   defaultOrg: string | null;
+  registrationMode: 'open' | 'approval';
 } {
-  return { mode: readDeploymentMode(repository), defaultOrg: readDefaultOrg(repository) };
+  const registrationMode = repository.getSetting('registration_mode') === 'approval' ? 'approval' : 'open';
+  return { mode: readDeploymentMode(repository), defaultOrg: readDefaultOrg(repository), registrationMode };
 }
 
 // 从 Organization-scoped Account Name(形如 <org>_<username>)解析组织名。

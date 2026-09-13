@@ -44,7 +44,7 @@ describe('platform deployment mode and default organization', () => {
     const response = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ mode: 'multi', defaultOrg: null });
+    expect(response.json()).toEqual({ mode: 'multi', defaultOrg: null, registrationMode: 'open' });
   });
 
   it('lets the super administrator set the default org and reflects it in platform-info', async () => {
@@ -63,7 +63,7 @@ describe('platform deployment mode and default organization', () => {
     expect(set.json()).toMatchObject({ deploymentMode: 'multi', defaultOrg: 'acme' });
 
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme', registrationMode: 'open' });
   });
 
   it('switching to single requires a default org and performs the switch atomically', async () => {
@@ -90,7 +90,7 @@ describe('platform deployment mode and default organization', () => {
     expect(switched.json()).toMatchObject({ deploymentMode: 'single', defaultOrg: 'acme' });
 
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
   });
 
   it('keeps the default org when switching back to multi', async () => {
@@ -217,7 +217,7 @@ describe('platform deployment mode and default organization', () => {
     expect(cleared.statusCode).toBe(400);
 
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
   });
 
   it('cannot bypass the reassign confirm by repeating deploymentMode single while already in single mode', async () => {

@@ -5,7 +5,8 @@ import type {
   PlatformSettingsRepository,
   SkillRepository,
   OperationRepository,
-  TenantOrganizationRepository
+  TenantOrganizationRepository,
+  UserRegistrationRepository
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
@@ -23,6 +24,7 @@ export interface OrgAdminRouteOptions {
   operationRepository: OperationRepository;
   operationAuditRepository: OperationAuditRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
+  userRegistrationRepository: UserRegistrationRepository;
   operationExecutor: OperationExecutor;
   applicationEncryptionKey?: string;
 }
@@ -171,6 +173,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     return {
       orgRegistrationMode: getRegistrationMode(),
+      registrationMode: getUserRegistrationMode(),
       deploymentMode: readDeploymentMode(platformSettingsRepository),
       defaultOrg: readDefaultOrg(platformSettingsRepository)
     };
@@ -180,6 +183,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     const body = (request.body ?? {}) as {
       orgRegistrationMode?: string;
+      registrationMode?: string;
       deploymentMode?: string;
       defaultOrg?: string | null;
       confirm?: string;
@@ -194,6 +198,11 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (body.orgRegistrationMode !== undefined) {
       if (body.orgRegistrationMode !== 'auto' && body.orgRegistrationMode !== 'manual') {
         return reply.status(400).send({ error: 'orgRegistrationMode must be auto or manual' });
+      }
+    }
+    if (body.registrationMode !== undefined) {
+      if (body.registrationMode !== 'open' && body.registrationMode !== 'approval') {
+        return reply.status(400).send({ error: 'registrationMode must be open or approval' });
       }
     }
     if (body.deploymentMode !== undefined) {
@@ -231,6 +240,9 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (body.orgRegistrationMode !== undefined) {
       platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
     }
+    if (body.registrationMode !== undefined) {
+      platformSettingsRepository.setSetting('registration_mode', body.registrationMode);
+    }
     if (body.defaultOrg !== undefined) {
       platformSettingsRepository.setSetting('default_org', nextDefaultOrg ?? '');
     }
@@ -239,9 +251,55 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     }
     return {
       orgRegistrationMode: getRegistrationMode(),
+      registrationMode: getUserRegistrationMode(),
       deploymentMode: readDeploymentMode(platformSettingsRepository),
       defaultOrg: readDefaultOrg(platformSettingsRepository)
     };
+  });
+
+  // 用户注册审批（ADR-0032）：approval 模式下账号注册时即以禁用态存在，
+  // 批准 = 解禁登录；拒绝 = 删除 Gitea 账号，名字随之释放。
+  app.get('/api/admin/registrations', async (request, reply) => {
+    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const status = (request.query as { status?: string }).status;
+    const records =
+      status === 'pending' || status === 'approved' || status === 'rejected'
+        ? options.userRegistrationRepository.listByStatus(status)
+        : options.userRegistrationRepository.listByStatus('pending');
+    return records;
+  });
+
+  app.post('/api/admin/registrations/:id/approve', async (request, reply) => {
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
+    const id = Number((request.params as { id: string }).id);
+    const registration = options.userRegistrationRepository.getById(id);
+    if (!registration) {
+      return reply.status(404).send({ error: 'Registration not found' });
+    }
+    if (registration.status !== 'pending') {
+      return reply.status(409).send({ error: 'Registration has already been processed' });
+    }
+    await giteaService.enableUser(registration.username);
+    const updated = options.userRegistrationRepository.updateStatusById(id, 'approved');
+    return { status: 'approved', username: registration.username, registrationId: updated?.id };
+  });
+
+  app.post('/api/admin/registrations/:id/reject', async (request, reply) => {
+    const admin = await requireSuperAdministrator(request, reply, giteaService);
+    if (!admin) return;
+    const id = Number((request.params as { id: string }).id);
+    const registration = options.userRegistrationRepository.getById(id);
+    if (!registration) {
+      return reply.status(404).send({ error: 'Registration not found' });
+    }
+    if (registration.status !== 'pending') {
+      return reply.status(409).send({ error: 'Registration has already been processed' });
+    }
+    // 删除账号即释放名字；记录保留为 rejected 供审计。
+    await giteaService.deleteUser(registration.username);
+    const updated = options.userRegistrationRepository.updateStatusById(id, 'rejected');
+    return { status: 'rejected', username: registration.username, registrationId: updated?.id };
   });
 
   app.post('/api/admin/orgs', async (request, reply) => {
@@ -436,6 +494,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 
   function getRegistrationMode(): string {
     return platformSettingsRepository.getSetting('org_registration_mode') ?? 'auto';
+  }
+
+  function getUserRegistrationMode(): string {
+    return platformSettingsRepository.getSetting('registration_mode') ?? 'open';
   }
 }
 function toApplicationView(application: {

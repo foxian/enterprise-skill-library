@@ -116,6 +116,6 @@ describe('single-organization mode gate', () => {
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
 
     expect(info.statusCode).toBe(200);
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
   });
 });

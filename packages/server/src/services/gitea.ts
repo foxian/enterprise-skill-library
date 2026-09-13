@@ -96,6 +96,20 @@ export class GiteaService {
     return (await res.json()) as GiteaUser;
   }
 
+  // 按用户名查账号（ADR-0032 扁平命名池查重）：Gitea 中组织与用户共享同一
+  // 命名空间（org 即 users 表的 organization 类型），一个查询同时覆盖两类占用。
+  async getUser(username: string): Promise<GiteaUser | null> {
+    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}`, {
+      headers: { Authorization: `token ${this.adminToken}` }
+    });
+
+    if (res.ok) return (await res.json()) as GiteaUser;
+    if (res.status === 404) return null;
+
+    const err = await res.text();
+    throw new Error(`Failed to get Gitea user: ${err}`);
+  }
+
   async validateAdminToken(token: string): Promise<boolean> {
     return (await this.validateToken(token)) !== null;
   }

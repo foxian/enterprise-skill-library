@@ -26,6 +26,8 @@ import { executeSkillCreation, executePermissionChange } from './services/skill-
 import type { PermissionChangePayload, SkillCreationPayload } from './services/skill-operations.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
+import { registerUserRoutes } from './routes/register.js';
+import { UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
 import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
@@ -441,6 +443,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
     platformSettingsRepository,
     passwordMinLength: options.passwordMinLength
   });
+  registerUserRoutes(app, {
+    giteaService: options.giteaService,
+    platformSettingsRepository,
+    userRegistrationRepository: new UserRegistrationRepository(db),
+    orgApplicationRepository,
+    passwordMinLength: options.passwordMinLength
+  });
   registerOrgRoutes(app, {
     giteaService: options.giteaService,
     orgApplicationRepository,
@@ -459,6 +468,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     operationRepository,
     operationAuditRepository,
     tenantOrganizationRepository,
+    userRegistrationRepository: new UserRegistrationRepository(db),
     operationExecutor,
     applicationEncryptionKey: options.applicationEncryptionKey
   });

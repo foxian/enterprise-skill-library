@@ -29,6 +29,7 @@ export interface GlobalGiteaSeed {
 export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
   const users = new Map<string, string>();
   const tokens = new Map<string, string>(); // token → username
+  const disabled = new Set<string>();
   let tokenCounter = 0;
   let teamIdCounter = 100;
   const orgs = new Map<string, FakeGiteaOrg>();
@@ -70,8 +71,13 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       return username ? { id: 1, username, email: `${username}@local.esl` } : null;
     }),
 
+    validateAdminUserToken: vi.fn(async (token: string) => {
+      const username = tokens.get(token);
+      return username === 'eslroot' ? { id: 1, username, email: `${username}@local.esl` } : null;
+    }),
+
     loginUser: vi.fn(async (username: string, password: string) => {
-      if (users.get(username) !== password) return null;
+      if (users.get(username) !== password || disabled.has(username)) return null;
       const token = `gitea-token-${++tokenCounter}-${username}`;
       tokens.set(token, username);
       return token;
@@ -140,6 +146,33 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     createUser: vi.fn(async (username: string, password: string) => {
       users.set(username, password);
+    }),
+
+    getUser: vi.fn(async (username: string) => {
+      if (users.has(username)) {
+        return { id: 1, username, email: `${username}@local.esl` };
+      }
+      // Gitea 里组织与用户共享同一命名空间（org 即 users 表的 organization 类型）
+      if (orgs.has(username)) {
+        return { id: 2, username, email: `${username}@local.esl` };
+      }
+      return null;
+    }),
+
+    disableUser: vi.fn(async (username: string) => {
+      disabled.add(username);
+    }),
+
+    enableUser: vi.fn(async (username: string) => {
+      disabled.delete(username);
+    }),
+
+    deleteUser: vi.fn(async (username: string) => {
+      users.delete(username);
+      disabled.delete(username);
+      tokens.forEach((tokenUsername, token) => {
+        if (tokenUsername === username) tokens.delete(token);
+      });
     }),
 
     // 测试断言辅助：直接操纵组织内状态

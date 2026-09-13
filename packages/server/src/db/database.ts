@@ -25,7 +25,7 @@ export function initDatabase(dbPath: string): Database.Database {
   `);
   db.exec(`
     INSERT OR IGNORE INTO platform_settings (key, value)
-    VALUES ('org_registration_mode', 'auto'), ('deployment_mode', 'multi')
+    VALUES ('org_registration_mode', 'auto'), ('deployment_mode', 'multi'), ('registration_mode', 'open')
   `);
   return db;
 }
@@ -857,6 +857,88 @@ export class OrgApplicationRepository {
       adminDisplayName: row.admin_display_name,
       hashedPassword: row.hashed_password,
       ...(row.encrypted_password ? { encryptedPassword: row.encrypted_password } : {}),
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+}
+
+export type UserRegistrationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface UserRegistrationRecord {
+  id: number;
+  username: string;
+  status: UserRegistrationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 用户注册申请（ADR-0032）：仅 approval 模式使用。账号在注册时即以禁用态
+// 创建于 Gitea（名字随之占用），审批 = 解禁，拒绝 = 删除账号并释放名字。
+export class UserRegistrationRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  create(username: string): UserRegistrationRecord {
+    const existing = this.getByUsername(username);
+    if (existing) {
+      // 名字被拒绝的注册释放后可再次申请：重置为待审而非新增行。
+      return this.updateStatusById(existing.id, 'pending')!;
+    }
+    this.db.prepare(`
+      INSERT INTO user_registrations (username, status)
+      VALUES (?, 'pending')
+    `).run(username);
+    return this.getByUsername(username)!;
+  }
+
+  getById(id: number): UserRegistrationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, username, status, created_at, updated_at
+      FROM user_registrations
+      WHERE id = ?
+    `).get(id) as Parameters<UserRegistrationRepository['deserialize']>[0] | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
+  getByUsername(username: string): UserRegistrationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, username, status, created_at, updated_at
+      FROM user_registrations
+      WHERE username = ?
+    `).get(username) as Parameters<UserRegistrationRepository['deserialize']>[0] | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
+  listByStatus(status: UserRegistrationStatus): UserRegistrationRecord[] {
+    const rows = this.db.prepare(`
+      SELECT id, username, status, created_at, updated_at
+      FROM user_registrations
+      WHERE status = ?
+      ORDER BY id ASC
+    `).all(status) as Parameters<UserRegistrationRepository['deserialize']>[0][];
+    return rows.map((row) => this.deserialize(row));
+  }
+
+  updateStatusById(id: number, status: UserRegistrationStatus): UserRegistrationRecord | undefined {
+    this.db.prepare(`
+      UPDATE user_registrations
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(status, id);
+    return this.getById(id);
+  }
+
+  private deserialize(row: {
+    id: number;
+    username: string;
+    status: UserRegistrationStatus;
+    created_at: string;
+    updated_at: string;
+  }): UserRegistrationRecord {
+    return {
+      id: row.id,
+      username: row.username,
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at

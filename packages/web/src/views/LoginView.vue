@@ -19,6 +19,9 @@
           登录
         </el-button>
       </el-form>
+      <router-link to="/admin/register-user" class="auth-link" data-test="user-register-link">
+        没有账号？注册个人账号
+      </router-link>
       <router-link v-if="!isSingleMode" to="/admin/register" class="auth-link" data-test="register-link">
         没有组织？注册组织申请
       </router-link>

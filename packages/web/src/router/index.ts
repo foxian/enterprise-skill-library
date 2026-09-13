@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginView from '../views/LoginView.vue';
 import RegisterView from '../views/RegisterView.vue';
+import UserRegisterView from '../views/UserRegisterView.vue';
 import SuperLayout from '../views/super/SuperLayout.vue';
 import SuperDashboard from '../views/super/DashboardView.vue';
 import SuperOrgs from '../views/super/OrgsView.vue';
@@ -24,6 +25,7 @@ export const router = createRouter({
   routes: [
     { path: '/admin/login', name: 'login', component: LoginView, meta: { public: true } },
     { path: '/admin/register', name: 'register', component: RegisterView, meta: { public: true } },
+    { path: '/admin/register-user', name: 'register-user', component: UserRegisterView, meta: { public: true } },
     {
       path: '/admin/super',
       component: SuperLayout,

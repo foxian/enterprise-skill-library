@@ -175,7 +175,7 @@ describe('server runtime', () => {
     expect(giteaService.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
 
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
     await app.close();
   });
 
@@ -213,7 +213,7 @@ describe('server runtime', () => {
     await app.ready();
     expect(giteaService.createOrg).toHaveBeenCalledWith('acme');
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme' });
+    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme', registrationMode: 'open' });
     await app.close();
   });
 
@@ -240,7 +240,7 @@ describe('server runtime', () => {
     await app.ready();
     expect(giteaService.createOrg).not.toHaveBeenCalled();
     const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: null });
+    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: null, registrationMode: 'open' });
     await app.close();
   });
 });

@@ -154,4 +154,14 @@ export const databaseSchema = `
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (org_name, gitea_team_id)
   );
+
+  -- 用户注册申请（ADR-0032）：approval 模式下账号先建后禁用，审批激活、
+  -- 拒绝删除（名字随之释放）。open 模式不写此表。
+  CREATE TABLE IF NOT EXISTS user_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `;
