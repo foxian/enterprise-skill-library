@@ -90,22 +90,20 @@ export function createProgram(): Command {
   program
     .command('login')
     .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
-    .option('--org <orgname>', 'ESL organization (required; resolves the Gitea account as orgname_username)')
     .option('--server <url>', 'ESL Server URL (defaults to the saved server or ESL_SERVER)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
-    .addHelpText('after', example('$ esl login --server http://localhost:3000 --org acme --username alice'))
-    .action(async (options: { server?: string; username?: string; org?: string; passwordFile?: string; tokenFile?: string }) => {
+    .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
+    .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
       const login = await executeLogin({
         ...options,
         noInput: program.opts().input === false,
         readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
         readServer: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readUsername: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readOrg: process.stdin.isTTY ? undefined : () => readStdinText()
+        readUsername: process.stdin.isTTY ? undefined : () => readStdinText()
       });
-      // 用解析后的身份(org 可能由默认组织自动解析而非显式 --org)打印成功信息
-      console.log(`Logged in as ${login.org ? `${login.org}/` : ''}${login.username}`);
+      // 全局身份登录（ADR-0032）：一条凭据走遍个人空间与所有组织
+      console.log(`Logged in as ${login.username}`);
     });
 
   program

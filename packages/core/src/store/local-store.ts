@@ -10,12 +10,11 @@ export interface LocalStorePaths {
   skillsDir: string;
 }
 
-export interface EslConfig {
-  server: string | null;
-  username: string | null;
-  org: string | null;
-  role: 'super' | 'org-admin' | 'member' | null;
-  tools: string[];
+// 组织隶属关系（ADR-0032）：登录时由服务端按 Gitea 成员关系派生并随
+// 登录响应下发，CLI 侧只做展示（whoami/status）。
+export interface OrganizationMembership {
+  org: string;
+  role: 'org-admin' | 'member';
 }
 
 export interface EslCredentials {
@@ -55,8 +54,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await writeJsonIfMissing(paths.configJson, {
     server: null,
     username: null,
-    org: null,
-    role: null,
+    organizations: null,
     tools: []
   });
   await writeJsonIfMissing(paths.credentialsJson, {
@@ -67,10 +65,30 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   return paths;
 }
 
+// 旧版（<org>_<username> 时代）配置标记：config.json 含 org/role 键时为 true，
+// 调用方据此提示重新登录。
+export interface ConfigIdentity {
+  legacyIdentity?: boolean;
+}
+
+export interface EslConfig extends ConfigIdentity {
+  server: string | null;
+  username: string | null;
+  organizations: OrganizationMembership[] | null;
+  tools: string[];
+}
+
 export async function loadConfig(options: LocalStoreOptions = {}): Promise<EslConfig> {
   const paths = resolveLocalStorePaths(options);
   const raw = await fs.readFile(paths.configJson, 'utf8');
-  return JSON.parse(raw) as EslConfig;
+  const parsed = JSON.parse(raw) as EslConfig & { org?: unknown; role?: unknown };
+  // 旧版配置带 org/role（ADR-0032 已废除）：读取侧剥离并打标记。
+  const legacyIdentity = 'org' in parsed || 'role' in parsed;
+  const { org: _legacyOrg, role: _legacyRole, ...rest } = parsed;
+  if (rest.organizations === undefined) {
+    rest.organizations = null;
+  }
+  return legacyIdentity ? { ...rest, legacyIdentity: true } : rest;
 }
 
 export async function saveConfig(

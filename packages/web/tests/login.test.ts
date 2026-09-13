@@ -9,8 +9,7 @@ import { setFetchImpl } from '../src/api/client';
 import { useAuthStore } from '../src/stores/auth';
 
 // 登录视图的响应式 fetch mock：记录请求体并返回可配置的响应。
-// 挂载时会先请求 /api/public/platform-info 自适应交互,这里固定返回多组织无默认
-// 组织,保持组织输入框可见,与既有用例的交互一致。
+// 挂载时会先请求 /api/public/platform-info 自适应交互。
 function mockFetch(status = 200, body: unknown = {}): {
   impl: typeof fetch;
   calls: Array<{ url: string; init: RequestInit }>;
@@ -45,12 +44,9 @@ async function mountLogin(): Promise<VueWrapper> {
 
 async function fillAndSubmit(
   wrapper: VueWrapper,
-  values: { username: string; org?: string; password: string }
+  values: { username: string; password: string }
 ): Promise<void> {
   await setField(wrapper, '[data-test="username"]', values.username);
-  if (values.org !== undefined) {
-    await setField(wrapper, '[data-test="org"]', values.org);
-  }
   await setField(wrapper, '[data-test="password"]', values.password);
   await wrapper.find('[data-test="login-submit"]').trigger('submit');
   await flushPromises();
@@ -63,6 +59,7 @@ async function setField(wrapper: VueWrapper, testId: string, value: string): Pro
   await input.trigger('input');
 }
 
+// 全局身份登录（ADR-0032）：不再有组织输入，角色与组织列表以服务端返回为准。
 describe('LoginView', () => {
   let wrapper: VueWrapper | undefined;
 
@@ -85,20 +82,39 @@ describe('LoginView', () => {
     expect(localStorage.getItem('esl-admin-session')).toBeNull();
   });
 
-  it('走管理后台登录端点、发送组织与用户名并保存服务端返回的角色，跳转成员视图', async () => {
-    const fetchMock = mockFetch(200, { token: 'member-token', username: 'bob', org: 'acme', role: 'member' });
-    setFetchImpl(fetchMock.impl);
+  it('登录页没有组织输入，只提交用户名与密码', async () => {
     wrapper = await mountLogin();
 
-    await fillAndSubmit(wrapper, { username: 'bob', org: 'acme', password: 'secret' });
+    expect(wrapper.find('[data-test="org"]').exists()).toBe(false);
+
+    const fetchMock = mockFetch(200, {
+      token: 'member-token',
+      username: 'bob',
+      role: 'member',
+      organizations: [{ org: 'acme', role: 'member' }]
+    });
+    setFetchImpl(fetchMock.impl);
+    await fillAndSubmit(wrapper, { username: 'bob', password: 'secret' });
 
     const loginCall = fetchMock.calls.find((call) => call.url === '/api/console/login');
     expect(loginCall).toBeDefined();
     expect(JSON.parse(String(loginCall!.init.body))).toEqual({
       username: 'bob',
-      org: 'acme',
       password: 'secret'
     });
+  });
+
+  it('保存服务端返回的角色与组织列表，跳转成员视图', async () => {
+    const fetchMock = mockFetch(200, {
+      token: 'member-token',
+      username: 'bob',
+      role: 'member',
+      organizations: [{ org: 'acme', role: 'member' }]
+    });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountLogin();
+
+    await fillAndSubmit(wrapper, { username: 'bob', password: 'secret' });
 
     const auth = useAuthStore();
     expect(auth.token).toBe('member-token');
@@ -109,32 +125,38 @@ describe('LoginView', () => {
     expect(router.push).toHaveBeenCalledWith('/admin/member/skills');
   });
 
-  it('用户名为 admin 的组织账号登录后跳转组织管理视图', async () => {
+  it('组织管理员（Owners 成员）登录后跳转组织管理视图', async () => {
     setFetchImpl(
-      mockFetch(200, { token: 'org-admin-token', username: 'admin', org: 'acme', role: 'org-admin' }).impl
+      mockFetch(200, {
+        token: 'org-admin-token',
+        username: 'alice',
+        role: 'org-admin',
+        organizations: [
+          { org: 'acme', role: 'member' },
+          { org: 'beta', role: 'org-admin' }
+        ]
+      }).impl
     );
     wrapper = await mountLogin();
 
-    await fillAndSubmit(wrapper, { username: 'admin', org: 'acme', password: 'secret' });
+    await fillAndSubmit(wrapper, { username: 'alice', password: 'secret' });
 
     const auth = useAuthStore();
     expect(auth.role).toBe('org-admin');
     expect(router.push).toHaveBeenCalledWith('/admin/org/members');
   });
 
-  it('组织名留空时按超级管理员登录并跳转超管视图', async () => {
-    const fetchMock = mockFetch(200, { token: 'super-token', username: 'eslroot', org: null, role: 'super' });
+  it('超级管理员登录（无组织隶属）跳转超管视图', async () => {
+    const fetchMock = mockFetch(200, {
+      token: 'super-token',
+      username: 'eslroot',
+      role: 'super',
+      organizations: []
+    });
     setFetchImpl(fetchMock.impl);
     wrapper = await mountLogin();
 
-    await fillAndSubmit(wrapper, { username: 'eslroot', org: '', password: 'secret' });
-
-    const loginCall = fetchMock?.calls.find((call) => call.url === '/api/console/login');
-    expect(JSON.parse(String(loginCall?.init.body ?? '{}'))).toEqual({
-      username: 'eslroot',
-      org: null,
-      password: 'secret'
-    });
+    await fillAndSubmit(wrapper, { username: 'eslroot', password: 'secret' });
 
     const auth = useAuthStore();
     expect(auth.role).toBe('super');
@@ -146,7 +168,7 @@ describe('LoginView', () => {
     setFetchImpl(mockFetch(401, { error: 'Unauthorized: invalid credentials' }).impl);
     wrapper = await mountLogin();
 
-    await fillAndSubmit(wrapper, { username: 'bob', org: 'acme', password: 'wrong' });
+    await fillAndSubmit(wrapper, { username: 'bob', password: 'wrong' });
 
     expect(wrapper.find('[data-test="login-error"]').text()).toContain('invalid credentials');
     expect(useAuthStore().isLoggedIn).toBe(false);

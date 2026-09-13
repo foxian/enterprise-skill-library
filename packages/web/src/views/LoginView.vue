@@ -10,11 +10,7 @@
         <el-form-item label="用户名" required>
           <el-input v-model="username" data-test="username" placeholder="用户名" />
         </el-form-item>
-        <!-- 单组织模式下仅默认组织可登录,隐藏组织输入框;多组织模式即使设了默认
-             组织也保留输入框(默认组织只是留空时的解析目标,其他组织用户仍需填写)。 -->
-        <el-form-item v-if="!isSingleMode" label="组织名（超级管理员留空）">
-          <el-input v-model="org" data-test="org" placeholder="组织名，可留空" />
-        </el-form-item>
+        <!-- 全局身份登录（ADR-0032）：不再输入组织，所属组织由服务端派生 -->
         <el-form-item label="密码" required>
           <el-input v-model="password" data-test="password" type="password" show-password />
         </el-form-item>
@@ -37,12 +33,10 @@ import { apiRequest } from '../api/client';
 import { useAuthStore, type Role } from '../stores/auth';
 
 const username = ref('');
-const org = ref('');
 const password = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
-// 平台信息(ADR-0022):设有默认组织时隐藏组织输入框,单组织模式下隐藏注册入口。
-// 平台信息不可用时保持现状(展示组织输入框),不让登录被非必要请求阻断。
+// 平台信息(ADR-0022)：单组织模式下隐藏注册入口。平台信息不可用时保持现状。
 const platformInfo = ref<{ mode: 'single' | 'multi'; defaultOrg: string | null } | null>(null);
 const isSingleMode = computed(() => platformInfo.value?.mode === 'single');
 
@@ -64,23 +58,27 @@ async function submit(): Promise<void> {
     return;
   }
   const trimmedUsername = username.value.trim();
-  const trimmedOrg = org.value.trim();
   loading.value = true;
   try {
-    // 管理后台专用登录端点：组织账号由服务端解析 <org>_<username> 并校验归属，
-    // 无组织的平台管理员由服务端判定为 super；角色一律以服务端返回为准。
-    const result = await apiRequest<{ token: string; username: string; org: string | null; role: Role }>(
-      '/api/console/login',
-      {
-        method: 'POST',
-        body: { username: trimmedUsername, org: trimmedOrg || null, password: password.value }
-      }
-    );
+    // 全局身份登录（ADR-0032）：username + password 一条凭据；组织列表与
+    // 角色由服务端按 Gitea 成员关系派生，前端不做推导。
+    const result = await apiRequest<{
+      token: string;
+      username: string;
+      role: Role;
+      organizations?: Array<{ org: string; role: 'org-admin' | 'member' }>;
+    }>('/api/console/login', {
+      method: 'POST',
+      body: { username: trimmedUsername, password: password.value }
+    });
+    const organizations = result.organizations ?? [];
+    const org = organizations.find((membership) => membership.role === 'org-admin')?.org ?? organizations[0]?.org ?? null;
     auth.establish({
       token: result.token,
       username: result.username,
-      org: result.org,
-      role: result.role
+      org,
+      role: result.role,
+      organizations
     });
     await router.push(auth.homePath);
   } catch (error) {

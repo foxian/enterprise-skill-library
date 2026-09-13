@@ -5,6 +5,7 @@ import path from 'node:path';
 import { initializeLocalStore, loadConfig, loadCredentials, saveConfig } from '@esl/core';
 import { executeLogin } from '../src/commands/login.js';
 
+// 全局身份登录（ADR-0032）：username + password 一条凭据，无组织输入。
 describe('esl login', () => {
   let homeDir: string;
 
@@ -19,14 +20,13 @@ describe('esl login', () => {
   it('exchanges a password file for a token and stores it', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
     await executeLogin({
       server: 'http://skills.company.com',
-      org: 'acme',
       username: 'zhangsan',
       passwordFile,
       homeDir,
@@ -37,16 +37,15 @@ describe('esl login', () => {
     expect(credentials.token).toBe('mock_skill_user_token');
     const config = await loadConfig({ homeDir });
     expect(config.server).toBe('http://skills.company.com');
-    expect(config.org).toBe('acme');
     expect(config.username).toBe('zhangsan');
-    expect(config.role).toBe('member');
+    expect(config).not.toHaveProperty('org');
+    expect(config).not.toHaveProperty('role');
     expect(config).not.toHaveProperty('token');
-    expect(config).not.toHaveProperty('gitBase');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/auth/login',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ org: 'acme', username: 'zhangsan', password: 'password123' })
+        body: JSON.stringify({ username: 'zhangsan', password: 'password123' })
       })
     );
   });
@@ -54,14 +53,13 @@ describe('esl login', () => {
   it('records the login time when storing credentials', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
     await executeLogin({
       server: 'http://skills.company.com',
-      org: 'acme',
       username: 'zhangsan',
       passwordFile,
       homeDir,
@@ -74,14 +72,13 @@ describe('esl login', () => {
     expect(Number.isNaN(Date.parse(credentials.loginAt as string))).toBe(false);
   });
 
-  it('stores an organization token from a token file without contacting the server', async () => {
+  it('stores a token from a token file without contacting the server', async () => {
     const mockFetch = vi.fn();
     const tokenFile = path.join(homeDir, 'token.txt');
     fs.writeFileSync(tokenFile, 'pre_made_token');
 
     await executeLogin({
       server: 'http://skills.company.com',
-      org: 'acme',
       username: 'zhangsan',
       tokenFile,
       homeDir,
@@ -92,36 +89,18 @@ describe('esl login', () => {
     const credentials = await loadCredentials({ homeDir });
     expect(credentials.token).toBe('pre_made_token');
     const config = await loadConfig({ homeDir });
-    expect(config.org).toBe('acme');
-    expect(config.role).toBe('member');
-  });
-
-  it('derives the org-admin role from a token-file login without contacting the server', async () => {
-    const tokenFile = path.join(homeDir, 'token.txt');
-    fs.writeFileSync(tokenFile, 'pre_made_token');
-
-    await executeLogin({
-      server: 'http://skills.company.com',
-      org: 'acme',
-      username: 'admin',
-      tokenFile,
-      homeDir,
-      customFetch: vi.fn() as any
-    });
-
-    const config = await loadConfig({ homeDir });
-    expect(config.role).toBe('org-admin');
+    expect(config.username).toBe('zhangsan');
+    expect(config.organizations).toEqual([]);
   });
 
   it('prompts for a password when no file is provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
     });
 
     await executeLogin({
       server: 'http://skills.company.com',
-      org: 'acme',
       username: 'zhangsan',
       readInput: async () => 'password123',
       homeDir,
@@ -137,7 +116,6 @@ describe('esl login', () => {
     await expect(
       executeLogin({
         server: 'http://skills.company.com',
-        org: 'acme',
         username: 'zhangsan',
         noInput: true,
         homeDir,
@@ -146,30 +124,17 @@ describe('esl login', () => {
     ).rejects.toThrow('pass --password-file or --token-file');
   });
 
-  it('requires an organization in non-interactive mode', async () => {
-    await expect(
-      executeLogin({
-        server: 'http://skills.company.com',
-        username: 'zhangsan',
-        noInput: true,
-        homeDir,
-        customFetch: vi.fn() as any
-      })
-    ).rejects.toThrow(/organization/i);
-  });
-
   it('uses the saved server when --server is not passed', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: 'zhangsan', tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
     await executeLogin({
-      org: 'acme',
       username: 'zhangsan',
       passwordFile,
       homeDir,
@@ -180,7 +145,7 @@ describe('esl login', () => {
       'http://saved.company.com/api/auth/login',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ org: 'acme', username: 'zhangsan', password: 'password123' })
+        body: JSON.stringify({ username: 'zhangsan', password: 'password123' })
       })
     );
   });
@@ -203,19 +168,19 @@ describe('esl login', () => {
     await saveConfig({ server: 'http://saved.company.com', username: 'eslroot', tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', organizations: [] })
     });
     const readUsername = vi.fn().mockResolvedValue('alice');
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
-    await executeLogin({ org: 'acme', passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
+    await executeLogin({ passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
 
     expect(readUsername).toHaveBeenCalledWith('Username: ');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://saved.company.com/api/auth/login',
       expect.objectContaining({
-        body: JSON.stringify({ org: 'acme', username: 'alice', password: 'password123' })
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
       })
     );
   });
@@ -225,17 +190,17 @@ describe('esl login', () => {
     await saveConfig({ server: 'http://saved.company.com', username: 'ignored-user', tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', organizations: [] })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
-    await executeLogin({ org: 'acme', username: 'alice', passwordFile, homeDir, customFetch: mockFetch as any });
+    await executeLogin({ username: 'alice', passwordFile, homeDir, customFetch: mockFetch as any });
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://saved.company.com/api/auth/login',
       expect.objectContaining({
-        body: JSON.stringify({ org: 'acme', username: 'alice', password: 'password123' })
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
       })
     );
   });
@@ -245,34 +210,30 @@ describe('esl login', () => {
     await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', org: 'acme', role: 'member' })
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', organizations: [] })
     });
     const readUsername = vi.fn().mockResolvedValue('alice');
     const passwordFile = path.join(homeDir, 'pw.txt');
     fs.writeFileSync(passwordFile, 'password123');
 
-    await executeLogin({ org: 'acme', passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
+    await executeLogin({ passwordFile, homeDir, readUsername, customFetch: mockFetch as any });
 
     expect(readUsername).toHaveBeenCalledWith('Username: ');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://saved.company.com/api/auth/login',
       expect.objectContaining({
-        body: JSON.stringify({ org: 'acme', username: 'alice', password: 'password123' })
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
       })
     );
   });
 
-  it('prompts for the organization, then the username, then the password', async () => {
+  it('prompts for the username, then the password', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig({ server: 'http://saved.company.com', username: null, tools: [] }, { homeDir });
     const calls: string[] = [];
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', org: 'acme', role: 'member' })
-    });
-    const readOrg = vi.fn(async () => {
-      calls.push('org');
-      return 'acme';
+      json: async () => ({ token: 'mock_skill_user_token', username: 'alice', organizations: [] })
     });
     const readUsername = vi.fn(async () => {
       calls.push('username');
@@ -283,13 +244,13 @@ describe('esl login', () => {
       return 'password123';
     });
 
-    await executeLogin({ homeDir, readOrg, readUsername, readInput, customFetch: mockFetch as any });
+    await executeLogin({ homeDir, readUsername, readInput, customFetch: mockFetch as any });
 
-    expect(calls).toEqual(['org', 'username', 'password']);
+    expect(calls).toEqual(['username', 'password']);
     expect(mockFetch).toHaveBeenCalledWith(
       'http://saved.company.com/api/auth/login',
       expect.objectContaining({
-        body: JSON.stringify({ org: 'acme', username: 'alice', password: 'password123' })
+        body: JSON.stringify({ username: 'alice', password: 'password123' })
       })
     );
   });
@@ -300,7 +261,6 @@ describe('esl login', () => {
 
     await expect(
       executeLogin({
-        org: 'acme',
         noInput: true,
         passwordFile: path.join(homeDir, 'pw.txt'),
         homeDir,

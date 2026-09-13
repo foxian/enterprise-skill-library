@@ -562,7 +562,7 @@ describe('organization lifecycle access control', () => {
   }
 
   for (const status of ['provisioning', 'failed', 'deleting', 'delete_failed']) {
-    it(`rejects logins, skill operations, and org management while ${status}`, async () => {
+    it(`rejects skill operations and org management while ${status}`, async () => {
       seedTenantWithStatus(status);
       const mockGitea = consoleGitea();
       app = await buildApp({
@@ -572,21 +572,8 @@ describe('organization lifecycle access control', () => {
         applicationEncryptionKey
       });
 
-      const memberLogin = await app.inject({
-        method: 'POST',
-        url: '/api/auth/login',
-        payload: { org: 'acme', username: 'bob', password: 'whatever-password' }
-      });
-      expect(memberLogin.statusCode).toBe(409);
-      expect(mockGitea.loginUser).not.toHaveBeenCalled();
-
-      const adminLogin = await app.inject({
-        method: 'POST',
-        url: '/api/auth/login',
-        payload: { org: 'acme', username: 'admin', password: 'whatever-password' }
-      });
-      expect(adminLogin.statusCode).toBe(409);
-
+      // 全局身份登录（ADR-0032）不再按组织状态门禁；组织激活门禁覆盖在
+      // 技能与组织管理操作上。
       const skillCreate = await app.inject({
         method: 'POST',
         url: '/api/skills',
@@ -614,7 +601,7 @@ describe('organization lifecycle access control', () => {
     });
   }
 
-  it('allows logins and org management while the organization is active', async () => {
+  it('allows org management while the organization is active', async () => {
     seedTenantWithStatus('active');
     const mockGitea = consoleGitea();
     app = await buildApp({
@@ -623,13 +610,6 @@ describe('organization lifecycle access control', () => {
       repoOwner: 'esl-skills',
       applicationEncryptionKey
     });
-
-    const login = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { org: 'acme', username: 'bob', password: 'whatever-password' }
-    });
-    expect(login.statusCode).toBe(200);
 
     const members = await app.inject({
       method: 'GET',

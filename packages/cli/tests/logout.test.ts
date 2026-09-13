@@ -20,7 +20,7 @@ describe('esl logout', () => {
   it('clears the stored credentials and keeps the config', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
-      { server: 'http://skills.company.com', username: 'zhangsan', org: 'acme', role: 'member', tools: [] },
+      { server: 'http://skills.company.com', username: 'zhangsan', organizations: [], tools: [] },
       { homeDir }
     );
     await saveCredentials({ token: 'mock_token', loginAt: new Date().toISOString() }, { homeDir });
@@ -35,8 +35,7 @@ describe('esl logout', () => {
     const config = await loadConfig({ homeDir });
     expect(config.server).toBe('http://skills.company.com');
     expect(config.username).toBe('zhangsan');
-    expect(config.org).toBe('acme');
-    expect(config.role).toBe('member');
+    expect(config.organizations).toEqual([]);
   });
 
   it('is idempotent when no local store exists', async () => {

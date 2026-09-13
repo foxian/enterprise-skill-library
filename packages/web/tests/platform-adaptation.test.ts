@@ -52,8 +52,10 @@ describe('web login and registration adapting to platform-info', () => {
     wrapper = undefined;
   });
 
-  it('hides the organization input on the login page in single mode with a default org', async () => {
-    const { requests } = routeMock({ mode: 'single', defaultOrg: 'acme' });
+  // 全局身份登录（ADR-0032）：登录页不再有组织输入，也不再有按部署模式
+  // 显隐组织输入框的自适应行为。
+  it('has no organization input on the login page and sends only username and password', async () => {
+    const { requests } = routeMock({ mode: 'multi', defaultOrg: 'acme' });
     wrapper = await mountView(LoginView);
     await flushPromises();
 
@@ -66,25 +68,8 @@ describe('web login and registration adapting to platform-info', () => {
 
     const login = requests.find((request) => request.url === '/api/console/login');
     expect(login).toBeDefined();
-    expect(login!.body).toMatchObject({ username: 'bob', org: null, password: 'secret' });
-  });
-
-  it('keeps the organization input visible in multi mode even when a default org is set', async () => {
-    const { requests } = routeMock({ mode: 'multi', defaultOrg: 'acme' });
-    wrapper = await mountView(LoginView);
-    await flushPromises();
-
-    // 多组织模式下默认组织只是留空的解析目标,其他组织用户仍需填写组织名
-    expect(wrapper.find('[data-test="org"]').exists()).toBe(true);
-
-    await setField(wrapper, '[data-test="username"]', 'bob');
-    await setField(wrapper, '[data-test="org"]', 'beta');
-    await setField(wrapper, '[data-test="password"]', 'secret');
-    await wrapper.find('[data-test="login-submit"]').trigger('submit');
-    await flushPromises();
-
-    const login = requests.find((request) => request.url === '/api/console/login');
-    expect(login!.body).toMatchObject({ username: 'bob', org: 'beta', password: 'secret' });
+    expect(login!.body).toMatchObject({ username: 'bob', password: 'secret' });
+    expect(login!.body).not.toHaveProperty('org');
   });
 
   it('hides the register entry on the login page in single mode', async () => {

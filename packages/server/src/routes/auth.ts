@@ -1,9 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { buildGiteaUsername, deriveOrganizationRole, validatePassword } from '@esl/core';
+import { validatePassword } from '@esl/core';
 import type { AdminRepository, PlatformSettingsRepository } from '../db/database.js';
-import type { GiteaService } from '../services/gitea.js';
-import { isOrganizationAdministrator } from '../services/org-admin-auth.js';
-import { readDefaultOrg } from '../services/platform-config.js';
+import type { GiteaService, GiteaOrg, GiteaUser } from '../services/gitea.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
@@ -12,106 +10,64 @@ export interface AuthRouteOptions {
   passwordMinLength?: number;
 }
 
+export interface OrganizationMembership {
+  org: string;
+  role: 'org-admin' | 'member';
+}
+
+// 全局身份登录（ADR-0032）：账号无 <org>_ 前缀，登录只提交 username + password；
+// 角色与所属组织列表由 Gitea 成员关系派生（Owners 团队成员 = Organization Admin）。
 export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptions): void {
   const { repository, giteaService } = options;
 
-  // ESL CLI 专用登录:组织必填(未设默认组织时),服务端解析 <org>_<username> 并
-  // 校验该账号确实属于该组织。设有默认组织时组织可省略,按默认组织解析(ADR-0022)。
-  // 平台管理员账号没有组织,结构性无法通过此端点登录(见 ADR-0020)。
   app.post('/api/auth/login', async (request, reply) => {
-    const { org: rawOrg, username, password } = (request.body ?? {}) as {
-      org?: string;
-      username?: string;
-      password?: string;
-    };
-    const org = typeof rawOrg === 'string' && rawOrg ? rawOrg : readDefaultOrg(options.platformSettingsRepository);
-    if (!org || !username || !password) {
-      return reply.status(400).send({ error: 'Organization, username and password are required' });
-    }
-    const giteaUsername = buildGiteaUsername(org, username);
-    if (!giteaUsername) {
-      return reply.status(400).send({ error: 'Invalid username for the organization' });
-    }
-    if (giteaUsername === giteaService.adminUsername) {
-      return reply.status(403).send({ error: 'Platform administrators sign in from the Admin Console' });
-    }
-
-    const token = await giteaService.loginUser(giteaUsername, password);
-    if (!token) {
-      return unauthorized(reply);
-    }
-    if (!(await isOrganizationMember(giteaService, org, giteaUsername))) {
-      return reply.status(403).send({ error: `Account is not a member of organization ${org}` });
-    }
-    try {
-      repository.registerIssuedToken(giteaUsername, token);
-    } catch {
-      return unauthorized(reply);
-    }
-
-    return {
-      token,
-      username,
-      org,
-      // 与控制台登录一致:组织管理员是角色(ADR-0026),系统管理团队成员
-      // 登录同样返回 org-admin
-      role: (await isOrganizationAdministrator(giteaService, org, giteaUsername))
-        ? 'org-admin'
-        : deriveOrganizationRole(org, username)
-    };
-  });
-
-  // 管理后台专用登录:三类角色都收。带组织的账号按 <org>_<username> 解析并校验
-  // 归属;不带组织的账号,未设默认组织时必须是平台管理员(否则一律拒绝,防止遗留的
-  // 无组织普通账号被当作超级管理员),设有默认组织时平台管理员账号仍按 super 处理、
-  // 其余账号按默认组织成员解析(ADR-0022)。
-  app.post('/api/console/login', async (request, reply) => {
-    const { org: rawOrg, username, password } = (request.body ?? {}) as {
-      org?: string;
-      username?: string;
-      password?: string;
-    };
+    const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
     if (!username || !password) {
       return reply.status(400).send({ error: 'Username and password are required' });
     }
-    const defaultOrg = readDefaultOrg(options.platformSettingsRepository);
-    const org =
-      typeof rawOrg === 'string' && rawOrg ? rawOrg : username === giteaService.adminUsername ? null : defaultOrg;
-    const giteaUsername = org ? buildGiteaUsername(org, username) : username;
-    if (!giteaUsername) {
-      return reply.status(400).send({ error: 'Invalid username' });
-    }
-    if (!org && giteaUsername !== giteaService.adminUsername) {
-      return reply
-        .status(403)
-        .send({ error: 'Only the platform administrator account may sign in without an organization' });
+    if (username === giteaService.adminUsername) {
+      return reply.status(403).send({ error: 'Platform administrators sign in from the Admin Console' });
     }
 
-    const token = await giteaService.loginUser(giteaUsername, password);
+    const token = await giteaService.loginUser(username, password);
     if (!token) {
       return unauthorized(reply);
     }
-    if (org && !(await isOrganizationMember(giteaService, org, giteaUsername))) {
-      return reply.status(403).send({ error: `Account is not a member of organization ${org}` });
-    }
     try {
-      repository.registerIssuedToken(giteaUsername, token);
+      repository.registerIssuedToken(username, token);
     } catch {
       return unauthorized(reply);
     }
 
-    return {
-      token,
-      username,
-      org,
-      // 组织管理员是角色而非账号(ADR-0026):admin 账号与系统管理团队成员
-      // 登录后台均为 org-admin
-      role: org
-        ? (await isOrganizationAdministrator(giteaService, org, giteaUsername))
-          ? 'org-admin'
-          : deriveOrganizationRole(org, username)
-        : 'super'
-    };
+    return { token, username, organizations: await deriveOrganizations(giteaService, username) };
+  });
+
+  // 管理后台专用登录：三类角色都收。超级管理员（eslroot）结构不变；
+  // 其余账号按 Gitea 成员关系派生角色（任一组织的 Owners 成员即 org-admin）。
+  app.post('/api/console/login', async (request, reply) => {
+    const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
+    if (!username || !password) {
+      return reply.status(400).send({ error: 'Username and password are required' });
+    }
+
+    const token = await giteaService.loginUser(username, password);
+    if (!token) {
+      return unauthorized(reply);
+    }
+    try {
+      repository.registerIssuedToken(username, token);
+    } catch {
+      return unauthorized(reply);
+    }
+
+    if (username === giteaService.adminUsername) {
+      return { token, username, role: 'super' as const, organizations: [] };
+    }
+    const organizations = await deriveOrganizations(giteaService, username);
+    const role = organizations.some((membership) => membership.role === 'org-admin')
+      ? ('org-admin' as const)
+      : ('member' as const);
+    return { token, username, role, organizations };
   });
 
   app.post('/api/auth/password', async (request, reply) => {
@@ -137,17 +93,30 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
   });
 }
 
-async function isOrganizationMember(
+async function deriveOrganizations(
   giteaService: GiteaService,
-  org: string,
-  giteaUsername: string
-): Promise<boolean> {
+  username: string
+): Promise<OrganizationMembership[]> {
+  let orgs: GiteaOrg[];
   try {
-    const members = await giteaService.listOrgMembers(org);
-    return members.some((member) => member.username === giteaUsername);
+    orgs = await giteaService.listUserOrgs(username);
   } catch {
-    return false;
+    return [];
   }
+  const memberships: OrganizationMembership[] = [];
+  for (const org of orgs) {
+    let owners: GiteaUser[] = [];
+    try {
+      owners = await giteaService.listOrgOwners(org.name);
+    } catch {
+      owners = [];
+    }
+    memberships.push({
+      org: org.name,
+      role: owners.some((owner) => owner.username === username) ? 'org-admin' : 'member'
+    });
+  }
+  return memberships;
 }
 
 async function resolveTokenUsername(

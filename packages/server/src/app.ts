@@ -26,7 +26,7 @@ import { executeSkillCreation, executePermissionChange } from './services/skill-
 import type { PermissionChangePayload, SkillCreationPayload } from './services/skill-operations.js';
 import { decryptApplicationSecret } from './services/application-secret.js';
 import { sanitizeOperationError } from './db/database.js';
-import { seedDevelopmentData } from './seed.js';
+import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
 import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
 import { ensureDeclaredOrgBootstrap } from './services/single-org-bootstrap.js';
@@ -93,6 +93,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const db = initDatabase(options.dbPath);
   if (options.autoSeed) {
     seedDevelopmentData(options.dbPath);
+    // 开发环境同时产出全局账号（ADR-0032）；尽力而为，不阻塞启动。
+    void seedDevelopmentAccounts(options.giteaService).catch(() => {});
   }
   const repository = new SkillRepository(db);
   const adminRepository = new AdminRepository(db);
@@ -429,23 +431,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
         }
       }
     }
-    // CLI 与管理后台登录端点共用同一组织激活门禁:body 以 { org } 显式携带
-    // 组织名,省略时按默认组织解析(ADR-0022)。平台管理员账号无组织,跳过。
-    if (routePath === '/api/auth/login' || routePath === '/api/console/login') {
-      const body = (request.body ?? {}) as { org?: string };
-      const org = typeof body.org === 'string' && body.org ? body.org : readDefaultOrg(platformSettingsRepository);
-      const tenant = org ? tenantOrganizationRepository.get(org) : undefined;
-      if (tenant && tenant.status !== 'active') {
-        return reply.status(409).send({
-          error: `Organization is not active: ${org}`,
-          status: tenant.status
-        });
-      }
-      // 单组织模式下只有默认组织的成员可以登录(ADR-0022)。
-      if (readDeploymentMode(platformSettingsRepository) === 'single' && org && org !== readDefaultOrg(platformSettingsRepository)) {
-        return reply.status(403).send({ error: 'Organization is frozen in single-organization mode' });
-      }
-    }
+    // 全局身份登录（ADR-0032）：登录请求不再携带组织字段，组织激活门禁
+    // 由此处移除；单组织模式与冻结组织的存量 token 门禁保留在上方。
   });
 
   registerAuthRoutes(app, {

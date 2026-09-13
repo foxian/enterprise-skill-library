@@ -514,7 +514,7 @@ describe('esl upload', () => {
   });
 
   it('falls back to the logged-in identity so commits match the Gitea account', async () => {
-    await saveConfig({ username: 'author01', org: 'esl' }, { homeDir });
+    await saveConfig({ username: 'author01', organizations: [] }, { homeDir });
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = gitMock({ userName: '', userEmail: '' });
 
@@ -526,8 +526,8 @@ describe('esl upload', () => {
       execFileAsync: execFileAsync as any
     });
 
-    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.name', 'esl_author01'], { cwd: skillDir });
-    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'esl_author01@local.esl'], { cwd: skillDir });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.name', 'author01'], { cwd: skillDir });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'author01@local.esl'], { cwd: skillDir });
   });
 
   it('uses the --message text as the auto-commit message', async () => {

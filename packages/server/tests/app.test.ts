@@ -500,55 +500,52 @@ describe('Fastify Server API', () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it('logs in an organization member through the CLI endpoint and registers the returned token', async () => {
+  it('logs in a global account through the CLI endpoint and registers the returned token', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('skill-user-token'),
-      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_alice' }]),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'acme/alice_demo' })
+      adminUsername: 'eslroot',
+      listUserOrgs: vi.fn().mockResolvedValue([{ id: 1, name: 'acme' }]),
+      listOrgOwners: vi.fn().mockResolvedValue([{ username: 'someone-else' }])
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { org: 'acme', username: 'alice', password: 'correct-password' }
+      payload: { username: 'alice', password: 'correct-password' }
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'skill-user-token', username: 'alice', org: 'acme', role: 'member' });
-    expect(mockGitea.loginUser).toHaveBeenCalledWith('acme_alice', 'correct-password');
-    expect(mockGitea.listOrgMembers).toHaveBeenCalledWith('acme');
-
-    const createSkillRes = await app.inject({
-      method: 'POST',
-      url: '/api/skills',
-      headers: { authorization: 'token skill-user-token' },
-      payload: {
-        name: '@acme/demo',
-        version: '0.1.0',
-        description: 'Demo skill'
-      }
+    expect(loginRes.json()).toEqual({
+      token: 'skill-user-token',
+      username: 'alice',
+      organizations: [{ org: 'acme', role: 'member' }]
     });
-
-    expect(createSkillRes.statusCode).toBe(201);
-    expect(createSkillRes.json().createdBy).toBe('acme_alice');
+    expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
   });
 
-  it('logs in an organization administrator through the CLI endpoint with the org-admin role', async () => {
+  it('derives the org-admin role from Owners membership across organizations', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('admin-token'),
-      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_admin' }])
+      adminUsername: 'eslroot',
+      listUserOrgs: vi.fn().mockResolvedValue([{ id: 1, name: 'acme' }, { id: 2, name: 'beta' }]),
+      listOrgOwners: vi.fn(async (org: string) =>
+        org === 'beta' ? [{ username: 'alice' }] : [{ username: 'someone-else' }]
+      )
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { org: 'acme', username: 'admin', password: 'correct-password' }
+      payload: { username: 'alice', password: 'correct-password' }
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'admin-token', username: 'admin', org: 'acme', role: 'org-admin' });
+    expect(loginRes.json().organizations).toEqual([
+      { org: 'acme', role: 'member' },
+      { org: 'beta', role: 'org-admin' }
+    ]);
   });
 
   it('logs in the platform administrator through the Admin Console endpoint', async () => {
@@ -567,28 +564,28 @@ describe('Fastify Server API', () => {
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'gitea-token', username: 'eslroot', org: null, role: 'super' });
+    expect(loginRes.json()).toEqual({ token: 'gitea-token', username: 'eslroot', role: 'super', organizations: [] });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('eslroot', 'correct-password');
   });
 
   it('rejects invalid CLI login credentials without issuing a token', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue(null),
-      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_alice' }])
+      adminUsername: 'eslroot'
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/auth/login',
-      payload: { org: 'acme', username: 'alice', password: 'wrong-password' }
+      payload: { username: 'alice', password: 'wrong-password' }
     });
 
     expect(loginRes.statusCode).toBe(401);
     expect(loginRes.json()).toEqual({ error: 'Unauthorized: invalid credentials' });
   });
 
-  it('requires an organization on the CLI login endpoint, structurally excluding the platform administrator', async () => {
+  it('structurally excludes the platform administrator from the CLI login endpoint', async () => {
     const mockGitea = {
       loginUser: vi.fn(),
       adminUsername: 'eslroot'
@@ -601,44 +598,27 @@ describe('Fastify Server API', () => {
       payload: { username: 'eslroot', password: 'whatever' }
     });
 
-    expect(loginRes.statusCode).toBe(400);
-    expect(loginRes.json().error).toContain('Organization');
+    expect(loginRes.statusCode).toBe(403);
+    expect(loginRes.json().error).toContain('Platform administrators');
     expect(mockGitea.loginUser).not.toHaveBeenCalled();
   });
 
-  it('rejects an org-less non-admin account on the Admin Console endpoint', async () => {
+  it('signs a org-less global account in through the console as a plain member', async () => {
     const mockGitea = {
-      loginUser: vi.fn(),
-      adminUsername: 'eslroot'
+      loginUser: vi.fn().mockResolvedValue('some-token'),
+      adminUsername: 'eslroot',
+      listUserOrgs: vi.fn().mockResolvedValue([])
     };
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/api/console/login',
-      payload: { username: 'legacy-user', password: 'whatever' }
+      payload: { username: 'carol', password: 'whatever' }
     });
 
-    expect(loginRes.statusCode).toBe(403);
-    expect(mockGitea.loginUser).not.toHaveBeenCalled();
-  });
-
-  it('rejects a login when the account is not a member of the organization', async () => {
-    const mockGitea = {
-      loginUser: vi.fn().mockResolvedValue('some-token'),
-      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_bob' }])
-    };
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const loginRes = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { org: 'acme', username: 'alice', password: 'correct-password' }
-    });
-
-    expect(loginRes.statusCode).toBe(403);
-    expect(loginRes.json().error).toContain('not a member');
-    expect(mockGitea.loginUser).toHaveBeenCalledWith('acme_alice', 'correct-password');
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toMatchObject({ username: 'carol', role: 'member', organizations: [] });
   });
 
   it('lets an authenticated Skill User change their own password with their current password', async () => {

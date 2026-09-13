@@ -50,35 +50,8 @@ describe('single-organization mode gate', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('rejects a login to a frozen organization in single mode', async () => {
-    const mockGitea = makeGiteaMock();
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    await setSingleMode('acme');
-
-    const loginRes = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { org: 'other', username: 'alice', password: 'whatever' }
-    });
-
-    expect(loginRes.statusCode).toBe(403);
-    expect(loginRes.json().error).toContain('single-organization');
-  });
-
-  it('allows a login to the default organization in single mode', async () => {
-    const mockGitea = makeGiteaMock();
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    await setSingleMode('acme');
-
-    const loginRes = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { org: 'acme', username: 'alice', password: 'correct-password' }
-    });
-
-    expect(loginRes.statusCode).toBe(200);
-  });
-
+  // 全局身份登录（ADR-0032）后登录请求不再携带组织字段，登录门禁移除；
+  // 单组织模式的边界由存量 token 门禁（下方用例）继续把守。
   it('rejects an existing token of a frozen-org member immediately on a skill route', async () => {
     const mockGitea = makeGiteaMock();
     app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });

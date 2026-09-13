@@ -2,11 +2,18 @@ import { defineStore } from 'pinia';
 
 export type Role = 'super' | 'org-admin' | 'member';
 
+export interface SessionOrganization {
+  org: string;
+  role: 'org-admin' | 'member';
+}
+
 export interface AuthSession {
   token: string;
   username: string;
   org: string | null;
   role: Role;
+  /** 全部组织隶属（ADR-0032 全局身份）；旧会话可能缺失 */
+  organizations?: SessionOrganization[];
 }
 
 const STORAGE_KEY = 'esl-admin-session';

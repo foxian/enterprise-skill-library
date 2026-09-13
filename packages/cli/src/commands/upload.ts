@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { buildGiteaUsername, fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
+import { fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -93,17 +93,14 @@ export interface GitIdentity {
   email: string;
 }
 
-// 未显式配置 git 身份时的仓库级兜底作者:优先用当前登录的 Skill User
-// (组织作用域账号 + Git Backend 的 email 约定),使 Git Backend 能把提交
-// 匹配到登录账号;未登录或本地存储缺失时退回通用占位身份。
+// 未显式配置 git 身份时的仓库级兜底作者:优先用当前登录的全局账号
+// (Git Backend 的 email 约定),使 Git Backend 能把提交匹配到登录账号;
+// 未登录或本地存储缺失时退回通用占位身份。
 async function resolveFallbackGitIdentity(options: UploadOptions): Promise<GitIdentity> {
   try {
     const config = await loadConfig({ homeDir: options.homeDir });
-    if (config.org && config.username) {
-      const giteaUsername = buildGiteaUsername(config.org, config.username);
-      if (giteaUsername) {
-        return { name: giteaUsername, email: giteaUserEmail(giteaUsername) };
-      }
+    if (config.username) {
+      return { name: config.username, email: giteaUserEmail(config.username) };
     }
   } catch {
     // Fall through to the generic placeholder identity.

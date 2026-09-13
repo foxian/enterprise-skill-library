@@ -443,6 +443,38 @@ export class GiteaService {
     return body.map((org) => ({ id: org.id, name: org.name, created: org.created }));
   }
 
+  // 用户所属组织列表（ADR-0032 全局身份）：登录响应按它派生组织列表。
+  async listUserOrgs(username: string): Promise<GiteaOrg[]> {
+    const orgs: GiteaOrg[] = [];
+    const pageSize = 50;
+    for (let page = 1; page <= 200; page++) {
+      const res = await this.customFetch(
+        `${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}/orgs?limit=${pageSize}&page=${page}`,
+        { headers: { Authorization: `token ${this.adminToken}` } }
+      );
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Failed to list Gitea user organizations: ${err}`);
+      }
+
+      const batch = (await res.json()) as Array<{ id: number; name: string; created?: string }>;
+      orgs.push(...batch.map((org) => ({ id: org.id, name: org.name, created: org.created })));
+      if (batch.length < pageSize) {
+        return orgs;
+      }
+    }
+    return orgs;
+  }
+
+  // 组织的 Owners 团队成员（= Organization Admin，ADR-0032）。Gitea 约定
+  // Owners 是 permission=owner 的团队；找不到时组织没有管理员。
+  async listOrgOwners(org: string): Promise<GiteaUser[]> {
+    const teams = await this.listTeams(org);
+    const owners = teams.find((team) => team.permission === 'owner');
+    return owners ? this.listTeamMembers(owners.id) : [];
+  }
+
   async createTeam(
     org: string,
     name: string,
