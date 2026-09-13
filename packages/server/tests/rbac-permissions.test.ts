@@ -48,6 +48,8 @@ function createRbacGitea() {
       if (token === 'super-token') return { id: 9, username: 'eslroot', email: 'eslroot@local.esl' };
       return null;
     }),
+    // ADR-0032：组织管理员 = Owners 团队成员（不再依赖 <org>_admin 命名约定）
+    listOrgOwners: vi.fn(async () => [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }]),
     adminUsername: 'eslroot',
     listTeams: vi.fn(async () => orgTeams),
     listRepoTeams: vi.fn(async (_owner: string, repo: string) =>

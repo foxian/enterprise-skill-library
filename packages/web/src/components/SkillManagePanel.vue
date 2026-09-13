@@ -30,9 +30,9 @@
     <el-card class="section-card">
       <template #header>当前共享状态</template>
       <el-space wrap>
-        <el-tag v-if="matrix.sharedAllManage" type="danger">全员管理</el-tag>
-        <el-tag v-if="matrix.sharedAllWrite" type="warning">全员读写</el-tag>
-        <el-tag v-if="matrix.sharedAllRead" type="success">全员只读</el-tag>
+        <el-tag v-if="matrix.sharedAllManage" type="danger">技能管理团队可管理</el-tag>
+        <el-tag v-if="matrix.sharedAllWrite" type="warning">读写团队可读写</el-tag>
+        <el-tag v-if="matrix.sharedAllRead" type="success">只读团队可读</el-tag>
         <el-tag v-for="team in matrix.teams" :key="team.id" data-test="granted-team">
           团队 {{ teamDisplayName(team) }}（{{ permissionText(team.permission) }}）
         </el-tag>
@@ -93,7 +93,7 @@
     </el-card>
 
     <el-card class="section-card">
-      <template #header>组织共享级别</template>
+      <template #header>常设团队授权</template>
       <el-radio-group
         :model-value="shareLevel"
         :disabled="!canManage"
@@ -101,9 +101,9 @@
         @change="onShareLevelChange"
       >
         <el-radio value="none">不共享（私有）</el-radio>
-        <el-radio value="read">全员只读</el-radio>
-        <el-radio value="write">全员读写</el-radio>
-        <el-radio value="manage">全员管理</el-radio>
+        <el-radio value="read">只读团队可读</el-radio>
+        <el-radio value="write">读写团队可读写</el-radio>
+        <el-radio value="manage">技能管理团队可管理</el-radio>
       </el-radio-group>
     </el-card>
 
@@ -269,7 +269,7 @@ const stateText = computed(() => shareState.value.text);
 
 const stateTagType = computed(() => shareState.value.tagType);
 
-// 组织共享级别(ADR-0026):由共享状态推导当前单选档位
+// 常设团队授权(ADR-0032):由共享状态推导当前单选档位
 const shareLevel = computed<'none' | 'read' | 'write' | 'manage'>(() => {
   if (matrix.value.sharedAllManage) return 'manage';
   if (matrix.value.sharedAllWrite) return 'write';

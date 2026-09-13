@@ -33,6 +33,9 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
   let tokenCounter = 0;
   let teamIdCounter = 100;
   const orgs = new Map<string, FakeGiteaOrg>();
+  // 仓库挂载的团队与协作者（权限事实源的状态镜像）
+  const repoTeams = new Map<string, Set<number>>(); // "owner/repo" → teamIds
+  const collaborators = new Map<string, Map<string, 'read' | 'write' | 'admin'>>();
 
   for (const user of seed.users ?? []) {
     users.set(user.username, user.password);
@@ -159,7 +162,57 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       private: isPrivate
     })),
 
-    addCollaborator: vi.fn(async (_owner: string, _repo: string, _username: string, _permission?: string) => {}),
+    addCollaborator: vi.fn(async (owner: string, repo: string, username: string, permission: 'read' | 'write' | 'admin' = 'write') => {
+      const key = `${owner}/${repo}`;
+      let perRepo = collaborators.get(key);
+      if (!perRepo) {
+        perRepo = new Map();
+        collaborators.set(key, perRepo);
+      }
+      perRepo.set(username, permission);
+    }),
+
+    removeCollaborator: vi.fn(async (owner: string, repo: string, username: string) => {
+      collaborators.get(`${owner}/${repo}`)?.delete(username);
+    }),
+
+    listCollaborators: vi.fn(async (owner: string, repo: string) =>
+      Array.from(collaborators.get(`${owner}/${repo}`)?.entries() ?? []).map(([username, permission]) => ({
+        username,
+        permission
+      }))
+    ),
+
+    getCollaboratorPermission: vi.fn(async (owner: string, repo: string, username: string) =>
+      collaborators.get(`${owner}/${repo}`)?.get(username) ?? 'none'
+    ),
+
+    isCollaborator: vi.fn(async (owner: string, repo: string, username: string) =>
+      collaborators.get(`${owner}/${repo}`)?.has(username) ?? false
+    ),
+
+    addTeamRepo: vi.fn(async (teamId: number, owner: string, repo: string) => {
+      const key = `${owner}/${repo}`;
+      let mounted = repoTeams.get(key);
+      if (!mounted) {
+        mounted = new Set();
+        repoTeams.set(key, mounted);
+      }
+      mounted.add(teamId);
+    }),
+
+    removeTeamRepo: vi.fn(async (teamId: number, owner: string, repo: string) => {
+      repoTeams.get(`${owner}/${repo}`)?.delete(teamId);
+    }),
+
+    listRepoTeams: vi.fn(async (owner: string, repo: string) => {
+      const org = orgs.get(owner);
+      const mounted = repoTeams.get(`${owner}/${repo}`);
+      if (!org || !mounted) return [];
+      return org.teams
+        .filter((team) => mounted.has(team.id))
+        .map((team) => ({ id: team.id, name: team.name, permission: team.permission }));
+    }),
 
     readSourceTree: vi.fn(async (_owner: string, _repo: string, _ref: string) => ({}) as Record<string, string>),
 

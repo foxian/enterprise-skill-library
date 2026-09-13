@@ -932,10 +932,14 @@ async function getAccessLevel(
 ): Promise<SkillAccessLevel> {
   if (!username) return 'none';
   // DB 记录的 owner 与初始 Maintainer(创建者)天然持有管理权(ADR-0025:
-  // maintainers_json 退化为初始创建者记录);组织管理员与超级管理员同理。
+  // maintainers_json 退化为初始创建者记录);超级管理员同理。
   if (username === skill.owner || skill.maintainers.includes(username)) return 'manage';
-  if (username === `${skill.scope}_admin`) return 'manage';
   if (giteaService.adminUsername && username === giteaService.adminUsername) return 'manage';
+  // Organization Admin 治理兜底（ADR-0032）：Owners 团队成员可见并管理
+  // 本组织名下全部技能；个人技能的 scope 即所有者本人，已在上面命中。
+  if (skill.scope !== username && (await isOrgAdministrator(giteaService, skill.scope, username))) {
+    return 'manage';
+  }
   // public 技能对任何已登录用户可读,无需向 Git Backend 查询权限。
   // 也避免对 DB 中存在但 Gitea 侧仓库缺失的孤儿记录触发 Gitea 调用。
   if (skill.visibility === 'public') return 'read';
@@ -962,6 +966,21 @@ async function getAccessLevel(
     else if (permission === 'read' && level === 'none') level = 'read';
   }
   return level;
+}
+
+// 组织管理员判定（ADR-0032）：scope 组织的 Owners 团队成员。scope 不是组织
+// （个人技能）时返回 false。组织不可用/查询失败一律按非管理员处理。
+async function isOrgAdministrator(
+  giteaService: GiteaService,
+  org: string,
+  username: string
+): Promise<boolean> {
+  try {
+    const owners = await giteaService.listOrgOwners(org);
+    return owners.some((owner) => owner.username === username);
+  } catch {
+    return false;
+  }
 }
 
 async function hasReadAccess(
