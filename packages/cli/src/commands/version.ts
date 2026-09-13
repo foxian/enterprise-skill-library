@@ -76,7 +76,7 @@ async function writeVersion(dir: string, version: string): Promise<void> {
   const manifestPath = path.join(dir, 'release.json');
   const raw = await fs.readFile(manifestPath, 'utf8');
   const data = JSON.parse(raw) as Record<string, unknown>;
-  data.schemaVersion = 2;
+  data.schemaVersion = 3;
   data.version = version;
   await fs.writeFile(manifestPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
@@ -127,7 +127,7 @@ export async function executeVersion(
   if (!manifestResult.valid && manifestResult.isPreVersion) {
     if (isBump(input)) {
       throw new Error(
-        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 2.'
+        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 3.'
       );
     }
     // explicit version → upgrade to v2 and set value (falls through)

@@ -48,7 +48,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -71,7 +72,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -102,7 +104,8 @@ describe('Skill Release API', () => {
 
   async function publish(target: string, version: string, dependencies: Record<string, string> = {}) {
     const manifest = {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name: target,
       version: '0.1.0',
       license: 'MIT',
       keywords: [],
@@ -304,7 +307,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -314,7 +318,8 @@ describe('Skill Release API', () => {
         files: {
           'SKILL.md': '---\nname: reviewer\n---\n',
           'release.json': JSON.stringify({
-            schemaVersion: 2,
+            schemaVersion: 3,
+            name: '@platform-ai/reviewer',
             version: '0.1.0',
             license: 'MIT',
             keywords: [],
@@ -347,7 +352,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'Apache-2.0',
         keywords: ['server'],
@@ -370,7 +376,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -391,7 +398,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -416,7 +424,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -458,7 +467,8 @@ describe('Skill Release API', () => {
       version: '1.0.0',
       sourceCommit: 'abc123',
       releaseManifest: {
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -501,7 +511,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -531,7 +542,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -579,7 +591,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -605,7 +618,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -628,7 +642,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -661,7 +676,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -683,7 +699,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -715,7 +732,8 @@ describe('Skill Release API', () => {
     gitea.readSourceTree = vi.fn().mockResolvedValue({
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -737,7 +755,8 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@platform-ai/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],

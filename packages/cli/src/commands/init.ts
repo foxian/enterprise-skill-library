@@ -112,7 +112,11 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
   }
 
   if (generateReleaseJson) {
-    const releaseJson = { ...createMinimalReleaseManifest(license), keywords };
+    // v3 的 name 是归属声明；init 时尚无登录上下文，写裸名（个人命名空间语义）。
+    const releaseJson = {
+      ...createMinimalReleaseManifest(skillName ?? path.basename(targetDir), license),
+      keywords
+    };
     await fs.writeFile(releaseJsonPath, `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
   }
 

@@ -30,7 +30,8 @@ describe('esl init', () => {
 
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name: 'my-skill',
       version: '0.1.0',
       license: 'MIT',
       keywords: [],
@@ -114,7 +115,7 @@ describe('esl init', () => {
 
     expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe(original);
     expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       version: '0.1.0'
     });
     expect(warnedInvalid).toBe(true);

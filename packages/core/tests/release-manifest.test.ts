@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   createMinimalReleaseManifest,
+  parseSkillIdentity,
   validateReleaseManifest,
   validateSkillSourceDirectory
 } from '../src/index.js';
@@ -18,7 +19,8 @@ describe('Release Manifest', () => {
     fs.writeFileSync(
       path.join(directory, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -45,7 +47,8 @@ describe('Release Manifest', () => {
     fs.writeFileSync(
       path.join(directory, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'reviewer',
         version: '1.4.2',
         license: 'MIT',
         keywords: [],
@@ -89,6 +92,39 @@ describe('Release Manifest', () => {
     fs.rmSync(directory, { recursive: true, force: true });
   });
 
+  it('accepts a v3 manifest with a scoped name', () => {
+    const result = validateReleaseManifest({
+      schemaVersion: 3,
+      name: '@acme/reviewer',
+      version: '0.1.0',
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a v2 manifest with an upgrade hint naming the name field', () => {
+    const result = validateReleaseManifest({
+      schemaVersion: 2,
+      version: '0.1.0',
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.errors.join('\n');
+      expect(messages).toContain('schemaVersion 2');
+      expect(messages).toContain('name');
+      expect(messages).toContain('schemaVersion to 3');
+    }
+  });
+
   it('rejects a release manifest without required fields', () => {
     const result = validateReleaseManifest({ schemaVersion: 1, license: 'MIT' });
 
@@ -124,7 +160,8 @@ describe('Release Manifest', () => {
     fs.writeFileSync(
       path.join(directory, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'reviewer',
         version: '1.0.0+build.7',
         license: 'MIT',
         keywords: [],
@@ -159,10 +196,11 @@ describe('Release Manifest', () => {
   });
 
   it('builds a minimal release manifest that passes validation', () => {
-    const manifest = createMinimalReleaseManifest('MIT');
+    const manifest = createMinimalReleaseManifest('reviewer', 'MIT');
 
     expect(manifest).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name: 'reviewer',
       version: '0.1.0',
       license: 'MIT',
       keywords: [],
@@ -170,5 +208,23 @@ describe('Release Manifest', () => {
       dependencies: {}
     });
     expect(validateReleaseManifest(manifest).success).toBe(true);
+  });
+
+  it('parses a scoped name into its scope and short name', () => {
+    expect(parseSkillIdentity('@acme/reviewer')).toEqual({ scope: 'acme', shortName: 'reviewer' });
+    expect(parseSkillIdentity('@platform-ai/code-review')).toEqual({
+      scope: 'platform-ai',
+      shortName: 'code-review'
+    });
+  });
+
+  it('parses a bare name as personal-namespace ownership (null scope)', () => {
+    expect(parseSkillIdentity('reviewer')).toEqual({ scope: null, shortName: 'reviewer' });
+  });
+
+  it('rejects malformed names in parsing', () => {
+    for (const bad of ['', '@acme/', '/reviewer', '@acme', '@acme/a/b', 'Reviewer', '@acme/reviewer!']) {
+      expect(parseSkillIdentity(bad)).toBeNull();
+    }
   });
 });

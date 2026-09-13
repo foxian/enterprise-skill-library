@@ -125,7 +125,8 @@ describe('esl publish', () => {
     fs.writeFileSync(
       path.join(skillDir, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'code-review',
         version: '1.0.0',
         license: 'MIT',
         keywords: [],
@@ -210,7 +211,8 @@ description: Use when reviewing code changes.
 
     const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
     expect(created).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name: 'code-review',
       version: '0.1.0',
       license: 'Apache-2.0',
       keywords: [],
@@ -239,7 +241,8 @@ description: Use when reviewing code changes.
 
     const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
     expect(created).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name: 'code-review',
       version: '0.1.0',
       license: 'MIT',
       keywords: [],

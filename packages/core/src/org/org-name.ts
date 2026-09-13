@@ -1,8 +1,7 @@
 import type { ValidationResult } from '../schema/validation-result.js';
+import { RESERVED_SCOPE_NAMES } from './account-policy.js';
 
 const ORG_NAME_PATTERN = /^[a-z0-9-]+$/;
-
-const RESERVED_ORG_NAMES = new Set(['admin', 'api', 'git', 'system', 'local', 'builtin']);
 
 export function validateOrgName(name: string): ValidationResult<string> {
   const errors: string[] = [];
@@ -16,7 +15,7 @@ export function validateOrgName(name: string): ValidationResult<string> {
   if (name.startsWith('-') || name.endsWith('-')) {
     errors.push('organization name must not start or end with a hyphen');
   }
-  if (RESERVED_ORG_NAMES.has(name)) {
+  if (RESERVED_SCOPE_NAMES.has(name)) {
     errors.push('organization name is reserved');
   }
   if (errors.length > 0) {

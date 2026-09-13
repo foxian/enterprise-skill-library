@@ -1,7 +1,17 @@
 import type { ValidationResult } from '../schema/validation-result.js';
 
 const ACCOUNT_NAME_PATTERN = /^[a-z0-9-]+$/;
-const RESERVED_MEMBER_NAMES = new Set(['admin']);
+
+// 扁平命名池的保留名（ADR-0032）：用户名与组织名共用同一约束，
+// 保证保留 scope 与系统路径永远可用。
+export const RESERVED_SCOPE_NAMES: ReadonlySet<string> = new Set([
+  'local',
+  'builtin',
+  'admin',
+  'api',
+  'git',
+  'system'
+]);
 export const DEFAULT_PASSWORD_MIN_LENGTH = 8;
 export const MAX_GITEA_USERNAME_LENGTH = 255;
 
@@ -29,8 +39,8 @@ export function validateMemberUsername(username: string): ValidationResult<strin
   if (username.startsWith('-') || username.endsWith('-')) {
     errors.push('member username must not start or end with a hyphen');
   }
-  if (RESERVED_MEMBER_NAMES.has(username)) {
-    errors.push('member username is reserved');
+  if (RESERVED_SCOPE_NAMES.has(username)) {
+    errors.push('username is reserved');
   }
   return errors.length > 0 ? { success: false, errors } : { success: true, data: username };
 }

@@ -105,7 +105,8 @@ describe('esl install (project-level)', () => {
     fs.writeFileSync(
       path.join(sourceDir, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'versioned-local-skill',
         version: '2.5.0',
         license: 'MIT',
         keywords: [],

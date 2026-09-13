@@ -45,7 +45,8 @@ describe('esl validate', () => {
     fs.writeFileSync(
       path.join(skillDir, 'release.json'),
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
+        name: 'src-skill',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],

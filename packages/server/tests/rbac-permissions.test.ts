@@ -519,7 +519,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@acme/secret',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -561,7 +562,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@acme/secret',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -710,7 +712,8 @@ describe('skill RBAC permissions', () => {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
-          schemaVersion: 2,
+          schemaVersion: 3,
+          name: '@acme/secret',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],

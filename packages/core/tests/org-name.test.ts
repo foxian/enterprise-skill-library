@@ -1,12 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PASSWORD_MIN_LENGTH,
+  RESERVED_SCOPE_NAMES,
   buildGiteaUsername,
   parseGiteaUsername,
   validateMemberUsername,
   validateOrgName,
   validatePassword
 } from '../src/index.js';
+
+const RESERVED_NAMES = ['local', 'builtin', 'admin', 'api', 'git', 'system'];
+
+describe('flat scope name pool', () => {
+  it('exposes the reserved names that constrain both usernames and organization names', () => {
+    expect([...RESERVED_SCOPE_NAMES].sort()).toEqual([...RESERVED_NAMES].sort());
+  });
+
+  it('rejects reserved names as organization names', () => {
+    for (const name of RESERVED_NAMES) {
+      expect(validateOrgName(name).success).toBe(false);
+    }
+  });
+
+  it('rejects reserved names as usernames', () => {
+    for (const name of RESERVED_NAMES) {
+      expect(validateMemberUsername(name).success).toBe(false);
+    }
+  });
+});
 
 describe('organization name validation', () => {
   it('accepts valid organization names', () => {

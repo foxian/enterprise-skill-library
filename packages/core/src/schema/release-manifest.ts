@@ -17,8 +17,16 @@ const LicenseSchema = z.union([
   })
 ]);
 
+// Release Manifest v3 的 name 是技能归属的唯一权威来源（ADR-0032）：
+// `@scope/skill-name` 或无 scope 的 `skill-name`（解析为上传者个人命名空间）。
+const SKILL_IDENTITY_PATTERN = '^(@[a-z0-9-]+/)?[a-z0-9-]{1,64}$';
+export const SkillIdentitySchema = z.string().regex(new RegExp(SKILL_IDENTITY_PATTERN), {
+  message: 'name must be "@scope/skill-name" or a bare "skill-name" (personal namespace)'
+});
+
 export const ReleaseManifestSchema = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(3),
+  name: SkillIdentitySchema,
   version: SemVerSchema,
   license: LicenseSchema,
   keywords: z.array(z.string().min(1)),
@@ -31,9 +39,29 @@ export const ReleaseManifestSchema = z.object({
 
 export type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
 
-export function createMinimalReleaseManifest(license: string): ReleaseManifest {
+export interface SkillIdentity {
+  /** 持有命名空间的组织名；null 表示上传者个人命名空间（@用户名）。 */
+  scope: string | null;
+  shortName: string;
+}
+
+// Release Manifest v3 的 name 即 Skill Identity（ADR-0032）：`@scope/skill-name`
+// 或裸 `skill-name`（消费端按上传者用户名补全为个人命名空间）。解析失败返回 null。
+export function parseSkillIdentity(name: string): SkillIdentity | null {
+  const match = name.match(/^@([a-z0-9-]+)\/([a-z0-9-]{1,64})$/);
+  if (match) {
+    return { scope: match[1], shortName: match[2] };
+  }
+  if (/^[a-z0-9-]{1,64}$/.test(name)) {
+    return { scope: null, shortName: name };
+  }
+  return null;
+}
+
+export function createMinimalReleaseManifest(name: string, license: string): ReleaseManifest {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    name,
     version: '0.1.0',
     license,
     keywords: [],
@@ -57,6 +85,12 @@ export function validateReleaseManifest(data: unknown): ValidationResult<Release
     );
   }
 
+  if (isV2Manifest(data)) {
+    errors.push(
+      'release.json: schemaVersion 2 is no longer supported; add the required "name" field ("@scope/skill-name" or a bare "skill-name") and set schemaVersion to 3'
+    );
+  }
+
   return { success: false, errors };
 }
 
@@ -65,6 +99,14 @@ function isPreVersionManifest(data: unknown): boolean {
     typeof data === 'object' &&
     data !== null &&
     (data as { schemaVersion?: unknown }).schemaVersion === 1
+  );
+}
+
+function isV2Manifest(data: unknown): boolean {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { schemaVersion?: unknown }).schemaVersion === 2
   );
 }
 
