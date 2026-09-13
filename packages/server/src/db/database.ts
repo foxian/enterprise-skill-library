@@ -17,6 +17,7 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'deleted_at', 'DATETIME', 'skill_releases');
   ensureColumn(db, 'deleted_by', 'TEXT', 'skill_releases');
   ensureColumn(db, 'encrypted_password', 'TEXT', 'org_applications');
+  ensureColumn(db, "applicant_username", "TEXT NOT NULL DEFAULT ''", 'org_applications');
   ensureOrgApplicationStatuses(db);
   db.exec(`
     UPDATE skills
@@ -25,7 +26,7 @@ export function initDatabase(dbPath: string): Database.Database {
   `);
   db.exec(`
     INSERT OR IGNORE INTO platform_settings (key, value)
-    VALUES ('org_registration_mode', 'auto'), ('deployment_mode', 'multi'), ('registration_mode', 'open')
+    VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open')
   `);
   return db;
 }
@@ -42,6 +43,7 @@ function ensureOrgApplicationStatuses(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       org_name TEXT NOT NULL UNIQUE,
       admin_display_name TEXT NOT NULL,
+      applicant_username TEXT NOT NULL DEFAULT '',
       hashed_password TEXT NOT NULL DEFAULT '',
       encrypted_password TEXT,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired')),
@@ -49,7 +51,7 @@ function ensureOrgApplicationStatuses(db: Database.Database): void {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     INSERT INTO org_applications_migrated (id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at)
-      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+      SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
       FROM org_applications;
     DROP TABLE org_applications;
     ALTER TABLE org_applications_migrated RENAME TO org_applications;
@@ -714,6 +716,8 @@ export type OrgApplicationStatus = 'pending' | 'approved' | 'rejected' | 'cancel
 export interface OrgApplicationRecord {
   id: number;
   orgName: string;
+  /** 申请人为已登录的 Skill User（ADR-0032）；旧申请可能为空 */
+  applicantUsername?: string;
   adminDisplayName: string;
   hashedPassword: string;
   encryptedPassword?: string;
@@ -727,26 +731,40 @@ export class OrgApplicationRepository {
 
   createApplication(input: {
     orgName: string;
-    adminDisplayName: string;
+    applicantUsername?: string;
+    adminDisplayName?: string;
     hashedPassword?: string;
     encryptedPassword?: string;
   }): OrgApplicationRecord {
+    // 拒绝/取消/过期的旧申请不占用名字（ADR-0032 名字释放）：重置为待审复用。
+    const previous = this.getApplication(input.orgName);
+    if (previous && previous.status !== 'pending' && previous.status !== 'approved') {
+      const reset = this.updateApplicationStatusById(previous.id, 'pending')!;
+      return { ...reset, applicantUsername: input.applicantUsername ?? reset.applicantUsername };
+    }
     const stmt = this.db.prepare(`
-      INSERT INTO org_applications (org_name, admin_display_name, hashed_password, encrypted_password, status)
-      VALUES (?, ?, ?, ?, 'pending')
+      INSERT INTO org_applications (org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status)
+      VALUES (?, ?, ?, ?, ?, 'pending')
     `);
-    stmt.run(input.orgName, input.adminDisplayName, input.hashedPassword ?? '', input.encryptedPassword ?? null);
+    stmt.run(
+      input.orgName,
+      input.applicantUsername ?? '',
+      input.adminDisplayName ?? '',
+      input.hashedPassword ?? '',
+      input.encryptedPassword ?? null
+    );
     return this.getApplication(input.orgName)!;
   }
 
   getApplication(orgName: string): OrgApplicationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+      SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
       FROM org_applications
       WHERE org_name = ?
     `).get(orgName) as {
       id: number;
       org_name: string;
+      applicant_username: string | null;
       admin_display_name: string;
       hashed_password: string;
       encrypted_password: string | null;
@@ -761,13 +779,13 @@ export class OrgApplicationRepository {
     const rows = (
       status
         ? this.db.prepare(`
-            SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+            SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
             FROM org_applications
             WHERE status = ?
             ORDER BY id ASC
           `).all(status)
         : this.db.prepare(`
-            SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+            SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
             FROM org_applications
             ORDER BY id ASC
           `).all()
@@ -787,7 +805,7 @@ export class OrgApplicationRepository {
 
   getApplicationById(id: number): OrgApplicationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+      SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
       FROM org_applications
       WHERE id = ?
     `).get(id) as Parameters<OrgApplicationRepository['deserialize']>[0] | undefined;
@@ -825,7 +843,7 @@ export class OrgApplicationRepository {
   expireStalePending(cutoffIsoDate: string): OrgApplicationRecord[] {
     const expired = (
       this.db.prepare(`
-        SELECT id, org_name, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
+        SELECT id, org_name, applicant_username, admin_display_name, hashed_password, encrypted_password, status, created_at, updated_at
         FROM org_applications
         WHERE status = 'pending' AND created_at < ?
         ORDER BY id ASC
@@ -844,6 +862,7 @@ export class OrgApplicationRepository {
   private deserialize(row: {
     id: number;
     org_name: string;
+    applicant_username: string | null;
     admin_display_name: string;
     hashed_password: string;
     encrypted_password: string | null;
@@ -854,6 +873,7 @@ export class OrgApplicationRepository {
     return {
       id: row.id,
       orgName: row.org_name,
+      ...(row.applicant_username ? { applicantUsername: row.applicant_username } : {}),
       adminDisplayName: row.admin_display_name,
       hashedPassword: row.hashed_password,
       ...(row.encrypted_password ? { encryptedPassword: row.encrypted_password } : {}),

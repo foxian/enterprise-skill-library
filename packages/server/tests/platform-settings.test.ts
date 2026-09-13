@@ -6,30 +6,39 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
 
-describe('platform deployment mode and default organization', () => {
+// 平台设置（ADR-0032）：部署模式与默认组织（ADR-0022）已废除，
+// 超管可配置 org_registration_mode、registration_mode；platform-info 匿名暴露 registrationMode。
+describe('platform settings', () => {
   let tmpDir: string;
   let dbPath: string;
   let app: FastifyInstance | undefined;
+  let superToken: string;
+  let gitea: any;
 
-  function superAdminGitea() {
-    return {
-      validateAdminUserToken: vi.fn(async (token: string) =>
-        token === 'super-token' ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
-      ),
-      validateToken: vi.fn().mockResolvedValue(null),
-      adminUsername: 'eslroot'
-    };
-  }
-
-  function createActiveTenant(orgName: string): void {
-    const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName, status: 'active' });
-    db.close();
-  }
-
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-platform-settings-'));
     dbPath = path.join(tmpDir, 'test.db');
+    gitea = {
+      validateAdminUserToken: vi.fn(async (token: string) =>
+        token === superToken ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
+      ),
+      adminUsername: 'eslroot',
+      getUser: vi.fn(async (username: string) =>
+        username === 'eslroot' ? { id: 1, username, email: 'eslroot@local.esl' } : null
+      ),
+      createUser: vi.fn().mockResolvedValue(undefined),
+      disableUser: vi.fn().mockResolvedValue(undefined),
+      organizationExists: vi.fn().mockResolvedValue(false),
+      createOrg: vi.fn().mockResolvedValue(undefined),
+      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
+      listTeamMembers: vi.fn().mockResolvedValue([]),
+      addTeamMember: vi.fn().mockResolvedValue(undefined),
+      createTeam: vi.fn().mockResolvedValue({ id: 5, name: 'dev', permission: 'read' })
+    };
+    const tokenDb = initDatabase(dbPath);
+    tokenDb.close();
+    superToken = 'super-token';
+    app = await buildApp({ dbPath, giteaService: gitea, repoOwner: 'esl-skills' });
   });
 
   afterEach(async () => {
@@ -37,209 +46,46 @@ describe('platform deployment mode and default organization', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('exposes platform-info anonymously with multi mode and no default org by default', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+  const headers = () => ({ authorization: `token ${superToken}` });
 
-    const response = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
+  it('exposes registrationMode anonymously and defaults to open', async () => {
+    const info = await app!.inject({ method: 'GET', url: '/api/public/platform-info' });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ mode: 'multi', defaultOrg: null, registrationMode: 'open' });
+    expect(info.statusCode).toBe(200);
+    expect(info.json()).toEqual({ registrationMode: 'open' });
   });
 
-  it('lets the super administrator set the default org and reflects it in platform-info', async () => {
-    createActiveTenant('acme');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
+  it('lets the super administrator switch org_registration_mode', async () => {
+    const initial = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
+    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open' });
 
-    const set = await app.inject({
+    const updated = await app!.inject({
       method: 'PUT',
       url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'acme' }
+      headers: headers(),
+      payload: { orgRegistrationMode: 'manual' }
     });
-    expect(set.statusCode).toBe(200);
-    expect(set.json()).toMatchObject({ deploymentMode: 'multi', defaultOrg: 'acme' });
+    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
 
-    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'multi', defaultOrg: 'acme', registrationMode: 'open' });
+    const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
+    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
   });
 
-  it('switching to single requires a default org and performs the switch atomically', async () => {
-    createActiveTenant('acme');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    const rejected = await app.inject({
+  it('rejects invalid mode values', async () => {
+    const orgMode = await app!.inject({
       method: 'PUT',
       url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single' }
+      headers: headers(),
+      payload: { orgRegistrationMode: 'whenever' }
     });
-    expect(rejected.statusCode).toBe(400);
+    expect(orgMode.statusCode).toBe(400);
 
-    const switched = await app.inject({
+    const regMode = await app!.inject({
       method: 'PUT',
       url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
+      headers: headers(),
+      payload: { registrationMode: 'whenever' }
     });
-    expect(switched.statusCode).toBe(200);
-    expect(switched.json()).toMatchObject({ deploymentMode: 'single', defaultOrg: 'acme' });
-
-    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
-  });
-
-  it('keeps the default org when switching back to multi', async () => {
-    createActiveTenant('acme');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-    const back = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'multi' }
-    });
-    expect(back.statusCode).toBe(200);
-    expect(back.json()).toMatchObject({ deploymentMode: 'multi', defaultOrg: 'acme' });
-  });
-
-  it('rejects a default org that is not an active tenant organization', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'ghost' }
-    });
-    expect(response.statusCode).toBe(400);
-  });
-
-  it('blocks deleting the default organization', async () => {
-    createActiveTenant('acme');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-    await app.inject({ method: 'PUT', url: '/api/admin/orgs/settings', headers, payload: { defaultOrg: 'acme' } });
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers,
-      payload: { confirm: 'acme' }
-    });
-
-    expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('default');
-  });
-
-  it('requires an explicit confirm when reassigning the default org in single mode', async () => {
-    createActiveTenant('acme');
-    createActiveTenant('beta');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-    await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-
-    const withoutConfirm = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'beta' }
-    });
-    expect(withoutConfirm.statusCode).toBe(400);
-
-    const withConfirm = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'beta', confirm: 'beta' }
-    });
-    expect(withConfirm.statusCode).toBe(200);
-    expect(withConfirm.json()).toMatchObject({ deploymentMode: 'single', defaultOrg: 'beta' });
-  });
-
-  it('does not require a confirm when reassigning the default org in multi mode', async () => {
-    createActiveTenant('acme');
-    createActiveTenant('beta');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    await app.inject({ method: 'PUT', url: '/api/admin/orgs/settings', headers, payload: { defaultOrg: 'acme' } });
-    const response = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'beta' }
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ deploymentMode: 'multi', defaultOrg: 'beta' });
-  });
-
-  it('rejects clearing the default org in single mode without corrupting the existing default', async () => {
-    createActiveTenant('acme');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-    await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-
-    const cleared = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: null }
-    });
-    expect(cleared.statusCode).toBe(400);
-
-    const info = await app.inject({ method: 'GET', url: '/api/public/platform-info' });
-    expect(info.json()).toEqual({ mode: 'single', defaultOrg: 'acme', registrationMode: 'open' });
-  });
-
-  it('cannot bypass the reassign confirm by repeating deploymentMode single while already in single mode', async () => {
-    createActiveTenant('acme');
-    createActiveTenant('beta');
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-    await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-
-    const bypassed = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers,
-      payload: { defaultOrg: 'beta', deploymentMode: 'single' }
-    });
-    expect(bypassed.statusCode).toBe(400);
-    expect(bypassed.json().error).toContain('confirm');
+    expect(regMode.statusCode).toBe(400);
   });
 });

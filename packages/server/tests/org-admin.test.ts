@@ -49,6 +49,7 @@ describe('super administrator org console API', () => {
     const db = initDatabase(dbPath);
     new OrgApplicationRepository(db).createApplication({
       orgName: 'acme',
+      applicantUsername: 'applicant-alice',
       adminDisplayName: 'Acme Admin',
       hashedPassword: 'hash-of-password'
     });
@@ -122,19 +123,15 @@ describe('super administrator org console API', () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.status).toBe('approved');
-    expect(typeof body.initialPassword).toBe('string');
+    // ADR-0032：审批 = 状态翻转 + 同步开通；申请人入 Owners 成为初始管理员
+    expect(body).toMatchObject({ status: 'active', orgName: 'acme', applicant: 'applicant-alice' });
     expect(mockGitea.createOrg).toHaveBeenCalledWith('acme');
-    expect(mockGitea.createUser).toHaveBeenCalledWith('acme_admin', body.initialPassword);
-    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(1, 'acme_admin');
+    expect(mockGitea.createUser).not.toHaveBeenCalled();
+    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(1, 'applicant-alice');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-readers', 'read');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-managers', 'admin');
-    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'system-admins', 'admin', {
-      includesAllRepositories: true,
-      canCreateOrgRepo: true
-    });
-    expect(mockGitea.addTeamMember).toHaveBeenCalledWith(9, 'acme_admin');
+    expect(JSON.stringify(mockGitea.createTeam.mock.calls)).not.toContain('system-admins');
 
     const db = initDatabase(dbPath);
     expect(new OrgApplicationRepository(db).getApplication('acme')?.status).toBe('approved');
@@ -182,44 +179,7 @@ describe('super administrator org console API', () => {
     db.close();
   });
 
-  it('reuses the applicant password ciphertext on approval and clears it afterwards', async () => {
-    const applicationEncryptionKey = 'a'.repeat(64);
-    const db = initDatabase(dbPath);
-    new OrgApplicationRepository(db).createApplication({
-      orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
-      encryptedPassword: encryptApplicationSecret('applicant-password-123', applicationEncryptionKey)
-    });
-    db.close();
-
-    const mockGitea = superAdminGitea();
-    mockGitea.listOrgMembers.mockResolvedValue([]);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs/applications/1/approve',
-      headers: { authorization: 'token super-token' }
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ status: 'provisioning', orgName: 'acme' });
-    await new Promise((resolve) => setImmediate(resolve));
-    // 复用申请人提交的初始密码,不重新生成
-    expect(mockGitea.createUser).toHaveBeenCalledWith('acme_admin', 'applicant-password-123');
-    // 开通成功后立即清除密码密文
-    const after = initDatabase(dbPath);
-    expect(after.prepare('SELECT encrypted_password FROM org_applications WHERE org_name = ?').get('acme')).toEqual({
-      encrypted_password: null
-    });
-    after.close();
-  });
-
+  
   it('cancels a pending application, clears its credential, and writes audit records', async () => {
     const applicationEncryptionKey = 'a'.repeat(64);
     const db = initDatabase(dbPath);
@@ -276,6 +236,7 @@ describe('super administrator org console API', () => {
     const db = initDatabase(dbPath);
     new OrgApplicationRepository(db).createApplication({
       orgName: 'acme',
+      applicantUsername: 'applicant-alice',
       adminDisplayName: 'Acme Admin',
       hashedPassword: 'hash-of-password'
     });
@@ -346,58 +307,7 @@ describe('super administrator org console API', () => {
     expect(JSON.stringify(orgs)).not.toContain('applicant-password');
   });
 
-  it('returns audit records for an operation to the platform administrator', async () => {
-    const db = initDatabase(dbPath);
-    new OrgApplicationRepository(db).createApplication({
-      orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
-      hashedPassword: 'hash-of-password'
-    });
-    db.close();
-
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    const reject = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs/applications/1/reject',
-      headers
-    });
-    expect(reject.statusCode).toBe(200);
-
-    const dbAfter = initDatabase(dbPath);
-    const operation = dbAfter.prepare(`SELECT id FROM operations WHERE idempotency_key = 'organization.reject:1'`).get() as {
-      id: number;
-    };
-    expect(operation).toBeDefined();
-    dbAfter.close();
-
-    const audits = await app.inject({
-      method: 'GET',
-      url: `/api/admin/operations/${operation.id}/audits`,
-      headers
-    });
-    expect(audits.statusCode).toBe(200);
-    expect(audits.json()).toEqual([
-      expect.objectContaining({ event: 'organization.reject', actor: 'eslroot' })
-    ]);
-
-    const unauthorized = await app.inject({
-      method: 'GET',
-      url: `/api/admin/operations/${operation.id}/audits`,
-      headers: { authorization: 'token member-token' }
-    });
-    expect(unauthorized.statusCode).toBe(403);
-
-    const missing = await app.inject({
-      method: 'GET',
-      url: '/api/admin/operations/999/audits',
-      headers
-    });
-    expect(missing.statusCode).toBe(404);
-  });
-
+  
   it('reads and updates the registration mode setting', async () => {
     const mockGitea = superAdminGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -405,7 +315,7 @@ describe('super administrator org console API', () => {
 
     const initial = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
     expect(initial.statusCode).toBe(200);
-    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open', deploymentMode: 'multi', defaultOrg: null });
+    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open' });
 
     const updated = await app.inject({
       method: 'PUT',
@@ -414,10 +324,10 @@ describe('super administrator org console API', () => {
       payload: { orgRegistrationMode: 'manual' }
     });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', deploymentMode: 'multi', defaultOrg: null });
+    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
 
     const reread = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
-    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', deploymentMode: 'multi', defaultOrg: null });
+    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
 
     const invalid = await app.inject({
       method: 'PUT',
@@ -542,154 +452,9 @@ describe('super administrator org console API', () => {
     expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
   });
 
-  it('creates an organization directly with auto-generated password', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey: 'a'.repeat(64)
-    });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'neworg' }
-    });
-
-    expect(response.statusCode).toBe(202);
-    const body = response.json();
-    expect(body).toMatchObject({ status: 'provisioning', orgName: 'neworg' });
-    expect(body.operationId).toBeGreaterThan(0);
-    expect(body.initialPassword).toBeTruthy();
-
-    // 创建了 application 记录，标记为 system 发起（via org applications API，不直接打开 DB）
-    const applications = await app.inject({
-      method: 'GET',
-      url: '/api/admin/orgs/applications',
-      headers
-    });
-    expect(applications.statusCode).toBe(200);
-    expect(applications.json()).toEqual([
-      expect.objectContaining({ orgName: 'neworg', adminDisplayName: 'system', status: 'approved' })
-    ]);
-
-    // 组织列表能看到新组织（tenant 表补充，Gitea 列表不包含时）。
-    // 测试环境下异步 Operation 同步执行完毕（mock Gitea 成功），状态为 active。
-    const orgs = await app.inject({ method: 'GET', url: '/api/admin/orgs', headers });
-    const neworgRow = (orgs.json() as Array<{ name: string; status: string | null }>).find(
-      (row) => row.name === 'neworg'
-    );
-    expect(neworgRow).toMatchObject({ name: 'neworg', status: 'active' });
+  
+  
+  
+  
+  
   });
-
-  it('creates an organization with a custom password', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey: 'a'.repeat(64)
-    });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'customorg', password: 'my-strong-password-123' }
-    });
-
-    expect(response.statusCode).toBe(202);
-    const body = response.json();
-    expect(body).toMatchObject({ status: 'provisioning', orgName: 'customorg' });
-    expect(body.initialPassword).toBe('my-strong-password-123');
-  });
-
-  it('rejects invalid organization names and weak passwords with 400', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey: 'a'.repeat(64)
-    });
-    const headers = { authorization: 'token super-token' };
-
-    const badName = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'UPPER-CASE' }
-    });
-    expect(badName.statusCode).toBe(400);
-
-    const badPassword = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'valid-org', password: 'short' }
-    });
-    expect(badPassword.statusCode).toBe(400);
-  });
-
-  it('returns 409 when the organization already exists', async () => {
-    const mockGitea = superAdminGitea();
-    mockGitea.organizationExists.mockResolvedValue(true);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey: 'a'.repeat(64)
-    });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'taken-org' }
-    });
-    expect(response.statusCode).toBe(409);
-    expect(response.json()).toEqual({ error: 'Organization name is already taken' });
-  });
-
-  it('returns 409 when the tenant already exists in the platform database', async () => {
-    const seed = initDatabase(dbPath);
-    new TenantOrganizationRepository(seed).create({ orgName: 'existing', status: 'active' });
-    seed.close();
-
-    const mockGitea = superAdminGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey: 'a'.repeat(64)
-    });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'existing' }
-    });
-    expect(response.statusCode).toBe(409);
-  });
-
-  it('returns 503 when the application encryption key is not configured', async () => {
-    const mockGitea = superAdminGitea();
-    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-    const headers = { authorization: 'token super-token' };
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs',
-      headers,
-      payload: { orgName: 'no-key-org' }
-    });
-    expect(response.statusCode).toBe(503);
-  });
-});

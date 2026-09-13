@@ -10,11 +10,8 @@ import type {
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import type { OperationExecutor } from '../services/operation-executor.js';
-import { readDeploymentMode, readDefaultOrg } from '../services/platform-config.js';
-import { encryptApplicationSecret } from '../services/application-secret.js';
-import { initializeTenantOrganization } from '../services/org-init.js';
+import { initializeOrganization } from '../services/org-init.js';
 import { validateOrgName, validatePassword } from '@esl/core';
-import crypto from 'node:crypto';
 
 export interface OrgAdminRouteOptions {
   giteaService: GiteaService;
@@ -51,51 +48,18 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       return reply.status(409).send({ error: 'Organization name is already taken' });
     }
 
-    if (!application.encryptedPassword || !options.applicationEncryptionKey) {
-      // 兼容密钥接入前创建的历史申请；新申请一律走密文路径。
-      if (!application.hashedPassword) {
-        return reply.status(409).send({ error: 'Organization application secret is unavailable' });
-      }
-      const initialPassword = crypto.randomBytes(18).toString('base64url');
-      try {
-        // 遗留路径与 Operation 执行器共用同一开通事实源,保证两个入口创建的
-        // 默认团队完全一致(ADR-0026 四团队模型)。
-        await initializeTenantOrganization(
-          options.giteaService,
-          application.orgName,
-          initialPassword,
-          options.tenantOrganizationRepository
-        );
-        orgApplicationRepository.updateApplicationStatusById(id, 'approved');
-        return { status: 'approved', orgName: application.orgName, initialPassword };
-      } catch (error) {
-        return reply.status(409).send({ error: `Organization initialization failed: ${(error as Error).message}` });
-      }
+    // ADR-0032：审批只是申请表上的状态翻转 + 同步开通，异步 Operation 机器退役。
+    // 申请人为已登录 Skill User，批准后即成为初始 Organization Admin（Owners）。
+    const applicant = application.applicantUsername ?? admin.username;
+    try {
+      await initializeOrganization(options.giteaService, application.orgName, applicant, options.tenantOrganizationRepository);
+      options.tenantOrganizationRepository.transition(application.orgName, 'active');
+      orgApplicationRepository.updateApplicationStatusById(id, 'approved');
+    } catch (error) {
+      options.tenantOrganizationRepository.transition(application.orgName, 'failed');
+      return reply.status(409).send({ error: `Organization initialization failed: ${(error as Error).message}` });
     }
-    const operation = options.operationRepository.createOperation({
-      idempotencyKey: `organization.provision:${id}`,
-      kind: 'organization.provision',
-      payload: {
-        orgName: application.orgName,
-        applicationId: id
-      }
-    });
-    const tenant = options.tenantOrganizationRepository.get(application.orgName);
-    if (!tenant) {
-      options.tenantOrganizationRepository.create({
-        orgName: application.orgName,
-        status: 'provisioning',
-        operationId: operation.id
-      });
-    }
-    options.operationAuditRepository.record({
-      operationId: operation.id,
-      event: 'organization.approve',
-      actor: admin.username,
-      details: { orgName: application.orgName }
-    });
-    void options.operationExecutor.process(operation.id);
-    return { status: 'provisioning', orgName: application.orgName, operationId: operation.id };
+    return { status: 'active', orgName: application.orgName, applicant };
   });
 
   app.post('/api/admin/orgs/applications/:id/reject', async (request, reply) => {
@@ -109,28 +73,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (application.status !== 'pending') {
       return reply.status(409).send({ error: 'Organization application has already been processed' });
     }
-    // 拒绝没有外部副作用,Operation 仅作为幂等键与审计锚点。
-    const operation = options.operationRepository.createOperation({
-      idempotencyKey: `organization.reject:${id}`,
-      kind: 'organization.reject',
-      payload: { orgName: application.orgName, applicationId: id }
-    });
+    // 拒绝即释放名字（ADR-0032）：组织从未开通，状态翻转即可，无外部副作用。
     const updated = orgApplicationRepository.updateApplicationStatusById(id, 'rejected');
-    orgApplicationRepository.clearEncryptedPasswordById(id);
-    // 拒绝意味着该组织不会成立:无论租户此前处于何种状态都转入 rejected。
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
     if (tenant) {
       options.tenantOrganizationRepository.transition(application.orgName, 'rejected');
-    } else {
-      options.tenantOrganizationRepository.create({ orgName: application.orgName, status: 'rejected' });
     }
-    options.operationAuditRepository.record({
-      operationId: operation.id,
-      event: 'organization.reject',
-      actor: admin.username,
-      details: { orgName: application.orgName }
-    });
-    void options.operationExecutor.process(operation.id);
     return { status: 'rejected', orgName: updated?.orgName ?? application.orgName };
   });
 
@@ -173,9 +121,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     return {
       orgRegistrationMode: getRegistrationMode(),
-      registrationMode: getUserRegistrationMode(),
-      deploymentMode: readDeploymentMode(platformSettingsRepository),
-      defaultOrg: readDefaultOrg(platformSettingsRepository)
+      registrationMode: getUserRegistrationMode()
     };
   });
 
@@ -184,17 +130,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const body = (request.body ?? {}) as {
       orgRegistrationMode?: string;
       registrationMode?: string;
-      deploymentMode?: string;
-      defaultOrg?: string | null;
-      confirm?: string;
     };
-    const currentMode = readDeploymentMode(platformSettingsRepository);
-    const currentDefaultOrg = readDefaultOrg(platformSettingsRepository);
-    const nextDefaultOrg =
-      body.defaultOrg !== undefined ? (typeof body.defaultOrg === 'string' ? body.defaultOrg : null) : currentDefaultOrg;
-    const nextMode = body.deploymentMode !== undefined ? body.deploymentMode : currentMode;
 
-    // 全部校验通过后才写入,避免校验失败时产生部分写(如单组织下清空默认组织)。
     if (body.orgRegistrationMode !== undefined) {
       if (body.orgRegistrationMode !== 'auto' && body.orgRegistrationMode !== 'manual') {
         return reply.status(400).send({ error: 'orgRegistrationMode must be auto or manual' });
@@ -205,37 +142,6 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         return reply.status(400).send({ error: 'registrationMode must be open or approval' });
       }
     }
-    if (body.deploymentMode !== undefined) {
-      if (body.deploymentMode !== 'single' && body.deploymentMode !== 'multi') {
-        return reply.status(400).send({ error: 'deploymentMode must be single or multi' });
-      }
-    }
-    // 默认组织必须指向一个已开通(active)的租户组织,防止把平台锁死在不存在的组织上。
-    if (nextDefaultOrg) {
-      const tenant = options.tenantOrganizationRepository.get(nextDefaultOrg);
-      if (!tenant || tenant.status !== 'active') {
-        return reply.status(400).send({ error: 'defaultOrg must be an active organization' });
-      }
-    }
-    // 单组织模式必须有默认组织,否则平台(除超级管理员外)无人可登录。
-    if (nextMode === 'single' && !nextDefaultOrg) {
-      return reply.status(400).send({ error: 'single mode requires a default org' });
-    }
-    // 单组织模式下更换默认组织等同整体换锁(原组织立即冻结、新组织立即可用),要求
-    // 显式确认;实际从多组织切到单组织的原子切换、以及多组织下的设置不需要确认。
-    const actuallySwitchingToSingle = body.deploymentMode === 'single' && currentMode !== 'single';
-    if (
-      nextMode === 'single' &&
-      nextDefaultOrg &&
-      currentDefaultOrg &&
-      nextDefaultOrg !== currentDefaultOrg &&
-      !actuallySwitchingToSingle &&
-      body.confirm !== nextDefaultOrg
-    ) {
-      return reply.status(400).send({
-        error: 'Reassigning the default org requires confirm matching the new organization name'
-      });
-    }
 
     if (body.orgRegistrationMode !== undefined) {
       platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
@@ -243,17 +149,9 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (body.registrationMode !== undefined) {
       platformSettingsRepository.setSetting('registration_mode', body.registrationMode);
     }
-    if (body.defaultOrg !== undefined) {
-      platformSettingsRepository.setSetting('default_org', nextDefaultOrg ?? '');
-    }
-    if (body.deploymentMode !== undefined) {
-      platformSettingsRepository.setSetting('deployment_mode', body.deploymentMode);
-    }
     return {
       orgRegistrationMode: getRegistrationMode(),
-      registrationMode: getUserRegistrationMode(),
-      deploymentMode: readDeploymentMode(platformSettingsRepository),
-      defaultOrg: readDefaultOrg(platformSettingsRepository)
+      registrationMode: getUserRegistrationMode()
     };
   });
 
@@ -300,79 +198,6 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     await giteaService.deleteUser(registration.username);
     const updated = options.userRegistrationRepository.updateStatusById(id, 'rejected');
     return { status: 'rejected', username: registration.username, registrationId: updated?.id };
-  });
-
-  app.post('/api/admin/orgs', async (request, reply) => {
-    const admin = await requireSuperAdministrator(request, reply, giteaService);
-    if (!admin) return;
-
-    if (!options.applicationEncryptionKey) {
-      return reply
-        .status(503)
-        .send({ error: 'Organization provisioning is unavailable without application encryption key' });
-    }
-
-    const body = (request.body ?? {}) as { orgName?: string; password?: string };
-    const orgName = body.orgName ?? '';
-
-    const orgNameValidation = validateOrgName(orgName);
-    if (!orgNameValidation.success) {
-      return reply.status(400).send({ error: orgNameValidation.errors.join(', ') });
-    }
-
-    const initialPassword = body.password && body.password.length > 0
-      ? body.password
-      : crypto.randomBytes(18).toString('base64url');
-
-    const passwordValidation = validatePassword(initialPassword);
-    if (!passwordValidation.success) {
-      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
-    }
-
-    // 冲突检查:Gitea 已存在 或 tenant 已存在且非 deleted 状态
-    if (await giteaService.organizationExists(orgName)) {
-      return reply.status(409).send({ error: 'Organization name is already taken' });
-    }
-    const existingTenant = options.tenantOrganizationRepository.get(orgName);
-    if (existingTenant && existingTenant.status !== 'deleted') {
-      return reply.status(409).send({ error: 'Organization name is already taken' });
-    }
-
-    const application = options.orgApplicationRepository.createApplication({
-      orgName,
-      adminDisplayName: 'system',
-      encryptedPassword: encryptApplicationSecret(initialPassword, options.applicationEncryptionKey),
-    });
-    // 直接将申请置为 approved,admin 发起的不走待审批流程
-    options.orgApplicationRepository.updateApplicationStatusById(application.id, 'approved');
-
-    const operation = options.operationRepository.createOperation({
-      idempotencyKey: `organization.provision:${application.id}`,
-      kind: 'organization.provision',
-      payload: {
-        orgName,
-        applicationId: application.id,
-      },
-    });
-
-    options.tenantOrganizationRepository.create({
-      orgName,
-      status: 'provisioning',
-      operationId: operation.id,
-    });
-
-    options.operationAuditRepository.record({
-      operationId: operation.id,
-      event: 'organization.create',
-      actor: admin.username,
-      details: { orgName, source: 'admin' },
-    });
-
-    void options.operationExecutor.process(operation.id);
-
-    return reply
-      .status(202)
-      .send({ status: 'provisioning', orgName, operationId: operation.id, initialPassword });
   });
 
   app.get('/api/admin/orgs', async (request, reply) => {
@@ -428,13 +253,6 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const { confirm } = (request.body ?? {}) as { confirm?: string };
     if (confirm !== orgName) {
       return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
-    }
-    // 默认组织不可直接删除:单组织模式下删除默认组织会让平台(除超级管理员外)
-    // 无人可登录(ADR-0022)。必须先更换默认组织或先切回多组织模式。
-    if (readDefaultOrg(platformSettingsRepository) === orgName) {
-      return reply
-        .status(409)
-        .send({ error: 'The default organization cannot be deleted; reassign the default org or switch to multi mode first' });
     }
     // 只有 ESL 开通的组织(具备 Resource Provenance)才允许自动删除;
     // 未登记的组织(含平台组织)一律拒绝,防止误删外部资源。

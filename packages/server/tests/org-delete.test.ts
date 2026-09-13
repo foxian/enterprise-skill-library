@@ -460,36 +460,7 @@ describe('tenant organization deletion workflow', () => {
     };
   }
 
-  it('blocks deleting the default organization in single mode without starting cleanup', async () => {
-    seedActiveTenant();
-    const state = acmeState();
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-    const put = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers: superHeaders,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-    expect(put.statusCode).toBe(200);
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers: superHeaders,
-      payload: { confirm: 'acme' }
-    });
-
-    expect(response.statusCode).toBe(409);
-    await flush();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-  });
-
+  
   it('still allows deleting a frozen organization in single mode', async () => {
     seedActiveTenant();
     seedFrozenOrg('other');

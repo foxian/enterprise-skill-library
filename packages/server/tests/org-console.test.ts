@@ -573,15 +573,15 @@ describe('organization console API', () => {
     expect(mockGitea.changeUserPassword).toHaveBeenCalledWith('acme_bob', 'reset-password');
   });
 
-  it('lists only the manageable teams: hides Owners and the three full-member default teams', async () => {
+  it('lists only the manageable teams: hides Owners and the standing teams', async () => {
     const mockGitea = orgAdminGitea();
-    // 组织含四个默认团队 + Owners + 自定义团队:仅 system-admins 与自定义团队可见
+    // 组织含常设团队 + Owners + 自定义团队:Owners 与常设团队不可删除/改名,
+    // 不属于团队管理界面(ADR-0032);仅自定义团队可管理。
     mockGitea.listTeams = vi.fn().mockResolvedValue([
       { id: 1, name: 'Owners', permission: 'owner' },
       { id: 2, name: 'all-readers', permission: 'read' },
       { id: 3, name: 'all-writers', permission: 'write' },
       { id: 4, name: 'all-managers', permission: 'admin' },
-      { id: 5, name: 'system-admins', permission: 'admin' },
       { id: 7, name: 'frontend', permission: 'read' }
     ]);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -593,13 +593,7 @@ describe('organization console API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    // Owners 团队不属于团队管理界面(ADR-0026);三个全员团队由组织共享级别
-    // 承载、成员自动同步,同样不展示。仅剩系统管理团队与自定义团队。
-    // system-admins 的显示名由读时惰性播种补齐(ADR-0029),自定义团队无显示名。
-    expect(response.json()).toEqual([
-      { id: 5, name: 'system-admins', permission: 'manage', display_name: '系统管理团队' },
-      { id: 7, name: 'frontend', permission: 'read' }
-    ]);
+    expect(response.json()).toEqual([{ id: 7, name: 'frontend', permission: 'read' }]);
   });
 
   it('creates a custom team with a permission level', async () => {

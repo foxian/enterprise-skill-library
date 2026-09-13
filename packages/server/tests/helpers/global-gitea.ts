@@ -172,6 +172,16 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       throw new Error(`No such team: ${teamId}`);
     }),
 
+    removeTeamMember: vi.fn(async (teamId: number, username: string) => {
+      for (const org of orgs.values()) {
+        const team = org.teams.find((candidate) => candidate.id === teamId);
+        if (team) {
+          team.members.delete(username);
+          return;
+        }
+      }
+    }),
+
     createUser: vi.fn(async (username: string, password: string) => {
       users.set(username, password);
     }),
@@ -186,6 +196,8 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       }
       return null;
     }),
+
+    organizationExists: vi.fn(async (orgName: string) => orgs.has(orgName)),
 
     disableUser: vi.fn(async (username: string) => {
       disabled.add(username);

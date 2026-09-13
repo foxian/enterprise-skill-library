@@ -20,7 +20,6 @@ import { registerSkillsRoutes } from './routes/skills.js';
 import type { GiteaService } from './services/gitea.js';
 import path from 'node:path';
 import { OperationExecutor } from './services/operation-executor.js';
-import { initializeTenantOrganization } from './services/org-init.js';
 import { runOrganizationDeletion } from './services/org-delete.js';
 import { executeSkillCreation, executePermissionChange } from './services/skill-operations.js';
 import type { PermissionChangePayload, SkillCreationPayload } from './services/skill-operations.js';
@@ -30,9 +29,7 @@ import { registerUserRoutes } from './routes/register.js';
 import { UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
 import { OperationEventBus } from './services/operation-events.js';
-import { readDefaultOrg, readDeploymentMode, readPlatformInfo, resolveUsernameOrg } from './services/platform-config.js';
-import { ensureDeclaredOrgBootstrap } from './services/single-org-bootstrap.js';
-import { ensureDefaultTeamsForActiveOrgs } from './services/default-team-migration.js';
+import { readPlatformInfo } from './services/platform-config.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -46,10 +43,6 @@ export interface AppOptions {
   autoSeed?: boolean;
   // Injectable Operation event bus (test seam); defaults to a new in-process bus.
   operationEventBus?: OperationEventBus;
-  // 默认组织部署声明(ADR-0022):由 startServer 从环境变量解析后传入,两种部署
-  // 模式都支持——声明了就在 onReady 时直接 Provisioning 默认组织并写入部署
-  // 模式与默认组织设置。测试构建不传,不触发。
-  declaredOrgBootstrap?: { orgName: string; adminPassword: string; deploymentMode: 'single' | 'multi' };
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -109,39 +102,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const operationEventBus = options.operationEventBus ?? new OperationEventBus();
   const operationExecutor = new OperationExecutor(operationRepository, undefined, undefined, (operation) => {
     operationEventBus.publish(operation);
-  });
-  operationExecutor.register('organization.provision', async (operation) => {
-    const payload = operation.payload as {
-      orgName: string;
-      applicationId: number;
-    };
-    const application = orgApplicationRepository.getApplicationById(payload.applicationId);
-    if (!application?.encryptedPassword || !options.applicationEncryptionKey) {
-      throw new Error('Organization provisioning secret is unavailable');
-    }
-    const password = decryptApplicationSecret(application.encryptedPassword, options.applicationEncryptionKey);
-    try {
-      await initializeTenantOrganization(options.giteaService, payload.orgName, password, tenantOrganizationRepository);
-      tenantOrganizationRepository.transition(payload.orgName, 'active');
-      orgApplicationRepository.updateApplicationStatusById(payload.applicationId, 'approved');
-      orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
-      operationAuditRepository.record({
-        operationId: operation.id,
-        event: 'organization.provision.succeeded'
-      });
-    } catch (error) {
-      const failure = sanitizeOperationError(error);
-      tenantOrganizationRepository.transition(payload.orgName, 'failed', failure);
-      operationAuditRepository.record({
-        operationId: operation.id,
-        event: 'organization.provision.failed',
-        details: failure
-      });
-      if (operation.attempts >= operation.maxAttempts) {
-        orgApplicationRepository.clearEncryptedPasswordById(payload.applicationId);
-      }
-      throw error;
-    }
   });
   operationExecutor.register('organization.delete', async (operation) => {
     const payload = operation.payload as { orgName: string };
@@ -249,25 +209,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
     }
     return decryptApplicationSecret(encryptedSecret, options.applicationEncryptionKey);
   }
-
-  // 声明了默认组织的部署在监听前完成开通,失败则启动失败(见 ADR-0022)。
-  const declaredOrgBootstrap = options.declaredOrgBootstrap;
-  if (declaredOrgBootstrap) {
-    app.addHook('onReady', async () => {
-      await ensureDeclaredOrgBootstrap({
-        giteaService: options.giteaService,
-        platformSettingsRepository,
-        tenantOrganizationRepository,
-        orgName: declaredOrgBootstrap.orgName,
-        adminPassword: declaredOrgBootstrap.adminPassword,
-        deploymentMode: declaredOrgBootstrap.deploymentMode
-      });
-    });
-  }
-  // ADR-0026 存量迁移:启动时为既有 active 组织补建四档默认团队(幂等)。
-  app.addHook('onReady', async () => {
-    await ensureDefaultTeamsForActiveOrgs(options.giteaService, tenantOrganizationRepository);
-  });
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   // 匿名平台信息(ADR-0022):CLI 与 Web 登录/注册页在登录前消费它自适应交互,
@@ -387,24 +328,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
-    // 单组织模式门禁(ADR-0022):仅默认组织成员与平台管理员可访问。冻结组织的存量
-    // token 逐请求失效(立即拒绝,不等自然过期);新登录由下方登录门禁覆盖。
-    // 组织实体状态不变——「不可登录」由平台模式推导,不新增组织级禁用状态。
-    if (readDeploymentMode(platformSettingsRepository) === 'single') {
-      const defaultOrg = readDefaultOrg(platformSettingsRepository);
-      const authorization = request.headers.authorization;
-      if (authorization?.startsWith('token ')) {
-        const token = authorization.replace('token ', '').trim();
-        const { username } = await resolveAuthedUser(token, adminRepository, options.giteaService);
-        if (username) {
-          const isAdmin = username === options.giteaService.adminUsername;
-          const org = resolveUsernameOrg(username);
-          if (!isAdmin && (org === null || org !== defaultOrg)) {
-            return reply.status(403).send({ error: 'Organization is frozen in single-organization mode' });
-          }
-        }
-      }
-    }
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
       // 技能 Identity 形如 @scope/skill-name,scope 段即租户组织名;
       // POST /api/skills 的 Identity 在请求体中而非 URL。Source Upload
@@ -454,11 +377,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     giteaService: options.giteaService,
     orgApplicationRepository,
     platformSettingsRepository,
-    passwordMinLength: options.passwordMinLength,
-    applicationEncryptionKey: options.applicationEncryptionKey,
-    operationRepository,
-    tenantOrganizationRepository,
-    operationExecutor
+    tenantOrganizationRepository
   });
   registerOrgAdminRoutes(app, {
     giteaService: options.giteaService,

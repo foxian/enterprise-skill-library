@@ -65,16 +65,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
     repoOwner: config.repoOwner,
     passwordMinLength: config.passwordMinLength,
     applicationEncryptionKey: config.applicationEncryptionKey,
-    autoSeed: config.autoSeed,
-    ...(config.defaultOrg && config.orgAdminPassword
-      ? {
-          declaredOrgBootstrap: {
-            orgName: config.defaultOrg,
-            adminPassword: config.orgAdminPassword,
-            deploymentMode: config.deploymentMode
-          }
-        }
-      : {})
+    autoSeed: config.autoSeed
   });
 
   const listen = options.listen?.bind(app) ?? app.listen.bind(app);
