@@ -16,7 +16,7 @@ describe('esl validate', () => {
   });
 
   it('reports valid generated source-form skills', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = await executeInit({ directory: path.join(tmpDir, 'my-skill'), runGitInit: false });
 
     await expect(executeValidate(skillDir)).resolves.toEqual({ valid: true, errors: [] });
   });

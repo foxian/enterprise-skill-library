@@ -47,26 +47,45 @@ export function createProgram(): Command {
   program.name('esl').description('Enterprise Skill Library CLI').version(readCliVersion());
   program.option('-d, --debug', 'print stack traces on error');
   program.option('--no-input', 'disable all prompts');
+  program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
+  program.hook('preAction', () => {
+    const cd = program.opts<{ cd?: string }>().cd;
+    if (typeof cd === 'string' && cd.length > 0) {
+      try {
+        process.chdir(cd);
+      } catch (error) {
+        throw new Error(`Cannot change directory to ${cd}: ${(error as NodeJS.ErrnoException).message}`);
+      }
+    }
+  });
 
   program
     .command('init')
-    .argument('<skill-name>')
+    .argument('[path]', 'target skill directory (defaults to --cd or the current directory)')
+    .option('--name <name>', 'skill short name (defaults to the target directory basename)')
     .option('--license <spdx>', 'release.json license (default MIT)')
     .option('--description <text>', 'SKILL.md description (asked interactively when omitted)')
     .option('--keywords <list>', 'comma-separated release.json keywords')
-    .addHelpText('after', example('$ esl init my-skill'))
-    .action(async (skillName: string, options: { license?: string; description?: string; keywords?: string }) => {
-      const targetDir = await executeInit(skillName, {
-        license: options.license,
-        description: options.description,
-        keywords: options.keywords
-          ?.split(',')
-          .map((keyword: string) => keyword.trim())
-          .filter((keyword: string) => keyword.length > 0),
-        noInput: program.opts().input === false
-      });
-      console.log(`Skill initialized at ${targetDir}`);
-    });
+    .addHelpText('after', example('$ esl init ./markdown-master\n  $ esl init --name my-skill'))
+    .action(
+      async (
+        skillPath: string | undefined,
+        options: { name?: string; license?: string; description?: string; keywords?: string }
+      ) => {
+        const targetDir = await executeInit({
+          directory: skillPath,
+          name: options.name,
+          license: options.license,
+          description: options.description,
+          keywords: options.keywords
+            ?.split(',')
+            .map((keyword: string) => keyword.trim())
+            .filter((keyword: string) => keyword.length > 0),
+          noInput: program.opts().input === false
+        });
+        console.log(`Skill initialized at ${targetDir}`);
+      }
+    );
 
   program
     .command('login')
@@ -175,16 +194,15 @@ export function createProgram(): Command {
 program
     .command('upload')
     .description('Commit, push and (on first use) register a local skill source')
-    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
-    .option('--directory <path>', 'skill directory', process.cwd())
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('--message <text>', 'description of this upload, used as the source commit message')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl upload ./my-skill --message "fix: correct the regex"'))
-    .action(async (skillPath: string | undefined, options: { directory: string; license?: string; message?: string; server?: string }) => {
+    .action(async (skillPath: string | undefined, options: { license?: string; message?: string; server?: string }) => {
       const uploaded = await executeUpload({
         ...options,
-        directory: skillPath ?? options.directory,
+        directory: skillPath,
         noInput: program.opts().input === false
       });
       if ('alreadyUpToDate' in uploaded && uploaded.alreadyUpToDate) {
@@ -201,14 +219,13 @@ program
   program
     .command('reset-source')
     .description('Detach a skill source directory from its server source (remove the esl remote and back up release.json)')
-    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
-    .option('--directory <path>', 'skill directory', process.cwd())
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--server <url>', 'ESL Server URL')
     .option('-f, --force', 'reset without confirmation')
     .addHelpText('after', example('$ esl reset-source ./my-skill --force'))
-    .action(async (skillPath: string | undefined, options: { directory: string; server?: string; force?: boolean }) => {
+    .action(async (skillPath: string | undefined, options: { server?: string; force?: boolean }) => {
       const result = await executeResetSource({
-        directory: skillPath ?? options.directory,
+        directory: skillPath,
         server: options.server,
         force: options.force,
         noInput: program.opts().input === false
@@ -220,12 +237,12 @@ program
   program
     .command('status')
     .description('Show the state of the local skill source vs the server')
-    .option('--directory <path>', 'skill directory', process.cwd())
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .addHelpText('after', example('$ esl status'))
-    .action(async (options: { directory: string }) => {
-      const status = await executeStatus({ ...options });
+    .action(async (skillPath: string | undefined) => {
+      const status = await executeStatus({ directory: skillPath });
       if (!status.serverHosted) {
-        console.log('Not yet a server-hosted skill source; run "esl upload --directory ." to register it');
+        console.log('Not yet a server-hosted skill source; run "esl upload ." to register it');
         return;
       }
       const lines = [
@@ -282,8 +299,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
   program
     .command('publish')
-    .argument('[path]', 'skill directory (defaults to --directory or the current directory)')
-    .option('--directory <path>', 'skill directory', process.cwd())
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
@@ -291,7 +307,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('-f, --force', 'publish without confirmation')
     .option('--dry-run', 'validate and preview the release without touching the server')
     .addHelpText('after', example('$ esl publish ./my-skill --message "fix: dead-link regex"'))
-    .action(async (skillPath: string | undefined, options: { directory: string; server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
+    .action(async (skillPath: string | undefined, options: { server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
       if (skillPath && SEMVER_ARGUMENT_PATTERN.test(skillPath)) {
         console.error(
           `esl publish no longer takes a version argument (got ${skillPath}). Run \`esl version <release>\` to set the version, then run esl publish.`
@@ -301,7 +317,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
       await executePublish({
         ...options,
-        directory: skillPath ?? options.directory,
+        directory: skillPath,
         noInput: program.opts().input === false
       });
       if (options.dryRun) {
@@ -377,12 +393,12 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   program
     .command('adapt')
     .description('Sync installed skills to AI tool directories')
+    .argument('[path]', 'project directory (defaults to --cd or the current directory)')
     .option('--global', 'Adapt global skills instead of project skills')
     .option('--prune', 'Remove manifest-owned stale adapted outputs')
-    .option('--directory <path>', 'Project directory', process.cwd())
     .addHelpText('after', example('$ esl adapt'))
-    .action(async (options: { global?: boolean; prune?: boolean; directory?: string }) => {
-      const results = await executeAdapt(options);
+    .action(async (skillPath: string | undefined, options: { global?: boolean; prune?: boolean }) => {
+      const results = await executeAdapt({ ...options, directory: skillPath });
       for (const line of formatAdaptResults(results)) {
         console.log(line);
       }
@@ -469,9 +485,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
   program
     .command('validate')
-    .argument('[path]', 'skill directory', process.cwd())
+    .argument('[path]', 'skill directory')
     .addHelpText('after', example('$ esl validate ./my-skill'))
-    .action(async (directory: string) => {
+    .action(async (directory: string | undefined) => {
       const result = await executeValidate(directory);
       if (result.valid) {
         console.log('Skill package is valid');

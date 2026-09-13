@@ -3,10 +3,17 @@
 只读命令（直接跑）：`validate`。
 写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
 
-## 初始化新技能
-`esl init @ns/name [--license SPDX] [--description <text>] [--keywords a,b]` —— 在当前目录下生成技能文件夹（短名为目录名），含 `SKILL.md`（带 frontmatter）与 `release.json`。`release.json` 的 `schemaVersion` 为 `2`，含 `version`（初始 `0.1.0`），`license` 默认 `MIT`。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。
+## 初始化新技能（就地补缺）
+`esl init [./path] [--name <短名>] [--license SPDX] [--description <text>] [--keywords a,b]` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 2`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。
 
-在终端里 `init` 会逐项询问 description、license、keywords（各带默认值，回车接受）；非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 description 与 keywords。**脚本化场景建议把三个字段都用旗标给全**，避免依赖问答。
+短名权威顺序：已有 `SKILL.md.name` > `--name` > 目录 basename。已有 `SKILL.md` 时整个文件不动——哪怕 frontmatter 非法（比如带 ESL 之外的键），也只补缺并打一行警告，严格校验交给 `esl validate`。目录已是 git 仓库（含父级）时跳过 `git init`。
+
+在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords（各带默认值，回车接受）；非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把三个字段都用旗标给全**，避免依赖问答。
+
+注意：`init` 不再要求也不接受 `@ns/name` 技能名参数——namespace 由服务器按登录组织在 `upload` 时生成（ADR-0024），源码里的 `SKILL.md.name` 只写短名。
+
+## 选目录：全局 -C
+`esl -C <dir> <命令>`（长写 `--cd <dir>`）—— 借鉴 npm：先把工作目录切到 `<dir>` 再执行命令，对所有命令生效，位置可写在子命令前或后。相对 `-C` 的路径按**切换前**的 cwd 解析；切进去之后所有位置路径参数按**切换后**的 cwd 解析，想覆盖 `-C` 的目录请给绝对路径。给目录类命令传技能目录的写法就两条：全局 `-C` 或命令自带的位置路径（`esl upload [./path]`）；各命令的 `--directory` 选项已移除。
 
 ## 校验
 `esl validate ./path` —— 发布前检查目录结构与 `SKILL.md` frontmatter。源码形态下，发布输入是 `SKILL.md` + `release.json`；`skill.json` 不在源码里，`validate` 不要求它。只读。校验失败把错误逐条对照修，别带 `--force` 跳过。
@@ -14,7 +21,7 @@
 注意：`validate` 只校验结构，**不拦 `@local/*` 保留 Scope**——`@local` 的发布拦截由 `publish` 阶段执行。所以你在提议 `publish` 前要自己复核技能身份不是 `@local/*`，别等 `validate` 通过就以为能发。
 
 ## 上传源码（发布前必需）
-`esl upload [./path] [--directory <path>] [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录两种写法等价：位置路径（`esl upload ./markdown-master`）或 `--directory`（默认当前目录）；同时给时以位置路径为准。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
+`esl upload [./path] [--license SPDX]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录用位置路径（`esl upload ./markdown-master`，默认当前目录）或全局 `-C` 指定。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
 
 - **技能描述随每次 upload 同步**：`upload` 始终以 `SKILL.md` frontmatter 的 description 为准，把技能描述登记/更新到服务器（首次注册随登记写入；已托管源的后续同步走独立的仅 Maintainer 可用的 description 更新）。描述更新失败不阻断源码同步，仅在输出中提示——看到提示可如实转述，不要重试整个 upload。管理后台的技能管理页面展示的就是这个「最近一次 upload 登记的描述」，改了 `SKILL.md` 的描述后要跑一次 `upload` 才会在线上生效。
 
@@ -24,7 +31,7 @@
 - 已托管目录（有 `esl` remote）上 fetch 失败时，`upload` 先用 Registry API 做一次只读探测再报错（ADR-0027），按探测结果分三种文案：**① 技能身份在服务器可见但 Git 源同步不了**——凭据陈旧或缺仓库权限，提示用维护它的账号重新登录后再 `esl upload`；**② 身份可见但服务器 cloneUrl 与 remote 仓库路径不一致**——remote 指向陈旧路径（如改名后），提示核对后手动 `git remote remove esl` 再重新 `esl upload`；**③ 探测失败（不确定）**——降级为统一的两种可能文案（其他账号维护 或 源已不存在），出路上「切维护账号重登」或确认删除后手动 `git remote remove esl` 两步重建。push 失败走同一统一文案并附 `git push esl HEAD:main` 收尾提示。CLI 绝不自动删除 remote 重注册——看到这类报错别提议删 remote，先按文案里的探测结论引导：能确定「身份可见」就只查账号/权限，探测失败才让用户去确认服务器源是否还在。
 
 ## 发布
-`esl publish [./path] [--directory <path>] [--message <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+`esl publish [./path] [--message <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
 
 - **传版本号会被拒绝**：`esl publish 1.0.0` 不再兼容（会被识别为误传的版本参数并报错指路 `esl version`）。要发 1.0.0 就先 `esl version 1.0.0`（或 `esl version major`）。
 - **自动同步源码**：对已托管源，`publish` 会 `fetch`、必要时 rebase 到 `esl/main`、并 push 本地领先的提交与 tag——忘记 push 不再阻断发布；rebase 冲突时保留现场，提示解决后重跑。

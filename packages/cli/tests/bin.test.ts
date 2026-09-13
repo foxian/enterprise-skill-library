@@ -208,18 +208,60 @@ describe('upload / publish positional path', () => {
     expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: './markdown-master' }));
   });
 
-  it('prefers the upload positional path over --directory', async () => {
+  it('registers only the skill directory positional on init and no skill-name argument', () => {
     const program = createProgram();
-    await program.parseAsync(['upload', './a', '--directory', './b'], { from: 'user' });
+    const init = program.commands.find((command) => command.name() === 'init');
 
-    expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: './a' }));
+    expect(init?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual([
+      'path:false'
+    ]);
+    expect(init?.options.map((option) => option.long)).toEqual(
+      expect.arrayContaining(['--name', '--license', '--description', '--keywords'])
+    );
+  });
+
+  it('rejects the removed --directory option on directory-taking commands', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let rejectedWithUnknownOption = false;
+    try {
+      const program = createProgram();
+      try {
+        await program.parseAsync(['upload', '--directory', './b'], { from: 'user' });
+      } catch {
+        // commander exits the process on an unknown option; reaching the assertions below is enough.
+      }
+
+      rejectedWithUnknownOption =
+        stderrSpy.mock.calls.some((args) => String(args[0]).includes('unknown option')) &&
+        exitSpy.mock.calls.some((args) => args[0] === 1);
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+    expect(rejectedWithUnknownOption).toBe(true);
   });
 
   it('falls back to the current directory for upload when no path is given', async () => {
     const program = createProgram();
     await program.parseAsync(['upload'], { from: 'user' });
 
-    expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: process.cwd() }));
+    const firstCall = vi.mocked(executeUpload).mock.calls[0];
+    expect((firstCall?.[0] as { directory?: string }).directory).toBeUndefined();
+  });
+
+  it('chdirs from the global -C option before running the command', async () => {
+    const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+    try {
+      const program = createProgram();
+      await program.parseAsync(['upload', '-C', './somewhere'], { from: 'user' });
+
+      expect(chdirSpy).toHaveBeenCalledWith('./somewhere');
+      const firstCall = vi.mocked(executeUpload).mock.calls[0];
+      expect((firstCall?.[0] as { directory?: string }).directory).toBeUndefined();
+    } finally {
+      chdirSpy.mockRestore();
+    }
   });
 
   it('passes the publish positional path as the directory', async () => {

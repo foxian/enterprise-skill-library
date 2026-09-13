@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execSync } from 'node:child_process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInit } from '../src/index.js';
 
 describe('esl init', () => {
@@ -15,20 +16,17 @@ describe('esl init', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('creates a source skeleton with SKILL.md and release.json but no skill.json', async () => {
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
-      runGitInit: false
-    });
+  const skillPath = (name = 'my-skill') => path.join(tmpDir, name);
 
-    expect(targetDir).toBe(path.join(tmpDir, 'my-skill'));
+  it('fills in an existing directory in place, named after the directory', async () => {
+    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false });
+
+    expect(targetDir).toBe(skillPath());
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'release.json'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'skill.json'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'scripts'))).toBe(false);
     expect(fs.existsSync(path.join(targetDir, 'references'))).toBe(false);
-    expect(fs.existsSync(path.join(targetDir, 'assets'))).toBe(false);
-    expect(fs.existsSync(path.join(targetDir, 'resources'))).toBe(false);
 
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson).toEqual({
@@ -45,93 +43,133 @@ describe('esl init', () => {
     expect(skillMd).toContain('description: Use when');
   });
 
-  it('uses the provided --license override', async () => {
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
-      runGitInit: false,
-      license: 'Apache-2.0'
+  it('honors --name for a generated SKILL.md', async () => {
+    const targetDir = await executeInit({ directory: skillPath(), name: 'renamed-skill', runGitInit: false });
+
+    expect(targetDir).toBe(skillPath());
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('name: renamed-skill');
+  });
+
+  it('rejects an invalid generated name', async () => {
+    await expect(executeInit({ directory: skillPath('Bad Name'), runGitInit: false })).rejects.toThrow(
+      'lowercase letters, digits, and hyphens'
+    );
+  });
+
+  it('never overwrites an existing valid SKILL.md or release.json', async () => {
+    const targetDir = skillPath();
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'SKILL.md'), '---\nname: existing\ndescription: Original.\n---\n');
+    fs.writeFileSync(
+      path.join(targetDir, 'release.json'),
+      JSON.stringify({ schemaVersion: 2, version: '1.2.3', license: 'Apache-2.0', keywords: ['x'], compatibility: {}, dependencies: {} })
+    );
+
+    const result = await executeInit({ directory: targetDir, name: 'renamed-skill', runGitInit: false });
+
+    expect(result).toBe(targetDir);
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('name: existing');
+    expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8')).version).toBe('1.2.3');
+  });
+
+  it('adopts an already-existing skill name from SKILL.md and warns about --name conflicts', async () => {
+    const targetDir = skillPath();
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetDir, 'SKILL.md'),
+      '---\nname: existing\ndescription: Original.\n---\nAdditional content kept.\n'
+    );
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let warnedConflict = false;
+    try {
+      await executeInit({ directory: targetDir, name: 'renamed-skill', runGitInit: false });
+      warnedConflict = stderrSpy.mock.calls.some((args) => String(args[0]).includes('declares the name existing'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
+    expect(skillMd).toContain('name: existing');
+    expect(skillMd).toContain('Additional content kept.');
+    expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8')).version).toBe('0.1.0');
+    expect(warnedConflict).toBe(true);
+  });
+
+  it('fills only release.json and warns when SKILL.md exists but is not valid', async () => {
+    const targetDir = skillPath();
+    fs.mkdirSync(targetDir, { recursive: true });
+    // Claude 系生态常见形态：frontmatter 带 ESL 之外的键。
+    const original = '---\nname: my-skill\ndescription: External skill.\nallowed-tools: Read\n---\n# Content\n';
+    fs.writeFileSync(path.join(targetDir, 'SKILL.md'), original);
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let warnedInvalid = false;
+    try {
+      await executeInit({ directory: targetDir, runGitInit: false });
+      warnedInvalid = stderrSpy.mock.calls.some((args) => String(args[0]).includes('not a valid ESL skill source'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe(original);
+    expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
+      schemaVersion: 2,
+      version: '0.1.0'
     });
+    expect(warnedInvalid).toBe(true);
+  });
+
+  it('uses the provided --license override when writing release.json', async () => {
+    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, license: 'Apache-2.0' });
 
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('Apache-2.0');
   });
 
-  it('asks for description, license, and keywords when prompted', async () => {
+  it('asks only for the fields that are still missing', async () => {
+    fs.mkdirSync(skillPath(), { recursive: true });
+    fs.writeFileSync(path.join(skillPath(), 'SKILL.md'), '---\nname: my-skill\ndescription: Kept.\n---\n');
     const asked: string[] = [];
     const promptText = async (question: string, fallback: string) => {
       asked.push(question);
-      if (question.includes('escription')) return 'Review code changes for dead links.';
       if (question.includes('icense')) return 'Apache-2.0';
       if (question.includes('eywords')) return 'review, docs';
       return fallback;
     };
 
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
-      runGitInit: false,
-      promptText
-    });
+    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, promptText });
 
-    expect(asked).toHaveLength(3);
+    expect(asked).toHaveLength(2);
+    expect(asked.some((question) => question.includes('escription'))).toBe(false);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('Apache-2.0');
     expect(releaseJson.keywords).toEqual(['review', 'docs']);
-    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain(
-      'description: Review code changes for dead links.'
-    );
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('description: Kept.');
   });
 
-  it('keeps the defaults when the answers are empty', async () => {
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
+  it('keeps interactive defaults when the answers are empty', async () => {
+    const asked: string[] = [];
+    const targetDir = await executeInit({
+      directory: skillPath('fresh'),
       runGitInit: false,
-      promptText: async (_question: string, fallback: string) => fallback
+      promptText: async (question, fallback) => {
+        asked.push(question);
+        return fallback;
+      }
     });
 
+    expect(asked).toHaveLength(3);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('MIT');
     expect(releaseJson.keywords).toEqual([]);
     expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('description: Use when');
   });
 
-  it('does not ask about fields already given on the command line', async () => {
-    const asked: string[] = [];
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
-      runGitInit: false,
-      license: 'Apache-2.0',
-      keywords: ['review'],
-      description: 'Review code.',
-      promptText: async (question: string, fallback: string) => {
-        asked.push(question);
-        return fallback;
-      }
-    });
-
-    expect(asked).toHaveLength(0);
-    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
-    expect(releaseJson.license).toBe('Apache-2.0');
-    expect(releaseJson.keywords).toEqual(['review']);
-    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('description: Review code.');
-  });
-
-  it('quotes a description that would otherwise break the frontmatter', async () => {
-    const targetDir = await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
-      runGitInit: false,
-      description: 'Review: dead links, "stale" docs'
-    });
-
-    const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
-    expect(skillMd).toContain('description: "Review: dead links, \\"stale\\" docs"');
-    // The generated source must still validate.
-    expect(skillMd).toMatch(/^---\n[\s\S]*\n---\n/);
-  });
-
   it('does not prompt when input is disabled', async () => {
     const asked: string[] = [];
-    await executeInit('@myorg/my-skill', {
-      cwd: tmpDir,
+    await executeInit({
+      directory: skillPath('fresh'),
       runGitInit: false,
       noInput: true,
       promptText: async (question: string, fallback: string) => {
@@ -141,19 +179,33 @@ describe('esl init', () => {
     });
 
     expect(asked).toHaveLength(0);
+    expect(fs.existsSync(path.join(skillPath('fresh'), 'SKILL.md'))).toBe(true);
   });
 
-  it('rejects invalid skill names', async () => {
-    await expect(executeInit('my-skill', { cwd: tmpDir, runGitInit: false })).rejects.toThrow(
-      '@namespace/skill-name'
-    );
+  it('quotes a description that would otherwise break the frontmatter', async () => {
+    const targetDir = await executeInit({
+      directory: skillPath('fresh'),
+      runGitInit: false,
+      description: 'Review: dead links, "stale" docs'
+    });
+
+    const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
+    expect(skillMd).toContain('description: "Review: dead links, \\"stale\\" docs"');
+    expect(skillMd).toMatch(/^---\n[\s\S]*\n---\n/);
   });
 
-  it('does not overwrite existing directories', async () => {
-    fs.mkdirSync(path.join(tmpDir, 'my-skill'));
+  it('creates a nested directory path when it does not exist yet', async () => {
+    const targetDir = await executeInit({ directory: path.join(tmpDir, 'a', 'b', 'my-skill'), runGitInit: false });
 
-    await expect(executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false })).rejects.toThrow(
-      'already exists'
-    );
+    expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
+  });
+
+  it('skips git init when the target is already inside a git repository', async () => {
+    execSync('git init -q', { cwd: tmpDir, stdio: 'ignore' });
+    execSync('git config user.email tester@example.com && git config user.name Tester', { cwd: tmpDir });
+
+    await executeInit({ directory: skillPath() });
+
+    expect(fs.existsSync(path.join(skillPath(), '.git'))).toBe(false);
   });
 });

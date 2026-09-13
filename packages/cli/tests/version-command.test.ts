@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -30,7 +30,8 @@ describe('esl version', () => {
     execSync(cmd, { cwd: dir, encoding: 'utf8' });
 
   it('bumps patch on a source-form skill and writes the new version', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
 
     const result = await executeVersion('patch', { cwd: skillDir });
@@ -40,7 +41,8 @@ describe('esl version', () => {
   });
 
   it('bumps minor and major correctly', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
 
     expect(await executeVersion('minor', { cwd: skillDir })).toBe('0.2.0');
@@ -50,7 +52,8 @@ describe('esl version', () => {
   });
 
   it('sets an explicit version', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
 
     const result = await executeVersion('1.4.2', { cwd: skillDir });
@@ -60,7 +63,8 @@ describe('esl version', () => {
   });
 
   it('commits the manifest change and creates an annotated v<version> tag', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
 
     await executeVersion('patch', { cwd: skillDir });
@@ -74,7 +78,8 @@ describe('esl version', () => {
   });
 
   it('creates the release tag when the version is already the target version', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
 
     // The first release: init seeded 0.1.0, so tagging it must not need a new commit.
@@ -86,7 +91,8 @@ describe('esl version', () => {
   });
 
   it('rejects when the working tree has uncommitted changes', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
     initGit(skillDir);
     fs.writeFileSync(path.join(skillDir, 'scratch.txt'), 'dirty');
 
@@ -94,7 +100,8 @@ describe('esl version', () => {
   });
 
   it('rejects a directory without git and points the way', async () => {
-    const skillDir = await executeInit('@myorg/my-skill', { cwd: tmpDir, runGitInit: false });
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
 
     await expect(executeVersion('patch', { cwd: skillDir })).rejects.toThrow(/git/);
   });
