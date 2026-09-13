@@ -2,6 +2,7 @@ import {
   highestSatisfyingVersion,
   highestStableVersion,
   parseSkillName,
+  parseSkillIdentity,
   parseGiteaUsername,
   sortVersionsDescending,
   validateReleaseManifest
@@ -47,33 +48,43 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(401).send({ error: 'Unauthorized: invalid token' });
     }
 
-    // ADR-0024:Skill Identity 的 scope 段由上传者的 Tenant Organization 提供。
-    // 登录 token 只携带组织作用域账号(<org>_<username>),租户组织从账号名解析,
-    // 而非按服务器配置的平台宿主(repoOwner,仅遗留包形态发布流仍在使用)。
-    const account = parseGiteaUsername(user.username);
-    if (!account) {
-      return reply.status(403).send({
-        error: 'Source upload requires an organization-scoped account (<org>_<username>); the platform administrator has no tenant organization'
-      });
-    }
-    const tenant = tenantOrganizationRepository.get(account.org);
-    if (!tenant || tenant.status !== 'active') {
-      return reply.status(403).send({
-        error: `Tenant organization ${account.org} is not active; it must be provisioned before uploading skills`
-      });
-    }
-    const tenantOrg = account.org;
-
+    // ADR-0032:release.json v3 的 name 是归属的唯一权威来源。无 scope 的裸名
+    // 解析为上传者个人命名空间;@scope/short 需上传者持有该命名空间(本人或
+    // 组织成员)。身份在首次 Source Upload 固定。
     const body = request.body as { name?: string; description?: string };
-    const shortName = body.name ?? '';
-    if (!/^[a-z0-9-]{1,64}$/.test(shortName)) {
+    const identity = parseSkillIdentity(body.name ?? '');
+    if (!identity) {
       return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
     }
     if (!body.description) {
       return reply.status(400).send({ error: 'Skill description is required' });
     }
 
-    const name = `@${tenantOrg}/${shortName}`;
+    let scope: string;
+    if (identity.scope === null || identity.scope === user.username) {
+      scope = user.username;
+    } else {
+      // 组织命名空间:要求组织激活且上传者是成员(任何成员皆可 upload,ADR-0032)。
+      const tenant = tenantOrganizationRepository.get(identity.scope);
+      if (!tenant || tenant.status !== 'active') {
+        return reply.status(403).send({
+          error: `Organization ${identity.scope} is not active; it must be provisioned before uploading skills`
+        });
+      }
+      let member = false;
+      try {
+        member = (await giteaService.listOrgMembers(identity.scope)).some((m) => m.username === user.username);
+      } catch {
+        member = false;
+      }
+      if (!member) {
+        return reply.status(403).send({ error: `You are not a member of organization ${identity.scope}` });
+      }
+      scope = identity.scope;
+    }
+
+    const shortName = identity.shortName;
+    const name = `@${scope}/${shortName}`;
     const existing = repository.getSkill(name);
     if (existing) {
       if (existing.status !== 'active-unreleased' || existing.createdBy !== user.username) {
@@ -89,13 +100,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let gitRepo: { full_name: string } | undefined;
     let skill: ReturnType<SkillRepository['createServerSkill']> | undefined;
     try {
-      gitRepo = await giteaService.createOrganizationRepo(tenantOrg, shortName, true);
-      if (typeof giteaService.addCollaborator === 'function') {
-        await giteaService.addCollaborator(tenantOrg, shortName, user.username, 'write');
-      }
+      gitRepo = await giteaService.createRepo(scope, shortName, true);
       skill = repository.createServerSkill({
         name,
-        scope: tenantOrg,
+        scope,
         skillName: shortName,
         description: body.description,
         createdBy: user.username,
@@ -110,7 +118,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // orphan so the same skill name can be uploaded again.
       if (gitRepo && typeof giteaService.deleteRepo === 'function') {
         try {
-          await giteaService.deleteRepo(tenantOrg, shortName);
+          await giteaService.deleteRepo(scope, shortName);
         } catch {
           // Best-effort cleanup; the original failure is the one to surface.
         }
@@ -451,6 +459,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const manifest = validateReleaseManifest(sourceManifest);
     if (!manifest.success) {
       return reply.status(400).send({ error: manifest.errors.join(', ') });
+    }
+    // ADR-0032:publish 只断言归属——release.json 的 name 必须与技能既定身份
+    // 一致(裸名按发布者个人命名空间补全),不一致即拒绝,归属变更不得借发布顺车。
+    const manifestIdentity = parseSkillIdentity(manifest.data.name);
+    const manifestScope = manifestIdentity?.scope ?? user.username;
+    if (
+      !manifestIdentity ||
+      `@${manifestScope}/${manifestIdentity.shortName}` !== skill.name
+    ) {
+      return reply.status(409).send({
+        error: `Release manifest name "${manifest.data.name}" does not match the established identity ${skill.name}; ownership changes are not allowed via publish`
+      });
     }
     if (!skill.skillId) {
       return reply.status(409).send({ error: 'Skill has no Skill ID' });

@@ -10,7 +10,7 @@ describe('Skill Source Upload API', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   let gitea: {
     validateToken: ReturnType<typeof vi.fn>;
-    createOrganizationRepo: ReturnType<typeof vi.fn>;
+    createRepo: ReturnType<typeof vi.fn>;
     addCollaborator: ReturnType<typeof vi.fn>;
     deleteRepo: ReturnType<typeof vi.fn>;
     createReleaseTag: ReturnType<typeof vi.fn>;
@@ -21,8 +21,8 @@ describe('Skill Source Upload API', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-upload-api-'));
     gitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       addCollaborator: vi.fn().mockResolvedValue(undefined),
       deleteRepo: vi.fn().mockResolvedValue(undefined),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
@@ -55,7 +55,7 @@ describe('Skill Source Upload API', () => {
 
   const releaseManifest = {
     schemaVersion: 3,
-    name: '@platform-ai/reviewer',
+    name: '@alice/reviewer',
     version: '0.1.0',
     license: 'MIT',
     keywords: [],
@@ -70,11 +70,11 @@ describe('Skill Source Upload API', () => {
     const retry = await upload();
     expect(retry.statusCode).toBe(200);
     expect(retry.json()).toMatchObject({
-      name: '@platform-ai/reviewer',
+      name: '@alice/reviewer',
       skillId: first.json().skillId,
-      cloneUrl: expect.stringContaining('/git/platform-ai/reviewer.git')
+      cloneUrl: expect.stringContaining('/git/alice/reviewer.git')
     });
-    expect(gitea.createOrganizationRepo).toHaveBeenCalledTimes(1);
+    expect(gitea.createRepo).toHaveBeenCalledTimes(1);
   });
 
   it('still rejects re-upload of a published skill', async () => {
@@ -85,7 +85,7 @@ describe('Skill Source Upload API', () => {
     await upload();
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: { version: '1.0.0', sourceCommit: 'abc123', releaseManifest }
     });
@@ -95,42 +95,42 @@ describe('Skill Source Upload API', () => {
     expect(retry.json().error).toContain('already exists');
   });
 
-  it('rejects re-upload by a different creator', async () => {
+  it('rejects an upload into a namespace the caller does not hold', async () => {
     await upload();
-    gitea.validateToken.mockResolvedValue({ username: 'platform-ai_bob' });
+    gitea.validateToken.mockResolvedValue({ username: 'bob' });
 
-    const retry = await upload();
-    expect(retry.statusCode).toBe(409);
-    expect(retry.json().error).toContain('already exists');
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: '@alice/reviewer', description: 'Shared reviewer' }
+    });
+    expect(retry.statusCode).toBe(403);
   });
 
-  it('rejects an upload from an account without an organization scope', async () => {
-    gitea.validateToken.mockResolvedValue({ username: 'eslroot' });
-
-    const response = await upload();
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error).toContain('organization-scoped account');
-    expect(gitea.createOrganizationRepo).not.toHaveBeenCalled();
-  });
-
-  it('rejects an upload when the caller tenant organization is not active', async () => {
+  it('rejects an upload when the target organization is not active', async () => {
     const db = initDatabase(path.join(tmpDir, 'test.db'));
     new TenantOrganizationRepository(db).create({ orgName: 'frozen', status: 'pending' });
     db.close();
     gitea.validateToken.mockResolvedValue({ username: 'frozen_bob' });
 
-    const response = await upload();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token frozen-token' },
+      payload: { name: '@frozen/reviewer', description: 'Shared reviewer' }
+    });
     expect(response.statusCode).toBe(403);
-    expect(response.json().error).toContain('Tenant organization frozen is not active');
-    expect(gitea.createOrganizationRepo).not.toHaveBeenCalled();
+    expect(response.json().error).toContain('Organization frozen is not active');
+    expect(gitea.createRepo).not.toHaveBeenCalled();
   });
 
-  it('deletes the orphaned repository when provisioning fails after creation', async () => {
-    gitea.addCollaborator.mockRejectedValue(new Error('collaborator failed'));
+  it('propagates the failure when the source repository cannot be created', async () => {
+    gitea.createRepo.mockRejectedValue(new Error('gitea unavailable'));
 
     const response = await upload();
     expect(response.statusCode).toBe(500);
-    expect(gitea.deleteRepo).toHaveBeenCalledWith('platform-ai', 'reviewer');
+    expect(gitea.deleteRepo).not.toHaveBeenCalled();
   });
 
   it('accepts publish-sized request bodies instead of the 1MB Fastify default', async () => {

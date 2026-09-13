@@ -4,15 +4,17 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import {
   createMinimalReleaseManifest,
+  loadConfig,
   validateSkillMd,
-  validateSkillSourceDirectory
+  validateSkillSourceDirectory,
+  type LocalStoreOptions
 } from '@esl/core';
 import { notify } from '../output.js';
 import { isInteractive, readText } from '../prompt.js';
 
 const execFileAsync = promisify(execFile);
 
-export interface InitOptions {
+export interface InitOptions extends LocalStoreOptions {
   /** Skill directory to fill in (created when missing). Defaults to the current directory. */
   directory?: string;
   /** Skill short name for a generated SKILL.md. Defaults to the directory basename. */
@@ -112,11 +114,13 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
   }
 
   if (generateReleaseJson) {
-    // v3 的 name 是归属声明；init 时尚无登录上下文，写裸名（个人命名空间语义）。
-    const releaseJson = {
-      ...createMinimalReleaseManifest(skillName ?? path.basename(targetDir), license),
-      keywords
-    };
+    // v3 的 name 是归属声明（ADR-0032）：已登录时默认归属到个人命名空间
+    // @用户名/技能名；未登录写裸名（等价——服务端按上传者补全个人命名空间）。
+    const defaultName = skillName ?? path.basename(targetDir);
+    const scopedName = await loadConfig({ homeDir: options.homeDir })
+      .then((config) => (config.username ? `@${config.username}/${defaultName}` : defaultName))
+      .catch(() => defaultName);
+    const releaseJson = { ...createMinimalReleaseManifest(scopedName, license), keywords };
     await fs.writeFile(releaseJsonPath, `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
   }
 

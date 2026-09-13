@@ -129,6 +129,34 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       }
     }),
 
+    // GiteaService.createRepo 的语义：先按 admin/users/{owner}/repos 建（个人
+    // 仓库与组织仓库同型），组织不存在时回退 /orgs/{owner}/repos。
+    createRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => ({
+      id: 1,
+      name,
+      full_name: `${owner}/${name}`,
+      clone_url: `http://gitea.local/${owner}/${name}.git`,
+      html_url: `http://gitea.local/${owner}/${name}`,
+      private: isPrivate
+    })),
+
+    createOrganizationRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => ({
+      id: 1,
+      name,
+      full_name: `${owner}/${name}`,
+      clone_url: `http://gitea.local/${owner}/${name}.git`,
+      html_url: `http://gitea.local/${owner}/${name}`,
+      private: isPrivate
+    })),
+
+    addCollaborator: vi.fn(async (_owner: string, _repo: string, _username: string, _permission?: string) => {}),
+
+    readSourceTree: vi.fn(async (_owner: string, _repo: string, _ref: string) => ({}) as Record<string, string>),
+
+    getReleaseTag: vi.fn(async (_owner: string, _repo: string, _tag: string) => null),
+
+    createReleaseTag: vi.fn(async (_owner: string, _repo: string, _tag: string, _target: string, _message: string) => {}),
+
     createTeam: vi.fn(async (org: string, name: string, permission: FakeGiteaTeam['permission']) =>
       ensureTeam(org, name, permission)
     ),

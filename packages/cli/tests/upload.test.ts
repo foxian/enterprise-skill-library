@@ -530,6 +530,38 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['config', 'user.email', 'author01@local.esl'], { cwd: skillDir });
   });
 
+  it('sends the release.json name as the skill identity (scoped form)', async () => {
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@acme/reviewer',
+        version: '0.1.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+
+    await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      noInput: true,
+      customFetch: fetchImpl as any,
+      execFileAsync: gitMock({ dirty: '', remoteUrl: null }) as any
+    });
+
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/api/skills/upload'));
+    expect(call).toBeDefined();
+    expect(JSON.parse(String(call![1].body))).toEqual({
+      name: '@acme/reviewer',
+      description: 'Shared reviewer'
+    });
+  });
+
   it('uses the --message text as the auto-commit message', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = gitMock({ dirty: ' M SKILL.md\n' });

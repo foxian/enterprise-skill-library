@@ -57,9 +57,12 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
   }
   const message = await resolveUploadMessage(options);
   await prepareSourceGit(execFileAsync, directory, message, await resolveFallbackGitIdentity(options));
+  // ADR-0032:release.json v3 的 name 是归属的唯一权威来源,原样上送——
+  // 裸名由服务端解析为上传者个人命名空间。
   return uploadSource(
     options,
     directory,
+    sourceValidation.data.releaseManifest.name,
     sourceValidation.data.skillMd.name,
     sourceValidation.data.skillMd.description
   );
@@ -186,9 +189,11 @@ async function readGitConfig(
 async function uploadSource(
   options: UploadOptions,
   directory: string,
-  skillName: string,
+  identity: string,
+  shortName: string,
   description: string
 ): Promise<UploadedSkill> {
+  void identity;
   const authToken = await requireFreshToken(options);
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
@@ -205,9 +210,9 @@ async function uploadSource(
     // 报可行动错误，绝不重新注册或接管。
     remoteUrl = await rehomeEslRemoteIfNeeded(options, execFileAsync, directory, remoteUrl, server);
     const remoteShortName = repoPathFromGitUrl(remoteUrl).split('/').pop() ?? '';
-    if (remoteShortName && remoteShortName !== skillName) {
+    if (remoteShortName && remoteShortName !== shortName) {
       throw new Error(
-        `Local skill name "${skillName}" does not match the source repository "${remoteShortName}"; ` +
+        `Local skill name "${shortName}" does not match the source repository "${remoteShortName}"; ` +
           'renames must go through "esl rename", not by editing SKILL.md'
       );
     }
@@ -248,7 +253,7 @@ async function uploadSource(
         Authorization: `token ${authToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name: skillName, description })
+      body: JSON.stringify({ name: identity, description })
     });
     if (!response.ok) {
       throw new Error(`Failed to upload skill source: ${await response.text()}`);

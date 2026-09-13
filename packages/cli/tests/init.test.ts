@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInit } from '../src/index.js';
+import { initializeLocalStore, saveConfig } from '@esl/core';
 
 describe('esl init', () => {
   let tmpDir: string;
@@ -19,7 +20,10 @@ describe('esl init', () => {
   const skillPath = (name = 'my-skill') => path.join(tmpDir, name);
 
   it('fills in an existing directory in place, named after the directory', async () => {
-    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false });
+    // 隔离本地存储:登录态存在时会改写默认归属(@用户名/技能名)
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
+    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, homeDir: homeDir });
+    fs.rmSync(homeDir, { recursive: true, force: true });
 
     expect(targetDir).toBe(skillPath());
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
@@ -42,6 +46,21 @@ describe('esl init', () => {
     const skillMd = fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8');
     expect(skillMd).toContain('name: my-skill');
     expect(skillMd).toContain('description: Use when');
+  });
+
+  it('writes @username/skill as the default name when logged in', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ username: 'alice', organizations: [] }, { homeDir });
+
+    try {
+      await executeInit({ directory: skillPath(), runGitInit: false, homeDir });
+
+      const releaseJson = JSON.parse(fs.readFileSync(path.join(skillPath(), 'release.json'), 'utf8'));
+      expect(releaseJson.name).toBe('@alice/my-skill');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 
   it('honors --name for a generated SKILL.md', async () => {

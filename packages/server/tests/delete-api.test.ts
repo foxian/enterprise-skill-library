@@ -11,18 +11,18 @@ describe('Skill Delete API', () => {
   let gitea: {
     validateToken: ReturnType<typeof vi.fn>;
     validateAdminUserToken: ReturnType<typeof vi.fn>;
-    createOrganizationRepo: ReturnType<typeof vi.fn>;
+    createRepo: ReturnType<typeof vi.fn>;
     deleteRepo: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-delete-'));
     gitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       validateAdminUserToken: vi.fn().mockImplementation(async (token: string) =>
         token === 'eslroot-token' ? { username: 'eslroot' } : null
       ),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       deleteRepo: vi.fn().mockResolvedValue(undefined)
     };
     const db = initDatabase(path.join(tmpDir, 'test.db'));
@@ -50,7 +50,7 @@ describe('Skill Delete API', () => {
     });
     const info = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     return (info.json() as { skillId: string }).skillId;
@@ -61,7 +61,7 @@ describe('Skill Delete API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/delete',
+      url: '/api/skills/@alice/reviewer/delete',
       headers: { authorization: 'token alice-token' }
     });
 
@@ -75,17 +75,17 @@ describe('Skill Delete API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/delete',
+      url: '/api/skills/@alice/reviewer/delete',
       headers: { authorization: 'token eslroot-token' },
-      payload: { confirm: '@platform-ai/reviewer' }
+      payload: { confirm: '@alice/reviewer' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ deleted: true, name: '@platform-ai/reviewer', skillId });
-    expect(gitea.deleteRepo).toHaveBeenCalledWith('platform-ai', 'reviewer');
+    expect(response.json()).toMatchObject({ deleted: true, name: '@alice/reviewer', skillId });
+    expect(gitea.deleteRepo).toHaveBeenCalledWith('alice', 'reviewer');
     expect(fs.existsSync(path.join(tmpDir, 'packages', skillId))).toBe(false);
 
-    const after = await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' });
+    const after = await app.inject({ method: 'GET', url: '/api/skills/@alice/reviewer' });
     expect(after.statusCode).toBe(404);
   });
 
@@ -94,7 +94,7 @@ describe('Skill Delete API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/delete',
+      url: '/api/skills/@alice/reviewer/delete',
       headers: { authorization: 'token eslroot-token' },
       payload: { confirm: 'some-other-skill' }
     });
@@ -103,7 +103,7 @@ describe('Skill Delete API', () => {
     expect(response.json().error).toContain('confirm');
     const stillThere = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(stillThere.statusCode).toBe(200);
@@ -112,7 +112,7 @@ describe('Skill Delete API', () => {
   it('returns 404 when the skill does not exist', async () => {
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/missing/delete',
+      url: '/api/skills/@alice/missing/delete',
       headers: { authorization: 'token eslroot-token' }
     });
 

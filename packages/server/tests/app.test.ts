@@ -185,8 +185,8 @@ describe('Fastify Server API', () => {
 
   it('uploads a server-hosted skill without creating a release', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' })
     };
 
     app = buildAppWithTenant(mockGitea, 'platform-ai');
@@ -203,69 +203,73 @@ describe('Fastify Server API', () => {
 
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({
-      name: '@platform-ai/reviewer',
+      name: '@alice/reviewer',
       status: 'active-unreleased',
-      createdBy: 'platform-ai_alice',
-      maintainers: ['platform-ai_alice'],
+      createdBy: 'alice',
+      maintainers: ['alice'],
       versions: []
     });
     expect(response.json().skillId).toMatch(/^sk_/);
-    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', true);
+    expect(mockGitea.createRepo).toHaveBeenCalledWith('alice', 'reviewer', true);
   });
 
-  it('rejects an upload from an account without an organization scope', async () => {
+  it('lands a platform administrator upload in their own personal namespace', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'eslroot' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'eslroot/reviewer' })
     };
     app = buildAppWithTenant(mockGitea, 'platform-ai');
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
-      headers: { authorization: 'token alice-token' },
+      headers: { authorization: 'token root-token' },
       payload: { name: 'reviewer', description: 'Shared reviewer' }
     });
 
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error).toContain('organization-scoped account');
-    expect(mockGitea.createOrganizationRepo).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({ name: '@eslroot/reviewer', scope: 'eslroot' });
+    expect(mockGitea.createRepo).toHaveBeenCalledWith('eslroot', 'reviewer', true);
   });
 
   it('grants an authenticated user read access before source checkout', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_consumer' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      validateToken: vi.fn().mockImplementation(async (token: string) => {
+        if (token === 'alice-token') return { username: 'alice' };
+        if (token === 'consumer-token') return { username: 'consumer' };
+        return null;
+      }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       addCollaborator: vi.fn().mockResolvedValue(undefined)
     };
     app = buildAppWithTenant(mockGitea, 'platform-ai');
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
-      headers: { authorization: 'token consumer-token' },
+      headers: { authorization: 'token alice-token' },
       payload: { name: 'reviewer', description: 'Reviewer' }
     });
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/source-access',
+      url: '/api/skills/@alice/reviewer/source-access',
       headers: { authorization: 'token consumer-token', host: 'localhost:3000' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().cloneUrl).toBe('http://localhost:3000/git/platform-ai/reviewer.git');
+    expect(response.json().cloneUrl).toBe('http://localhost:3000/git/alice/reviewer.git');
     expect(mockGitea.addCollaborator).toHaveBeenCalledWith(
-      'platform-ai',
+      'alice',
       'reviewer',
-      'platform-ai_consumer',
+      'consumer',
       'read'
     );
   });
 
   it('renames a skill while preserving its Skill ID and creates a redirect', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       renameRepo: vi.fn().mockResolvedValue(undefined)
     };
     app = buildAppWithTenant(mockGitea, 'platform-ai');
@@ -280,23 +284,23 @@ describe('Fastify Server API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/rename',
+      url: '/api/skills/@alice/reviewer/rename',
       headers: { host: 'localhost:3000', authorization: 'token alice-token' },
       payload: { name: 'reviewer-pro' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ name: '@platform-ai/reviewer-pro', skillId });
-    expect(mockGitea.renameRepo).toHaveBeenCalledWith('platform-ai', 'reviewer', 'reviewer-pro');
-    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer' })).statusCode).toBe(301);
+    expect(response.json()).toMatchObject({ name: '@alice/reviewer-pro', skillId });
+    expect(mockGitea.renameRepo).toHaveBeenCalledWith('alice', 'reviewer', 'reviewer-pro');
+    expect((await app.inject({ method: 'GET', url: '/api/skills/@alice/reviewer' })).statusCode).toBe(301);
   });
 
   it('rejects a rename that would reuse an existing skill identity before touching Gitea', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn()
-        .mockResolvedValueOnce({ full_name: 'platform-ai/reviewer' })
-        .mockResolvedValueOnce({ full_name: 'platform-ai/other' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn()
+        .mockResolvedValueOnce({ full_name: 'alice/reviewer' })
+        .mockResolvedValueOnce({ full_name: 'alice/other' }),
       renameRepo: vi.fn().mockResolvedValue(undefined),
       updateSkillName: vi.fn().mockResolvedValue(undefined)
     };
@@ -312,7 +316,7 @@ describe('Fastify Server API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/rename',
+      url: '/api/skills/@alice/reviewer/rename',
       headers: { authorization: 'token alice-token' },
       payload: { name: 'other' }
     });
@@ -325,8 +329,8 @@ describe('Fastify Server API', () => {
 
   it('attempts to roll back source metadata when repository rename fails', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       updateSkillName: vi.fn().mockResolvedValue(undefined),
       renameRepo: vi.fn().mockRejectedValue(new Error('backend unavailable'))
     };
@@ -340,7 +344,7 @@ describe('Fastify Server API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/rename',
+      url: '/api/skills/@alice/reviewer/rename',
       headers: { authorization: 'token alice-token' },
       payload: { name: 'reviewer-pro' }
     });
@@ -349,18 +353,18 @@ describe('Fastify Server API', () => {
     expect(response.json()).toMatchObject({ retryable: true });
     expect(mockGitea.updateSkillName).toHaveBeenNthCalledWith(
       2,
-      'platform-ai',
+      'alice',
       'reviewer-pro',
       'reviewer'
     );
-    expect((await app.inject({ method: 'GET', url: '/api/skills/@platform-ai/reviewer', headers: { authorization: 'token alice-token' } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/skills/@alice/reviewer', headers: { authorization: 'token alice-token' } })).statusCode).toBe(200);
   });
 
   it('archives a skill and only a platform administrator can restore it', async () => {
     const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       validateAdminUserToken: vi.fn().mockResolvedValue(null),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' })
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' })
     };
     app = buildAppWithTenant(mockGitea, 'platform-ai');
     await app.inject({
@@ -372,7 +376,7 @@ describe('Fastify Server API', () => {
 
     const archive = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/archive',
+      url: '/api/skills/@alice/reviewer/archive',
       headers: { authorization: 'token alice-token' }
     });
     expect(archive.statusCode).toBe(200);
@@ -380,7 +384,7 @@ describe('Fastify Server API', () => {
 
     const restore = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/restore',
+      url: '/api/skills/@alice/reviewer/restore',
       headers: { authorization: 'token alice-token' }
     });
     expect(restore.statusCode).toBe(403);

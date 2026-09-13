@@ -10,7 +10,7 @@ describe('Skill Release API', () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
   let gitea: {
     validateToken: ReturnType<typeof vi.fn>;
-    createOrganizationRepo: ReturnType<typeof vi.fn>;
+    createRepo: ReturnType<typeof vi.fn>;
     createReleaseTag: ReturnType<typeof vi.fn>;
     getReleaseTag: ReturnType<typeof vi.fn>;
     deleteReleaseTag: ReturnType<typeof vi.fn>;
@@ -21,8 +21,8 @@ describe('Skill Release API', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-release-'));
     gitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'platform-ai_alice' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'platform-ai/reviewer' }),
+      validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
+      createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
       getReleaseTag: vi.fn().mockResolvedValue(null),
       deleteReleaseTag: vi.fn().mockResolvedValue(undefined),
@@ -49,7 +49,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -66,14 +66,14 @@ describe('Skill Release API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -130,13 +130,13 @@ describe('Skill Release API', () => {
 
   it('serves the highest stable release as the default and lists versions newest first', async () => {
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.2.0');
-    await publish('@platform-ai/reviewer', '0.9.0');
-    await publish('@platform-ai/reviewer', '2.0.0-beta.1');
+    await publish('@alice/reviewer', '1.2.0');
+    await publish('@alice/reviewer', '0.9.0');
+    await publish('@alice/reviewer', '2.0.0-beta.1');
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
 
@@ -149,23 +149,23 @@ describe('Skill Release API', () => {
 
   it('freezes a dependency lock at the highest version that satisfies the range', async () => {
     await upload('dep');
-    await publish('@platform-ai/dep', '1.2.0');
-    await publish('@platform-ai/dep', '1.0.0');
+    await publish('@alice/dep', '1.2.0');
+    await publish('@alice/dep', '1.0.0');
     await upload('reviewer');
 
-    const response = await publish('@platform-ai/reviewer', '1.0.0', { '@platform-ai/dep': '^1.0.0' });
+    const response = await publish('@alice/reviewer', '1.0.0', { '@alice/dep': '^1.0.0' });
 
     expect(response.statusCode).toBe(201);
-    expect(response.json().dependencyLock['@platform-ai/dep'].version).toBe('1.2.0');
+    expect(response.json().dependencyLock['@alice/dep'].version).toBe('1.2.0');
   });
 
   it('marks a release as deprecated with a message, and clears the mark', async () => {
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.0.0');
+    await publish('@alice/reviewer', '1.0.0');
 
     const mark = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/deprecate',
       headers: { authorization: 'token alice-token' },
       payload: { message: 'Use 1.1.0 instead; this release ships a broken regex' }
     });
@@ -175,7 +175,7 @@ describe('Skill Release API', () => {
 
     const listed = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(listed.json().releases[0].deprecatedMessage).toBe(
@@ -184,7 +184,7 @@ describe('Skill Release API', () => {
 
     const clear = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/deprecate',
       headers: { authorization: 'token alice-token' },
       payload: { message: '' }
     });
@@ -195,17 +195,17 @@ describe('Skill Release API', () => {
 
   it('rejects deprecating a release of an archived skill', async () => {
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.0.0');
+    await publish('@alice/reviewer', '1.0.0');
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/archive',
+      url: '/api/skills/@alice/reviewer/archive',
       headers: { authorization: 'token alice-token' },
       payload: {}
     });
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/deprecate',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/deprecate',
       headers: { authorization: 'token alice-token' },
       payload: { message: 'too late' }
     });
@@ -215,12 +215,12 @@ describe('Skill Release API', () => {
 
   it('deletes a single release and burns its version number', async () => {
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.0.0');
-    await publish('@platform-ai/reviewer', '0.9.0');
+    await publish('@alice/reviewer', '1.0.0');
+    await publish('@alice/reviewer', '0.9.0');
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/0.9.0/delete',
+      url: '/api/skills/@alice/reviewer/releases/0.9.0/delete',
       headers: { authorization: 'token alice-token' },
       payload: { confirm: '0.9.0' }
     });
@@ -229,7 +229,7 @@ describe('Skill Release API', () => {
 
     const info = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(info.json().versions).toEqual(['1.0.0']);
@@ -238,17 +238,17 @@ describe('Skill Release API', () => {
     expect(info.json().packageUrl).toContain('/1.0.0/');
 
     // The deleted version number stays burned.
-    const republish = await publish('@platform-ai/reviewer', '0.9.0');
+    const republish = await publish('@alice/reviewer', '0.9.0');
     expect(republish.statusCode).toBe(409);
   });
 
   it('requires the version as confirmation before deleting a release', async () => {
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.0.0');
+    await publish('@alice/reviewer', '1.0.0');
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/delete',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/delete',
       headers: { authorization: 'token alice-token' },
       payload: { confirm: 'not-the-version' }
     });
@@ -258,24 +258,24 @@ describe('Skill Release API', () => {
 
   it('refuses to delete a release another skill depends on unless a platform administrator forces it', async () => {
     await upload('dep');
-    await publish('@platform-ai/dep', '1.0.0');
+    await publish('@alice/dep', '1.0.0');
     await upload('reviewer');
-    await publish('@platform-ai/reviewer', '1.0.0', { '@platform-ai/dep': '^1.0.0' });
+    await publish('@alice/reviewer', '1.0.0', { '@alice/dep': '^1.0.0' });
 
     const blocked = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      url: '/api/skills/@alice/dep/releases/1.0.0/delete',
       headers: { authorization: 'token alice-token' },
       payload: { confirm: '1.0.0' }
     });
 
     expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().error).toContain('@platform-ai/reviewer');
+    expect(blocked.json().error).toContain('@alice/reviewer');
 
     // A maintainer cannot force it ...
     const maintainerForce = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      url: '/api/skills/@alice/dep/releases/1.0.0/delete',
       headers: { authorization: 'token alice-token' },
       payload: { confirm: '1.0.0', force: true }
     });
@@ -285,7 +285,7 @@ describe('Skill Release API', () => {
     gitea.validateAdminUserToken = vi.fn().mockResolvedValue({ username: 'eslroot' });
     const adminForce = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/dep/releases/1.0.0/delete',
+      url: '/api/skills/@alice/dep/releases/1.0.0/delete',
       headers: { authorization: 'token admin-token' },
       payload: { confirm: '1.0.0', force: true }
     });
@@ -301,14 +301,14 @@ describe('Skill Release API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -319,7 +319,7 @@ describe('Skill Release API', () => {
           'SKILL.md': '---\nname: reviewer\n---\n',
           'release.json': JSON.stringify({
             schemaVersion: 3,
-            name: '@platform-ai/reviewer',
+            name: '@alice/reviewer',
             version: '0.1.0',
             license: 'MIT',
             keywords: [],
@@ -332,7 +332,7 @@ describe('Skill Release API', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: {
         host: 'api:3000',
         'x-forwarded-host': 'localhost:3000',
@@ -343,7 +343,7 @@ describe('Skill Release API', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git',
+      cloneUrl: 'http://localhost:3000/git/alice/reviewer.git',
       packageUrl: expect.stringContaining('http://localhost:3000/api/packages/')
     });
   });
@@ -353,7 +353,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'Apache-2.0',
         keywords: ['server'],
@@ -370,14 +370,14 @@ describe('Skill Release API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -399,7 +399,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -418,14 +418,14 @@ describe('Skill Release API', () => {
     gitea.createReleaseTag.mockRejectedValueOnce(new Error('Failed to create Gitea release tag: boom'));
     const publish = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -441,7 +441,7 @@ describe('Skill Release API', () => {
     // 用户经 repair-tag 补建 Release Tag,恢复一致
     const repair = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/repair-tag',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/repair-tag',
       headers: { authorization: 'token alice-token' }
     });
     expect(repair.statusCode).toBe(200);
@@ -449,7 +449,7 @@ describe('Skill Release API', () => {
 
     const info = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(info.statusCode).toBe(200);
@@ -468,7 +468,7 @@ describe('Skill Release API', () => {
       sourceCommit: 'abc123',
       releaseManifest: {
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -478,14 +478,14 @@ describe('Skill Release API', () => {
     };
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload
     });
 
     const duplicate = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: { ...payload, sourceCommit: 'different' }
     });
@@ -505,14 +505,14 @@ describe('Skill Release API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -536,14 +536,14 @@ describe('Skill Release API', () => {
     });
     const release = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -557,7 +557,7 @@ describe('Skill Release API', () => {
 
     const repair = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/repair-tag',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/repair-tag',
       headers: { authorization: 'token alice-token' }
     });
 
@@ -568,11 +568,11 @@ describe('Skill Release API', () => {
       sourceCommit: 'abc123'
     });
     expect(gitea.createReleaseTag).toHaveBeenLastCalledWith(
-      'platform-ai',
+      'alice',
       'reviewer',
       'v1.0.0',
       'abc123',
-      'Release @platform-ai/reviewer 1.0.0'
+      'Release @alice/reviewer 1.0.0'
     );
   });
 
@@ -585,14 +585,14 @@ describe('Skill Release API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -605,7 +605,7 @@ describe('Skill Release API', () => {
 
     const repair = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/repair-tag',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/repair-tag',
       headers: { authorization: 'token alice-token' }
     });
 
@@ -619,7 +619,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -636,14 +636,14 @@ describe('Skill Release API', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -657,7 +657,7 @@ describe('Skill Release API', () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().notes).toBe('- fix: dead-link regex\n- feat: docx batch');
     expect(gitea.createReleaseTag).toHaveBeenCalledWith(
-      'platform-ai',
+      'alice',
       'reviewer',
       'v1.0.0',
       'abc123',
@@ -666,7 +666,7 @@ describe('Skill Release API', () => {
 
     const info = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(info.json().releases[0].notes).toBe('- fix: dead-link regex\n- feat: docx batch');
@@ -677,7 +677,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -693,14 +693,14 @@ describe('Skill Release API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -713,7 +713,7 @@ describe('Skill Release API', () => {
 
     const update = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/notes',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/notes',
       headers: { authorization: 'token alice-token' },
       payload: { message: 'revised note' }
     });
@@ -722,7 +722,7 @@ describe('Skill Release API', () => {
     expect(update.json().notes).toBe('revised note');
     const info = await app.inject({
       method: 'GET',
-      url: '/api/skills/@platform-ai/reviewer',
+      url: '/api/skills/@alice/reviewer',
       headers: { authorization: 'token alice-token' }
     });
     expect(info.json().releases[0].notes).toBe('revised note');
@@ -733,7 +733,7 @@ describe('Skill Release API', () => {
       'SKILL.md': '---\nname: reviewer\n---\n',
       'release.json': JSON.stringify({
         schemaVersion: 3,
-        name: '@platform-ai/reviewer',
+        name: '@alice/reviewer',
         version: '0.1.0',
         license: 'MIT',
         keywords: [],
@@ -749,14 +749,14 @@ describe('Skill Release API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases',
+      url: '/api/skills/@alice/reviewer/releases',
       headers: { authorization: 'token alice-token' },
       payload: {
         version: '1.0.0',
         sourceCommit: 'abc123',
         releaseManifest: {
           schemaVersion: 3,
-          name: '@platform-ai/reviewer',
+          name: '@alice/reviewer',
           version: '0.1.0',
           license: 'MIT',
           keywords: [],
@@ -769,7 +769,7 @@ describe('Skill Release API', () => {
 
     const update = await app.inject({
       method: 'POST',
-      url: '/api/skills/@platform-ai/reviewer/releases/1.0.0/notes',
+      url: '/api/skills/@alice/reviewer/releases/1.0.0/notes',
       headers: { authorization: 'token bob-token' },
       payload: { message: 'revised' }
     });
