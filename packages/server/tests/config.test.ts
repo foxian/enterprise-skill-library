@@ -18,7 +18,7 @@ describe('server config', () => {
       giteaAdminUsername: 'eslroot',
       giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
-      passwordMinLength: 12,
+      passwordMinLength: 8,
       autoSeed: false,
       deploymentMode: 'multi',
       defaultOrg: undefined,

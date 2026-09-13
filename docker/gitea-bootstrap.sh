@@ -11,8 +11,10 @@ if [ -z "$GITEA_ADMIN_PASSWORD" ]; then
   exit 1
 fi
 
-if [ "${#GITEA_ADMIN_PASSWORD}" -lt 12 ]; then
-  echo "GITEA_ADMIN_PASSWORD must be at least 12 characters" >&2
+# 与 ESL/Gitea 共用同一密码最小长度(docker-compose.yml 同源变量)
+MIN_PASSWORD_LENGTH="${ESL_PASSWORD_MIN_LENGTH:-8}"
+if [ "${#GITEA_ADMIN_PASSWORD}" -lt "$MIN_PASSWORD_LENGTH" ]; then
+  echo "GITEA_ADMIN_PASSWORD must be at least $MIN_PASSWORD_LENGTH characters" >&2
   exit 1
 fi
 

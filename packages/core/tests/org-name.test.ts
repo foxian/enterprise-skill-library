@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_PASSWORD_MIN_LENGTH,
   buildGiteaUsername,
   parseGiteaUsername,
   validateMemberUsername,
@@ -47,16 +48,26 @@ describe('organization name validation', () => {
 
 describe('account and password policy', () => {
   it('accepts passwords at or above the configured minimum length', () => {
+    expect(validatePassword('a'.repeat(8), 8).success).toBe(true);
+    expect(validatePassword('a'.repeat(20), 8).success).toBe(true);
     expect(validatePassword('a'.repeat(12), 12).success).toBe(true);
     expect(validatePassword('a'.repeat(20), 12).success).toBe(true);
   });
 
   it('rejects passwords below the configured minimum length', () => {
-    const result = validatePassword('a'.repeat(11), 12);
+    const result = validatePassword('a'.repeat(7), 8);
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.errors.join(' ')).toContain('at least 12 characters');
+      expect(result.errors.join(' ')).toContain('at least 8 characters');
     }
+    const configured = validatePassword('a'.repeat(11), 12);
+    expect(configured.success).toBe(false);
+  });
+
+  it('defaults to the shared minimum length of 8', () => {
+    expect(DEFAULT_PASSWORD_MIN_LENGTH).toBe(8);
+    expect(validatePassword('a'.repeat(7)).success).toBe(false);
+    expect(validatePassword('a'.repeat(8)).success).toBe(true);
   });
 
   it('validates local member usernames with the organization naming alphabet', () => {

@@ -28,7 +28,8 @@ GITEA_ADMIN_USERNAME=eslroot
 GITEA_ADMIN_PASSWORD=change-this-admin-password
 ```
 
-`GITEA_ADMIN_PASSWORD` must be at least 12 characters. It is the initial
+`GITEA_ADMIN_PASSWORD` must be at least `ESL_PASSWORD_MIN_LENGTH` (default 8)
+characters. It is the initial
 password of the ESL Administrator Account, which signs in through the Admin
 Console (`http://localhost:3000/admin`) — never through the CLI.
 

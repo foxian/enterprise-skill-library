@@ -49,7 +49,7 @@
 2. 前端为最新构建产物：宿主机执行 `npm run build --workspace @esl/web`，随后 `docker compose up -d server` 重新部署。
 3. 平台已完成 Bootstrap，存在超管账号与 Gitea 后端。
 4. 平台必须配置 `ESL_APPLICATION_ENCRYPTION_KEY`（`.env` / Docker Secret）；未配置时注册接口返回 503（本期不作为常规用例，见 NEG 提示）。
-5. 密码最小长度默认 12（`ESL_PASSWORD_MIN_LENGTH`），与 Gitea `MIN_PASSWORD_LENGTH` 一致。
+5. 密码最小长度默认 8（`ESL_PASSWORD_MIN_LENGTH`），经 docker-compose 注入 Gitea `MIN_PASSWORD_LENGTH`，双端共用同一变量。
 
 ### DB 种子工具
 
@@ -107,11 +107,11 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 ### AUTH-13　注册页密码最小长度前端校验（P1）　关联 #16
 
 - **前置条件**：访问 `/admin/register`。
-- **测试数据**：`password` 填 11 位密码、`confirmPassword` 相同。
+- **测试数据**：`password` 填 7 位密码、`confirmPassword` 相同。
 - **操作步骤**：填写后提交。
 - **预期结果**：
-  1. 前端 `data-test="register-error"` 提示密码规则错误（最小长度 12），不提交。
-  2. 改为 12 位及以上密码后可通过，进入后续服务端校验。
+  1. 前端 `data-test="register-error"` 提示密码规则错误（最小长度 8），不提交。
+  2. 改为 8 位及以上密码后可通过，进入后续服务端校验。
 - **验证口径**：Network 面板确认短密码无 apply 请求。
 
 ### AUTH-14　注册页管理员账号固定 admin 与登录账号预览（P1）　关联 #16
@@ -126,7 +126,7 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 ### AUTH-15　自动模式注册返回 provisioning（P0）　关联 #18、#21　（真实流程，取代 AUTH-06 新断言）
 
 - **前置条件**：注册模式为 `auto`（默认；若不确定先按 SUPER-10 查看/恢复）。
-- **测试数据**：`orgName=wf<ts>`、`password/confirmPassword=<12 位以上密码>`。
+- **测试数据**：`orgName=wf<ts>`、`password/confirmPassword=<8 位以上密码>`。
 - **操作步骤**：
   1. 注册页填写并提交（`data-test="register-submit"`）。
   2. 观察注册结果区 `data-test="register-result"`。
@@ -140,7 +140,7 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 ### AUTH-16　手动模式注册返回 pending（P0）　关联 #18　（真实流程，取代 AUTH-07 新断言）
 
 - **前置条件**：超管已把注册模式切为 `manual`（SUPER-10）。
-- **测试数据**：`orgName=wf<ts>`、`password=<12 位以上密码>`。
+- **测试数据**：`orgName=wf<ts>`、`password=<8 位以上密码>`。
 - **操作步骤**：
   1. 注册页提交。
   2. 观察 `register-result`。
@@ -299,7 +299,7 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 
 - **测试数据**：`username=mem<ts>`、`password` 填 11 位。
 - **操作步骤**：打开添加弹窗填写后提交。
-- **预期结果**：前端展示密码规则错误，不提交；12 位及以上密码可通过。
+- **预期结果**：前端展示密码规则错误，不提交；8 位及以上密码可通过。
 
 ### ORG-17　添加成员用户名规则校验（P1）　关联 #16　（真实流程）
 
@@ -338,7 +338,7 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 - **预期结果**：
   1. `POST /api/orgs/members/{u}/password` 返回 `202`，`one-time-password` 弹窗展示新密码。
   2. 关闭后不再可见；用新密码登录成功。
-- **补充**：指定新密码时（12 位以上）同样返回 `202`，用指定密码可登录；短密码前端拦截。
+- **补充**：指定新密码时（8 位以上）同样返回 `202`，用指定密码可登录；短密码前端拦截。
 
 ### ORG-21　重复添加成员幂等（P1）　关联 #19　（API）
 
@@ -357,7 +357,7 @@ docker compose exec api node -e 'const db=require("better-sqlite3")("/data/esl.d
 覆盖「注册（auto）→ provisioning → active → 添加/禁用/启用成员 → 技能权限 → 删除（deleting → 移除）」完整链路，纳入新状态机断言，是重点回归用例。
 
 - **前置条件**：注册模式为 `auto`；超管密码已知；Docker 栈运行。
-- **测试数据**：`orgName=wf<ts>`、admin 密码 `<adminPass>`（12 位以上）、成员 `mem<ts>`。
+- **测试数据**：`orgName=wf<ts>`、admin 密码 `<adminPass>`（8 位以上）、成员 `mem<ts>`。
 - **操作步骤**：
   1. 注册组织 `wf<ts>`（AUTH-15）→ 断言返回 `provisioning`、显示「组织正在开通」。
   2. 轮询/等待后确认组织 `active`，用 `username=admin`、`org=wf<ts>`、`<adminPass>` 登录（AUTH-03）→ 进入 `/admin/org/members`。

@@ -18,7 +18,7 @@
 
 - 管理后台：`http://localhost:3000/admin/`；默认组织 `esl` 已开通并预置四个默认团队。
 - 组织管理员登录：用户名 `admin`、组织 `esl`、密码取仓库根 `.env` 的 `ESL_ORG_ADMIN_PASSWORD`。
-- 测试成员：经 API/UI 创建，初始密码统一 `e2e-member-password`（`MEMBER_PASSWORD`，满足 >=12 位策略）。
+- 测试成员：经 API/UI 创建，初始密码统一 `e2e-member-password`（`MEMBER_PASSWORD`，满足 >=8 位策略）。
 - 角色由服务端判定：admin 账号 ∪ system-admins 成员 → `org-admin`；其余成员 → `member`（`/api/console/login`，auth.ts）。
 
 ## 测试约定（house style，务必遵守）

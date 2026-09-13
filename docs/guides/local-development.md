@@ -16,7 +16,7 @@
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 12 个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
+| `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
 | `ESL_APPLICATION_ENCRYPTION_KEY` | ✅ | 应用层加密密钥，64 个十六进制字符（256 位）。服务启动时校验，缺失会直接报错退出。可使用 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` 生成。 |
 
 `GITEA_ADMIN_USERNAME` 默认为 `eslroot`；Gitea 1.22 在 bootstrap 用户创建时会拒绝保留用户名 `admin`。
@@ -32,7 +32,7 @@ ESL 支持两种部署模式，通过 `ESL_DEPLOYMENT_MODE` 声明，服务启�
 # 单组织模式示例
 ESL_DEPLOYMENT_MODE=single
 ESL_DEFAULT_ORG=acme
-ESL_ORG_ADMIN_PASSWORD=your-org-admin-password-at-least-12-chars
+ESL_ORG_ADMIN_PASSWORD=your-org-admin-password-at-least-8-chars
 ```
 
 单组织模式下，组织管理员初始用户名为 `org_admin`，登录时省略组织名即可（服务端按默认组织拼装账号）。平台超级管理员（`eslroot`）不受模式限制，始终可登录管理后台切换模式。
@@ -224,7 +224,7 @@ npm run reset:dev
 运行前的前置条件：
 
 - Docker Desktop 必须正在运行。
-- `.env` 中的 `GITEA_ADMIN_PASSWORD` 必须至少 12 个字符——
+- `.env` 中的 `GITEA_ADMIN_PASSWORD` 必须至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符——
   `gitea-bootstrap` 容器会验证这一点，否则以非零状态退出，
   从而阻塞整个启动过程。此密码用于在重置后重新创建
   `eslroot` 管理员。

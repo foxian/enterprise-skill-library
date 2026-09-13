@@ -59,5 +59,5 @@ export function resolveTestEnv(): E2ECredentials {
 export const SUPER_STATE = path.join(repoRoot, '.auth', 'super.json');
 export const ORG_ADMIN_STATE = path.join(repoRoot, '.auth', 'org-admin.json');
 
-/** E2E 成员初始密码(仅测试环境;密码策略只要求 >=12 位) */
+/** E2E 成员初始密码(仅测试环境;密码策略只要求 >=8 位) */
 export const MEMBER_PASSWORD = 'e2e-member-password';

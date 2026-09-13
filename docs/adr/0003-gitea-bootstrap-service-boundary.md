@@ -10,7 +10,8 @@ keeps first-run Gitea state preparation separate from normal API startup while
 allowing both operations to remain idempotent and independently testable.
 
 The initial administrator password is explicitly supplied through
-`GITEA_ADMIN_PASSWORD`, must be at least 12 characters, and is used only when
+`GITEA_ADMIN_PASSWORD`, must be at least `ESL_PASSWORD_MIN_LENGTH` (default 8,
+see ADR-0031) characters, and is used only when
 the administrator is first created. Existing administrator passwords are never
 overwritten by later `.env` changes; password rotation uses
 `esl admin account change-password` after logging in as the ESL Administrator

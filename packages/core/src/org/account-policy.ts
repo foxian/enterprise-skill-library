@@ -2,7 +2,7 @@ import type { ValidationResult } from '../schema/validation-result.js';
 
 const ACCOUNT_NAME_PATTERN = /^[a-z0-9-]+$/;
 const RESERVED_MEMBER_NAMES = new Set(['admin']);
-export const DEFAULT_PASSWORD_MIN_LENGTH = 12;
+export const DEFAULT_PASSWORD_MIN_LENGTH = 8;
 export const MAX_GITEA_USERNAME_LENGTH = 255;
 
 export function validatePassword(
