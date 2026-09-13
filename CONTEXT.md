@@ -3,16 +3,26 @@
 ## Scope
 
 Skill Identity 形式 `@scope/skill-name` 的第一段。它是机械层概念，无治理
-含义；adapt 引擎按它生成安装目录名与展示名。Scope 分两类：由 Tenant
-Organization 占用的 Namespace（ADR-0024），以及保留 Scope（`local`、
+含义；adapt 引擎按它生成安装目录名与展示名。Scope 分两类：Namespace（由
+Organization 或 Skill User 占用，ADR-0032），以及保留 Scope（`local`、
 `builtin`）。
 
 ## Namespace
 
-由 Tenant Organization 占用的 Scope。它带治理语义：随租户组织的身份而
-确定（组织名即 Namespace），为该组织内所有 Server-hosted Skill Identity
-提供唯一的组织边界；组织间技能与源码完全私有隔离。在 `@acme/code-review`
-中，Namespace 是 `acme`。保留 Scope 不是 Namespace。
+由 Organization 或 Skill User 占用的 Scope，组织名或用户名即 Namespace。
+所有 Namespace 名共享一个全局扁平名字池：组织名与用户名先到先得，保留名
+（`local`、`builtin`、`admin`、`api`、`git`、`system`）不可用，且一经占用
+不得改名（ADR-0032）。技能可见性不再由 Namespace 决定，而是逐技能的
+Public/Private 设置（见技能可见性）。在 `@acme/code-review` 中，Namespace
+是 `acme`；在 `@cnfox/my-skill` 中，Namespace 是个人命名空间 `cnfox`。
+保留 Scope 不是 Namespace。
+
+## 个人命名空间 (Personal Namespace)
+
+每个 Skill User 注册成功后自动获得的、与其用户名同名的 Namespace
+（`@用户名`）。它无需申请，是个人发布技能的默认归属；Release Manifest 中
+不带 scope 的 `name` 即指个人命名空间，显式写 `@自己的用户名/...` 与之
+等价（ADR-0032）。
 
 ## Skill Source Lifecycle
 
@@ -25,7 +35,7 @@ Skill Release 也一直存在。其格式为带 `sk_` 前缀的 ULID。
 ## Skill Rename
 
 平台管理员或 Owner 对 Server-hosted Skill Identity 执行的显式改名操作。
-Rename 只改短名，不改 scope 段；scope 段由 Tenant Organization 锁定。
+Rename 只改短名，不改 scope 段；技能不得跨命名空间移动（ADR-0032）。
 Skill ID 保持不变，旧 Identity 永久重定向到新 Identity。普通 Git push
 不得直接改变 `SKILL.md.name` 或技能身份；名称变更必须经过该流程。使用旧
 Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release 时仍允许
@@ -44,7 +54,8 @@ _Avoid_: Release 描述（当指技能当前描述时）。
 
 ## Server-hosted Skill Source
 
-技能上传至其所属 Tenant Organization 后形成的协作维护源码仓库（ADR-0024）。
+技能上传至其 Namespace 所有者名下（Organization 或 Skill User 的个人仓库）
+后形成的协作维护源码仓库（ADR-0024、ADR-0032）。
 它独立于 Skill Release 存在；其 Skill Identity 由服务器记录，源码中的
 `SKILL.md.name` 保持短名并与服务器记录的当前短名一致。源码以
 `SKILL.md` 与 Release Manifest（`release.json`）为内容；它不包含 Skill
@@ -54,7 +65,9 @@ Manifest（`skill.json`），后者只作为安装副本或 Published Skill Pack
 ## Source Upload
 
 把本地技能源码提交并推送到服务器成为 Server-hosted Skill Source 的
-esl 化操作：首次创建 Skill ID 与服务器 Git 仓库，之后对已托管源（已有
+esl 化操作：首次创建 Skill ID 与服务器 Git 仓库——技能身份取自 Release
+Manifest 的 `name` 字段（ADR-0032），指向组织命名空间时服务器校验上传者
+是该组织成员；之后对已托管源（已有
 esl remote）直接同步、跳过登记。它自动完成 git 前置（init、.gitignore、
 提交，说明可用 --message 指定），已托管源推前自动 rebase 到服务器最新并
 处理冲突，`HEAD` 与服务器源一致时报告已是最新。改名不通过修改
@@ -144,10 +157,12 @@ Bootstrap Reset）时，承诺无法延续，同一 Identity 物理上可作为�
 
 Server-hosted Skill Source 中随源码一起进行 Git 管理的 `release.json`。它声明
 服务器生成 Skill Release 和 Published Skill Package 时所需的发布属性，包括
-`schemaVersion`、`version`（SemVer，随源码走 Git 历史，见 ADR-0030）、许可
+`schemaVersion`、`name`（v3 起必填的完整 Skill Identity，技能归属的唯一权
+威来源，ADR-0032）、`version`（SemVer，随源码走 Git 历史，见 ADR-0030）、许可
 证、搜索关键词、兼容性约束和技能依赖，但不记录源码 commit、checksum、发布
 时间或发布状态。发布时，服务器从目标源码 commit
-读取并校验该清单，将其内容固化为该 Skill Release 的元数据快照；后续源码修改
+读取并校验该清单，断言 `name` 与技能既定身份一致（归属变更不得借发布顺
+车，ADR-0032），将其内容固化为该 Skill Release 的元数据快照；后续源码修改
 不影响已经创建的 Skill Release。除 `license` 外，其余字段允许为空集合，但
 字段本身必须存在。它是**发布链**的清单：只被 `upload` / `publish` 与服务器
 发布流程消费，源目录之外不出现于本地安装或适配链路。
@@ -183,63 +198,26 @@ Skill Release 创建成功前后，由 `esl version` 在本地源码中创建、
 
 _Avoid_: Skill Release，用于指代 Git tag 时。
 
-## Tenant Organization
+## Organization
 
-ESL 中完全隔离的多租户组织实体，直接映射为底层 Gitea 的一个 Organization。它为该组织内的所有 Server-hosted Skill Identity 提供唯一的 Namespace（`@scope/skill-name` 中的 scope 段）。组织间技能与源码完全私有隔离。
+npm 式组织实体，直接映射为底层 Gitea 的一个 Organization，为其名下技能
+提供 Namespace（`@scope/skill-name` 中的 scope 段）。任何 Skill User 可
+创建多个组织，创建者成为初始组织管理员。组织创建方式由平台设置
+`org_registration_mode` 决定：`auto` 同步即时创建；`manual` 走组织注册
+申请（ADR-0032）。拉人进组织的方式（邀请制 / 直接添加）为平台设置，切换权
+在 Super Administrator。
+_Avoid_: Tenant Organization（旧称）。
 
-## 部署模式 (Deployment Mode)
+## 组织注册申请 (Org Application)
 
-平台级组织规模开关，取值「单组织」与「多组织」。初始值由 Bootstrap 按部署
-场景声明（企业自部署为单组织，技能云为多组织），运行期可由 Super
-Administrator 切换。单组织模式下仅默认组织的成员可登录，其余组织整体冻结：
-组织自身状态不变，「不可登录」由平台模式推导，不引入组织级禁用状态；冻结
-组织的资产原样保留，切回多组织模式后恢复可用。单组织模式下，服务端拒绝新
-的组织注册申请（前端同步隐藏注册入口）；切换时刻已存在的待审批申请保持挂
-起，不自动拒绝。声明了默认组织的部署（单组织必填、多组织可选）在 Bootstrap
-直接以声明值（组织名与组织管理员初始凭据）触发 Tenant Organization
-Provisioning 创建该组织并设为默认组织，不走注册申请。多组织模式下，多租户
-隔离与组织注册流程照常。
-
-## 默认组织 (Default Organization)
-
-由 Super Administrator 指定、作为登录省略组织名时解析目标的组织。多组织
-模式下可不设置；设置后，CLI 与管理后台登录不填组织名即按默认组织拼装账号。
-单组织模式下必须设置，且是唯一可登录的组织（Super Administrator 的管理后
-台登录不受此限）。部署模式切换时该设置保留。默认组织不可直接删除，必须先
-更换默认组织或切回多组织模式。单组织模式下更换默认组织等同于整体换锁：原
-组织立即冻结、新组织立即可用，须显式确认。
-
-## Tenant Organization Provisioning
-
-将已接受的组织注册申请变为可使用 Tenant Organization 的可恢复跨系统工作流。只有 Gitea Organization、Organization Admin、Owner 关系与两个默认 Organization Team 都完成后，Tenant Organization 才可用。
-
-## Provisioning Credential
-
-为完成 Tenant Organization Provisioning 而暂时保存的申请人凭据密文。它只能由服务端使用，开通成功、申请终止或凭据不再需要时必须删除，不能作为普通查询结果或日志内容暴露。
-
-## Provisioning State
-
-描述跨系统资源开通进度的持久化状态，包括 `pending`、`provisioning`、`active` 和 `failed`；只有 `active` 的 Tenant Organization 对正常用户可用。
-
-## Provisioning Lease
-
-执行器为处理 Provisioning State 而持有的短期租约，用于防止多个执行器同时推进同一项跨系统变更。租约过期后，未完成的工作可被其他执行器重新领取。
-
-## Resource Provenance
-
-跨系统资源与本次 ESL 操作之间的可验证归属关系。只有能够确认由当前操作创建、且未被外部资源依赖的资源，才允许自动补偿删除。
-
-## Operation
-
-一次需要跨越 ESL 数据库与 Git Backend 的可恢复变更记录。它包含操作类型、目标资源、幂等键、当前状态、Provisioning Lease、重试次数和脱敏失败原因，但不取代 Git Backend 作为成员、团队和仓库权限的事实来源。部分状态变更类操作（如申请拒绝、取消、过期）本身没有 Git Backend 副作用，仍以 Operation 承载幂等键并作为审计记录的锚点。
+`manual` 模式下 Skill User 提交的创建组织申请。提交时即查重：组织名已
+存在、或已有同名待审申请时直接拒绝，冲突不会到达审批环节；Super
+Administrator 拒绝申请即释放该名字。批准后组织同步创建，申请人成为组织
+管理员（ADR-0032）。
 
 ## Organization Deletion State
 
-Tenant Organization 删除任务的生命周期状态，包括 `deleting`、完成和 `delete_failed`。处于 `deleting` 或 `delete_failed` 的组织禁止正常登录及资产变更，直到删除完成或由 ESL Platform Administrator 恢复处理。
-
-## Operation Idempotency Key
-
-用于识别同一跨系统操作的稳定业务键。组织申请使用规范化组织名，审批和删除分别使用申请标识或组织名与操作类型组合；重复请求返回既有 Operation 状态，不重复调用 Git Backend。
+Organization 删除任务的生命周期状态，包括 `deleting`、完成和 `delete_failed`。处于 `deleting` 或 `delete_failed` 的组织禁止正常登录及资产变更，直到删除完成或由 ESL Platform Administrator 恢复处理。
 
 ## Skill User Password Policy
 
@@ -247,16 +225,19 @@ ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行�
 
 ## Organization Admin
 
-组织内的最高管理与治理角色：管理成员、团队与权限矩阵，可见并管理全部技能。由两类持有者构成：组织创建时自动生成的管理账号（Gitea 用户名 `<orgname>_admin`，担任该 Gitea Organization 的唯一 Owner），以及系统管理团队的成员。
-
-## Organization-scoped Account Name
-
-组织成员在 Gitea 中的账号名，形式为 `<org>_<username>`。它是平台内部账号命名约定，不属于用户可见的产品术语：CLI 与管理后台登录均以「组织 + 用户名」两个字段提交，由 ESL Server 负责拼装与归属校验（见 ADR-0020）。组织名与成员用户名都不允许下划线，因此该拼接可唯一解析、不会歧义。
-_Avoid_: 用 `org_username` 当作面向用户的登录输入。
+组织内的最高管理与治理角色，即该 Gitea Organization 的 Owners 团队（组织
+管理员团队）成员；组织创建者是初始成员。所有组织管理员均可管理成员、团队
+与组织设置，并可见、管理本组织名下全部技能（ADR-0032）。`<org>_admin`
+专用管理账号与系统管理团队已随多租户账号模型废止。
 
 ## Organization Team
 
-组织内部创建的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的仓库访问级别（Read、Write 或 Manage）。组织初始化时自动创建四个默认团队：三个全员团队 `all-readers`（Read）、`all-writers`（Write）、`all-managers`（Manage），成员自动同步为全部组织成员，仅能被授予指定仓库且不持有建库权；以及系统管理团队。默认团队不可删除、不可改名，全员团队的成员列表不可手动增删；自定义团队可创建、改名、删除。Gitea 默认的 Owners 团队不属于团队管理界面，且仅含组织 admin 账号；三个全员团队同样不展示于团队管理界面——其授权由组织共享级别承载，团队管理页只列自定义团队与系统管理团队。
+组织内部的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的
+技能访问级别（Read、Write 或 Manage），是技能权限矩阵中的批量授权载体；
+团队由组织管理员管理。每个组织自动创建四个常设团队：组织只读团队
+（Read）、组织读写团队（Write）、组织技能管理团队（Manage）与组织管理员
+团队（Owners）；成员加入组织时自动加入前三个常设团队，离开组织时自动移
+出。常设团队不可删除、不可改名；自定义团队可创建、改名、删除（ADR-0032）。
 
 ## 团队标识名 (Team Identifier)
 
@@ -268,13 +249,12 @@ _Avoid_: 团队名（当指团队显示名时）。
 Organization Team 面向人的展示名，与团队标识名解耦，可用中文。它是纯展示概念，不参与唯一性、默认团队识别或授权判定；未设置时回退展示团队标识名。默认团队由平台预置显示名（如 `system-admins` → 系统管理团队）。
 _Avoid_: 团队名（当指团队标识名时）。
 
-## 系统管理团队 (System Management Team)
+## 技能可见性 (Skill Visibility)
 
-组织管理权的委托载体（Gitea 团队 `system-admins`）。其成员与组织 admin 账号持有相同的组织管理权限，并持有全部技能仓库的管理员权限与 Git Backend 建库权。组织 admin 账号自动加入且不可移出，其余成员由持有组织管理权者手动增删。它不映射 Gitea Owners 团队。
-
-## 组织共享级别 (Org Sharing Level)
-
-技能对其所在 Tenant Organization 全体成员的开放程度。取值互斥：私有、全员只读、全员读写、全员管理；设置更高级别即取代低级别。个人授权与自定义团队授权与其正交，不受级别影响。
+逐技能设置的开放程度，由组织管理员或技能 Maintainer 切换。`public`：
+平台内所有 Skill User 都可搜索、安装；`private`（默认）：仅 Maintainer 与
+被授权的团队、成员可见可安装。组织成员对组织内 private 技能默认没有任何
+权限，授权通过共享给常设团队或逐技能添加团队、成员实现（ADR-0032）。
 
 ## Super Administrator
 
@@ -282,12 +262,12 @@ ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_U
 
 ## 管理后台 (Admin Console)
 
-ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载三类角色：Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）与普通成员（`/admin/member/`），通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由 ESL Server 判定并随登录响应返回，客户端不自行按命名约定推导。
+ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载三类视角：Super Administrator（`/admin/super/`，申请审批与平台设置）、Organization Admin（`/admin/org/`，成员与团队管理）与普通成员（`/admin/member/`，跨命名空间聚合的个人中心——个人与所有所在组织的技能，按 managed/shared 标注），通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由 ESL Server 判定并随登录响应返回，客户端不自行按命名约定推导。
 _Avoid_: Web Console，当指代该 Web 界面时（易被误解为网页终端）；后台，当单独指代 ESL Server 或 Git Backend 时。
 
 ## 技能管理页面 (Skill Management Page)
 
-管理后台中面向单个 Server-hosted Skill 的管理界面：承载其权限矩阵的查看与配置（组织共享级别、团队授权与成员授权），由超管、组织管理员与普通成员三种角色视角共用；普通成员视角按其权限为只读。
+管理后台中面向单个 Server-hosted Skill 的管理界面：承载其权限矩阵的查看与配置（团队授权与成员授权，含对常设团队的授权）与技能可见性切换，由超管、组织管理员与普通成员三种角色视角共用；普通成员视角按其权限为只读。
 _Avoid_: 技能权限页面、权限页（旧称）。
 
 ## Local Scope
@@ -341,8 +321,11 @@ an installed copy or a Published Skill Package.
 ## Skill Identity
 
 The current full skill name in the form `@scope/skill-name`. For Server-hosted
-skills the scope is its Namespace; for reserved scopes it is `local` or
-`builtin`. It can change only through Skill Rename; Skill ID is the stable
+skills the scope is its Namespace (held by an Organization or the publishing
+Skill User); for reserved scopes it is `local` or `builtin`. It is declared in
+the Release Manifest `name` field and fixed at first Source Upload; `publish`
+asserts it has not changed. It can change only through Skill Rename (short
+name only — never across namespaces, ADR-0032); Skill ID is the stable
 identifier across renames.
 
 ## Skill Release
@@ -406,9 +389,10 @@ The current business owner or platform owner of the skill.
 ## Maintainers
 
 对该技能持有管理权（Manage Permission）的用户或团队。管理权涵盖：修改
-Server-hosted Skill Source、发布 Skill Release、配置技能权限（共享与授权），
-以及授予和撤销他人的管理权。技能创建者自动成为初始 Maintainer；管理权可
-授予组织成员或 Organization Team，也可被撤销。
+Server-hosted Skill Source、发布 Skill Release、配置技能权限（授权与可见
+性），以及授予和撤销他人的管理权。技能创建者自动成为初始 Maintainer——
+在组织命名空间下，任何组织成员都可创建技能；管理权可授予组织成员或
+Organization Team，也可被撤销。
 
 ## ESL Platform Administrator
 
@@ -435,21 +419,21 @@ _Avoid_: Gitea administrator when referring to a human ESL Platform Administrato
 ## Skill User
 
 An authenticated person who can log in to ESL and consume, create, publish, or
-maintain skills according to their permissions.
+maintain skills according to their permissions. 身份全局唯一（即 Gitea 用户
+名，无组织前缀），通过用户注册获得，可同时属于多个 Organization，注册成功
+即拥有个人命名空间（ADR-0032）。
+
+## 用户注册 (User Registration)
+
+Skill User 自助创建全局账号的入口（服务端经 Git Backend 管理员 API 创建
+账号，用户自设密码）。模式由平台设置 `registration_mode` 决定：`open`
+（默认）注册即用；`approval` 需 Super Administrator 审批激活（ADR-0032）。
 
 ## Skill User Credential
 
 A username and password pair that a Skill User presents to log in to ESL. The
 password is hosted and validated by Gitea; ESL never stores the password
 itself.
-
-## Skill User Initial Password
-
-The password a Skill User uses to log in for the first time. It is generated
-randomly when the user is created and shown to the platform administrator
-exactly once for hand-off, or it may be supplied by the administrator. It may be
-changed by the Skill User afterwards.
-_Avoid_: default password, temporary password
 
 ## Skill User Password Change
 
