@@ -1,16 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   OrgApplicationRepository,
-  OperationAuditRepository,
   PlatformSettingsRepository,
   SkillRepository,
-  OperationRepository,
   TenantOrganizationRepository,
   UserRegistrationRepository
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
-import type { OperationExecutor } from '../services/operation-executor.js';
 import { initializeOrganization } from '../services/org-init.js';
+import { runOrganizationDeletion } from '../services/org-delete.js';
 import { validateOrgName, validatePassword } from '@esl/core';
 
 export interface OrgAdminRouteOptions {
@@ -18,12 +16,8 @@ export interface OrgAdminRouteOptions {
   orgApplicationRepository: OrgApplicationRepository;
   platformSettingsRepository: PlatformSettingsRepository;
   skillRepository: SkillRepository;
-  operationRepository: OperationRepository;
-  operationAuditRepository: OperationAuditRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
   userRegistrationRepository: UserRegistrationRepository;
-  operationExecutor: OperationExecutor;
-  applicationEncryptionKey?: string;
 }
 export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRouteOptions): void {
   const { giteaService, orgApplicationRepository, platformSettingsRepository, skillRepository } = options;
@@ -93,27 +87,14 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (application.status !== 'pending') {
       return reply.status(409).send({ error: 'Only pending applications can be cancelled' });
     }
-    // 取消没有外部副作用,Operation 仅作为幂等键与审计锚点。
-    const operation = options.operationRepository.createOperation({
-      idempotencyKey: `organization.cancel:${id}`,
-      kind: 'organization.cancel',
-      payload: { orgName: application.orgName, applicationId: id }
-    });
+    // 取消即释放名字（ADR-0032）：状态翻转，无外部副作用。
     orgApplicationRepository.updateApplicationStatusById(id, 'cancelled');
-    orgApplicationRepository.clearEncryptedPasswordById(id);
     // 取消仅撤回尚未进入开通流程的申请;已进入 provisioning/failed 的组织
     // 由管理员经审批重试或删除流程处理,不随申请取消而变更状态。
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
     if (tenant && tenant.status === 'pending') {
       options.tenantOrganizationRepository.transition(application.orgName, 'cancelled');
     }
-    options.operationAuditRepository.record({
-      operationId: operation.id,
-      event: 'organization.cancel',
-      actor: admin.username,
-      details: { orgName: application.orgName }
-    });
-    void options.operationExecutor.process(operation.id);
     return { status: 'cancelled', orgName: application.orgName };
   });
 
@@ -214,8 +195,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
           skillCount: skillRepository.countSkillsByScope(org.name),
           createdAt: org.created,
           status: tenant?.status ?? null,
-          lastError: tenant?.lastError ?? null,
-          operationId: tenant?.operationId ?? null
+          lastError: tenant?.lastError ?? null
         };
       })
     );
@@ -230,20 +210,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         skillCount: skillRepository.countSkillsByScope(tenant.orgName),
         createdAt: tenant.createdAt,
         status: tenant.status,
-        lastError: tenant.lastError,
-        operationId: tenant.operationId
+        lastError: tenant.lastError
       });
     }
     return views;
-  });
-
-  app.get('/api/admin/operations/:id/audits', async (request, reply) => {
-    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
-    const id = Number((request.params as { id: string }).id);
-    if (!options.operationRepository.getOperation(id)) {
-      return reply.status(404).send({ error: 'Operation not found' });
-    }
-    return options.operationAuditRepository.listByOperation(id);
   });
 
   app.delete('/api/admin/orgs/:orgName', async (request, reply) => {
@@ -254,60 +224,28 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (confirm !== orgName) {
       return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
     }
-    // 只有 ESL 开通的组织(具备 Resource Provenance)才允许自动删除;
-    // 未登记的组织(含平台组织)一律拒绝,防止误删外部资源。
+    // 只有 ESL 开通的组织才允许自动删除;未登记的组织一律拒绝,防止误删外部资源。
     const tenant = options.tenantOrganizationRepository.get(orgName);
     if (!tenant) {
       return reply.status(404).send({ error: 'Organization not found or not managed by ESL' });
     }
-    // 幂等键为组织名 + 删除:重复请求返回既有 Operation 状态,
-    // 不重复执行删除副作用。
-    const existing = options.operationRepository.getOperationByIdempotencyKey(
-      `organization.delete:${orgName}`
-    );
-    if (existing) {
-      return { status: existing.status, orgName, operationId: existing.id };
+    // 同步删除（ADR-0032）：Git Backend 清理 + 平台记录一次完成，不再走
+    // 可恢复工作流；失败原样返回，管理员重试即可。
+    try {
+      options.tenantOrganizationRepository.transition(orgName, 'deleting');
+      await runOrganizationDeletion(
+        {
+          giteaService: options.giteaService,
+          skillRepository: options.skillRepository,
+          tenantOrganizationRepository: options.tenantOrganizationRepository
+        },
+        orgName
+      );
+    } catch (error) {
+      // 失败原因已由删除流程写入租户状态（delete_failed + lastError）
+      return reply.status(409).send({ error: `Organization deletion failed: ${(error as Error).message}`, retryable: true });
     }
-    const operation = options.operationRepository.createOperation({
-      idempotencyKey: `organization.delete:${orgName}`,
-      kind: 'organization.delete',
-      payload: { orgName }
-    });
-    options.tenantOrganizationRepository.transition(orgName, 'deleting');
-    options.tenantOrganizationRepository.setOperationId(orgName, operation.id);
-    options.operationAuditRepository.record({
-      operationId: operation.id,
-      event: 'organization.delete',
-      actor: admin.username,
-      details: { orgName }
-    });
-    void options.operationExecutor.process(operation.id);
-    return reply.status(202).send({ status: 'deleting', orgName, operationId: operation.id });
-  });
-
-  app.post('/api/admin/operations/:id/retry', async (request, reply) => {
-    const admin = await requireSuperAdministrator(request, reply, giteaService);
-    if (!admin) return;
-    const id = Number((request.params as { id: string }).id);
-    const operation = options.operationRepository.retryOperation(id);
-    if (!operation) return reply.status(404).send({ error: 'Retryable operation not found' });
-    if (operation.kind === 'organization.delete') {
-      const payload = operation.payload as { orgName: string };
-      options.tenantOrganizationRepository.transition(payload.orgName, 'deleting');
-    }
-    if (operation.kind === 'organization.provision') {
-      // 重试只允许 failed -> provisioning(ADR-0017),开通完成后再进入 active。
-      const payload = operation.payload as { orgName: string };
-      options.tenantOrganizationRepository.transition(payload.orgName, 'provisioning');
-    }
-    options.operationAuditRepository.record({
-      operationId: id,
-      event: 'operation.retry',
-      actor: admin.username,
-      details: { kind: operation.kind }
-    });
-    void options.operationExecutor.process(id);
-    return { status: 'pending', operationId: id };
+    return { status: 'deleted', orgName };
   });
 
   function getRegistrationMode(): string {
@@ -321,7 +259,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 function toApplicationView(application: {
   id: number;
   orgName: string;
-  adminDisplayName: string;
+  applicantUsername: string;
   status: string;
   createdAt: string;
   updatedAt: string;
@@ -329,7 +267,7 @@ function toApplicationView(application: {
   return {
     id: application.id,
     orgName: application.orgName,
-    adminDisplayName: application.adminDisplayName,
+    applicantUsername: application.applicantUsername,
     status: application.status,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt

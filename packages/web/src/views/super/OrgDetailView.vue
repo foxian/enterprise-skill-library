@@ -19,25 +19,17 @@
     <el-alert
       v-if="summary?.lastError"
       type="error"
-      :title="`失败原因：${summary.lastError.message}`"
-      :description="`错误码：${summary.lastError.code}`"
+      :title="`失败原因：${summary.lastError}`"
       :closable="false"
       class="page-error"
       data-test="org-last-error"
     />
-    <div
-      v-if="(summary?.status === 'delete_failed' || summary?.status === 'failed') && summary?.operationId"
-      class="retry-row"
-    >
-      <el-button type="warning" data-test="retry-operation" :loading="retrying" @click="retryOperation">
-        重试处理流程
-      </el-button>
-    </div>
 
     <el-card class="danger-zone" data-test="danger-zone">
       <template #header>危险操作</template>
       <p class="danger-hint">
-        删除组织将移除其全部技能仓库、成员账号与关联数据，操作不可恢复。
+        删除组织将移除其全部技能仓库与关联数据（成员是全局账号，不受影响），操作不可恢复。
+        删除失败时可再次点击删除重试。
       </p>
       <el-input
         v-model="confirmInput"
@@ -80,8 +72,7 @@ interface OrgSummary {
   skillCount: number;
   createdAt?: string;
   status?: string | null;
-  lastError?: { code: string; message: string; details: Record<string, unknown> } | null;
-  operationId?: number | null;
+  lastError?: string | null;
 }
 
 const route = useRoute();
@@ -92,7 +83,6 @@ const summary = ref<OrgSummary | null>(null);
 const confirmInput = ref('');
 const dialogVisible = ref(false);
 const deleting = ref(false);
-const retrying = ref(false);
 const errorMessage = ref('');
 
 function formatTime(value?: string): string {
@@ -111,20 +101,6 @@ async function loadSummary(): Promise<void> {
 
 function confirmDelete(): void {
   dialogVisible.value = true;
-}
-
-async function retryOperation(): Promise<void> {
-  if (!summary.value?.operationId) return;
-  retrying.value = true;
-  try {
-    await apiRequest(`/api/admin/operations/${summary.value.operationId}/retry`, { method: 'POST' });
-    ElMessage.success('已重新提交处理流程');
-    await loadSummary();
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    retrying.value = false;
-  }
 }
 
 async function deleteOrg(): Promise<void> {

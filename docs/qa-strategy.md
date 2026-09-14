@@ -7,17 +7,17 @@
 **Out of scope:** 性能压测（当前无容量压力）、视觉回归、无障碍专项（Web 后台内部工具，Element Plus 自带基础语义）、AI/LLM 特性（本产品消费技能而非生成内容）。
 
 **Objectives（截至 2026-Q4）:**
-1. 权限判定（canManageSkill / getAccessLevel）与 inventory 隔离逻辑达到**分支全覆盖**——这是 CRITICAL 风险区（见 §4）。
+1. 权限判定（canManageSkill / getAccessLevel）与 inventory 可见性过滤逻辑达到**分支全覆盖**——这是 CRITICAL 风险区（见 §4）。
 2. 建立可重复的合入门禁：`npm test` 三套全绿是合入前置（当前已是事实，落成文档 + 可选 CI）。
 3. 引入最小浏览器 E2E：覆盖 3 条关键旅程（超管技能总览、成员双 Tab、组织管理员代管权限），目标套件 <5min。
-4. 所有跨系统变更（Operation）的幂等/重试路径有测试锚定，防止孤儿资源回归。
+4. 所有跨系统变更（Gitea 建仓/删除/权限）的失败与重试路径有测试锚定，防止孤儿资源回归。Operation/Provisioning 机器已在 ADR-0032 退役，相关用例随之删除。
 
 ## 2. Test Levels & Types
 
 | 层级 | 验证内容 | Owner | 框架 | 目标规模 | 频率 |
 |------|---------|-------|------|---------|------|
 | 纯单元 | core 领域函数（账号解析、Manifest 校验、权限推导） | Dev | Vitest | 当前缺失，补齐 | 每次提交 |
-| API/集成 | server 路由 + Operation + SQLite + Gitea mock | Dev | Vitest + `app.inject()` | 主层（当前 321） | 每次提交 |
+| API/集成 | server 路由 + SQLite + Gitea mock（全局账号语义） | Dev | Vitest + `app.inject()` | 主层 | 每次提交 |
 | 命令级 | cli 命令解析/网络/错误路径 | Dev | Vitest | 当前 221 | 每次提交 |
 | 组件 | web 视图/权限面板/路由守卫 | Dev | Vitest + @vue/test-utils | 当前 81 | 每次提交 |
 | E2E | 关键旅程（§1-3） | Dev | Playwright（新增） | 3 条旅程 ≤10 用例 | 合入/夜跑 |
@@ -35,8 +35,8 @@
 | 领域 | 影响 | 可能性 | 得分 | 测试对策 |
 |------|------|--------|------|---------|
 | 权限判定与三档授权 | 5 | 3 | 15 CRIT | 纯函数单测 + API 集成 + 每提交 |
-| 多租户隔离（scope 过滤） | 5 | 3 | 15 CRIT | inventory/搜索跨组织负用例 |
-| Operation 幂等与 Gitea 一致性 | 4 | 3 | 12 HIGH | 幂等键/重试/补偿测试锚定 |
+| 可见性与命名空间边界（public / private / scope） | 5 | 3 | 15 CRIT | inventory/搜索/安装的正负用例 |
+| Gitea 一致性与失败重试 | 4 | 3 | 12 HIGH | 建仓/删除失败与重试测试锚定 |
 | 发布链不可变 | 4 | 2 | 8 MED | checksum/Tag/依赖锁测试 |
 | 超管治理边界（冻结组织放行） | 3 | 2 | 6 MED | 门禁正/负用例 |
 | Web 权限 UI 可及性 | 2 | 4 | 8 MED | 组件测试覆盖 403 降级 |

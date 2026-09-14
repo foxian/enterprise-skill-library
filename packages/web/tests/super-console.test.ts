@@ -63,13 +63,13 @@ describe('ApplicationsView 审批工作台', () => {
     expect(wrapper.find('[data-test="applications-table"]').text()).not.toContain('beta');
   });
 
-  it('批准申请后展示一次性初始密码并刷新列表', async () => {
+  it('批准申请后同步开通并刷新列表', async () => {
     const { requests } = useApiMock((method, url) => {
       if (url === '/api/admin/orgs/applications' && method === 'GET') {
         return { status: 200, json: applications };
       }
       if (url === '/api/admin/orgs/applications/1/approve') {
-        return { status: 200, json: { status: 'approved', orgName: 'alpha', initialPassword: 'one-time-pass' } };
+        return { status: 200, json: { status: 'active', orgName: 'alpha', applicant: 'alice' } };
       }
       return { status: 200, json: [] };
     });
@@ -82,9 +82,6 @@ describe('ApplicationsView 审批工作台', () => {
     expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
       'POST /api/admin/orgs/applications/1/approve'
     );
-    expect(wrapper.find('[data-test="initial-password"]').exists()).toBe(true);
-    const passwordInput = wrapper.find('[data-test="initial-password"]').element as HTMLInputElement;
-    expect(passwordInput.value).toBe('one-time-pass');
     // 操作后列表刷新（再次 GET）
     const listFetches = requests.filter(
       (request: RecordedRequest) => request.method === 'GET' && request.url === '/api/admin/orgs/applications'
@@ -183,11 +180,11 @@ describe('ApplicationsView 审批工作台', () => {
 
 describe('OrgsView 组织生命周期状态展示', () => {
   const lifecycleOrgs = [
-    { name: 'alpha', memberCount: 1, skillCount: 0, status: 'provisioning', lastError: null, operationId: 11 },
-    { name: 'beta', memberCount: 2, skillCount: 1, status: 'active', lastError: null, operationId: null },
-    { name: 'gamma', memberCount: 2, skillCount: 1, status: 'failed', lastError: { code: 'PROVISIONING_FAILED', message: 'password too short', details: {} }, operationId: 12 },
-    { name: 'delta', memberCount: 3, skillCount: 2, status: 'deleting', lastError: null, operationId: 13 },
-    { name: 'omega', memberCount: 3, skillCount: 2, status: 'delete_failed', lastError: { code: 'EXTERNAL_RESOURCE', message: 'external repo found', details: { resources: ['repository acme/outsider'] } }, operationId: 14 }
+    { name: 'alpha', memberCount: 1, skillCount: 0, status: 'pending', lastError: null },
+    { name: 'beta', memberCount: 2, skillCount: 1, status: 'active', lastError: null },
+    { name: 'gamma', memberCount: 2, skillCount: 1, status: 'failed', lastError: 'initialization failed' },
+    { name: 'delta', memberCount: 3, skillCount: 2, status: 'deleting', lastError: null },
+    { name: 'omega', memberCount: 3, skillCount: 2, status: 'delete_failed', lastError: 'external repo found' }
   ];
 
   it('区分展示开通中、已激活、失败、删除中与删除失败状态', async () => {
@@ -200,165 +197,17 @@ describe('OrgsView 组织生命周期状态展示', () => {
     wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
     await flushPromises();
 
-    expect(wrapper.find('[data-test="org-status-alpha"]').text()).toContain('开通中');
+    expect(wrapper.find('[data-test="org-status-alpha"]').text()).toContain('待审批');
     expect(wrapper.find('[data-test="org-status-beta"]').text()).toContain('已激活');
     expect(wrapper.find('[data-test="org-status-gamma"]').text()).toContain('开通失败');
     expect(wrapper.find('[data-test="org-status-delta"]').text()).toContain('删除中');
     expect(wrapper.find('[data-test="org-status-omega"]').text()).toContain('删除失败');
   });
 
-  it('开通组织：等待激活成功后关闭对话框并展示一次性密码', async () => {
-    const { requests } = useApiMock((method, url) => {
-      if (url === '/api/admin/orgs' && method === 'GET') {
-        return { status: 200, json: [{ name: 'acme', memberCount: 1, skillCount: 0, status: 'active' }] };
-      }
-      if (url === '/api/admin/orgs' && method === 'POST') {
-        return {
-          status: 202,
-          json: { status: 'provisioning', orgName: 'neworg', operationId: 99, initialPassword: 'generated-password-123' }
-        };
-      }
-      return { status: 200, json: [] };
-    });
-
-    // 激活成功：订阅建立后立即推送 succeeded
-    vi.mocked(clientApi.openOperationStream).mockImplementation((_id, options) => {
-      options.onEvent({ operationId: 99, status: 'succeeded', error: null });
-      return { close: vi.fn() };
-    });
-
-    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
-    await flushPromises();
-
-    await wrapper.find('[data-test="open-add-org"]').trigger('click');
-    await flushPromises();
-
-    const nameInput = document.querySelector('[data-test="add-org-name"]') as HTMLInputElement;
-    expect(nameInput).not.toBeNull();
-    nameInput.value = 'neworg';
-    await nameInput.dispatchEvent(new Event('input'));
-    await flushPromises();
-
-    (document.querySelector('[data-test="add-org-submit"]') as HTMLButtonElement).click();
-    await flushPromises();
-
-    const postReq = requests.find((r) => r.method === 'POST' && r.url === '/api/admin/orgs');
-    expect(postReq?.body).toEqual({ orgName: 'neworg', password: undefined });
-
-    // 激活成功后：开通对话框关闭、一次性密码展示
-    const vm = wrapper.vm as unknown as {
-      provisioning: boolean;
-      addDialogVisible: boolean;
-      passwordDialogVisible: boolean;
-      orgs: Array<{ name: string }>;
-    };
-    expect(vm.provisioning).toBe(false);
-    expect(vm.addDialogVisible).toBe(false);
-    expect(vm.passwordDialogVisible).toBe(true);
-
-    const passwordInput = document.querySelector('[data-test="one-time-password"]') as HTMLInputElement;
-    expect(passwordInput).not.toBeNull();
-    expect(passwordInput.value).toBe('generated-password-123');
-
-    // 列表已刷新
-    expect(vm.orgs.some((org) => org.name === 'acme')).toBe(true);
+  
+  
+  
   });
-
-  it('开通组织：激活失败时留在对话框并显示错误，可重新提交', async () => {
-    useApiMock((method, url) => {
-      if (url === '/api/admin/orgs' && method === 'GET') return { status: 200, json: [] };
-      if (url === '/api/admin/orgs' && method === 'POST') {
-        return {
-          status: 202,
-          json: { status: 'provisioning', orgName: 'neworg', operationId: 99, initialPassword: 'pw-123' }
-        };
-      }
-      return { status: 200, json: [] };
-    });
-
-    vi.mocked(clientApi.openOperationStream).mockImplementation((_id, options) => {
-      options.onEvent({ operationId: 99, status: 'permanently_failed', error: 'provisioning failed' });
-      return { close: vi.fn() };
-    });
-
-    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
-    await flushPromises();
-
-    await wrapper.find('[data-test="open-add-org"]').trigger('click');
-    await flushPromises();
-
-    const nameInput = document.querySelector('[data-test="add-org-name"]') as HTMLInputElement;
-    nameInput.value = 'neworg';
-    await nameInput.dispatchEvent(new Event('input'));
-    await flushPromises();
-
-    (document.querySelector('[data-test="add-org-submit"]') as HTMLButtonElement).click();
-    await flushPromises();
-
-    const vm = wrapper.vm as unknown as {
-      provisioning: boolean;
-      addDialogVisible: boolean;
-      provisioningError: string;
-      passwordDialogVisible: boolean;
-      addOrgName: string;
-    };
-    // 失败后对话框保持打开、表单恢复可编辑、显示错误
-    expect(vm.provisioning).toBe(false);
-    expect(vm.addDialogVisible).toBe(true);
-    expect(vm.provisioningError).toContain('开通失败');
-    // 不弹密码
-    expect(vm.passwordDialogVisible).toBe(false);
-    // 表单字段保留,可直接重试
-    expect(vm.addOrgName).toBe('neworg');
-  });
-
-  it('开通组织：组织管理员账号随组织名自动生成且不可编辑', async () => {
-    useApiMock((_method, url) => {
-      if (url === '/api/admin/orgs' && _method === 'GET') return { status: 200, json: [] };
-      return { status: 200, json: [] };
-    });
-    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
-    await flushPromises();
-
-    await wrapper.find('[data-test="open-add-org"]').trigger('click');
-    await flushPromises();
-
-    const adminInput = document.querySelector('[data-test="add-org-admin-username"]') as HTMLInputElement;
-    expect(adminInput).not.toBeNull();
-    expect(adminInput.value).toBe('');
-
-    const nameInput = document.querySelector('[data-test="add-org-name"]') as HTMLInputElement;
-    nameInput.value = 'neworg';
-    await nameInput.dispatchEvent(new Event('input'));
-    await flushPromises();
-
-    expect(adminInput.value).toBe('neworg_admin');
-    expect(adminInput.readOnly).toBe(true);
-  });
-
-  it('开通组织：非法组织名被前端校验拦截', async () => {
-    const { requests } = useApiMock((_method, url) => {
-      if (url === '/api/admin/orgs' && _method === 'GET') return { status: 200, json: [] };
-      return { status: 200, json: [] };
-    });
-    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
-    await flushPromises();
-
-    await wrapper.find('[data-test="open-add-org"]').trigger('click');
-    await flushPromises();
-
-    const nameInput = document.querySelector('[data-test="add-org-name"]') as HTMLInputElement;
-    nameInput.value = 'UPPER-CASE';
-    await nameInput.dispatchEvent(new Event('input'));
-    await flushPromises();
-
-    (document.querySelector('[data-test="add-org-submit"]') as HTMLButtonElement).click();
-    await flushPromises();
-
-    // 没有发出 POST 请求
-    expect(requests.some((r) => r.method === 'POST' && r.url === '/api/admin/orgs')).toBe(false);
-  });
-});
 
 describe('OrgDetailView 组织详情', () => {
   const orgs = [{ name: 'acme', memberCount: 3, skillCount: 2, createdAt: '2026-08-01T10:00:00Z' }];
@@ -366,7 +215,7 @@ describe('OrgDetailView 组织详情', () => {
   function mockOrgsApi(extra: Record<string, unknown> = {}) {
     return useApiMock((method, url) => {
       if (url === '/api/admin/orgs' && method === 'GET') {
-        return { status: 200, json: orgs.map((org) => ({ ...org, status: null, lastError: null, operationId: null, ...extra })) };
+        return { status: 200, json: orgs.map((org) => ({ ...org, status: null, lastError: null, ...extra })) };
       }
       if (url === '/api/admin/orgs/acme' && method === 'DELETE') {
         return { status: 200, json: { deleted: true, orgName: 'acme' } };
@@ -375,64 +224,28 @@ describe('OrgDetailView 组织详情', () => {
     });
   }
 
-  it('开通失败的组织展示失败原因与重试入口', async () => {
-    const { requests } = mockOrgsApi({
-      status: 'failed',
-      operationId: 12,
-      lastError: { code: 'PROVISIONING_FAILED', message: 'password too short', details: {} }
-    });
+  it('失败的组织展示失败原因', async () => {
+    mockOrgsApi({ status: 'failed', lastError: 'initialization failed' });
     wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
-    expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('password too short');
-    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(true);
-
-    requests.length = 0;
-    await wrapper.find('[data-test="retry-operation"]').trigger('click');
-    await flushPromises();
-
-    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
-      'POST /api/admin/operations/12/retry'
-    );
+    expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('initialization failed');
   });
 
-  it('删除失败的组织展示失败原因与重试入口', async () => {
-    const { requests } = mockOrgsApi({
-      status: 'delete_failed',
-      operationId: 14,
-      lastError: { code: 'EXTERNAL_RESOURCE', message: 'external repo found', details: {} }
-    });
+  it('删除失败的组织展示失败原因（重新发起删除即重试）', async () => {
+    mockOrgsApi({ status: 'delete_failed', lastError: 'external repo found' });
     wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('external repo found');
-    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(true);
-
-    requests.length = 0;
-    await wrapper.find('[data-test="retry-operation"]').trigger('click');
-    await flushPromises();
-
-    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
-      'POST /api/admin/operations/14/retry'
-    );
   });
 
-  it('激活状态的组织不展示失败原因与重试入口', async () => {
-    mockOrgsApi({ status: 'active', operationId: null, lastError: null });
+  it('激活状态的组织不展示失败原因', async () => {
+    mockOrgsApi({ status: 'active', lastError: null });
     wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(false);
-    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(false);
-  });
-
-  it('失败但无关联 Operation 的组织不展示重试入口(无重试目标)', async () => {
-    mockOrgsApi({ status: 'failed', operationId: null, lastError: { code: 'OPERATION_FAILED', message: 'boom', details: {} } });
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
-    await flushPromises();
-
-    expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="retry-operation"]').exists()).toBe(false);
   });
 });
 

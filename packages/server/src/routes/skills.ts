@@ -11,10 +11,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import semver from 'semver';
-import type { AdminRepository, OperationRepository, SkillRecord, SkillRepository, TenantOrganizationRepository } from '../db/database.js';
+import type { AdminRepository, SkillRecord, SkillRepository, TenantOrganizationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
-import type { OperationExecutor } from '../services/operation-executor.js';
-import type { PermissionChangePayload } from '../services/skill-operations.js';
 
 export interface SkillsRouteOptions {
   repository: SkillRepository;
@@ -23,12 +21,10 @@ export interface SkillsRouteOptions {
   repoOwner: string;
   tenantOrganizationRepository: TenantOrganizationRepository;
   packageRoot?: string;
-  operationRepository: OperationRepository;
-  operationExecutor: OperationExecutor;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
-  const { repository, adminRepository, giteaService, repoOwner, tenantOrganizationRepository, operationRepository, operationExecutor } = options;
+  const { repository, adminRepository, giteaService, repoOwner, tenantOrganizationRepository } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
   // 权限矩阵的响应体;读路径(GET)与变更路径(POST)共用同一形状——客户端用响应整体
@@ -127,52 +123,6 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
   });
 
-  app.post('/api/skills', async (request, reply) => {
-    const authorization = request.headers.authorization;
-    if (!authorization || !authorization.startsWith('token ')) {
-      return reply.status(401).send({ error: 'Unauthorized: missing token' });
-    }
-
-    const token = authorization.replace('token ', '').trim();
-    const eslUser = adminRepository?.validateUserToken(token);
-    if (eslUser) {
-      const { name, description, version, visibility = 'public' } = request.body as {
-        name: string;
-        description: string;
-        version: string;
-        visibility?: string;
-      };
-      return createSkill(request, reply, options, eslUser.username, {
-        name,
-        description,
-        version,
-        visibility
-      });
-    }
-
-    if (adminRepository?.hasIssuedToken(token) || token.startsWith('esl_')) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
-    }
-
-    const user = await giteaService.validateToken(token);
-    if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
-    }
-
-    const { name, description, version, visibility = 'public' } = request.body as {
-      name: string;
-      description: string;
-      version: string;
-      visibility?: string;
-    };
-    return createSkill(request, reply, options, user.username, {
-      name,
-      description,
-      version,
-      visibility
-    });
-  });
-
   app.get('/api/skills/search', async (request) => {
     const { q = '' } = request.query as { q?: string };
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
@@ -250,7 +200,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   });
 
   // 技能描述随 Source Upload 更新(CONTEXT:Skill Description):仅 Maintainer
-  // 可改,直接落库,不涉及 Git Backend,因此不经 Operation 幂等。
+  // 可改,直接落库,不涉及 Git Backend。
   app.put('/api/skills/:scope/:skillName/description', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
@@ -290,9 +240,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
     const repo = skillRepo(skill);
-    // 路由侧只做无副作用的参数与目标校验,实际的 Gitea 变更经 Operation 执行,
-    // 失败时可查询、可重试;Gitea 始终是权限的事实来源。
-    let payload: PermissionChangePayload;
+    // 路由侧做无副作用的参数与目标校验,实际的 Gitea 变更同步执行
+    // (ADR-0032:Operation 机器退役);Gitea 始终是权限的事实来源。
+    let payload: {
+      skillName: string;
+      scope: string;
+      repoOwner: string;
+      repoName: string;
+      action: string;
+      teamId?: number;
+      username?: string;
+      permission?: string;
+    };
     switch (body.action) {
       case 'share_all_read':
       case 'share_all_write':
@@ -341,25 +300,65 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         break;
       }
       case 'reset_to_private': {
-        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, skillOwner: skill.owner };
+        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action };
         break;
       }
       default:
         return reply.status(400).send({ error: 'Unknown permission action' });
     }
 
-    const suppliedKey = request.headers['idempotency-key'];
-    const clientKey = Array.isArray(suppliedKey) ? suppliedKey[0] : suppliedKey;
-    const operation = await runIdempotentOperation(operationRepository, operationExecutor, {
-      idempotencyKey: `skill.permission:${name}:${body.action}:${clientKey ?? crypto.randomUUID()}`,
-      kind: 'skill.permission',
-      payload
-    });
-    if (operation.status !== 'succeeded') {
+    // 常设团队档位互斥（原 ADR-0026 组织共享级别语义）：设置某档时卸载其余两档
+    const ALL_SHARE_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
+    try {
+      switch (payload.action) {
+        case 'share_all_read':
+        case 'share_all_write':
+        case 'share_all_manage': {
+          await giteaService.addTeamRepo(payload.teamId!, repo.owner, repo.name);
+          const mountName =
+            payload.action === 'share_all_read' ? 'all-readers' : payload.action === 'share_all_write' ? 'all-writers' : 'all-managers';
+          for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
+            if (team.name !== mountName && ALL_SHARE_TEAM_NAMES.has(team.name)) {
+              await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
+            }
+          }
+          break;
+        }
+        case 'add_team':
+          await giteaService.addTeamRepo(payload.teamId!, repo.owner, repo.name);
+          break;
+        case 'remove_team':
+          await giteaService.removeTeamRepo(payload.teamId!, repo.owner, repo.name);
+          break;
+        case 'add_member':
+          await giteaService.addCollaborator(
+            repo.owner,
+            repo.name,
+            payload.username!,
+            payload.permission === 'manage' ? 'admin' : (payload.permission as 'read' | 'write')
+          );
+          break;
+        case 'remove_member':
+          await giteaService.removeCollaborator(repo.owner, repo.name, payload.username!);
+          break;
+        case 'reset_to_private': {
+          for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
+            await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
+          }
+          if (typeof giteaService.listCollaborators === 'function') {
+            for (const member of await giteaService.listCollaborators(repo.owner, repo.name)) {
+              if (member.username === skill.owner) continue;
+              await giteaService.removeCollaborator(repo.owner, repo.name, member.username);
+            }
+          }
+          break;
+        }
+        default:
+          return reply.status(400).send({ error: 'Unknown permission action' });
+      }
+    } catch (error) {
       return reply.status(409).send({
-        error: operation.error?.message ?? 'Permission change failed',
-        operationId: operation.id,
-        status: operation.status,
+        error: (error as Error).message ?? 'Permission change failed',
         retryable: true
       });
     }
@@ -1117,81 +1116,6 @@ async function authenticateSkillUser(
   if (adminRepository?.hasIssuedToken(token) || token.startsWith('esl_')) return null;
   const user = await giteaService.validateToken(token);
   return user ? { username: user.username } : null;
-}
-
-// 运行一个以幂等键收敛的 Operation:已有失败终态的操作随本次请求重试,
-// 其余情况由执行器按租约与终态保护处理;返回重取后的最新操作记录。
-async function runIdempotentOperation(
-  operationRepository: OperationRepository,
-  operationExecutor: OperationExecutor,
-  input: { idempotencyKey: string; kind: string; payload: unknown }
-) {
-  let operation = operationRepository.getOperationByIdempotencyKey(input.idempotencyKey);
-  if (!operation) {
-    operation = operationRepository.createOperation(input);
-  }
-  if (operation.status === 'failed' || operation.status === 'permanently_failed') {
-    operation = operationRepository.retryOperation(operation.id)!;
-  }
-  await operationExecutor.process(operation.id);
-  return operationRepository.getOperation(operation.id)!;
-}
-
-async function createSkill(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  options: SkillsRouteOptions,
-  username: string,
-  input: { name: string; description: string; version: string; visibility: string }
-) {
-  const { repository, giteaService, operationRepository, operationExecutor } = options;
-  const { scope, skillName } = parseSkillName(input.name);
-
-  let skill = repository.getSkill(input.name);
-  if (!skill) {
-    // 技能仓库创建与 Skill Identity 登记接入统一 Operation 模型:
-    // 幂等键收敛重复请求,失败落库可查询、可重试,成功后正常返回发布结果。
-    const operation = await runIdempotentOperation(operationRepository, operationExecutor, {
-      idempotencyKey: `skill.create:${input.name}`,
-      kind: 'skill.create',
-      payload: {
-        name: input.name,
-        scope,
-        skillName,
-        description: input.description,
-        visibility: input.visibility,
-        username
-      }
-    });
-    if (operation.status !== 'succeeded') {
-      return reply.status(409).send({
-        error: operation.error?.message ?? 'Skill creation failed',
-        operationId: operation.id,
-        status: operation.status,
-        retryable: true
-      });
-    }
-    skill = repository.getSkill(input.name)!;
-  }
-
-  // 幂等发布:同一版本重复请求收敛为当前状态,不重复登记
-  if (repository.getVersions(input.name).includes(input.version)) {
-    return reply.status(200).send(withCloneUrl(request, {
-      ...skill!,
-      versions: repository.getVersions(input.name),
-      publishedPackage: true
-    }));
-  }
-  repository.addVersion(input.name, input.version);
-  if (skill.status !== 'active-published' || !skill.skillId) {
-    repository.markPublished(input.name);
-    skill = repository.getSkill(input.name)!;
-  }
-  return reply.status(201).send(withCloneUrl(request, {
-    ...skill,
-    versions: repository.getVersions(input.name),
-    publishedPackage: true
-  }));
 }
 
 function withCloneUrl<T extends { gitRepoPath: string }>(request: FastifyRequest, skill: T): T & { cloneUrl: string } {

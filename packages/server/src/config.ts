@@ -10,7 +10,6 @@ export interface ServerConfig {
   giteaAdminPassword?: string;
   repoOwner: string;
   passwordMinLength: number;
-  applicationEncryptionKey?: string;
   // When true the server seeds sample skill metadata at startup (ESL_AUTO_SEED).
   // Development environments opt in; production keeps the database clean.
   autoSeed: boolean;
@@ -52,9 +51,6 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
     repoOwner: 'esl-skills',
     passwordMinLength,
-    autoSeed,
-    ...(env.ESL_APPLICATION_ENCRYPTION_KEY
-      ? { applicationEncryptionKey: env.ESL_APPLICATION_ENCRYPTION_KEY }
-      : {})
+    autoSeed
   };
 }

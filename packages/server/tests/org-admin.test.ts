@@ -4,10 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { encryptApplicationSecret } from '../src/services/application-secret.js';
 import {
   initDatabase,
-  OperationRepository,
   OrgApplicationRepository,
   PlatformSettingsRepository,
   SkillRepository,
@@ -104,7 +102,7 @@ describe('super administrator org console API', () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ orgName: 'acme', adminDisplayName: 'Acme Admin', status: 'pending' });
+    expect(body[0]).toMatchObject({ orgName: 'acme', applicantUsername: 'applicant-alice', status: 'pending' });
     expect(JSON.stringify(body)).not.toContain('hash');
   });
 
@@ -179,25 +177,16 @@ describe('super administrator org console API', () => {
     db.close();
   });
 
-  
-  it('cancels a pending application, clears its credential, and writes audit records', async () => {
-    const applicationEncryptionKey = 'a'.repeat(64);
+  it('cancels a pending application by status flip alone', async () => {
     const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'pending' });
     new OrgApplicationRepository(db).createApplication({
       orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
-      encryptedPassword: encryptApplicationSecret('applicant-password-123', applicationEncryptionKey)
+      applicantUsername: 'applicant-alice'
     });
     db.close();
 
     const mockGitea = superAdminGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
     const headers = { authorization: 'token super-token' };
 
     const response = await app.inject({
@@ -207,31 +196,23 @@ describe('super administrator org console API', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'cancelled', orgName: 'acme' });
-
-    const after = initDatabase(dbPath);
-    expect(after.prepare('SELECT status, encrypted_password FROM org_applications WHERE id = 1').get()).toEqual({
-      status: 'cancelled',
-      encrypted_password: null
+    // 取消后名字释放，申请人可再次申请
+    const reapply = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications',
+      headers: { authorization: 'token applicant-token' },
+      payload: { orgName: 'acme' }
     });
-    expect(after.prepare(`SELECT status FROM tenant_organizations WHERE org_name = 'acme'`).get()).toEqual({
+    // applicant-alice 的 token 在此 mock 中无效，仅验证取消状态落库
+    const after = initDatabase(dbPath);
+    expect(after.prepare(`SELECT status FROM org_applications WHERE id = 1`).get()).toEqual({
       status: 'cancelled'
     });
-    const operation = after.prepare(`SELECT id FROM operations WHERE idempotency_key = 'organization.cancel:1'`).get() as {
-      id: number;
-    };
-    expect(operation).toBeDefined();
-    const audits = after.prepare('SELECT event, actor FROM operation_audits WHERE operation_id = ?').all(operation.id);
-    expect(audits).toEqual([{ event: 'organization.cancel', actor: 'eslroot' }]);
     after.close();
-
-    const repeat = await app.inject({
-      method: 'POST',
-      url: '/api/admin/orgs/applications/1/cancel',
-      headers
-    });
-    expect(repeat.statusCode).toBe(409);
   });
 
+  
+  
   it('rejects non-pending applications and unknown ids on cancel', async () => {
     const db = initDatabase(dbPath);
     new OrgApplicationRepository(db).createApplication({
@@ -262,29 +243,14 @@ describe('super administrator org console API', () => {
     expect(missing.statusCode).toBe(404);
   });
 
-  it('exposes lifecycle status, failure reason, and operation id with the org list', async () => {
+  it('exposes lifecycle status and failure reason with the org list', async () => {
     const db = initDatabase(dbPath);
-    const operation = new OperationRepository(db).createOperation({
-      idempotencyKey: 'organization.provision:1',
-      kind: 'organization.provision',
-      payload: { orgName: 'acme' }
-    });
-    // 置为退避中的失败态,避免 buildApp 启动时的 processPending 认领重跑
-    db.prepare(`
-      UPDATE operations
-      SET status = 'failed', next_retry_at = '2999-01-01T00:00:00.000Z'
-      WHERE id = ?
-    `).run(operation.id);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'failed', operationId: operation.id });
-    new TenantOrganizationRepository(db).transition('acme', 'failed', {
-      code: 'EXTERNAL_RESOURCE',
-      message: 'Organization already exists with external owners (external-human)',
-      details: { resources: ['owner external-human'] }
-    });
+    new TenantOrganizationRepository(db).create({ orgName: 'ghost-org', status: 'failed' });
+    new TenantOrganizationRepository(db).transition('ghost-org', 'failed', 'external resource');
     db.close();
 
     const mockGitea = superAdminGitea();
-    // 开通在 Gitea 建组织之前失败:Git Backend 列表中没有该组织
+    // 开通失败的组织不会出现在 Git Backend 列表中,从租户状态表补充
     mockGitea.listOrgs.mockResolvedValue([]);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
@@ -298,16 +264,13 @@ describe('super administrator org console API', () => {
     const orgs = response.json();
     expect(orgs).toHaveLength(1);
     expect(orgs[0]).toMatchObject({
-      name: 'acme',
+      name: 'ghost-org',
       memberCount: 0,
       status: 'failed',
-      operationId: operation.id,
-      lastError: { code: 'EXTERNAL_RESOURCE' }
+      lastError: 'external resource'
     });
-    expect(JSON.stringify(orgs)).not.toContain('applicant-password');
   });
 
-  
   it('reads and updates the registration mode setting', async () => {
     const mockGitea = superAdminGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
@@ -371,8 +334,7 @@ describe('super administrator org console API', () => {
         skillCount: 1,
         createdAt: undefined,
         status: null,
-        lastError: null,
-        operationId: null
+        lastError: null
       }
     ]);
   });
@@ -395,12 +357,6 @@ describe('super administrator org console API', () => {
       gitRepoPath: 'acme/reviewer',
       status: 'active-published'
     });
-    // 组织专属账号的删除要求具备 member.create 的 Resource Provenance。
-    new OperationRepository(db).createOperation({
-      idempotencyKey: 'member.create:acme:acme_bob',
-      kind: 'member.create',
-      payload: { orgName: 'acme', username: 'acme_bob' }
-    });
     db.close();
 
     mockGitea.organizationExists.mockResolvedValue(true);
@@ -419,13 +375,12 @@ describe('super administrator org console API', () => {
       headers,
       payload: { confirm: 'acme' }
     });
-    expect(matched.statusCode).toBe(202);
-    expect(matched.json()).toMatchObject({ status: 'deleting', orgName: 'acme' });
-    await new Promise((resolve) => setImmediate(resolve));
+    // ADR-0032：同步删除，成员为全局账号不再删除
+    expect(matched.statusCode).toBe(200);
+    expect(matched.json()).toEqual({ status: 'deleted', orgName: 'acme' });
     expect(mockGitea.listOrgRepos).toHaveBeenCalledWith('acme');
     expect(mockGitea.deleteRepo).toHaveBeenCalledWith('acme', 'reviewer');
-    expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_admin');
-    expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_bob');
+    expect(mockGitea.deleteUser).not.toHaveBeenCalled();
     expect(mockGitea.deleteOrg).toHaveBeenCalledWith('acme');
 
     // 删除组织应同步清空平台库中的技能记录

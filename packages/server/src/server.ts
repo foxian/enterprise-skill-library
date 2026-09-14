@@ -64,7 +64,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Fas
     giteaService,
     repoOwner: config.repoOwner,
     passwordMinLength: config.passwordMinLength,
-    applicationEncryptionKey: config.applicationEncryptionKey,
+
     autoSeed: config.autoSeed
   });
 

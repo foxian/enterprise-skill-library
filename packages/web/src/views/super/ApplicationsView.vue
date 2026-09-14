@@ -39,15 +39,13 @@
   </div>
 
   <el-dialog v-model="resultDialogVisible" title="组织开通" width="440px">
-    <p>组织 <strong>{{ handledOrgName }}</strong> 已初始化。</p>
-    <template v-if="initialPassword">
-      <p>组织管理员初始密码（仅展示一次，请立即交付）：</p>
-      <el-input :model-value="initialPassword" readonly data-test="initial-password" />
-    </template>
-    <p v-else>组织已进入后台开通流程，可在列表中查看最新状态。</p>
+    <p>
+      组织 <strong>{{ handledOrgName }}</strong> 已同步开通，申请人已加入该组织并成为
+      Organization Admin（无需初始密码：成员是全局账号，用自己的凭据登录）。
+    </p>
     <template #footer>
       <el-button type="primary" data-test="initial-password-close" @click="resultDialogVisible = false">
-        我已保存
+        知道了
       </el-button>
     </template>
   </el-dialog>
@@ -74,7 +72,6 @@ const loading = ref(false);
 const errorMessage = ref('');
 const resultDialogVisible = ref(false);
 const handledOrgName = ref('');
-const initialPassword = ref('');
 
 const filteredApplications = computed(() =>
   statusFilter.value === 'all'
@@ -100,12 +97,11 @@ async function loadApplications(): Promise<void> {
 
 async function approve(application: ApplicationView): Promise<void> {
   try {
-    const result = await apiRequest<{ status: string; orgName: string; initialPassword?: string }>(
+    const result = await apiRequest<{ status: string; orgName: string; applicant: string }>(
       `/api/admin/orgs/applications/${application.id}/approve`,
       { method: 'POST' }
     );
     handledOrgName.value = result.orgName;
-    initialPassword.value = result.initialPassword ?? '';
     resultDialogVisible.value = true;
     await loadApplications();
   } catch (error) {

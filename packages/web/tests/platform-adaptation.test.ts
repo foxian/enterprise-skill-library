@@ -80,22 +80,13 @@ describe('web login and registration adapting to platform-info', () => {
     expect(wrapper.find('[data-test="register-link"]').exists()).toBe(false);
   });
 
-  it('hides the application form and shows a notice on the register page in single mode', async () => {
-    routeMock({ mode: 'single', defaultOrg: 'acme' });
-    wrapper = await mountView(RegisterView);
-    await flushPromises();
-
-    expect(wrapper.find('[data-test="single-mode-notice"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="org-name"]').exists()).toBe(false);
-    expect(wrapper.find('[data-test="register-submit"]').exists()).toBe(false);
-  });
-
-  it('keeps the application form on the register page in multi mode', async () => {
+  // 部署模式（ADR-0022）已随 ADR-0032 废除：注册页始终展示组织名申请表单，
+  // 由服务端按 org_registration_mode 决定拒绝或受理。
+  it('always shows the organization application form on the register page', async () => {
     routeMock({ mode: 'multi', defaultOrg: null });
     wrapper = await mountView(RegisterView);
     await flushPromises();
 
-    expect(wrapper.find('[data-test="single-mode-notice"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="org-name"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="register-submit"]').exists()).toBe(true);
   });

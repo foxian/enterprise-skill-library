@@ -282,8 +282,7 @@ describe('API Server Database', () => {
       expect.arrayContaining([
         'id',
         'org_name',
-        'admin_display_name',
-        'hashed_password',
+        'applicant_username',
         'status',
         'created_at',
         'updated_at'
@@ -322,27 +321,17 @@ describe('API Server Database', () => {
 
     const created = applications.createApplication({
       orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
-      hashedPassword: 'hash-of-password'
+      applicantUsername: 'applicant-alice'
     });
     expect(created.status).toBe('pending');
     expect(applications.getApplication('acme')).toEqual({
       id: created.id,
       orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
-      hashedPassword: 'hash-of-password',
+      applicantUsername: 'applicant-alice',
       status: 'pending',
       createdAt: created.createdAt,
       updatedAt: created.updatedAt
     });
-
-    expect(() =>
-      applications.createApplication({
-        orgName: 'acme',
-        adminDisplayName: 'Duplicate',
-        hashedPassword: 'hash-2'
-      })
-    ).toThrow();
 
     const approved = applications.updateApplicationStatus('acme', 'approved');
     expect(approved?.status).toBe('approved');
@@ -356,28 +345,13 @@ describe('API Server Database', () => {
     db.close();
   });
 
-  it('stores an application password as encrypted material and can clear it', () => {
-    const db = initDatabase(dbPath);
-    const applications = new OrgApplicationRepository(db);
-    const created = applications.createApplication({
-      orgName: 'encrypted-org',
-      adminDisplayName: 'Encrypted Admin',
-      encryptedPassword: 'v1:encrypted'
-    });
-
-    expect(created.encryptedPassword).toBe('v1:encrypted');
-    expect(created.hashedPassword).toBe('');
-    expect(applications.clearEncryptedPasswordById(created.id)).toBe(true);
-    expect(applications.getApplicationById(created.id)?.encryptedPassword).toBeUndefined();
-    db.close();
-  });
-
+  
   it('rejects an org application status outside the allowed domain', () => {
     const db = initDatabase(dbPath);
     const applications = new OrgApplicationRepository(db);
     applications.createApplication({
       orgName: 'acme',
-      adminDisplayName: 'Acme Admin',
+      applicantUsername: 'applicant-alice',
       hashedPassword: 'hash-of-password'
     });
 

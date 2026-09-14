@@ -4,21 +4,17 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import {
-  initDatabase,
-  OperationRepository,
-  SkillRepository,
-  TenantOrganizationRepository
-} from '../src/db/database.js';
+import { initDatabase, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
+import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
 interface OrgState {
   repos: { id: number; name: string; full_name: string }[];
   members: { id: number; username: string; email: string }[];
 }
 
-describe('tenant organization deletion workflow', () => {
-  const applicationEncryptionKey = 'a'.repeat(64);
-  const superHeaders = { authorization: 'token super-token' };
+// 组织删除（ADR-0032 / #59）：同步简化流程，不再走 Operation 工作流；
+// 成员是全局账号，删除只清理 ESL 登记的仓库与组织本身。
+describe('organization deletion', () => {
   let tmpDir: string;
   let dbPath: string;
   let app: FastifyInstance | undefined;
@@ -33,10 +29,6 @@ describe('tenant organization deletion workflow', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function flush(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 0));
-  }
-
   function seedActiveTenant(): void {
     const db = initDatabase(dbPath);
     new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'active' });
@@ -45,48 +37,20 @@ describe('tenant organization deletion workflow', () => {
       scope: 'acme',
       skillName: 'reviewer',
       description: 'Reviewer skill',
-      createdBy: 'acme_admin',
-      owner: 'acme_admin',
-      maintainers: ['acme_admin'],
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
       visibility: 'private',
-      gitRepoPath: 'acme/acme_reviewer',
+      gitRepoPath: 'acme/reviewer',
       status: 'active-published'
-    });
-    new OperationRepository(db).createOperation({
-      idempotencyKey: 'member.create:acme:acme_bob',
-      kind: 'member.create',
-      payload: { orgName: 'acme', username: 'acme_bob' }
     });
     db.close();
   }
 
-  function acmeState(): OrgState {
-    return {
-      repos: [{ id: 10, name: 'acme_reviewer', full_name: 'acme/acme_reviewer' }],
-      members: [
-        { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' },
-        { id: 3, username: 'acme_bob', email: 'acme_bob@local.esl' }
-      ]
-    };
-  }
-
   function deletionGitea(
     state: OrgState,
-    options: { hangDeleteOrg?: boolean; failDeleteOrg?: boolean; failDeleteOrgOnce?: boolean } = {}
+    options: { failDeleteOrg?: boolean } = {}
   ) {
-    let deleteOrg: ReturnType<typeof vi.fn>;
-    if (options.hangDeleteOrg) {
-      deleteOrg = vi.fn().mockImplementation(() => new Promise<void>(() => {}));
-    } else if (options.failDeleteOrg) {
-      deleteOrg = vi.fn().mockRejectedValue(new Error('Failed to delete Gitea organization: boom'));
-    } else if (options.failDeleteOrgOnce) {
-      deleteOrg = vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Failed to delete Gitea organization: boom'))
-        .mockResolvedValue(undefined);
-    } else {
-      deleteOrg = vi.fn().mockResolvedValue(undefined);
-    }
     return {
       validateAdminUserToken: vi.fn(async (token: string) =>
         token === 'super-token' ? { id: 1, username: 'eslroot', email: 'eslroot@local.esl' } : null
@@ -101,7 +65,9 @@ describe('tenant organization deletion workflow', () => {
       deleteUser: vi.fn(async (username: string) => {
         state.members = state.members.filter((member) => member.username !== username);
       }),
-      deleteOrg
+      deleteOrg: options.failDeleteOrg
+        ? vi.fn().mockRejectedValue(new Error('Failed to delete Gitea organization: boom'))
+        : vi.fn().mockResolvedValue(undefined)
     };
   }
 
@@ -114,53 +80,18 @@ describe('tenant organization deletion workflow', () => {
     return row;
   }
 
-  it('marks the organization deleting immediately and cleans up before platform records', async () => {
-    seedActiveTenant();
-    const state = acmeState();
-    // deleteOrg 永不返回,执行器停在 Git Backend 清理阶段,便于断言中间状态。
-    const mockGitea = deletionGitea(state, { hangDeleteOrg: true });
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers: superHeaders,
-      payload: { confirm: 'acme' }
-    });
-
-    expect(response.statusCode).toBe(202);
-    const operationId = response.json().operationId;
-    expect(typeof operationId).toBe('number');
-    await flush();
-
-    expect(tenantRow().status).toBe('deleting');
-    expect(mockGitea.deleteRepo).toHaveBeenCalledWith('acme', 'acme_reviewer');
-    expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_admin');
-    expect(mockGitea.deleteUser).toHaveBeenCalledWith('acme_bob');
-    expect(mockGitea.deleteOrg).toHaveBeenCalledWith('acme');
-    const db = initDatabase(dbPath);
-    expect(new SkillRepository(db).getSkill('@acme/reviewer')).toBeDefined();
-    expect(db.prepare('SELECT status FROM operations WHERE id = ?').get(operationId)).toMatchObject({
-      status: 'running'
-    });
-    db.close();
+  const acmeState = (): OrgState => ({
+    repos: [{ id: 10, name: 'reviewer', full_name: 'acme/reviewer' }],
+    members: [{ id: 2, username: 'alice', email: 'alice@local.esl' }]
   });
 
-  it('completes deletion and clears platform records after Git Backend cleanup succeeds', async () => {
+  const superHeaders = { authorization: 'token super-token' };
+
+  it('deletes the organization synchronously and clears platform records', async () => {
     seedActiveTenant();
     const state = acmeState();
     const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
       method: 'DELETE',
@@ -168,31 +99,58 @@ describe('tenant organization deletion workflow', () => {
       headers: superHeaders,
       payload: { confirm: 'acme' }
     });
-    expect(response.statusCode).toBe(202);
-    const operationId = response.json().operationId;
-    await flush();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: 'deleted', orgName: 'acme' });
+    expect(mockGitea.deleteRepo).toHaveBeenCalledWith('acme', 'reviewer');
+    // 成员是全局账号（ADR-0032）：删除组织不删除账号
+    expect(mockGitea.deleteUser).not.toHaveBeenCalled();
+    expect(mockGitea.deleteOrg).toHaveBeenCalledWith('acme');
 
     const db = initDatabase(dbPath);
     expect(new SkillRepository(db).getSkill('@acme/reviewer')).toBeUndefined();
     expect(db.prepare('SELECT status FROM tenant_organizations WHERE org_name = ?').get('acme')).toEqual({
       status: 'deleted'
     });
-    expect(db.prepare('SELECT status FROM operations WHERE id = ?').get(operationId)).toMatchObject({
-      status: 'succeeded'
-    });
     db.close();
   });
 
-  it('keeps platform skill records when Git Backend cleanup fails', async () => {
+  it('requires a confirm field matching the organization name', async () => {
+    seedActiveTenant();
+    const state = acmeState();
+    const mockGitea = deletionGitea(state);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const mismatch = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/acme',
+      headers: superHeaders,
+      payload: { confirm: 'wrong' }
+    });
+
+    expect(mismatch.statusCode).toBe(400);
+    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for an organization ESL does not manage', async () => {
+    const mockGitea = deletionGitea(acmeState());
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/ghost',
+      headers: superHeaders,
+      payload: { confirm: 'ghost' }
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('reports failure and keeps records when Git Backend cleanup fails', async () => {
     seedActiveTenant();
     const state = acmeState();
     const mockGitea = deletionGitea(state, { failDeleteOrg: true });
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
       method: 'DELETE',
@@ -200,30 +158,46 @@ describe('tenant organization deletion workflow', () => {
       headers: superHeaders,
       payload: { confirm: 'acme' }
     });
-    expect(response.statusCode).toBe(202);
-    await flush();
 
-    expect(mockGitea.deleteRepo).toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).toHaveBeenCalled();
+    expect(response.statusCode).toBe(409);
+    expect(response.json().retryable).toBe(true);
     const row = tenantRow();
     expect(row.status).toBe('delete_failed');
-    const failure = JSON.parse(row.last_error_json ?? '{}');
-    expect(failure.message).toContain('Gitea organization');
+    expect(row.last_error_json).toContain('Gitea organization');
     const db = initDatabase(dbPath);
     expect(new SkillRepository(db).getSkill('@acme/reviewer')).toBeDefined();
     db.close();
   });
 
-  it('resumes deletion from completed steps when the administrator retries', async () => {
+  it('stops automatic cleanup when an external repository is found', async () => {
     seedActiveTenant();
     const state = acmeState();
-    const mockGitea = deletionGitea(state, { failDeleteOrgOnce: true });
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
+    state.repos.push({ id: 11, name: 'external', full_name: 'acme/external' });
+    const mockGitea = deletionGitea(state);
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/acme',
+      headers: superHeaders,
+      payload: { confirm: 'acme' }
     });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toContain('provenance');
+    expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
+    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
+  });
+
+  it('can be retried after a failure', async () => {
+    seedActiveTenant();
+    const state = acmeState();
+    const deleteOrg = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Failed to delete Gitea organization: boom'))
+      .mockResolvedValue(undefined);
+    const mockGitea = { ...deletionGitea(state), deleteOrg };
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const first = await app.inject({
       method: 'DELETE',
@@ -231,280 +205,27 @@ describe('tenant organization deletion workflow', () => {
       headers: superHeaders,
       payload: { confirm: 'acme' }
     });
-    expect(first.statusCode).toBe(202);
-    const operationId = first.json().operationId;
-    await flush();
-    expect(tenantRow().status).toBe('delete_failed');
-    expect(state.repos).toEqual([]);
-    expect(state.members).toEqual([]);
+    expect(first.statusCode).toBe(409);
 
-    const retry = await app.inject({
-      method: 'POST',
-      url: `/api/admin/operations/${operationId}/retry`,
-      headers: superHeaders
-    });
-    expect(retry.statusCode).toBe(200);
-    await flush();
-
-    // 已完成的步骤不重复执行:仓库与账号只在首次尝试中被删除
-    expect(mockGitea.deleteRepo).toHaveBeenCalledTimes(1);
-    expect(mockGitea.deleteUser).toHaveBeenCalledTimes(2);
-    expect(mockGitea.deleteOrg).toHaveBeenCalledTimes(2);
-    const db = initDatabase(dbPath);
-    expect(new SkillRepository(db).getSkill('@acme/reviewer')).toBeUndefined();
-    expect(db.prepare('SELECT status FROM tenant_organizations WHERE org_name = ?').get('acme')).toEqual({
-      status: 'deleted'
-    });
-    expect(db.prepare('SELECT status FROM operations WHERE id = ?').get(operationId)).toMatchObject({
-      status: 'succeeded'
-    });
-    db.close();
-  });
-
-  it('stops automatic cleanup and records the reason when an external repository is found', async () => {
-    seedActiveTenant();
-    const state = acmeState();
-    state.repos.push({ id: 11, name: 'outsider', full_name: 'acme/outsider' });
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const response = await app.inject({
+    const second = await app.inject({
       method: 'DELETE',
       url: '/api/admin/orgs/acme',
       headers: superHeaders,
       payload: { confirm: 'acme' }
     });
-    expect(response.statusCode).toBe(202);
-    await flush();
-
-    expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
-    expect(mockGitea.deleteUser).not.toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-    const row = tenantRow();
-    expect(row.status).toBe('delete_failed');
-    const failure = JSON.parse(row.last_error_json ?? '{}');
-    expect(failure.code).toBe('EXTERNAL_RESOURCE');
-    expect(failure.details.resources).toContain('repository acme/outsider');
-    const db = initDatabase(dbPath);
-    expect(new SkillRepository(db).getSkill('@acme/reviewer')).toBeDefined();
-    const operation = db.prepare('SELECT status, error_json FROM operations WHERE kind = ?').get('organization.delete') as {
-      status: string;
-      error_json: string;
-    };
-    expect(operation.status).toBe('failed');
-    expect(JSON.parse(operation.error_json).code).toBe('EXTERNAL_RESOURCE');
-    db.close();
-  });
-
-  it('stops automatic cleanup when an org-specific account lacks provenance', async () => {
-    seedActiveTenant();
-    const state = acmeState();
-    state.members.push({ id: 4, username: 'acme_rogue', email: 'acme_rogue@local.esl' });
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers: superHeaders,
-      payload: { confirm: 'acme' }
-    });
-    expect(response.statusCode).toBe(202);
-    await flush();
-
-    expect(mockGitea.deleteUser).not.toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-    const failure = JSON.parse(tenantRow().last_error_json ?? '{}');
-    expect(failure.code).toBe('EXTERNAL_RESOURCE');
-    expect(failure.details.resources).toContain('account acme_rogue');
-  });
-
-  it('returns the existing operation status for duplicate delete requests after completion', async () => {
-    const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'deleted' });
-    const operation = new OperationRepository(db).createOperation({
-      idempotencyKey: 'organization.delete:acme',
-      kind: 'organization.delete',
-      payload: { orgName: 'acme' }
-    });
-    db.prepare(`UPDATE operations SET status = 'succeeded' WHERE id = ?`).run(operation.id);
-    db.close();
-
-    const state = acmeState();
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const duplicate = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers: superHeaders,
-      payload: { confirm: 'acme' }
-    });
-
-    expect(duplicate.statusCode).toBe(200);
-    expect(duplicate.json()).toEqual({ status: 'succeeded', orgName: 'acme', operationId: operation.id });
-    expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-    // 终态幂等:重复请求不得把已删除组织重置回 deleting
+    expect(second.statusCode).toBe(200);
     expect(tenantRow().status).toBe('deleted');
-  });
-
-  it('returns the existing operation status for duplicate delete requests while failed', async () => {
-    seedActiveTenant();
-    const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).transition('acme', 'delete_failed');
-    const operation = new OperationRepository(db).createOperation({
-      idempotencyKey: 'organization.delete:acme',
-      kind: 'organization.delete',
-      payload: { orgName: 'acme' }
-    });
-    // next_retry_at 置为未来,避免 buildApp 启动时的 processPending 认领重跑。
-    db.prepare(`
-      UPDATE operations
-      SET status = 'failed', next_retry_at = '2999-01-01T00:00:00.000Z'
-      WHERE id = ?
-    `).run(operation.id);
-    db.close();
-
-    const state = acmeState();
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const duplicate = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/acme',
-      headers: superHeaders,
-      payload: { confirm: 'acme' }
-    });
-
-    expect(duplicate.statusCode).toBe(200);
-    expect(duplicate.json()).toEqual({ status: 'failed', orgName: 'acme', operationId: operation.id });
-    expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-    expect(tenantRow().status).toBe('delete_failed');
-  });
-
-  it('refuses to delete an organization without ESL provenance', async () => {
-    const state = acmeState();
-    const mockGitea = deletionGitea(state);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/platform-ai',
-      headers: superHeaders,
-      payload: { confirm: 'platform-ai' }
-    });
-
-    expect(response.statusCode).toBe(404);
-    expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
-    expect(mockGitea.deleteUser).not.toHaveBeenCalled();
-    expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
-  });
-
-  function seedFrozenOrg(orgName: string): void {
-    const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName, status: 'active' });
-    new SkillRepository(db).createServerSkill({
-      name: `@${orgName}/tool`,
-      scope: orgName,
-      skillName: 'tool',
-      description: 'Tool skill',
-      createdBy: `${orgName}_admin`,
-      owner: `${orgName}_admin`,
-      maintainers: [`${orgName}_admin`],
-      visibility: 'private',
-      gitRepoPath: `${orgName}/${orgName}_tool`,
-      status: 'active-published'
-    });
-    new OperationRepository(db).createOperation({
-      idempotencyKey: `member.create:${orgName}:${orgName}_bob`,
-      kind: 'member.create',
-      payload: { orgName, username: `${orgName}_bob` }
-    });
-    db.close();
-  }
-
-  function frozenOrgState(orgName: string): OrgState {
-    return {
-      repos: [{ id: 20, name: `${orgName}_tool`, full_name: `${orgName}/${orgName}_tool` }],
-      members: [
-        { id: 30, username: `${orgName}_admin`, email: `${orgName}_admin@local.esl` },
-        { id: 31, username: `${orgName}_bob`, email: `${orgName}_bob@local.esl` }
-      ]
-    };
-  }
-
-  
-  it('still allows deleting a frozen organization in single mode', async () => {
-    seedActiveTenant();
-    seedFrozenOrg('other');
-    const state = acmeState();
-    const mockGitea = deletionGitea(state);
-    mockGitea.listOrgRepos = vi.fn(async () => frozenOrgState('other').repos);
-    mockGitea.listOrgMembers = vi.fn(async () => frozenOrgState('other').members);
-    mockGitea.deleteOrg = vi.fn().mockResolvedValue(undefined);
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
-    const put = await app.inject({
-      method: 'PUT',
-      url: '/api/admin/orgs/settings',
-      headers: superHeaders,
-      payload: { deploymentMode: 'single', defaultOrg: 'acme' }
-    });
-    expect(put.statusCode).toBe(200);
-
-    const response = await app.inject({
-      method: 'DELETE',
-      url: '/api/admin/orgs/other',
-      headers: superHeaders,
-      payload: { confirm: 'other' }
-    });
-
-    expect(response.statusCode).toBe(202);
-    await flush();
-    expect(mockGitea.deleteOrg).toHaveBeenCalledWith('other');
   });
 });
 
+// 组织生命周期状态门禁（ADR-0032）：非 active 组织禁止技能与组织管理操作。
 describe('organization lifecycle access control', () => {
-  const applicationEncryptionKey = 'a'.repeat(64);
-  const superHeaders = { authorization: 'token super-token' };
   let tmpDir: string;
   let dbPath: string;
   let app: FastifyInstance | undefined;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-org-access-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-org-lifecycle-'));
     dbPath = path.join(tmpDir, 'test.db');
   });
 
@@ -513,19 +234,16 @@ describe('organization lifecycle access control', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function consoleGitea() {
-    return {
-      validateToken: vi.fn(async (token: string) =>
-        token === 'acme-token' ? { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' } : null
-      ),
-      loginUser: vi.fn().mockResolvedValue('issued-gitea-token'),
-      organizationExists: vi.fn().mockResolvedValue(true),
-      listOrgMembers: vi.fn().mockResolvedValue([{ username: 'acme_bob' }]),
-      listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
-      listOrgOwners: vi.fn().mockResolvedValue([{ username: 'acme_admin' }]),
-      getUser: vi.fn().mockResolvedValue({ id: 3, username: 'bob', email: 'bob@local.esl' }),
-      createTeam: vi.fn().mockResolvedValue({ id: 5, name: 'dev', permission: 'read' })
-    };
+  function consoleGitea(): GlobalGiteaFake {
+    const gitea = createGlobalGitea({
+      users: [{ username: 'admin-alice', password: 'password-123' }],
+      orgs: [{ name: 'acme', teams: [] }]
+    });
+    gitea.__state.setOrgOwner('acme', 'admin-alice');
+    gitea.validateToken.mockImplementation(async (token: string) =>
+      token === 'acme-token' ? { id: 2, username: 'admin-alice', email: 'admin-alice@local.esl' } : null
+    );
+    return gitea;
   }
 
   function seedTenantWithStatus(status: string): void {
@@ -538,51 +256,31 @@ describe('organization lifecycle access control', () => {
     it(`rejects skill operations and org management while ${status}`, async () => {
       seedTenantWithStatus(status);
       const mockGitea = consoleGitea();
-      app = await buildApp({
-        dbPath,
-        giteaService: mockGitea as any,
-        repoOwner: 'esl-skills',
-        applicationEncryptionKey
-      });
+      app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
-      // 全局身份登录（ADR-0032）不再按组织状态门禁；组织激活门禁覆盖在
-      // 技能与组织管理操作上。
       const skillCreate = await app.inject({
         method: 'POST',
-        url: '/api/skills',
-        payload: { name: '@acme/new-skill', description: 'New skill', version: '1.0.0' }
+        url: '/api/skills/upload',
+        headers: { authorization: 'token acme-token' },
+        payload: { name: '@acme/new-skill', description: 'New skill' }
       });
-      expect(skillCreate.statusCode).toBe(409);
-      expect(mockGitea.createTeam).not.toHaveBeenCalled();
+      // 上传路由自行校验目标组织状态（403：组织未激活）
+      expect(skillCreate.statusCode).toBe(403);
 
-      const memberCreate = await app.inject({
+      const memberAdd = await app.inject({
         method: 'POST',
         url: '/api/orgs/acme/members',
         headers: { authorization: 'token acme-token' },
-        payload: { username: 'bob', password: 'a-strong-password' }
+        payload: { username: 'bob' }
       });
-      expect(memberCreate.statusCode).toBe(409);
-
-      const teamCreate = await app.inject({
-        method: 'POST',
-        url: '/api/orgs/acme/teams',
-        headers: { authorization: 'token acme-token' },
-        payload: { name: 'dev', permission: 'read' }
-      });
-      expect(teamCreate.statusCode).toBe(409);
-      expect(mockGitea.createTeam).not.toHaveBeenCalled();
+      expect(memberAdd.statusCode).toBe(409);
     });
   }
 
   it('allows org management while the organization is active', async () => {
     seedTenantWithStatus('active');
     const mockGitea = consoleGitea();
-    app = await buildApp({
-      dbPath,
-      giteaService: mockGitea as any,
-      repoOwner: 'esl-skills',
-      applicationEncryptionKey
-    });
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const members = await app.inject({
       method: 'GET',
@@ -590,6 +288,8 @@ describe('organization lifecycle access control', () => {
       headers: { authorization: 'token acme-token' }
     });
     expect(members.statusCode).toBe(200);
-    expect(members.json()).toEqual([{ username: 'acme_bob' }]);
+    expect(members.json()).toEqual([
+      expect.objectContaining({ username: 'admin-alice' })
+    ]);
   });
 });

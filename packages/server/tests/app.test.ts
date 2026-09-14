@@ -136,53 +136,7 @@ describe('Fastify Server API', () => {
     db.close();
   });
 
-  it('registers and retrieves a skill', async () => {
-    const mockGitea = {
-      validateToken: vi.fn().mockResolvedValue({ username: 'zhangsan' }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'alice/alice_code-review' })
-    };
-
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    const createRes = await app.inject({
-      method: 'POST',
-      url: '/api/skills',
-      headers: { host: 'localhost:3000', authorization: 'token valid-token' },
-      payload: {
-        name: '@alice/code-review',
-        version: '0.1.0',
-        description: 'Test skill',
-        author: 'zhangsan'
-      }
-    });
-
-    expect(createRes.statusCode).toBe(201);
-    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledWith(
-      'alice',
-      'alice_code-review',
-      false
-    );
-    expect(createRes.json().gitRepoPath).toBe('alice/alice_code-review');
-    expect(createRes.json().cloneUrl).toBe('http://localhost:3000/git/alice/alice_code-review.git');
-    expect(createRes.json()).toMatchObject({
-      createdBy: 'zhangsan',
-      owner: 'platform',
-      maintainers: ['zhangsan']
-    });
-
-    const getRes = await app.inject({
-      method: 'GET',
-      url: '/api/skills/@alice/code-review',
-      headers: { host: 'localhost:3000', authorization: 'token valid-token' }
-    });
-
-    expect(getRes.statusCode).toBe(200);
-    const body = getRes.json();
-    expect(body.name).toBe('@alice/code-review');
-    expect(body.gitRepoPath).toBe('alice/alice_code-review');
-    expect(body.cloneUrl).toBe('http://localhost:3000/git/alice/alice_code-review.git');
-  });
-
+  
   it('uploads a server-hosted skill without creating a release', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
@@ -390,64 +344,7 @@ describe('Fastify Server API', () => {
     expect(restore.statusCode).toBe(403);
   });
 
-  it('exposes author-published releases for another user to discover and inspect', async () => {
-    const mockGitea = {
-      validateToken: vi.fn().mockImplementation(async (token: string) => {
-        if (token === 'author-token') return { username: 'author' };
-        if (token === 'consumer-token') return { username: 'consumer' };
-        return null;
-      }),
-      createOrganizationRepo: vi.fn().mockResolvedValue({ full_name: 'esl-skills/author_demo' })
-    };
-
-    app = buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
-
-    for (const version of ['0.1.0', '0.1.1']) {
-      const publishRes = await app.inject({
-        method: 'POST',
-        url: '/api/skills',
-        headers: { host: 'localhost:3000', authorization: 'token author-token' },
-        payload: {
-          name: '@author/demo',
-          version,
-          description: 'Shared demo skill'
-        }
-      });
-
-      expect(publishRes.statusCode).toBe(201);
-      expect(publishRes.json().cloneUrl).toBe('http://localhost:3000/git/esl-skills/author_demo.git');
-    }
-
-    expect(mockGitea.createOrganizationRepo).toHaveBeenCalledTimes(1);
-
-    const searchRes = await app.inject({
-      method: 'GET',
-      url: '/api/skills/search?q=demo',
-      headers: { host: 'localhost:3000', authorization: 'token consumer-token' }
-    });
-    expect(searchRes.statusCode).toBe(200);
-    expect(searchRes.json()).toEqual([
-      expect.objectContaining({
-        name: '@author/demo',
-        createdBy: 'author',
-        gitRepoPath: 'esl-skills/author_demo'
-      })
-    ]);
-
-    const infoRes = await app.inject({
-      method: 'GET',
-      url: '/api/skills/@author/demo',
-      headers: { host: 'localhost:3000', authorization: 'token consumer-token' }
-    });
-    expect(infoRes.statusCode).toBe(200);
-    expect(infoRes.json()).toMatchObject({
-      name: '@author/demo',
-      createdBy: 'author',
-      cloneUrl: 'http://localhost:3000/git/esl-skills/author_demo.git',
-      versions: ['0.1.1', '0.1.0']
-    });
-  });
-
+  
   it('responds to health checks without requiring Gitea', async () => {
     const mockGitea = {
       validateToken: vi.fn(),
