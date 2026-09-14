@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DOMWrapper, flushPromises, type VueWrapper } from '@vue/test-utils';
-import MembersView from '../src/views/org/MembersView.vue';
-import TeamsView from '../src/views/org/TeamsView.vue';
+import MembersView from '../src/views/me/OrgMembersView.vue';
+import TeamsView from '../src/views/me/OrgTeamsView.vue';
 import TeamMemberPanel from '../src/components/TeamMemberPanel.vue';
+import OrgDetailLayout from '../src/views/me/OrgDetailLayout.vue';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
 import { setFetchImpl } from '../src/api/client';
 
@@ -53,7 +54,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -85,7 +86,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -117,7 +118,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="remove-bob"]').trigger('click');
@@ -144,7 +145,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { role: 'org-admin', route: '/admin/org/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -165,7 +166,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     const text = wrapper.text();
@@ -182,7 +183,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-create-team"]').trigger('click');
@@ -208,7 +209,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { role: 'org-admin', route: '/admin/org/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     await wrapper.find('[data-test="delete-team-frontend"]').trigger('click');
@@ -241,8 +242,8 @@ describe('TeamMemberPanel 团队成员', () => {
       return { status: 200, json: [] };
     });
     wrapper = await mountConsoleView(TeamMemberPanel, {
-      role: 'org-admin',
-      route: '/admin/org/teams',
+      account: 'orgManager',
+      route: '/admin/me/orgs/acme/teams',
       props: { team: teams[0], org: 'acme' }
     });
     await flushPromises();
@@ -262,5 +263,94 @@ describe('TeamMemberPanel 团队成员', () => {
       (request) => request.method === 'DELETE' && request.url === '/api/orgs/acme/teams/7/members/zed'
     );
     expect(removeRequest).toBeDefined();
+  });
+});
+
+// 组织治理权（ADR-0033 / ADR-0034）：治理身份标注与互管规则、待接受邀请的撤销、
+// 以及组织详情页的删除危险区。
+describe('组织治理界面', () => {
+  const governedMembers = [
+    { username: 'admin', isOrgManager: true },
+    { username: 'bob', isOrgManager: false }
+  ];
+
+  it('标注治理身份，并禁止移除自己', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="member-is-manager"]').exists()).toBe(true);
+    // 会话账号 admin 是唯一的管理团队成员：不能移除自己，也不能移除最后一名
+    expect((wrapper.find('[data-test="remove-admin"]').element as HTMLButtonElement).disabled).toBe(true);
+    expect((wrapper.find('[data-test="remove-bob"]').element as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('管理团队成员不止一名时可以互相移除', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') {
+        return {
+          status: 200,
+          json: [...governedMembers, { username: 'co-admin', isOrgManager: true }]
+        };
+      }
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    await flushPromises();
+
+    expect((wrapper.find('[data-test="remove-co-admin"]').element as HTMLButtonElement).disabled).toBe(false);
+    expect((wrapper.find('[data-test="remove-admin"]').element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('列出待接受邀请并可撤销', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
+      if (url === '/api/orgs/acme/invitations') {
+        if (method === 'DELETE') return { status: 200, json: { status: 'revoked' } };
+        return { status: 200, json: [{ id: 12, username: 'carol', invitedBy: 'admin' }] };
+      }
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'invite' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="pending-invitations-table"]').text()).toContain('carol');
+
+    await wrapper.find('[data-test="revoke-invitation-carol"]').trigger('click');
+    await flushPromises();
+
+    expect(
+      requests.some((request) => request.method === 'DELETE' && request.url === '/api/orgs/acme/invitations/12')
+    ).toBe(true);
+  });
+
+  it('删除组织需要手打组织名确认', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/acme') return { status: 200, json: { status: 'deleted', orgName: 'acme' } };
+      if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(OrgDetailLayout, {
+      account: 'orgManager',
+      route: '/admin/me/orgs/acme/members'
+    });
+    await flushPromises();
+
+    expect((wrapper.find('[data-test="org-delete-button"]').element as HTMLButtonElement).disabled).toBe(true);
+
+    await setDocInput('org-delete-confirm-input', 'acme');
+    await flushPromises();
+    await wrapper.find('[data-test="org-delete-button"]').trigger('click');
+    await flushPromises();
+
+    const deletion = requests.find((request) => request.method === 'DELETE' && request.url === '/api/orgs/acme');
+    expect(deletion?.body).toEqual({ confirm: 'acme' });
   });
 });

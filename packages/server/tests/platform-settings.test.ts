@@ -48,11 +48,17 @@ describe('platform settings', () => {
 
   const headers = () => ({ authorization: `token ${superToken}` });
 
-  it('exposes registrationMode anonymously and defaults to open', async () => {
+  it('exposes the three platform switches anonymously, defaulting to open/direct/auto', async () => {
     const info = await app!.inject({ method: 'GET', url: '/api/public/platform-info' });
 
     expect(info.statusCode).toBe(200);
-    expect(info.json()).toEqual({ registrationMode: 'open', memberAddMode: 'direct' });
+    // orgRegistrationMode 必须匿名下发：组织创建入口在个人控制台（ADR-0035），
+    // 客户端要据此决定"即时创建"还是"提交申请"，不能靠试错请求去发现模式。
+    expect(info.json()).toEqual({
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      orgRegistrationMode: 'auto'
+    });
   });
 
   it('lets the super administrator switch org_registration_mode', async () => {

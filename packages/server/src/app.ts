@@ -15,7 +15,6 @@ import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
 import path from 'node:path';
-import { runOrganizationDeletion } from './services/org-delete.js';
 import { registerUserRoutes } from './routes/register.js';
 import { OrgInvitationRepository, UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';

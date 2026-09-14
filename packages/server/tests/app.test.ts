@@ -420,12 +420,12 @@ describe('Fastify Server API', () => {
     expect(loginRes.json()).toEqual({
       token: 'skill-user-token',
       username: 'alice',
-      organizations: [{ org: 'acme', role: 'member' }]
+      organizations: [{ org: 'acme', isOrgManager: false }]
     });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
   });
 
-  it('derives the org-admin role from Owners membership across organizations', async () => {
+  it('marks organization management-team membership per organization from Owners membership', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('admin-token'),
       adminUsername: 'eslroot',
@@ -444,8 +444,8 @@ describe('Fastify Server API', () => {
 
     expect(loginRes.statusCode).toBe(200);
     expect(loginRes.json().organizations).toEqual([
-      { org: 'acme', role: 'member' },
-      { org: 'beta', role: 'org-admin' }
+      { org: 'acme', isOrgManager: false },
+      { org: 'beta', isOrgManager: true }
     ]);
   });
 
@@ -465,7 +465,12 @@ describe('Fastify Server API', () => {
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toEqual({ token: 'gitea-token', username: 'eslroot', role: 'super', organizations: [] });
+    expect(loginRes.json()).toEqual({
+      token: 'gitea-token',
+      username: 'eslroot',
+      isPlatformAdmin: true,
+      organizations: []
+    });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('eslroot', 'correct-password');
   });
 
@@ -504,7 +509,7 @@ describe('Fastify Server API', () => {
     expect(mockGitea.loginUser).not.toHaveBeenCalled();
   });
 
-  it('signs a org-less global account in through the console as a plain member', async () => {
+  it('signs an org-less global account in through the console with no memberships', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('some-token'),
       adminUsername: 'eslroot',
@@ -519,7 +524,7 @@ describe('Fastify Server API', () => {
     });
 
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toMatchObject({ username: 'carol', role: 'member', organizations: [] });
+    expect(loginRes.json()).toMatchObject({ username: 'carol', isPlatformAdmin: false, organizations: [] });
   });
 
   it('lets an authenticated Skill User change their own password with their current password', async () => {

@@ -22,7 +22,7 @@
       <router-link to="/admin/register-user" class="auth-link" data-test="user-register-link">
         没有账号？注册个人账号
       </router-link>
-      <router-link v-if="!isSingleMode" to="/admin/register" class="auth-link" data-test="register-link">
+      <router-link to="/admin/register" class="auth-link" data-test="register-link">
         没有组织？注册组织申请
       </router-link>
     </el-card>
@@ -30,29 +30,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../api/client';
-import { useAuthStore, type Role } from '../stores/auth';
+import { useAuthStore, type SessionOrganization } from '../stores/auth';
 
 const username = ref('');
 const password = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
-// 平台信息(ADR-0022)：单组织模式下隐藏注册入口。平台信息不可用时保持现状。
-const platformInfo = ref<{ mode: 'single' | 'multi'; defaultOrg: string | null } | null>(null);
-const isSingleMode = computed(() => platformInfo.value?.mode === 'single');
 
 const router = useRouter();
 const auth = useAuthStore();
-
-onMounted(async () => {
-  try {
-    platformInfo.value = await apiRequest('/api/public/platform-info');
-  } catch {
-    platformInfo.value = null;
-  }
-});
 
 async function submit(): Promise<void> {
   errorMessage.value = '';
@@ -63,25 +52,23 @@ async function submit(): Promise<void> {
   const trimmedUsername = username.value.trim();
   loading.value = true;
   try {
-    // 全局身份登录（ADR-0032）：username + password 一条凭据；组织列表与
-    // 角色由服务端按 Gitea 成员关系派生，前端不做推导。
+    // 全局身份登录（ADR-0032）：username + password 一条凭据。服务端只回两件
+    // 事实——是不是平台管理员、在每个组织是不是组织管理团队成员（ADR-0033），
+    // 前端不推导角色，也不挑"当前组织"（组织由路由显式指名，ADR-0035）。
     const result = await apiRequest<{
       token: string;
       username: string;
-      role: Role;
-      organizations?: Array<{ org: string; role: 'org-admin' | 'member' }>;
+      isPlatformAdmin: boolean;
+      organizations?: SessionOrganization[];
     }>('/api/console/login', {
       method: 'POST',
       body: { username: trimmedUsername, password: password.value }
     });
-    const organizations = result.organizations ?? [];
-    const org = organizations.find((membership) => membership.role === 'org-admin')?.org ?? organizations[0]?.org ?? null;
     auth.establish({
       token: result.token,
       username: result.username,
-      org,
-      role: result.role,
-      organizations
+      isPlatformAdmin: result.isPlatformAdmin,
+      organizations: result.organizations ?? []
     });
     await router.push(auth.homePath);
   } catch (error) {

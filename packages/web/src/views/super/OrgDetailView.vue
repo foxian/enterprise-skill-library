@@ -25,6 +25,37 @@
       data-test="org-last-error"
     />
 
+    <!-- 平台管理员的成员兜底（ADR-0033）：超管不参与组织，因此不经成员身份
+         也能查看与移除成员。治理不变量（至少保留一名管理团队成员）仍成立。 -->
+    <el-card class="data-card" shadow="never" data-test="admin-members-card">
+      <template #header>成员</template>
+      <el-table v-if="members.length > 0" :data="members" data-test="admin-members-table" v-loading="membersLoading">
+        <el-table-column prop="username" label="成员" />
+        <el-table-column label="身份" width="170">
+          <template #default="{ row }">
+            <el-tag v-if="row.isOrgManager" type="primary" data-test="admin-member-is-manager">组织管理团队</el-tag>
+            <el-tag v-else type="success">组织成员</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="danger"
+              :data-test="`admin-remove-${row.username}`"
+              :disabled="row.isOrgManager && managerCount <= 1"
+              :title="row.isOrgManager && managerCount <= 1 ? '组织管理团队必须至少保留一名成员' : ''"
+              @click="removeMember(row)"
+            >
+              移出
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else-if="!membersLoading" description="组织暂无成员" />
+      <el-alert v-if="memberError" type="error" :title="memberError" :closable="false" class="page-error" />
+    </el-card>
+
     <el-card class="danger-zone" data-test="danger-zone">
       <template #header>危险操作</template>
       <p class="danger-hint">
@@ -78,8 +109,17 @@ interface OrgSummary {
 const route = useRoute();
 const router = useRouter();
 
+interface AdminMemberView {
+  username: string;
+  isOrgManager: boolean;
+}
+
 const orgName = computed(() => String(route.params.orgName ?? ''));
 const summary = ref<OrgSummary | null>(null);
+const members = ref<AdminMemberView[]>([]);
+const membersLoading = ref(false);
+const memberError = ref('');
+const managerCount = computed(() => members.value.filter((member) => member.isOrgManager).length);
 const confirmInput = ref('');
 const dialogVisible = ref(false);
 const deleting = ref(false);
@@ -120,10 +160,43 @@ async function deleteOrg(): Promise<void> {
   }
 }
 
-onMounted(loadSummary);
+async function loadMembers(): Promise<void> {
+  membersLoading.value = true;
+  memberError.value = '';
+  try {
+    members.value = await apiRequest<AdminMemberView[]>(
+      `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members`
+    );
+  } catch (error) {
+    memberError.value = error instanceof Error ? error.message : String(error);
+    members.value = [];
+  } finally {
+    membersLoading.value = false;
+  }
+}
+
+async function removeMember(row: AdminMemberView): Promise<void> {
+  memberError.value = '';
+  try {
+    await apiRequest(
+      `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members/${encodeURIComponent(row.username)}`,
+      { method: 'DELETE' }
+    );
+    ElMessage.success(`成员 ${row.username} 已移出组织`);
+    await Promise.all([loadMembers(), loadSummary()]);
+  } catch (error) {
+    memberError.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+onMounted(async () => {
+  await loadSummary();
+  await loadMembers();
+});
 watch(orgName, () => {
   confirmInput.value = '';
   void loadSummary();
+  void loadMembers();
 });
 </script>
 

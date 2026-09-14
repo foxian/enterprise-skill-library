@@ -327,7 +327,7 @@ export class SkillRepository {
   }
 
   // 全量技能清单(含未发布,ADR-0025):管理后台的角色化可见性视图以此为基础,
-  // 再按调用方身份(超管/组织管理员/成员)与 Git Backend 权限过滤。
+  // 再按调用方身份(超管/组织管理团队成员/成员)与 Git Backend 权限过滤。
   listSkills(): SkillRecord[] {
     const stmt = this.db.prepare(`
       SELECT
@@ -911,7 +911,7 @@ export class UserRegistrationRepository {
   }
 }
 
-export type OrgInvitationStatus = 'pending' | 'accepted' | 'declined';
+export type OrgInvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
 
 export interface OrgInvitationRecord {
   id: number;
@@ -923,7 +923,7 @@ export interface OrgInvitationRecord {
   updatedAt: string;
 }
 
-// 组织邀请（ADR-0032）：邀请制拉人方式下，组织管理员发出邀请，
+// 组织邀请（ADR-0032）：邀请制拉人方式下，组织管理团队成员发出邀请，
 // 被邀请人接受后加入组织并自动进入三个常设团队。
 export class OrgInvitationRepository {
   constructor(private readonly db: Database.Database) {}

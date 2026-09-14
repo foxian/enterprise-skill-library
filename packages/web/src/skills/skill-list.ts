@@ -112,7 +112,7 @@ export interface ShareState {
   tagType: 'info' | 'success' | 'warning' | 'danger' | 'primary';
 }
 
-// 组织管理员读全组织技能；成员读自己可访问的技能后按创建者过滤
+// 组织管理团队成员读全组织技能；成员读自己可访问的技能后按创建者过滤
 export async function loadSkillSummaries(filter: (skill: SkillRecordView) => boolean): Promise<SkillSummary[]> {
   const skills = (await apiRequest<SkillRecordView[]>('/api/skills/search?q=')).filter(filter);
   return Promise.all(

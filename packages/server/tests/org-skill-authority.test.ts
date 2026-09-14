@@ -8,7 +8,7 @@ import { initDatabase, SkillRepository } from '../src/db/database.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
 // 技能授权目标语义（ADR-0032 / #57）：新技能默认 private、组织成员默认零权限、
-// Organization Admin（Owners）对本组织全部技能有治理兜底管理权、
+// 组织管理团队（Owners）对本组织全部技能有治理兜底管理权、
 // share_all_* = 授权给三个常设团队。Gitea 仍是权限事实源。
 describe('org skill authority', () => {
   let tmpDir: string;
@@ -28,7 +28,7 @@ describe('org skill authority', () => {
       ],
       orgs: [{ name: 'acme', teams: [] }]
     });
-    // 组织管理员 = Owners（alice）；bob/carol 为普通成员（挂在三个常设团队）
+    // 组织管理团队成员 = Owners（alice）；bob/carol 为普通成员（挂在三个常设团队）
     gitea.__state.setOrgOwner('acme', 'alice');
     for (const [name, permission] of [
       ['all-readers', 'read'],
@@ -99,7 +99,7 @@ describe('org skill authority', () => {
     expect(res.json().viewerAccess).toBe('manage');
   });
 
-  it('the Organization Admin sees and manages every org skill as governance fallback', async () => {
+  it('the 组织管理团队 sees and manages every org skill as governance fallback', async () => {
     // alice 不是 maintainer，但她是 acme 的 Owners 成员
     const res = await app.inject({
       method: 'GET',

@@ -7,8 +7,9 @@ import { buildApp } from '../src/app.js';
 import { initDatabase } from '../src/db/database.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
-// 全局身份登录（ADR-0032）：username + password 一条凭据，无组织字段；
-// 组织列表与角色由 Gitea 成员关系（Owners = org-admin）派生。
+// 全局身份登录（ADR-0032 / ADR-0033）：username + password 一条凭据，无组织字段；
+// 所属组织列表由 Gitea 成员关系派生，组织治理权以 isOrgManager 逐组织声明
+// （组织管理团队 = Owners 团队成员），服务端不派生全局角色。
 describe('global identity login', () => {
   let tmpDir: string;
   let app: FastifyInstance;
@@ -51,8 +52,8 @@ describe('global identity login', () => {
       token: expect.any(String),
       username: 'alice',
       organizations: [
-        { org: 'acme', role: 'member' },
-        { org: 'beta', role: 'org-admin' }
+        { org: 'acme', isOrgManager: false },
+        { org: 'beta', isOrgManager: true }
       ]
     });
   });
@@ -94,7 +95,7 @@ describe('global identity login', () => {
     expect(response.statusCode).toBe(403);
   });
 
-  it('signs the platform administrator in through the console with role super', async () => {
+  it('signs the platform administrator in through the console as the platform admin, outside any organization', async () => {
     gitea.__state.users.set('eslroot', 'root-password');
     const response = await app.inject({
       method: 'POST',
@@ -103,10 +104,10 @@ describe('global identity login', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ username: 'eslroot', role: 'super', organizations: [] });
+    expect(response.json()).toMatchObject({ username: 'eslroot', isPlatformAdmin: true, organizations: [] });
   });
 
-  it('signs a member in through the console with per-organization roles', async () => {
+  it('signs a user in through the console with per-organization management-team membership', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/console/login',
@@ -116,10 +117,10 @@ describe('global identity login', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
       username: 'alice',
-      role: 'org-admin',
+      isPlatformAdmin: false,
       organizations: [
-        { org: 'acme', role: 'member' },
-        { org: 'beta', role: 'org-admin' }
+        { org: 'acme', isOrgManager: false },
+        { org: 'beta', isOrgManager: true }
       ]
     });
   });

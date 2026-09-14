@@ -19,10 +19,13 @@ function mockFetch(status = 200, body: unknown = {}): {
     const path = String(url);
     calls.push({ url: path, init: init ?? {} });
     if (path === '/api/public/platform-info') {
-      return new Response(JSON.stringify({ mode: 'multi', defaultOrg: null }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return new Response(
+        JSON.stringify({ registrationMode: 'open', memberAddMode: 'direct', orgRegistrationMode: 'auto' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
     }
     return new Response(JSON.stringify(body), {
       status,
@@ -59,7 +62,8 @@ async function setField(wrapper: VueWrapper, testId: string, value: string): Pro
   await input.trigger('input');
 }
 
-// 全局身份登录（ADR-0032）：不再有组织输入，角色与组织列表以服务端返回为准。
+// 全局身份登录（ADR-0032 / ADR-0033）：不再有组织输入；服务端只回"是不是平台
+// 管理员"与"在每个组织是不是组织管理团队成员"，前端不推导角色、不挑当前组织。
 describe('LoginView', () => {
   let wrapper: VueWrapper | undefined;
 
@@ -90,8 +94,8 @@ describe('LoginView', () => {
     const fetchMock = mockFetch(200, {
       token: 'member-token',
       username: 'bob',
-      role: 'member',
-      organizations: [{ org: 'acme', role: 'member' }]
+      isPlatformAdmin: false,
+      organizations: [{ org: 'acme', isOrgManager: false }]
     });
     setFetchImpl(fetchMock.impl);
     await fillAndSubmit(wrapper, { username: 'bob', password: 'secret' });
@@ -104,12 +108,12 @@ describe('LoginView', () => {
     });
   });
 
-  it('保存服务端返回的角色与组织列表，跳转成员视图', async () => {
+  it('保存服务端返回的平台身份与逐组织治理权，跳转个人控制台', async () => {
     const fetchMock = mockFetch(200, {
       token: 'member-token',
       username: 'bob',
-      role: 'member',
-      organizations: [{ org: 'acme', role: 'member' }]
+      isPlatformAdmin: false,
+      organizations: [{ org: 'acme', isOrgManager: false }]
     });
     setFetchImpl(fetchMock.impl);
     wrapper = await mountLogin();
@@ -118,22 +122,27 @@ describe('LoginView', () => {
 
     const auth = useAuthStore();
     expect(auth.token).toBe('member-token');
-    expect(auth.role).toBe('member');
-    expect(auth.org).toBe('acme');
+    expect(auth.isPlatformAdmin).toBe(false);
+    expect(auth.organizations).toEqual([{ org: 'acme', isOrgManager: false }]);
     const stored = JSON.parse(localStorage.getItem('esl-admin-session') ?? '{}');
-    expect(stored).toMatchObject({ token: 'member-token', username: 'bob', org: 'acme', role: 'member' });
-    expect(router.push).toHaveBeenCalledWith('/admin/member/skills');
+    expect(stored).toMatchObject({
+      token: 'member-token',
+      username: 'bob',
+      isPlatformAdmin: false,
+      organizations: [{ org: 'acme', isOrgManager: false }]
+    });
+    expect(router.push).toHaveBeenCalledWith('/admin/me/overview');
   });
 
-  it('组织管理员（Owners 成员）登录后跳转组织管理视图', async () => {
+  it('组织管理团队成员登录后仍落个人控制台——治理权是逐组织的，不是全局视角', async () => {
     setFetchImpl(
       mockFetch(200, {
-        token: 'org-admin-token',
+        token: 'org-manager-token',
         username: 'alice',
-        role: 'org-admin',
+        isPlatformAdmin: false,
         organizations: [
-          { org: 'acme', role: 'member' },
-          { org: 'beta', role: 'org-admin' }
+          { org: 'acme', isOrgManager: false },
+          { org: 'beta', isOrgManager: true }
         ]
       }).impl
     );
@@ -142,15 +151,19 @@ describe('LoginView', () => {
     await fillAndSubmit(wrapper, { username: 'alice', password: 'secret' });
 
     const auth = useAuthStore();
-    expect(auth.role).toBe('org-admin');
-    expect(router.push).toHaveBeenCalledWith('/admin/org/members');
+    expect(auth.organizations).toEqual([
+      { org: 'acme', isOrgManager: false },
+      { org: 'beta', isOrgManager: true }
+    ]);
+    // 不挑"第一个可治理的组织"当上下文——那是被 ADR-0035 消灭的隐式组织
+    expect(router.push).toHaveBeenCalledWith('/admin/me/overview');
   });
 
   it('超级管理员登录（无组织隶属）跳转超管视图', async () => {
     const fetchMock = mockFetch(200, {
       token: 'super-token',
       username: 'eslroot',
-      role: 'super',
+      isPlatformAdmin: true,
       organizations: []
     });
     setFetchImpl(fetchMock.impl);
@@ -159,8 +172,8 @@ describe('LoginView', () => {
     await fillAndSubmit(wrapper, { username: 'eslroot', password: 'secret' });
 
     const auth = useAuthStore();
-    expect(auth.role).toBe('super');
-    expect(auth.org).toBeNull();
+    expect(auth.isPlatformAdmin).toBe(true);
+    expect(auth.organizations).toEqual([]);
     expect(router.push).toHaveBeenCalledWith('/admin/super/dashboard');
   });
 

@@ -9,7 +9,7 @@ import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.
 
 // 组织成员治理（ADR-0032 / #55）：成员 = 全局账号；拉人方式为平台设置
 // （direct 即生效 / invite 对方接受后入组）；常设团队随成员进出自动增删；
-// 自定义团队由任意 Organization Admin（Owners 成员）管理，常设团队不可删改。
+// 自定义团队由任意 组织管理团队（Owners 成员）管理，常设团队不可删改。
 describe('organization console API', () => {
   let tmpDir: string;
   let dbPath: string;
@@ -130,7 +130,7 @@ describe('organization console API', () => {
     expect(invite.json()).toMatchObject({ status: 'invited', username: 'carol' });
     expect(await gitea.listUserOrgs('carol')).toEqual([]);
 
-    // 组织管理员可见待处理邀请
+    // 组织管理团队成员可见待处理邀请
     const list = await app.inject({
       method: 'GET',
       url: '/api/orgs/acme/invitations',
@@ -180,6 +180,148 @@ describe('organization console API', () => {
     });
     expect(decline.statusCode).toBe(200);
     expect(await gitea.listUserOrgs('carol')).toEqual([]);
+  });
+
+  // 邀请的发起方半边：被邀请人还没回应时，邀请不该是不可收回的。
+  it('lets the organization withdraw a pending invitation', async () => {
+    const db = initDatabase(dbPath);
+    new PlatformSettingsRepository(db).setSetting('member_add_mode', 'invite');
+    db.close();
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs/acme/members',
+      headers: aliceHeaders,
+      payload: { username: 'carol' }
+    });
+    const pending = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/acme/invitations',
+      headers: aliceHeaders
+    });
+    const invitationId = (pending.json() as Array<{ id: number }>)[0].id;
+
+    const revoke = await app.inject({
+      method: 'DELETE',
+      url: `/api/orgs/acme/invitations/${invitationId}`,
+      headers: aliceHeaders
+    });
+
+    expect(revoke.statusCode).toBe(200);
+    expect(revoke.json()).toMatchObject({ status: 'revoked', username: 'carol' });
+    // 被邀请人的待办里不再出现，也不产生任何成员关系
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/invitations',
+      headers: { authorization: 'token carol-token' }
+    });
+    expect(mine.json()).toEqual([]);
+    expect(await gitea.listUserOrgs('carol')).toEqual([]);
+
+    // 已撤销的邀请不能被再次接受
+    const accept = await app.inject({
+      method: 'POST',
+      url: `/api/orgs/invitations/${invitationId}/accept`,
+      headers: { authorization: 'token carol-token' }
+    });
+    expect(accept.statusCode).toBe(409);
+  });
+
+  // 回归：唯一的约束该是"同一 (组织, 用户) 最多一条待处理邀请"，而不是"同终态只
+  // 一条"。早先的 UNIQUE(org, username, status) 会让第二次终态翻转直接 500。
+  it('allows inviting and declining the same user again', async () => {
+    const db = initDatabase(dbPath);
+    new PlatformSettingsRepository(db).setSetting('member_add_mode', 'invite');
+    db.close();
+
+    const invite = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/orgs/acme/members',
+        headers: aliceHeaders,
+        payload: { username: 'carol' }
+      });
+    const carolToken = { authorization: 'token carol-token' };
+    const myInvitations = async () =>
+      (await app.inject({ method: 'GET', url: '/api/orgs/invitations', headers: carolToken })).json() as Array<{
+        id: number;
+      }>;
+
+    await invite();
+    const first = await myInvitations();
+    const firstDecline = await app.inject({
+      method: 'POST',
+      url: `/api/orgs/invitations/${first[0].id}/decline`,
+      headers: carolToken
+    });
+    expect(firstDecline.statusCode).toBe(200);
+
+    await invite();
+    const second = await myInvitations();
+    expect(second[0].id).not.toBe(first[0].id);
+    const secondDecline = await app.inject({
+      method: 'POST',
+      url: `/api/orgs/invitations/${second[0].id}/decline`,
+      headers: carolToken
+    });
+    expect(secondDecline.statusCode).toBe(200);
+    expect(await myInvitations()).toEqual([]);
+  });
+
+  it('allows withdrawing the same user invitation again', async () => {
+    const db = initDatabase(dbPath);
+    new PlatformSettingsRepository(db).setSetting('member_add_mode', 'invite');
+    db.close();
+
+    const inviteAndRevoke = async (): Promise<number> => {
+      await app.inject({
+        method: 'POST',
+        url: '/api/orgs/acme/members',
+        headers: aliceHeaders,
+        payload: { username: 'carol' }
+      });
+      const pending = await app.inject({
+        method: 'GET',
+        url: '/api/orgs/acme/invitations',
+        headers: aliceHeaders
+      });
+      const id = (pending.json() as Array<{ id: number }>)[0].id;
+      const revoked = await app.inject({
+        method: 'DELETE',
+        url: `/api/orgs/acme/invitations/${id}`,
+        headers: aliceHeaders
+      });
+      return revoked.statusCode;
+    };
+
+    expect(await inviteAndRevoke()).toBe(200);
+    expect(await inviteAndRevoke()).toBe(200);
+  });
+
+  it('refuses to withdraw an invitation belonging to another organization', async () => {
+    const db = initDatabase(dbPath);
+    new PlatformSettingsRepository(db).setSetting('member_add_mode', 'invite');
+    db.close();
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs/acme/members',
+      headers: aliceHeaders,
+      payload: { username: 'carol' }
+    });
+    const pending = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/acme/invitations',
+      headers: aliceHeaders
+    });
+    const invitationId = (pending.json() as Array<{ id: number }>)[0].id;
+
+    // outsider 不是 acme 的治理者，连路由守卫都过不去
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/orgs/acme/invitations/${invitationId}`,
+      headers: { authorization: 'token outsider-token' }
+    });
+
+    expect(res.statusCode).toBe(403);
   });
 
   it('removing a member removes them from the org and every team', async () => {
@@ -319,13 +461,80 @@ describe('organization console API', () => {
     expect(res.json().error).toContain('ghost');
   });
 
-  it('refuses to remove an Owners member from the Owners team', async () => {
+  // 成员互管（ADR-0033）：组织管理团队成员之间可以互相移除——不能移除自己，
+  // 且团队必须至少保留一名成员。同一条规则也适用于"把管理团队的人移出组织"。
+  it('lets an organization management team member remove another one', async () => {
     const ownersId = await teamId('acme', 'Owners');
+
     const res = await app.inject({
       method: 'DELETE',
       url: `/api/orgs/acme/teams/${ownersId}/members/co-admin`,
       headers: aliceHeaders
     });
+
+    expect(res.statusCode).toBe(200);
+    expect(await gitea.isTeamMember(ownersId, 'co-admin')).toBe(false);
+  });
+
+  it('refuses to let an organization management team member remove themselves', async () => {
+    const ownersId = await teamId('acme', 'Owners');
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/orgs/acme/teams/${ownersId}/members/admin-alice`,
+      headers: aliceHeaders
+    });
+
     expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain('yourself');
+    expect(await gitea.isTeamMember(ownersId, 'admin-alice')).toBe(true);
+  });
+
+  it('applies the management-team rules to removing a manager from the organization', async () => {
+    const viaOrgRoute = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/admin-alice',
+      headers: aliceHeaders
+    });
+    expect(viaOrgRoute.statusCode).toBe(400);
+    expect(viaOrgRoute.json().error).toContain('yourself');
+
+    // 移除另一名管理团队成员等于收回其治理权，是允许的
+    const other = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/co-admin',
+      headers: aliceHeaders
+    });
+    expect(other.statusCode).toBe(200);
+
+    // 普通成员的移出不受治理规则影响
+    await gitea.__state.addOrgMember('acme', 'carol');
+    const plain = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/carol',
+      headers: aliceHeaders
+    });
+    expect(plain.statusCode).toBe(200);
+  });
+
+  it('reports management-team membership in the member list', async () => {
+    await gitea.__state.addOrgMember('acme', 'bob');
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/acme/members',
+      headers: aliceHeaders
+    });
+
+    expect(res.statusCode).toBe(200);
+    const byName = new Map(
+      (res.json() as Array<{ username: string; isOrgManager: boolean }>).map((member) => [
+        member.username,
+        member.isOrgManager
+      ])
+    );
+    expect(byName.get('admin-alice')).toBe(true);
+    expect(byName.get('co-admin')).toBe(true);
+    expect(byName.get('bob')).toBe(false);
   });
 });

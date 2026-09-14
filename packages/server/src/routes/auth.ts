@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { validatePassword } from '@esl/core';
 import type { AdminRepository, PlatformSettingsRepository } from '../db/database.js';
-import type { GiteaService, GiteaOrg, GiteaUser } from '../services/gitea.js';
+import type { GiteaService } from '../services/gitea.js';
+import { deriveOrganizations } from '../services/organization-membership.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
@@ -10,13 +11,10 @@ export interface AuthRouteOptions {
   passwordMinLength?: number;
 }
 
-export interface OrganizationMembership {
-  org: string;
-  role: 'org-admin' | 'member';
-}
-
 // 全局身份登录（ADR-0032）：账号无 <org>_ 前缀，登录只提交 username + password；
-// 角色与所属组织列表由 Gitea 成员关系派生（Owners 团队成员 = Organization Admin）。
+// 所属组织列表与逐组织治理权由 Gitea 成员关系派生（ADR-0033）。组织内没有角色——
+// 服务端不派生任何全局角色，由客户端按 isPlatformAdmin 与逐组织 isOrgManager
+// 分别选视角与渲染治理入口。
 export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptions): void {
   const { repository, giteaService } = options;
 
@@ -42,8 +40,9 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     return { token, username, organizations: await deriveOrganizations(giteaService, username) };
   });
 
-  // 管理后台专用登录：三类角色都收。超级管理员（eslroot）结构不变；
-  // 其余账号按 Gitea 成员关系派生角色（任一组织的 Owners 成员即 org-admin）。
+  // 管理后台专用登录：平台管理员与普通用户都收，平台角色只有这两个
+  // （ADR-0033）。响应只声明两件事实——是不是平台管理员、在每个组织是不是
+  // 组织管理团队成员——由客户端据此选视角与渲染治理入口。
   app.post('/api/console/login', async (request, reply) => {
     const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
     if (!username || !password) {
@@ -60,14 +59,14 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       return unauthorized(reply);
     }
 
-    if (username === giteaService.adminUsername) {
-      return { token, username, role: 'super' as const, organizations: [] };
-    }
-    const organizations = await deriveOrganizations(giteaService, username);
-    const role = organizations.some((membership) => membership.role === 'org-admin')
-      ? ('org-admin' as const)
-      : ('member' as const);
-    return { token, username, role, organizations };
+    const isPlatformAdmin = username === giteaService.adminUsername;
+    return {
+      token,
+      username,
+      isPlatformAdmin,
+      // 平台管理员不属于任何组织（ADR-0033），不参与组织治理故不派生隶属关系
+      organizations: isPlatformAdmin ? [] : await deriveOrganizations(giteaService, username)
+    };
   });
 
   app.post('/api/auth/password', async (request, reply) => {
@@ -91,32 +90,6 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     await giteaService.changeUserPassword(username, newPassword);
     return { passwordChanged: true };
   });
-}
-
-async function deriveOrganizations(
-  giteaService: GiteaService,
-  username: string
-): Promise<OrganizationMembership[]> {
-  let orgs: GiteaOrg[];
-  try {
-    orgs = await giteaService.listUserOrgs(username);
-  } catch {
-    return [];
-  }
-  const memberships: OrganizationMembership[] = [];
-  for (const org of orgs) {
-    let owners: GiteaUser[] = [];
-    try {
-      owners = await giteaService.listOrgOwners(org.name);
-    } catch {
-      owners = [];
-    }
-    memberships.push({
-      org: org.name,
-      role: owners.some((owner) => owner.username === username) ? 'org-admin' : 'member'
-    });
-  }
-  return memberships;
 }
 
 async function resolveTokenUsername(

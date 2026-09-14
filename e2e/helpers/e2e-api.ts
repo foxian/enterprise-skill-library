@@ -62,7 +62,7 @@ export async function registerAndLogin(
   return { api: await loginApi(username, password), user: { username, password } };
 }
 
-/** 创建组织（auto 模式即时开通，创建者成为初始 Organization Admin） */
+/** 创建组织（auto 模式即时开通，创建者成为组织管理团队初始成员） */
 export async function createOrg(api: APIRequestContext, orgName: string): Promise<void> {
   const response = await api.post('/api/orgs', { data: { orgName } });
   if (response.status() !== 201) {

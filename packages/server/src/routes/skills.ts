@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import semver from 'semver';
 import type { AdminRepository, SkillRecord, SkillRepository, TenantOrganizationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
+import { isOrgManagerOf } from '../services/organization-membership.js';
 
 export interface SkillsRouteOptions {
   repository: SkillRepository;
@@ -142,7 +143,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
   // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
   // 这里返回调用方可见的全部技能(含未发布)及其权限关系,供管理后台的
-  // "我管理的/共享给我的"与超管、组织管理员视图消费。可见性 = public ∪
+  // "我管理的/共享给我的"与超管、组织管理团队成员视图消费。可见性 = public ∪
   // 被授权 private,跨命名空间不再按调用者组织隔离;
   // relation: managed=持有管理权, shared=可读/可写但无管理权。
   app.get('/api/skills/inventory', async (request, reply) => {
@@ -159,7 +160,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return view;
   });
 
-  // 可见性切换(ADR-0032):Maintainer 或 Organization Admin 可在 public/private
+  // 可见性切换(ADR-0033):Maintainer 或组织管理团队成员可在 public/private
   // 间切换。public = 平台全员可搜可装可作依赖;private = 仅 Maintainer 与被授权者。
   app.post('/api/skills/:scope/:skillName/visibility', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
@@ -940,7 +941,7 @@ function skillRepo(skill: SkillRecord): { owner: string; name: string } {
 }
 
 // ADR-0025 三档权限:Read/Write/Manage,Manage 档隐含读与写。
-// 判定顺序:先看 DB 记录与角色约定(owner/初始 Maintainer/组织管理员/超管,
+// 判定顺序:先看 DB 记录与角色约定(owner/初始 Maintainer/组织管理团队成员/超管,
 // 无网络往返),再查 Git Backend 的团队与协作者授权(Gitea 是权限事实来源)。
 export type SkillAccessLevel = 'none' | 'read' | 'write' | 'manage';
 
@@ -954,7 +955,7 @@ async function getAccessLevel(
   // maintainers_json 退化为初始创建者记录);超级管理员同理。
   if (username === skill.owner || skill.maintainers.includes(username)) return 'manage';
   if (giteaService.adminUsername && username === giteaService.adminUsername) return 'manage';
-  // Organization Admin 治理兜底（ADR-0032）：Owners 团队成员可见并管理
+  // 组织管理团队治理兜底（ADR-0033）：Owners 团队成员可见并管理
   // 本组织名下全部技能；个人技能的 scope 即所有者本人，已在上面命中。
   if (skill.scope !== username && (await isOrgAdministrator(giteaService, skill.scope, username))) {
     return 'manage';
@@ -987,19 +988,10 @@ async function getAccessLevel(
   return level;
 }
 
-// 组织管理员判定（ADR-0032）：scope 组织的 Owners 团队成员。scope 不是组织
-// （个人技能）时返回 false。组织不可用/查询失败一律按非管理员处理。
-async function isOrgAdministrator(
-  giteaService: GiteaService,
-  org: string,
-  username: string
-): Promise<boolean> {
-  try {
-    const owners = await giteaService.listOrgOwners(org);
-    return owners.some((owner) => owner.username === username);
-  } catch {
-    return false;
-  }
+// 组织治理权判定（ADR-0033）：scope 组织的管理团队（= Gitea Owners）成员身份。
+// scope 不是组织（个人技能）时按非治理者处理，判定统一走共享实现。
+function isOrgAdministrator(giteaService: GiteaService, org: string, username: string): Promise<boolean> {
+  return isOrgManagerOf(giteaService, org, username);
 }
 
 async function hasReadAccess(

@@ -34,7 +34,7 @@ test.describe('npm 式金路径（真实栈）', () => {
     const outsider = await registerAndLogin(request, 'e2e-outsider', PASSWORD);
     createdApis.push(owner.api, member.api, outsider.api);
 
-    // 2. 创建组织（auto 模式即时开通，创建者成为 Organization Admin）
+    // 2. 创建组织（auto 模式即时开通，创建者成为 组织管理团队）
     const orgName = uniqueOrgName('e2e-org');
     await createOrg(owner.api, orgName);
 

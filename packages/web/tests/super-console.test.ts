@@ -57,7 +57,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="applications-table"]').text()).toContain('alpha');
@@ -74,7 +74,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     await wrapper.find('[data-test="approve-1"]').trigger('click');
@@ -100,7 +100,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     await wrapper.find('[data-test="reject-1"]').trigger('click');
@@ -121,7 +121,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     await wrapper.find('[data-test="cancel-1"]').trigger('click');
@@ -146,7 +146,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     const vm = wrapper.vm as unknown as { statusFilter: string };
@@ -165,7 +165,7 @@ describe('ApplicationsView 审批工作台', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(ApplicationsView, { role: 'super', route: '/admin/super/applications' });
+    wrapper = await mountConsoleView(ApplicationsView, { account: 'platformAdmin', route: '/admin/super/applications' });
     await flushPromises();
 
     // el-select 下拉渲染在 body 上的 teleport 层，直接驱动状态后校验表格输出
@@ -194,7 +194,7 @@ describe('RegistrationsView 用户注册审批', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(SuperRegistrations, { role: 'super', route: '/admin/super/registrations' });
+    wrapper = await mountConsoleView(SuperRegistrations, { account: 'platformAdmin', route: '/admin/super/registrations' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="registrations-table"]').text()).toContain('erin');
@@ -218,7 +218,7 @@ describe('RegistrationsView 用户注册审批', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(SuperRegistrations, { role: 'super', route: '/admin/super/registrations' });
+    wrapper = await mountConsoleView(SuperRegistrations, { account: 'platformAdmin', route: '/admin/super/registrations' });
     await flushPromises();
 
     await wrapper.find('[data-test="reject-registration-1"]').trigger('click');
@@ -246,7 +246,7 @@ describe('OrgsView 组织生命周期状态展示', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(OrgsView, { role: 'super', route: '/admin/super/orgs' });
+    wrapper = await mountConsoleView(OrgsView, { account: 'platformAdmin', route: '/admin/super/orgs' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-status-alpha"]').text()).toContain('待审批');
@@ -278,7 +278,7 @@ describe('OrgDetailView 组织详情', () => {
 
   it('失败的组织展示失败原因', async () => {
     mockOrgsApi({ status: 'failed', lastError: 'initialization failed' });
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('initialization failed');
@@ -286,7 +286,7 @@ describe('OrgDetailView 组织详情', () => {
 
   it('删除失败的组织展示失败原因（重新发起删除即重试）', async () => {
     mockOrgsApi({ status: 'delete_failed', lastError: 'external repo found' });
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-last-error"]').text()).toContain('external repo found');
@@ -294,7 +294,7 @@ describe('OrgDetailView 组织详情', () => {
 
   it('激活状态的组织不展示失败原因', async () => {
     mockOrgsApi({ status: 'active', lastError: null });
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(false);
@@ -318,7 +318,7 @@ describe('OrgDetailView 删除组织二次确认', () => {
 
   it('未输入正确组织名前删除按钮保持禁用', async () => {
     mockOrgsApi();
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     const button = wrapper.find('[data-test="delete-org-button"]');
@@ -336,7 +336,7 @@ describe('OrgDetailView 删除组织二次确认', () => {
 
   it('确认弹窗后才发起删除请求', async () => {
     const { requests } = mockOrgsApi();
-    wrapper = await mountConsoleView(OrgDetailView, { role: 'super', route: '/admin/super/orgs/acme' });
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
 
     const input = wrapper.find('[data-test="delete-confirm-input"]');
@@ -390,7 +390,7 @@ describe('SettingsView 平台设置', () => {
 
   it('展示三项平台设置（用户注册 / 组织注册 / 拉人方式）', async () => {
     mockSettings();
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
+    wrapper = await mountConsoleView(SettingsView, { account: 'platformAdmin', route: '/admin/super/settings' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="user-registration-mode"]').exists()).toBe(true);
@@ -402,7 +402,7 @@ describe('SettingsView 平台设置', () => {
 
   it('切换注册模式后保存三项设置', async () => {
     const { requests } = mockSettings();
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
+    wrapper = await mountConsoleView(SettingsView, { account: 'platformAdmin', route: '/admin/super/settings' });
     await flushPromises();
 
     const approvalRadio = wrapper
@@ -436,11 +436,79 @@ describe('DashboardView 平台概览', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(DashboardView, { role: 'super', route: '/admin/super/dashboard' });
+    wrapper = await mountConsoleView(DashboardView, { account: 'platformAdmin', route: '/admin/super/dashboard' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="stat-orgs"]').text()).toContain('2');
     expect(wrapper.find('[data-test="stat-pending"]').text()).toContain('1');
     expect(wrapper.find('[data-test="stat-skills"]').text()).toContain('3');
+  });
+});
+
+// 平台管理员的组织成员兜底（ADR-0033）：超管不参与组织，不经成员身份也能查看并
+// 移除成员；"至少保留一名组织管理团队成员"这条不变量对超管同样成立。
+describe('超管组织成员兜底', () => {
+  function mockAdminOrgsApi(members: Array<{ username: string; isOrgManager: boolean }>) {
+    return useApiMock((method, url) => {
+      if (url === '/api/admin/orgs' && method === 'GET') {
+        return {
+          status: 200,
+          json: [{ name: 'acme', memberCount: members.length, skillCount: 0, createdAt: '2026-08-01T10:00:00Z', status: 'active', lastError: null }]
+        };
+      }
+      if (url === '/api/admin/orgs/acme/members' && method === 'GET') {
+        return { status: 200, json: members };
+      }
+      if (url === '/api/admin/orgs/acme/members/bob' && method === 'DELETE') {
+        return { status: 200, json: { removed: true, orgName: 'acme', username: 'bob' } };
+      }
+      return { status: 200, json: [] };
+    });
+  }
+
+  afterEach(async () => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+    await resetConsole();
+  });
+
+  it('展示组织成员与治理身份，并允许移除普通成员', async () => {
+    const { requests } = mockAdminOrgsApi([
+      { username: 'admin-alice', isOrgManager: true },
+      { username: 'co-admin', isOrgManager: true },
+      { username: 'bob', isOrgManager: false }
+    ]);
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    const table = wrapper.find('[data-test="admin-members-table"]').text();
+    expect(table).toContain('admin-alice');
+    expect(table).toContain('bob');
+    expect(wrapper.find('[data-test="admin-member-is-manager"]').exists()).toBe(true);
+
+    await wrapper.find('[data-test="admin-remove-bob"]').trigger('click');
+    await flushPromises();
+
+    expect(
+      requests.some(
+        (request) => request.method === 'DELETE' && request.url === '/api/admin/orgs/acme/members/bob'
+      )
+    ).toBe(true);
+  });
+
+  it('只剩一名管理团队成员时禁止移除', async () => {
+    mockAdminOrgsApi([
+      { username: 'admin-alice', isOrgManager: true },
+      { username: 'bob', isOrgManager: false }
+    ]);
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    expect(
+      (wrapper.find('[data-test="admin-remove-admin-alice"]').element as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect((wrapper.find('[data-test="admin-remove-bob"]').element as HTMLButtonElement).disabled).toBe(false);
   });
 });

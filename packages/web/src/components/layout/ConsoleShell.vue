@@ -29,7 +29,7 @@
                 <div class="console-user-meta-name">{{ auth.username }}</div>
                 <div class="console-user-meta-sub">
                   <el-tag size="small" effect="plain">{{ roleLabel }}</el-tag>
-                  <span v-if="auth.org" class="console-user-meta-org">{{ auth.org }}</span>
+                  <span v-if="managerOrgsLabel" class="console-user-meta-org">{{ managerOrgsLabel }}</span>
                 </div>
               </div>
               <el-dropdown-item command="change-password" data-test="change-password">修改密码</el-dropdown-item>
@@ -60,7 +60,7 @@
 import { computed, ref, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ChangePasswordDialog from '../ChangePasswordDialog.vue';
-import { useAuthStore, type Role } from '../../stores/auth';
+import { useAuthStore } from '../../stores/auth';
 
 export interface ConsoleMenuItem {
   index: string;
@@ -73,12 +73,6 @@ defineProps<{
   menuItems: ConsoleMenuItem[];
 }>();
 
-const ROLE_LABELS: Record<Role, string> = {
-  super: '超级管理员',
-  'org-admin': '组织管理员',
-  member: '成员'
-};
-
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
@@ -86,7 +80,13 @@ const dialog = ref<InstanceType<typeof ChangePasswordDialog> | null>(null);
 
 const avatarText = computed<string>(() => (auth.username ?? '?').charAt(0).toUpperCase());
 
-const roleLabel = computed<string>(() => (auth.role ? ROLE_LABELS[auth.role] : ''));
+// 平台角色只有两个（ADR-0033），组织身份不在这里当角色展示。
+const roleLabel = computed<string>(() => (auth.isPlatformAdmin ? '超级管理员' : '用户'));
+
+const managerOrgsLabel = computed<string>(() => {
+  const orgs = auth.organizations.filter((membership) => membership.isOrgManager).map((m) => m.org);
+  return orgs.length > 0 ? `组织管理：${orgs.join(', ')}` : '';
+});
 
 const currentTitle = computed<string>(() => {
   const meta = route.meta as { title?: string };

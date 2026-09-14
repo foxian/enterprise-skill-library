@@ -57,7 +57,7 @@ afterEach(async () => {
 async function mountPanel() {
   wrapper = await mountConsoleView(
     { components: { SkillManagePanel }, template: '<SkillManagePanel scope="acme" skill-name="reviewer" />' } as never,
-    { role: 'member', route: '/admin/member/skills' }
+    { account: 'member', route: '/admin/me/skills' }
   );
   await flushPromises();
   return wrapper;

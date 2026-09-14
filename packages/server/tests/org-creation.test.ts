@@ -57,7 +57,87 @@ describe('organization creation', () => {
     return (await gitea.listTeamMembers(owners.id)).map((member) => member.username);
   }
 
-  it('auto mode creates the organization instantly with the creator as Organization Admin', async () => {
+  it('lists my organizations with per-organization management-team membership', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'acme' }
+    });
+    await gitea.createOrg('beta');
+    gitea.__state.addOrgMember('beta', 'alice');
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/mine',
+      headers: { authorization: 'token alice-token' }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().organizations).toEqual([
+      { org: 'acme', isOrgManager: true, status: 'active' },
+      { org: 'beta', isOrgManager: false, status: 'active' }
+    ]);
+    expect(res.json().pendingApplications).toEqual([]);
+  });
+
+  it('surfaces my own pending organization applications separately from organizations', async () => {
+    await switchMode('manual');
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'gamma' }
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/mine',
+      headers: { authorization: 'token alice-token' }
+    });
+
+    // 待审申请尚未产生 Gitea 组织，因此不在 organizations 里
+    expect(res.json().organizations).toEqual([]);
+    expect(res.json().pendingApplications).toEqual([
+      { orgName: 'gamma', submittedAt: expect.any(String) }
+    ]);
+  });
+
+  it('returns the organization name to the flat pool after deletion', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'acme' }
+    });
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme',
+      headers: { authorization: 'token alice-token' },
+      payload: { confirm: 'acme' }
+    });
+    expect(deleted.statusCode).toBe(200);
+
+    // 名字回到扁平池（ADR-0034）：同名组织可以重新创建。这与技能 Identity 的
+    // "永不复用"相反——技能 Identity 承载安装在外的引用，组织名不承载。
+    const recreated = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'acme' }
+    });
+    expect(recreated.statusCode).toBe(201);
+
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/orgs/mine',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(mine.json().organizations).toEqual([{ org: 'acme', isOrgManager: true, status: 'active' }]);
+  });
+
+  it('auto mode creates the organization instantly with the creator in the management team', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/orgs',
@@ -66,9 +146,24 @@ describe('organization creation', () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ orgName: 'beta', status: 'active', role: 'org-admin' });
+    expect(res.json()).toMatchObject({ orgName: 'beta', status: 'active', isOrgManager: true });
     expect(gitea.createOrg).toHaveBeenCalledWith('beta');
     expect(await ownerMembers('beta')).toContain('alice');
+  });
+
+  // 回归：用 admin token 建组织会把站点管理员自动塞进 Owners。平台系统账号不属于
+  // 任何组织（ADR-0033），既是治理团队成员又是组织成员都不行——只摘 Owners 会留下
+  // 一个"在成员列表里、却没有任何团队"的残影。
+  it('leaves the platform administrator out of the new organization entirely', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(await ownerMembers('beta')).not.toContain('eslroot');
+    expect((await gitea.listOrgMembers('beta')).map((member) => member.username)).not.toContain('eslroot');
   });
 
   it('presets the four standing teams with display names on creation', async () => {

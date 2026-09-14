@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { initializeLocalStore, saveConfig, saveCredentials } from '@esl/core';
-import { executeWhoami } from '../src/commands/whoami.js';
+import { executeWhoami, formatWhoami } from '../src/commands/whoami.js';
 
 describe('esl whoami', () => {
   let homeDir: string;
@@ -59,6 +59,27 @@ describe('esl whoami', () => {
 
     expect(result.loggedIn).toBe(true);
     expect(result.expired).toBe(true);
+  });
+
+  it('marks the organizations where the user is in the management team and leaves the others bare', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      {
+        server: 'http://localhost:3000',
+        username: 'alice',
+        tools: [],
+        organizations: [
+          { org: 'acme', isOrgManager: false },
+          { org: 'beta', isOrgManager: true }
+        ]
+      },
+      { homeDir }
+    );
+    await saveCredentials({ token: 'token-123', loginAt: new Date().toISOString() }, { homeDir });
+
+    const result = await executeWhoami({ homeDir });
+
+    expect(formatWhoami(result)).toContain('Organizations: acme, beta (manager)');
   });
 
   it('reports not logged in when there is no token', async () => {

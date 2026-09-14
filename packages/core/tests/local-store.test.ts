@@ -77,7 +77,7 @@ describe('local store', () => {
     const config = {
       server: 'http://skills.company.com',
       username: 'zhangsan',
-      organizations: [{ org: 'acme', role: 'member' as const }],
+      organizations: [{ org: 'acme', isOrgManager: false }],
       tools: []
     };
 
@@ -103,6 +103,41 @@ describe('local store', () => {
     expect(loaded).not.toHaveProperty('role');
     // 组织列表缺失时按 null 处理
     expect(loaded.organizations).toBeNull();
+  });
+
+  it('flags a role-shaped organization list as legacy (ADR-0033 replaced role with isOrgManager)', async () => {
+    await initializeLocalStore({ homeDir });
+    const paths = resolveLocalStorePaths({ homeDir });
+    fs.writeFileSync(
+      paths.configJson,
+      JSON.stringify({
+        server: 'http://skills.company.com',
+        username: 'zhangsan',
+        organizations: [{ org: 'acme', role: 'org-admin' }],
+        tools: []
+      })
+    );
+
+    const loaded = await loadConfig({ homeDir });
+
+    expect(loaded.legacyIdentity).toBe(true);
+  });
+
+  it('does not flag a current isOrgManager-shaped organization list', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      {
+        server: 'http://skills.company.com',
+        username: 'zhangsan',
+        organizations: [{ org: 'acme', isOrgManager: true }],
+        tools: []
+      },
+      { homeDir }
+    );
+
+    const loaded = await loadConfig({ homeDir });
+
+    expect(loaded.legacyIdentity).toBeFalsy();
   });
 
   it('clears credentials while keeping config intact', async () => {

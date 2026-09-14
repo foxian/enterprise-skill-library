@@ -48,7 +48,7 @@ function createRbacGitea() {
       if (token === 'super-token') return { id: 9, username: 'eslroot', email: 'eslroot@local.esl' };
       return null;
     }),
-    // ADR-0032：组织管理员 = Owners 团队成员（不再依赖 <org>_admin 命名约定）
+    // ADR-0032：组织管理团队成员 = Owners 团队成员（不再依赖 <org>_admin 命名约定）
     listOrgOwners: vi.fn(async () => [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }]),
     adminUsername: 'eslroot',
     listTeams: vi.fn(async () => orgTeams),
@@ -352,7 +352,7 @@ describe('skill RBAC permissions', () => {
     expect(mockGitea.__state.repoCollaborators('reviewer').has('acme_alice')).toBe(true);
   });
 
-  it('allows the organization administrator to manage permissions', async () => {
+  it('allows the organization management team member to manage permissions', async () => {
     const mockGitea = createRbacGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
@@ -630,7 +630,7 @@ describe('skill RBAC permissions', () => {
       ]));
   });
 
-  it('returns the full organization inventory to the organization administrator', async () => {
+  it('returns the full organization inventory to the organization management team member', async () => {
     const mockGitea = createRbacGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
@@ -649,7 +649,7 @@ describe('skill RBAC permissions', () => {
     const mockGitea = createRbacGitea();
     const db = initDatabase(dbPath);
     const repository = new SkillRepository(db);
-    // 另一组织的技能:成员与组织管理员均不可见,超管跨组织可见
+    // 另一组织的技能:成员与组织管理团队成员均不可见,超管跨组织可见
     repository.createServerSkill({
       name: '@beta/internal',
       scope: 'beta',
@@ -701,8 +701,8 @@ describe('skill RBAC permissions', () => {
     expect(mockGitea.addCollaborator).not.toHaveBeenCalled();
   });
 
-  // SC-G4 (ADR-0025 行为变化):组织管理员现在也可以 publish
-  it('lets the organization administrator publish', async () => {
+  // SC-G4 (ADR-0025 行为变化):组织管理团队成员现在也可以 publish
+  it('lets the organization management team member publish', async () => {
     const mockGitea = createRbacGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
@@ -866,7 +866,7 @@ describe('skill RBAC permissions', () => {
     mockGitea.__state.repoMountedTeams('secret').add(8);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
-    // 组织管理员对本组织技能持有管理权,可读任意技能矩阵
+    // 组织管理团队成员对本组织技能持有管理权,可读任意技能矩阵
     const response = await app.inject({
       method: 'GET',
       url: '/api/skills/acme/secret/permissions',

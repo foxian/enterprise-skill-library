@@ -202,7 +202,7 @@ _Avoid_: Skill Release，用于指代 Git tag 时。
 
 npm 式组织实体，直接映射为底层 Gitea 的一个 Organization，为其名下技能
 提供 Namespace（`@scope/skill-name` 中的 scope 段）。任何 Skill User 可
-创建多个组织，创建者成为初始组织管理员。组织创建方式由平台设置
+创建多个组织，创建者自动成为组织管理团队的初始成员。组织创建方式由平台设置
 `org_registration_mode` 决定：`auto` 同步即时创建；`manual` 走组织注册
 申请（ADR-0032）。拉人进组织的方式（邀请制 / 直接添加）为平台设置，切换权
 在 Super Administrator。
@@ -210,34 +210,59 @@ _Avoid_: Tenant Organization（旧称）。
 
 ## 组织注册申请 (Org Application)
 
-`manual` 模式下 Skill User 提交的创建组织申请。提交时即查重：组织名已
-存在、或已有同名待审申请时直接拒绝，冲突不会到达审批环节；Super
-Administrator 拒绝申请即释放该名字。批准后组织同步创建，申请人成为组织
-管理员（ADR-0032）。
+`manual` 模式下 Skill User 从个人控制台提交的创建组织申请。提交时即查重：
+组织名已存在、或已有同名待审申请时直接拒绝，冲突不会到达审批环节；Super
+Administrator 拒绝申请即释放该名字。申请不可撤回，申请人可在个人控制台查看
+待审状态。批准后组织同步创建，申请人成为组织管理团队初始成员（ADR-0032）。
+
+## 组织成员 (Organization Member)
+
+属于某个 Organization 但不属于其组织管理团队的 Skill User。成员加入组织时自动
+加入组织只读、读写、技能管理三个常设团队，离开时自动移出；对组织内 private
+技能默认没有任何权限（ADR-0032）。组织成员身份不是平台角色（见平台角色）。
+_Avoid_: 普通成员、普通用户。
+
+## 组织邀请 (Org Invitation)
+
+`invite` 拉人方式下加入 Organization 的凭据。它由组织管理团队成员发起，被邀请
+人在个人控制台接受或拒绝，发起人可撤销；接受后才成为组织成员并自动加入三个
+常设团队。未接受的邀请不产生任何 Git Backend 成员关系。
+_Avoid_: 成员邀请、入组邀请。
 
 ## Organization Deletion State
 
-Organization 删除任务的生命周期状态，包括 `deleting`、完成和 `delete_failed`。处于 `deleting` 或 `delete_failed` 的组织禁止正常登录及资产变更，直到删除完成或由 ESL Platform Administrator 恢复处理。
+Organization 删除任务的生命周期状态，包括 `deleting`、完成和 `delete_failed`。处于 `deleting` 或 `delete_failed` 的组织禁止正常登录及资产变更，直到删除完成或由 ESL Platform Administrator 恢复处理。删除由组织管理团队成员发起并要求显式确认，ESL Platform Administrator 保留治理兜底。删除完成后该组织名归还扁平名字池，可被新的组织或用户占用（ADR-0034）。
 
 ## Skill User Password Policy
 
 ESL 对 Skill User Credential 施加的密码规则，其权威来源为运行中的 Gitea 配置。ESL 在客户端与服务端提前执行同一规则，Gitea 保留最终校验权。
 
-## Organization Admin
+## 平台角色 (Platform Role)
 
-组织内的最高管理与治理角色，即该 Gitea Organization 的 Owners 团队（组织
-管理员团队）成员；组织创建者是初始成员。所有组织管理员均可管理成员、团队
-与组织设置，并可见、管理本组织名下全部技能（ADR-0032）。`<org>_admin`
-专用管理账号与系统管理团队已随多租户账号模型废止。
+平台的全局角色轴，恰好两个取值：Super Administrator 与 Skill User。组织内不
+存在角色——组织治理权由组织管理团队的成员身份承载，它是团队身份而非角色
+（ADR-0033）。
+_Avoid_: 组织管理员（当指平台角色时）；普通用户、普通成员（当指平台角色时）。
+
+## 组织管理团队 (Org Management Team)
+
+Organization Team 之一，即该 Gitea Organization 的 Owners 团队；组织创建者
+自动成为初始成员。成员持有该组织最高管理权：管理成员、团队与组织设置，可
+见并管理本组织名下全部技能，并可删除组织（ADR-0033、ADR-0034）。成员之间可以
+互相移除——不能移除自己，且团队必须至少保留一名成员；ESL Platform Administrator
+不经组织成员身份也有同款移除能力（治理兜底），但同样不破"至少保留一名"这条
+不变量——无主组织不是可治理状态，确实无人可用的组织走整体删除。
+`<org>_admin` 专用管理账号与系统管理团队已随多租户账号模型废止。
+_Avoid_: 组织管理员（当把它当作平台角色时）。
 
 ## Organization Team
 
 组织内部的团队，映射为 Gitea Organization 内的 Team。每个团队具备固定的
 技能访问级别（Read、Write 或 Manage），是技能权限矩阵中的批量授权载体；
-团队由组织管理员管理。每个组织自动创建四个常设团队：组织只读团队
-（Read）、组织读写团队（Write）、组织技能管理团队（Manage）与组织管理员
-团队（Owners）；成员加入组织时自动加入前三个常设团队，离开组织时自动移
-出。常设团队不可删除、不可改名；自定义团队可创建、改名、删除（ADR-0032）。
+团队由组织管理团队成员管理。每个组织创建时自动生成四个常设团队：组织只读
+团队（Read）、组织读写团队（Write）、组织技能管理团队（Manage）与组织管理
+团队（Owners，见其词条）；成员加入组织时自动加入前三个常设团队，离开组织
+时自动移出。常设团队不可删除、不可改名；自定义团队可创建、改名、删除（ADR-0032）。
 
 ## 团队标识名 (Team Identifier)
 
@@ -246,29 +271,57 @@ _Avoid_: 团队名（当指团队显示名时）。
 
 ## 团队显示名 (Team Display Name)
 
-Organization Team 面向人的展示名，与团队标识名解耦，可用中文。它是纯展示概念，不参与唯一性、默认团队识别或授权判定；未设置时回退展示团队标识名。默认团队由平台预置显示名（如 `system-admins` → 系统管理团队）。
+Organization Team 面向人的展示名，与团队标识名解耦，可用中文。它是纯展示概念，不参与唯一性、默认团队识别或授权判定；未设置时回退展示团队标识名。常设团队由平台预置显示名（如 `all-managers` → 组织技能管理团队）。
 _Avoid_: 团队名（当指团队标识名时）。
 
 ## 技能可见性 (Skill Visibility)
 
-逐技能设置的开放程度，由组织管理员或技能 Maintainer 切换。`public`：
+逐技能设置的开放程度，由组织管理团队成员或技能 Maintainer 切换。`public`：
 平台内所有 Skill User 都可搜索、安装；`private`（默认）：仅 Maintainer 与
 被授权的团队、成员可见可安装。组织成员对组织内 private 技能默认没有任何
 权限，授权通过共享给常设团队或逐技能添加团队、成员实现（ADR-0032）。
 
 ## Super Administrator
 
-ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。
+ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。它不属于任何 Organization，不持有个人控制台，也不以个人命名空间发布技能（ADR-0033）。
 
 ## 管理后台 (Admin Console)
 
-ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载三类视角：Super Administrator（`/admin/super/`，申请审批与平台设置）、Organization Admin（`/admin/org/`，成员与团队管理）与普通成员（`/admin/member/`，跨命名空间聚合的个人中心——个人与所有所在组织的技能，按 managed/shared 标注），通过 ESL Server 的 Registry API 完成登录、注册与治理操作。登录角色由 ESL Server 判定并随登录响应返回，客户端不自行按命名约定推导。
+ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载两类视角：
+Super Administrator 控制台（`/admin/super/`，申请审批与平台设置）与个人控制台
+（跨命名空间聚合的技能视图与组织管理——创建与删除组织、成员与团队管理、组织
+名下技能管理，按 managed/shared 标注），通过 ESL Server 的 Registry API 完成
+登录、注册与治理操作。组织管理不是独立视角：治理入口只对组织管理团队成员渲染，
+其余成员看到该组织时是只读的。登录角色由 ESL Server 判定并随登录响应返回，
+客户端不自行按命名约定推导。
 _Avoid_: Web Console，当指代该 Web 界面时（易被误解为网页终端）；后台，当单独指代 ESL Server 或 Git Backend 时。
+
+## 个人控制台 (Personal Console)
+
+管理后台中面向 Skill User 的视角：跨命名空间聚合的技能视图与组织管理。组织
+**不是隐式上下文**——组织管理以「我的组织」列表为入口，对一个组织的一切操作
+都显式指名该组织。治理入口只对组织管理团队成员渲染，其余组织成员看到的是只读
+视图。菜单集合为四项：概览（默认落地页）/ 我的组织 / 技能 / 邀请。
+_Avoid_: 个人中心、个人后台、成员控制台。
+
+## 概览页 (Overview)
+
+个人控制台的默认落地页，聚合跨切面的状态：待办（待接受的邀请、待审的组织申
+请）、我的组织、我管理的技能。它是"我"在平台上的首页。
+_Avoid_: 仪表盘（当指个人控制台首页时）、控制台首页。
 
 ## 技能管理页面 (Skill Management Page)
 
-管理后台中面向单个 Server-hosted Skill 的管理界面：承载其权限矩阵的查看与配置（团队授权与成员授权，含对常设团队的授权）与技能可见性切换，由超管、组织管理员与普通成员三种角色视角共用；普通成员视角按其权限为只读。
+管理后台中面向单个 Server-hosted Skill 的管理界面：承载其权限矩阵的查看与配置（团队授权与成员授权，含对常设团队的授权）与技能可见性切换，由 Super Administrator 控制台与个人控制台共用；个人视角按其权限决定可写或只读。
 _Avoid_: 技能权限页面、权限页（旧称）。
+
+## 技能列表页 (Skill List Page)
+
+个人控制台中跨命名空间聚合的技能列表，展示"我"有关系的全部技能——个人命名
+空间与所有所在组织——并以命名空间筛选（个人命名空间排在最前）。组织详情页的
+「技能」页签是同一个列表锁定到该组织命名空间的视图，内容与权限判定同源，仅入
+口与预设筛选不同。
+_Avoid_: 我的技能、个人技能（当指该跨命名空间列表时）。
 
 ## Local Scope
 

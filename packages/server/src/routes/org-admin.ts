@@ -8,7 +8,12 @@ import type {
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import { initializeOrganization } from '../services/org-init.js';
-import { runOrganizationDeletion } from '../services/org-delete.js';
+import { performOrganizationDeletion } from '../services/org-delete.js';
+import {
+  checkOrgManagerRemoval,
+  listOrgMembersWithGovernance,
+  removeMemberFromOrganization
+} from '../services/organization-membership.js';
 import { validateOrgName, validatePassword } from '@esl/core';
 
 export interface OrgAdminRouteOptions {
@@ -43,7 +48,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     }
 
     // ADR-0032：审批只是申请表上的状态翻转 + 同步开通，异步 Operation 机器退役。
-    // 申请人为已登录 Skill User，批准后即成为初始 Organization Admin（Owners）。
+    // 申请人为已登录 Skill User，批准后即成为组织管理团队（Gitea Owners）初始成员。
     const applicant = application.applicantUsername ?? admin.username;
     try {
       await initializeOrganization(options.giteaService, application.orgName, applicant, options.tenantOrganizationRepository);
@@ -242,8 +247,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     // 同步删除（ADR-0032）：Git Backend 清理 + 平台记录一次完成，不再走
     // 可恢复工作流；失败原样返回，管理员重试即可。
     try {
-      options.tenantOrganizationRepository.transition(orgName, 'deleting');
-      await runOrganizationDeletion(
+      await performOrganizationDeletion(
         {
           giteaService: options.giteaService,
           skillRepository: options.skillRepository,
@@ -256,6 +260,37 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       return reply.status(409).send({ error: `Organization deletion failed: ${(error as Error).message}`, retryable: true });
     }
     return { status: 'deleted', orgName };
+  });
+
+  // 平台管理员的组织成员兜底（ADR-0033）：超管不参与组织（不属于任何组织、不入
+  // 组织管理团队），因此不能走组织侧路由；这里给出不经成员身份的同款能力。
+  // "组织管理团队至少保留一名成员"这条不变量对超管同样成立——无主组织不是可治理
+  // 状态；确实无人可用的组织走整体删除。超管无"自己"，故不适用自我移除限制。
+  app.get('/api/admin/orgs/:orgName/members', async (request, reply) => {
+    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
+    if (!(await giteaService.organizationExists(orgName))) {
+      return reply.status(404).send({ error: 'Organization not found' });
+    }
+    return listOrgMembersWithGovernance(giteaService, orgName);
+  });
+
+  app.delete('/api/admin/orgs/:orgName/members/:username', async (request, reply) => {
+    if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
+    const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
+    const username = decodeURIComponent((request.params as { username: string }).username);
+    if (!(await giteaService.organizationExists(orgName))) {
+      return reply.status(404).send({ error: 'Organization not found' });
+    }
+    if (!(await giteaService.listOrgMembers(orgName)).some((member) => member.username === username)) {
+      return reply.status(404).send({ error: `User is not a member of ${orgName}` });
+    }
+    const blocked = await checkOrgManagerRemoval(giteaService, orgName, username, null);
+    if (blocked) {
+      return reply.status(400).send({ error: blocked });
+    }
+    await removeMemberFromOrganization(giteaService, orgName, username);
+    return { removed: true, orgName, username };
   });
 
   function getRegistrationMode(): string {

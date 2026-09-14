@@ -118,11 +118,16 @@ export const databaseSchema = `
     org_name TEXT NOT NULL,
     username TEXT NOT NULL,
     invited_by TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'revoked')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (org_name, username, status)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- 真正的不变量是"同一 (组织, 用户) 最多一条**待处理**邀请"，不是"同终态只一条"。
+  -- 早先的 UNIQUE(org_name, username, status) 会让"邀请 → 拒绝 → 再邀请 → 再拒绝"
+  -- （以及撤销同理）在第二次终态翻转时撞唯一约束。历史行可以有任意多条。
+  CREATE UNIQUE INDEX IF NOT EXISTS org_invitations_pending_unique
+    ON org_invitations (org_name, username) WHERE status = 'pending';
 
   -- 用户注册申请（ADR-0032）：approval 模式下账号先建后禁用，审批激活、
   -- 拒绝删除（名字随之释放）。open 模式不写此表。

@@ -7,6 +7,7 @@ import type {
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import { initializeOrganization } from '../services/org-init.js';
+import { deriveOrganizations } from '../services/organization-membership.js';
 
 export interface OrgRouteOptions {
   giteaService: GiteaService;
@@ -52,6 +53,27 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     return false;
   }
 
+  // 个人控制台「我的组织」的数据源（ADR-0035）：本人所在的组织与逐组织治理权，
+  // 外加本人的待审组织申请。待审申请尚未产生 Gitea 组织，因此不在 organizations
+  // 里，单独列出；新建组织后当前会话还不知道它，也靠这里刷新。
+  app.get('/api/orgs/mine', async (request, reply) => {
+    const username = await requireSkillUser(request, reply);
+    if (!username) return;
+    const pendingApplications = orgApplicationRepository
+      .listApplications('pending')
+      .filter((application) => application.applicantUsername === username)
+      .map((application) => ({ orgName: application.orgName, submittedAt: application.createdAt }));
+    return {
+      // 附带组织生命周期状态：deleting / delete_failed 是治理者必须看见的状态
+      // （ADR-0034 的删除失败要可察觉、可重试），不能只显示"在"或"不在"。
+      organizations: (await deriveOrganizations(giteaService, username)).map((membership) => ({
+        ...membership,
+        status: tenantOrganizationRepository.get(membership.org)?.status ?? 'active'
+      })),
+      pendingApplications
+    };
+  });
+
   app.post('/api/orgs', async (request, reply) => {
     const username = await requireSkillUser(request, reply);
     if (!username) return;
@@ -73,10 +95,10 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
       });
     }
 
-    // auto 模式：同步直调 Gitea 开通，创建者入 Owners 成为初始 Organization Admin。
+    // auto 模式：同步直调 Gitea 开通，创建者入组织管理团队（Gitea Owners）成为初始成员。
     await initializeOrganization(giteaService, orgName, username, tenantOrganizationRepository);
     tenantOrganizationRepository.create({ orgName, status: 'active' });
-    return reply.status(201).send({ orgName, status: 'active', role: 'org-admin' });
+    return reply.status(201).send({ orgName, status: 'active', isOrgManager: true });
   });
 
   app.post('/api/orgs/applications', async (request, reply) => {

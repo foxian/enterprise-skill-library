@@ -501,7 +501,7 @@ export class GiteaService {
     return orgs;
   }
 
-  // 组织的 Owners 团队成员（= Organization Admin，ADR-0032）。Gitea 约定
+  // 组织的 Owners 团队成员（= 组织管理团队，ADR-0033）。Gitea 约定
   // Owners 是 permission=owner 的团队；找不到时组织没有管理员。
   async listOrgOwners(org: string): Promise<GiteaUser[]> {
     const teams = await this.listTeams(org);

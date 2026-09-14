@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import SkillManagePanel from '../src/components/SkillManagePanel.vue';
-import OrgSkillsView from '../src/views/org/SkillsView.vue';
-import MemberSkillsView from '../src/views/member/SkillsView.vue';
-import OrgSkillManageView from '../src/views/org/SkillManageView.vue';
+// 技能列表页与技能管理页各只有一处实现（ADR-0035）：个人控制台的「技能」与
+// 组织详情页的「技能」页签用同一个组件，后者靠 lockedNamespace 锁定范围。
+import SkillListView from '../src/views/me/SkillsView.vue';
+import SkillManageView from '../src/views/me/SkillManageView.vue';
 import SuperSkillsView from '../src/views/super/SkillsView.vue';
 import { deriveShareState } from '../src/skills/skill-list';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
@@ -58,7 +59,7 @@ afterEach(async () => {
 });
 
 describe('技能列表视图', () => {
-  it('组织管理员可见全组织技能（含未发布）及共享状态', async () => {
+  it('组织详情页的技能页签锁定本组织命名空间，展示全组织技能（含未发布）及共享状态', async () => {
     useApiMock((method, url) => {
       if (url === '/api/skills/inventory') {
         return {
@@ -77,15 +78,21 @@ describe('技能列表视图', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(OrgSkillsView, { role: 'org-admin', route: '/admin/org/skills' });
+    wrapper = await mountConsoleView(SkillListView, {
+      account: 'orgManager',
+      route: '/admin/me/orgs/acme/skills',
+      props: { lockedNamespace: 'acme' }
+    });
     await flushPromises();
 
-    const table = wrapper.find('[data-test="org-skills-table"]').text();
+    const table = wrapper.find('[data-test="skill-list-managed"]').text();
     expect(table).toContain('@acme/reviewer');
     expect(table).toContain('@acme/secret');
     expect(table).toContain('未发布');
     expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
     expect(wrapper.find('[data-test="skill-state-secret"]').text()).toBe('仅创建者');
+    // 锁定视图不出筛选器：范围由路由决定，不是可变的展示筛选
+    expect(wrapper.find('[data-test="namespace-filter"]').exists()).toBe(false);
   });
 
   it('成员按「我管理的/共享给我的」双视图查看技能', async () => {
@@ -107,20 +114,20 @@ describe('技能列表视图', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MemberSkillsView, { role: 'member', route: '/admin/member/skills' });
+    wrapper = await mountConsoleView(SkillListView, { account: 'member', route: '/admin/me/skills' });
     await flushPromises();
 
     // 「我管理的」Tab：只显示自己持有管理权的技能
-    const managedTable = wrapper.find('[data-test="member-skills-table"]').text();
+    const managedTable = wrapper.find('[data-test="skill-list-managed"]').text();
     expect(managedTable).toContain('@acme/reviewer');
     expect(managedTable).not.toContain('@acme/secret');
     expect(wrapper.find('[data-test="configure-reviewer"]').exists()).toBe(true);
 
     // 「共享给我的」Tab：显示可读但无管理权的技能与我的权限
-    const sharedTable = wrapper.find('[data-test="member-shared-table"]').text();
+    const sharedTable = wrapper.find('[data-test="skill-list-shared"]').text();
     expect(sharedTable).toContain('@acme/secret');
     expect(sharedTable).toContain('只读');
-    expect(wrapper.find('[data-test="member-shared-table"]').find('[data-test="configure-secret"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="skill-list-shared"]').find('[data-test="configure-secret"]').exists()).toBe(false);
 
     // 归属关系标注（ADR-0032）：managed / shared 在表内显式可见
     expect(wrapper.find('[data-test="relation-managed"]').exists()).toBe(true);
@@ -151,11 +158,11 @@ describe('技能列表视图', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MemberSkillsView, { role: 'member', route: '/admin/member/skills' });
+    wrapper = await mountConsoleView(SkillListView, { account: 'member', route: '/admin/me/skills' });
     await flushPromises();
 
     // 未筛选时两个命名空间的技能都在
-    expect(wrapper.find('[data-test="member-skills-table"]').text()).toContain('@beta/tool');
+    expect(wrapper.find('[data-test="skill-list-managed"]').text()).toContain('@beta/tool');
 
     // 选定命名空间后仅展示该命名空间的技能
     const filter = wrapper.find('[data-test="namespace-filter"]');
@@ -183,7 +190,7 @@ describe('技能列表视图', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(SuperSkillsView, { role: 'super', route: '/admin/super/skills' });
+    wrapper = await mountConsoleView(SuperSkillsView, { account: 'platformAdmin', route: '/admin/super/skills' });
     await flushPromises();
 
     const table = wrapper.find('[data-test="super-skills-table"]').text();
@@ -223,14 +230,14 @@ describe('SkillManagePanel 权限配置', () => {
         }
         return { status: 200, json: [] };
       });
-      wrapper = await mountConsoleView(OrgSkillManageView, {
-        role: 'org-admin',
-        route: '/admin/org/skills/acme/reviewer/manage'
+      wrapper = await mountConsoleView(SkillManageView, {
+        account: 'orgManager',
+        route: '/admin/me/skills/acme/reviewer/manage'
       });
     } else {
       wrapper = await mountConsoleView(
         { components: { SkillManagePanel }, template: '<SkillManagePanel scope="acme" skill-name="reviewer" />' } as never,
-        { role: 'member', route: '/admin/member/skills' }
+        { account: 'member', route: '/admin/me/skills' }
       );
     }
     await flushPromises();
@@ -381,7 +388,7 @@ describe('SkillManagePanel 权限配置', () => {
     });
   });
 
-  it('组织管理员视角提供团队与成员下拉建议', async () => {
+  it('组织管理团队成员视角提供团队与成员下拉建议', async () => {
     wrapper = await mountPanel({ teamOptions: true });
     await flushPromises();
 
@@ -397,7 +404,7 @@ describe('SkillManagePanel 权限配置', () => {
     useApiMock((method, url) => {
       if (url === '/api/skills/acme/reviewer/permissions') {
         if (method === 'POST') {
-          return { status: 403, json: { error: 'Forbidden: skill owner or organization administrator required' } };
+          return { status: 403, json: { error: 'Forbidden: skill owner or organization management team membership required' } };
         }
         return { status: 200, json: matrixFor('reviewer', { members: [{ username: 'acme_alice', permission: 'write' }] }) };
       }

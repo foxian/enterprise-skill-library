@@ -1,5 +1,7 @@
 <template>
   <div>
+    <!-- 授权目标下拉只在"该技能的命名空间归我治理"时才有数据源；个人技能或
+         组织成员视角没有组织级团队/成员列表，退回面板内手工输入 -->
     <SkillManagePanel
       :scope="scope"
       :skill-name="skillName"
@@ -29,18 +31,22 @@ const teams = ref<TeamOption[]>([]);
 const memberOptions = ref<MemberOption[]>([]);
 const errorMessage = ref('');
 
-const DEFAULT_TEAM_NAMES = new Set(STANDING_TEAM_NAMES);
+const STANDING_TEAMS = new Set(STANDING_TEAM_NAMES);
 
 onMounted(async () => {
-  // 组织管理员可为授权提供团队与成员下拉建议
   errorMessage.value = '';
+  // 个人命名空间不属于任何组织，没有组织级授权目标；组织命名空间则要求查看者
+  // 是它的组织管理团队成员（ADR-0033 的逐组织治理权）。
+  if (!auth.isOrgManager(scope.value)) {
+    return;
+  }
   try {
     const [teamList, memberList] = await Promise.all([
-      apiRequest<TeamOption[]>(`/api/orgs/${auth.org}/teams`),
-      apiRequest<MemberOption[]>(`/api/orgs/${auth.org}/members`)
+      apiRequest<TeamOption[]>(`/api/orgs/${scope.value}/teams`),
+      apiRequest<MemberOption[]>(`/api/orgs/${scope.value}/members`)
     ]);
-    // 团队授权下拉仅列自定义团队(ADR-0032):常设团队是批量授权载体
-    teams.value = teamList.filter((team) => !DEFAULT_TEAM_NAMES.has(team.name));
+    // 团队授权下拉仅列自定义团队（ADR-0032）：常设团队是批量授权载体
+    teams.value = teamList.filter((team) => !STANDING_TEAMS.has(team.name));
     memberOptions.value = memberList;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);

@@ -16,7 +16,7 @@
           v-if="submitted"
           icon="info"
           title="申请已提交，等待审批"
-          sub-title="平台管理员审批通过后组织即刻开通，你将成为该组织的 Organization Admin。"
+          sub-title="平台管理员审批通过后组织即刻开通，你将成为该组织的组织管理团队成员。"
           data-test="register-result"
         />
         <el-button
@@ -41,8 +41,8 @@ import { computed, ref } from 'vue';
 import { validateOrgName } from '@esl/core/dist/org/org-name.js';
 import { apiRequest } from '../api/client';
 
-// 组织注册申请（ADR-0032）：申请人是已登录的 Skill User，批准后成为初始
-// Organization Admin；审批同步开通，无异步 Operation 流可订阅。
+// 组织注册申请（ADR-0032）：申请人是已登录的 Skill User，批准后成为组织管理
+// 团队初始成员（ADR-0033）；审批同步开通，无异步 Operation 流可订阅。
 const orgName = ref('');
 const loading = ref(false);
 const errorMessage = ref('');

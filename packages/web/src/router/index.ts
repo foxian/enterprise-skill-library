@@ -11,15 +11,30 @@ import SuperRegistrations from '../views/super/RegistrationsView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
 import SuperSkills from '../views/super/SkillsView.vue';
 import SuperSkillManage from '../views/super/SkillManageView.vue';
-import OrgLayout from '../views/org/OrgLayout.vue';
-import OrgMembers from '../views/org/MembersView.vue';
-import OrgTeams from '../views/org/TeamsView.vue';
-import OrgSkills from '../views/org/SkillsView.vue';
-import OrgSkillManage from '../views/org/SkillManageView.vue';
-import MemberLayout from '../views/member/MemberLayout.vue';
-import MemberSkills from '../views/member/SkillsView.vue';
-import MemberSkillManage from '../views/member/SkillManageView.vue';
+import PersonalLayout from '../views/me/PersonalLayout.vue';
+import OverviewView from '../views/me/OverviewView.vue';
+import MeOrgsView from '../views/me/OrgsView.vue';
+import OrgDetailLayout from '../views/me/OrgDetailLayout.vue';
+import OrgMembersView from '../views/me/OrgMembersView.vue';
+import OrgTeamsView from '../views/me/OrgTeamsView.vue';
+import MeSkillsView from '../views/me/SkillsView.vue';
+import MeSkillManageView from '../views/me/SkillManageView.vue';
+import InvitationsView from '../views/me/InvitationsView.vue';
 import { useAuthStore } from '../stores/auth';
+
+/**
+ * 路由守卫用的两个正交判定（ADR-0033）：`view` 是平台角色轴（超管控制台 /
+ * 个人控制台，恰好两个），`requiresOrgManager` 是资源级治理权（该路由参数
+ * 指名的组织，查看者是否是其组织管理团队成员）。不再用一个全局角色值代理
+ * 资源级权限。
+ */
+export interface ConsoleRouteMeta {
+  view?: 'platform' | 'personal';
+  requiresOrgManager?: boolean;
+  public?: boolean;
+  title?: string;
+  description?: string;
+}
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -30,7 +45,7 @@ export const router = createRouter({
     {
       path: '/admin/super',
       component: SuperLayout,
-      meta: { role: 'super' },
+      meta: { view: 'platform' },
       children: [
         { path: '', redirect: { name: 'super-dashboard' } },
         { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard, meta: { title: '平台概览', description: '组织、审批与技能资源的实时汇总' } },
@@ -44,25 +59,36 @@ export const router = createRouter({
       ]
     },
     {
-      path: '/admin/org',
-      component: OrgLayout,
-      meta: { role: 'org-admin' },
+      // 个人控制台（ADR-0035）：概览 / 我的组织 / 技能 / 邀请。组织治理挂在
+      // 「我的组织」下，不是独立视角。
+      path: '/admin/me',
+      component: PersonalLayout,
+      meta: { view: 'personal' },
       children: [
-        { path: '', redirect: { name: 'org-members' } },
-        { path: 'members', name: 'org-members', component: OrgMembers, meta: { title: '成员管理', description: '管理组织内成员账号，支持添加、重置密码与禁用' } },
-        { path: 'teams', name: 'org-teams', component: OrgTeams, meta: { title: '团队管理', description: '按团队分配技能读写权限，系统团队不可删除' } },
-        { path: 'skills', name: 'org-skills', component: OrgSkills, meta: { title: '技能管理', description: '管理组织内技能，配置共享范围与访问权限' } },
-        { path: 'skills/:scope/:skillName/manage', name: 'org-skill-manage', component: OrgSkillManage, meta: { title: '技能管理' } }
-      ]
-    },
-    {
-      path: '/admin/member',
-      component: MemberLayout,
-      meta: { role: 'member' },
-      children: [
-        { path: '', redirect: { name: 'member-skills' } },
-        { path: 'skills', name: 'member-skills', component: MemberSkills, meta: { title: '我管理的技能', description: '查看你管理的技能与共享给你的技能（含未发布）' } },
-        { path: 'skills/:scope/:skillName/manage', name: 'member-skill-manage', component: MemberSkillManage, meta: { title: '技能管理' } }
+        { path: '', redirect: { name: 'me-overview' } },
+        { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: '概览', description: '待办、我的组织与我管理的技能' } },
+        { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: '我的组织', description: '创建组织、查看我在每个组织中的身份' } },
+        {
+          path: 'orgs/:org',
+          component: OrgDetailLayout,
+          meta: { requiresOrgManager: true },
+          children: [
+            { path: '', redirect: { name: 'me-org-members' } },
+            { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: '成员管理', description: '管理本组织成员，移出即自动离开三个常设团队' } },
+            { path: 'teams', name: 'me-org-teams', component: OrgTeamsView, meta: { title: '团队管理', description: '自定义团队按权限级别批量授权；常设团队由平台维护' } },
+            {
+              path: 'skills',
+              name: 'me-org-skills',
+              component: MeSkillsView,
+              // 与个人控制台的「技能」同一个页面，锁定到本组织命名空间（ADR-0035）
+              props: (route) => ({ lockedNamespace: String(route.params.org ?? '') }),
+              meta: { title: '技能管理', description: '本组织命名空间下的技能与它们的共享范围' }
+            }
+          ]
+        },
+        { path: 'skills', name: 'me-skills', component: MeSkillsView, meta: { title: '技能', description: '跨命名空间聚合：个人与所有所在组织的技能' } },
+        { path: 'skills/:scope/:skillName/manage', name: 'me-skill-manage', component: MeSkillManageView, meta: { title: '技能管理' } },
+        { path: 'invitations', name: 'me-invitations', component: InvitationsView, meta: { title: '邀请', description: '待你回应的组织邀请' } }
       ]
     },
     { path: '/admin', redirect: '/admin/login' },
@@ -72,15 +98,23 @@ export const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore();
-  if (to.meta.public) {
+  const meta = to.meta as ConsoleRouteMeta;
+  if (meta.public) {
     return true;
   }
   if (!auth.isLoggedIn) {
     return { name: 'login' };
   }
-  // 角色不匹配的路径不允许访问，退回登录页重新选择身份
-  if (to.meta.role && to.meta.role !== auth.role) {
+  // 两个控制台互不越界：超管不进个人控制台，普通用户不进超管控制台
+  if (meta.view === 'platform' && !auth.isPlatformAdmin) {
     return { name: 'login' };
+  }
+  if (meta.view === 'personal' && auth.isPlatformAdmin) {
+    return { name: 'login' };
+  }
+  // 资源级判定：治理入口只对组织管理团队成员开放，其余人回只读的组织列表
+  if (meta.requiresOrgManager && !auth.isOrgManager(String(to.params.org ?? ''))) {
+    return { name: 'me-orgs' };
   }
   return true;
 });

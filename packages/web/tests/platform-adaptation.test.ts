@@ -9,18 +9,24 @@ import RegisterView from '../src/views/RegisterView.vue';
 import { useApiMock } from './helpers';
 
 // 按 URL 路由的 fetch mock：platform-info 与登录/注册端点返回各自响应
-function routeMock(info: { mode: string; defaultOrg: string | null }) {
+function routeMock(info: { registrationMode: string; memberAddMode: string; orgRegistrationMode: string }) {
   return useApiMock((method, url, body) => {
     if (url === '/api/public/platform-info') return { status: 200, json: info };
     if (url === '/api/console/login') {
-      return { status: 200, json: { token: 't', username: 'bob', org: 'acme', role: 'member' } };
+      return {
+        status: 200,
+        json: { token: 't', username: 'bob', isPlatformAdmin: false, organizations: [{ org: 'acme', isOrgManager: false }] }
+      };
     }
-    if (url === '/api/orgs/apply') {
+    if (url === '/api/orgs/applications') {
       return { status: 201, json: { status: 'pending', applicationId: 1 } };
     }
     return { status: 404, json: {} };
   });
 }
+
+const OPEN_PLATFORM = { registrationMode: 'open', memberAddMode: 'direct', orgRegistrationMode: 'auto' };
+const APPROVAL_PLATFORM = { registrationMode: 'open', memberAddMode: 'direct', orgRegistrationMode: 'manual' };
 
 async function setField(wrapper: VueWrapper, testId: string, value: string): Promise<void> {
   const input = wrapper.find(testId);
@@ -52,10 +58,10 @@ describe('web login and registration adapting to platform-info', () => {
     wrapper = undefined;
   });
 
-  // 全局身份登录（ADR-0032）：登录页不再有组织输入，也不再有按部署模式
-  // 显隐组织输入框的自适应行为。
+  // 全局身份登录（ADR-0032）：登录页不再有组织输入；部署模式（ADR-0022）已废除，
+  // 因此也没有按模式自适应显隐的行为。
   it('has no organization input on the login page and sends only username and password', async () => {
-    const { requests } = routeMock({ mode: 'multi', defaultOrg: 'acme' });
+    const { requests } = routeMock(OPEN_PLATFORM);
     wrapper = await mountView(LoginView);
     await flushPromises();
 
@@ -72,18 +78,18 @@ describe('web login and registration adapting to platform-info', () => {
     expect(login!.body).not.toHaveProperty('org');
   });
 
-  it('hides the register entry on the login page in single mode', async () => {
-    routeMock({ mode: 'single', defaultOrg: 'acme' });
+  it('always shows the organization application entry on the login page', async () => {
+    routeMock(OPEN_PLATFORM);
     wrapper = await mountView(LoginView);
     await flushPromises();
 
-    expect(wrapper.find('[data-test="register-link"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="register-link"]').exists()).toBe(true);
   });
 
   // 部署模式（ADR-0022）已随 ADR-0032 废除：注册页始终展示组织名申请表单，
   // 由服务端按 org_registration_mode 决定拒绝或受理。
   it('always shows the organization application form on the register page', async () => {
-    routeMock({ mode: 'multi', defaultOrg: null });
+    routeMock(APPROVAL_PLATFORM);
     wrapper = await mountView(RegisterView);
     await flushPromises();
 

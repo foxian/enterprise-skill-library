@@ -13,11 +13,6 @@ export interface WhoamiResult {
   expired: boolean;
 }
 
-const ROLE_LABELS: Record<OrganizationMembership['role'], string> = {
-  'org-admin': 'organization administrator',
-  member: 'member'
-};
-
 export async function executeWhoami(options: LocalStoreOptions = {}): Promise<WhoamiResult> {
   const config = await loadConfig({ homeDir: options.homeDir });
   const credentials = await loadCredentials({ homeDir: options.homeDir });
@@ -51,10 +46,10 @@ export function formatWhoami(result: WhoamiResult): string {
     lines.push(`Username: ${result.username}`);
   }
   if (result.organizations && result.organizations.length > 0) {
+    // `(manager)` = 是该组织管理团队（= Gitea Owners）成员，即持有该组织治理权
+    // （ADR-0033）。组织内没有角色，这里标注的是团队身份。
     const rendered = result.organizations
-      .map((membership) =>
-        membership.role === 'org-admin' ? `${membership.org} (admin)` : membership.org
-      )
+      .map((membership) => (membership.isOrgManager ? `${membership.org} (manager)` : membership.org))
       .join(', ');
     lines.push(`Organizations: ${rendered}`);
   } else if (result.organizations) {

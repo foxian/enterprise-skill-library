@@ -39,7 +39,12 @@ export async function executeLogin(options: LoginOptions): Promise<LoginResult> 
   const { token, organizations } = await resolveLoginToken(options, server, username, fetchImpl);
 
   await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
-  await saveConfig({ server, username, organizations }, { homeDir: options.homeDir });
+  // 显式清掉旧版标记：重新登录后 organizations 已是新形状，提示不该跟着旧配置
+  // 一直留在 whoami 输出里。
+  await saveConfig(
+    { server, username, organizations, legacyIdentity: false },
+    { homeDir: options.homeDir }
+  );
 
   return { token, username, organizations };
 }

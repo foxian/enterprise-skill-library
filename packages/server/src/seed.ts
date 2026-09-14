@@ -41,7 +41,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 // 开发环境自动 seed 的全局账号（ADR-0032）：账号无 <org>_ 前缀。
-// alice 拥有组织 acme（Owners 成员 = Organization Admin），bob 是普通成员。
+// alice 是组织 acme 的组织管理团队成员（Owners），bob 是普通组织成员（ADR-0033）。
 // 幂等：GiteaService 的创建调用对已存在（409）保持沉默。
 const DEV_ACCOUNT_PASSWORD = 'esl-dev-password';
 
@@ -63,6 +63,18 @@ export async function seedDevelopmentAccounts(
     throw new Error('Development seed expected the organization Owners team to exist');
   }
   await giteaService.addTeamMember(owners.id, 'alice');
+  // 与生产路径同一不变量（initializeOrganization / ADR-0033）：用 admin token 建
+  // 组织会把站点管理员自动塞进 Owners，平台系统账号不属于任何组织，必须整体移出。
+  // 漏掉这一步会让超管以"组织管理团队成员"的身份出现在示例组织里。
+  if (giteaService.adminUsername && giteaService.adminUsername !== 'alice') {
+    const ownersMembers = await giteaService.listTeamMembers(owners.id);
+    if (ownersMembers.some((member) => member.username === giteaService.adminUsername)) {
+      await giteaService.removeTeamMember(owners.id, giteaService.adminUsername);
+    }
+    if (typeof giteaService.removeOrgMember === 'function') {
+      await giteaService.removeOrgMember('acme', giteaService.adminUsername);
+    }
+  }
   // bob 是普通成员：与生产路径同一不变量（成员 ∈ 三个常设团队），
   // 常设团队不存在时按 ADR-0032 的预置形状补建。
   for (const [name, permission] of [

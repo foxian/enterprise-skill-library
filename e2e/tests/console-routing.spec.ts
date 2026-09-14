@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/login.page';
 import { SUPER_STATE, resolveTestEnv } from '../helpers/env';
 
-// 角色视角路由（ADR-0032 / #60）：登录只有用户名 + 密码；超管进超管控制台，
-// 普通成员进个人中心。组织管理员的落点由其在 Gitea Owners 团队中的成员身份派生。
+// 控制台视角与组织治理（ADR-0033 / ADR-0035）：平台角色只有超管与普通用户两个，
+// 各自的控制台互不越界；组织治理不是第三个视角，而是逐组织的团队身份——治理入口
+// 只对组织管理团队成员渲染，其余成员在同一页面看到的是只读视图。
 
 const env = resolveTestEnv();
 
@@ -18,24 +19,50 @@ test('超管登录后落到超管控制台，且控制台提供注册审批与�
   await expect(page.getByText('平台设置')).toBeVisible();
 });
 
-test('普通成员登录后落到个人中心（跨命名空间聚合视图）', async ({ page }) => {
+test('普通用户登录后落到个人控制台概览', async ({ page }) => {
   const login = new LoginPage(page);
   await login.goto();
-  // 开发 seed 的普通成员账号（bob 是 acme 的普通成员，不在 Owners 团队）
+  // 开发 seed 的普通成员账号（bob 是 acme 的普通成员，不在组织管理团队）
   await login.login({ username: 'bob', password: env.devPassword });
 
-  await expect(page).toHaveURL(/\/admin\/member\/skills$/);
-  await expect(page.getByTestId('namespace-filter')).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/me\/overview$/);
+  await expect(page.getByRole('menuitem', { name: '我的组织' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: '技能' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: '邀请' })).toBeVisible();
 });
 
-test('组织管理员（Owners 成员）登录后落到组织控制台', async ({ page }) => {
+test('组织管理团队成员在本组织看到治理入口，并可进入组织详情', async ({ page }) => {
   const login = new LoginPage(page);
   await login.goto();
-  // alice 是开发 seed 中 acme 的组织管理员（Owners 团队成员）
+  // alice 是开发 seed 中 acme 的组织管理团队成员（Owners）
   await login.login({ username: 'alice', password: env.devPassword });
 
-  await expect(page).toHaveURL(/\/admin\/org\/members$/);
+  await expect(page).toHaveURL(/\/admin\/me\/overview$/);
+  await page.getByRole('menuitem', { name: '我的组织' }).click();
+
+  await expect(page).toHaveURL(/\/admin\/me\/orgs$/);
+  await expect(page.getByTestId('org-manager-tag')).toBeVisible();
+  await page.getByTestId('manage-acme').click();
+
+  await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/members$/);
   await expect(page.getByTestId('members-table')).toBeVisible();
+  await expect(page.getByTestId('org-identity')).toHaveText('@acme');
+});
+
+test('组织成员在同一页面只看到只读视图，且直接敲治理 URL 会被退回组织列表', async ({ page }) => {
+  const login = new LoginPage(page);
+  await login.goto();
+  await login.login({ username: 'bob', password: env.devPassword });
+  // 先等登录落地再硬导航：login() 只负责填表提交，立刻 goto 会打断在飞的登录
+  // 请求，会话写不进 localStorage，下一跳就被守卫当未登录处理。
+  await expect(page).toHaveURL(/\/admin\/me\/overview$/);
+
+  await page.goto('/admin/me/orgs');
+  await expect(page.getByTestId('org-member-tag')).toBeVisible();
+  await expect(page.getByTestId('manage-acme')).toHaveCount(0);
+
+  await page.goto('/admin/me/orgs/acme/teams');
+  await expect(page).toHaveURL(/\/admin\/me\/orgs$/);
 });
 
 test('未登录访问控制台被带回登录页', async ({ page }) => {

@@ -46,7 +46,7 @@ describe('ConsoleShell 侧边栏用户菜单 修改密码', () => {
       }
       return { status: 200, json: {} };
     });
-    wrapper = await mountConsoleView(ConsoleShell as never, { role: 'member', route: '/admin/member/skills', props: { brand: '墨库', menuItems: [] } });
+    wrapper = await mountConsoleView(ConsoleShell as never, { account: 'member', route: '/admin/me/skills', props: { brand: '墨库', menuItems: [] } });
     await flushPromises();
 
     await openChangePassword(wrapper);
@@ -66,7 +66,7 @@ describe('ConsoleShell 侧边栏用户菜单 修改密码', () => {
 
   it('两次新密码不一致时禁用提交按钮', async () => {
     useApiMock(() => ({ status: 200, json: {} }));
-    wrapper = await mountConsoleView(ConsoleShell as never, { role: 'super', route: '/admin/super/dashboard', props: { brand: '墨库', menuItems: [] } });
+    wrapper = await mountConsoleView(ConsoleShell as never, { account: 'platformAdmin', route: '/admin/super/dashboard', props: { brand: '墨库', menuItems: [] } });
     await flushPromises();
 
     await openChangePassword(wrapper);
@@ -85,7 +85,7 @@ describe('ConsoleShell 侧边栏用户菜单 修改密码', () => {
       }
       return { status: 200, json: {} };
     });
-    wrapper = await mountConsoleView(ConsoleShell as never, { role: 'member', route: '/admin/member/skills', props: { brand: '墨库', menuItems: [] } });
+    wrapper = await mountConsoleView(ConsoleShell as never, { account: 'member', route: '/admin/me/skills', props: { brand: '墨库', menuItems: [] } });
     await flushPromises();
 
     await openChangePassword(wrapper);

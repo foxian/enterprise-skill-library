@@ -23,7 +23,7 @@ describe('esl login with organizations', () => {
       json: async () => ({
         token: 'mock_token',
         username: 'zhangsan',
-        organizations: [{ org: 'acme', role: 'member' }]
+        organizations: [{ org: 'acme', isOrgManager: false }]
       })
     });
     const passwordFile = path.join(homeDir, 'pw.txt');
@@ -46,7 +46,7 @@ describe('esl login with organizations', () => {
     );
     const config = await loadConfig({ homeDir });
     expect(config.username).toBe('zhangsan');
-    expect(config.organizations).toEqual([{ org: 'acme', role: 'member' }]);
+    expect(config.organizations).toEqual([{ org: 'acme', isOrgManager: false }]);
     expect(config).not.toHaveProperty('org');
     expect(config).not.toHaveProperty('role');
   });
@@ -58,8 +58,8 @@ describe('esl login with organizations', () => {
         token: 'mock_token',
         username: 'alice',
         organizations: [
-          { org: 'acme', role: 'member' },
-          { org: 'beta', role: 'org-admin' }
+          { org: 'acme', isOrgManager: false },
+          { org: 'beta', isOrgManager: true }
         ]
       })
     });
@@ -76,8 +76,8 @@ describe('esl login with organizations', () => {
 
     const config = await loadConfig({ homeDir });
     expect(config.organizations).toEqual([
-      { org: 'acme', role: 'member' },
-      { org: 'beta', role: 'org-admin' }
+      { org: 'acme', isOrgManager: false },
+      { org: 'beta', isOrgManager: true }
     ]);
   });
 

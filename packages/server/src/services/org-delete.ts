@@ -10,6 +10,19 @@ export interface OrganizationDeletionOptions {
   tenantOrganizationRepository: TenantOrganizationRepository;
 }
 
+/**
+ * 组织删除的统一入口（ADR-0034）：先置 `deleting` 让"处理中"对外可见，再执行
+ * 跨系统清理。失败由 runOrganizationDeletion 落成 `delete_failed` + 原因，可由
+ * 组织管理团队成员或平台管理员重试。组织管理团队成员与平台管理员两条路由共用。
+ */
+export async function performOrganizationDeletion(
+  options: OrganizationDeletionOptions,
+  orgName: string
+): Promise<void> {
+  options.tenantOrganizationRepository.transition(orgName, 'deleting');
+  await runOrganizationDeletion(options, orgName);
+}
+
 // 组织删除（ADR-0032）：成员是全局账号（不属于组织），删除只清理
 // ESL 登记的技能仓库与组织本身；发现外部仓库时停止自动清理并报错，
 // 交由平台管理员人工处理。

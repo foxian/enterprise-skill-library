@@ -7,6 +7,14 @@ import type {
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
+import { performOrganizationDeletion } from '../services/org-delete.js';
+import {
+  addMemberToStandingTeams,
+  checkOrgManagerRemoval,
+  isOrgManagerOf,
+  listOrgMembersWithGovernance,
+  removeMemberFromOrganization
+} from '../services/organization-membership.js';
 import { DEFAULT_TEAM_DISPLAY_NAMES } from '../services/org-team-model.js';
 
 export interface OrgConsoleRouteOptions {
@@ -20,7 +28,7 @@ export interface OrgConsoleRouteOptions {
 // 团队显示名(ADR-0029):ESL 侧可选展示字段,允许中文,最长 64 字符。
 const TEAM_DISPLAY_NAME_MAX = 64;
 
-// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（管理员团队，ADR-0032）
+// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（组织管理团队，ADR-0033）
 function isProtectedTeam(team: { name: string; permission: string }): boolean {
   return team.permission === 'owner' || isStandingTeam(team.name);
 }
@@ -29,28 +37,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   const { giteaService, repository, platformSettingsRepository, orgInvitationRepository, tenantOrganizationRepository } =
     options;
 
-  async function addMemberToStandingTeams(org: string, username: string): Promise<void> {
-    const teams = await giteaService.listTeams(org);
-    for (const team of teams) {
-      if (isStandingTeam(team.name) && !(await giteaService.isTeamMember(team.id, username))) {
-        await giteaService.addTeamMember(team.id, username);
-      }
-    }
-  }
-
-  async function removeMemberFromAllTeams(org: string, username: string): Promise<void> {
-    const teams = await giteaService.listTeams(org);
-    for (const team of teams) {
-      if (await giteaService.isTeamMember(team.id, username)) {
-        await giteaService.removeTeamMember(team.id, username);
-      }
-    }
-  }
-
   app.get('/api/orgs/:orgName/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
-    return giteaService.listOrgMembers(org);
+    return listOrgMembersWithGovernance(giteaService, org);
   });
 
   // 直接添加：把已注册的全局账号拉进组织并自动加入三个常设团队。
@@ -62,7 +52,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!usernameValidation.success) {
       return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
     }
-    // 全局账号必须已存在：组织管理员只授予组织成员身份，不创建账号。
+    // 全局账号必须已存在：组织管理团队成员只授予组织成员身份，不创建账号。
     const user = await giteaService.getUser(username);
     if (!user) {
       return reply.status(404).send({ error: `User does not exist: ${username}` });
@@ -82,7 +72,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
       });
     }
 
-    await addMemberToStandingTeams(org, username);
+    await addMemberToStandingTeams(giteaService, org, username);
     return reply.status(201).send({ status: 'added', username });
   });
 
@@ -94,8 +84,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
       return reply.status(404).send({ error: `User is not a member of ${org}` });
     }
-    await removeMemberFromAllTeams(org, username);
-    await giteaService.removeOrgMember(org, username);
+    // 移出组织管理团队成员等于收回其治理权，适用同一套互管规则（ADR-0033）
+    const caller = await currentUsername(giteaService, request);
+    const blocked = await checkOrgManagerRemoval(giteaService, org, username, caller);
+    if (blocked) {
+      return reply.status(400).send({ error: blocked });
+    }
+    await removeMemberFromOrganization(giteaService, org, username);
     return { removed: true, username };
   });
 
@@ -122,7 +117,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (invitation.status !== 'pending') {
       return reply.status(409).send({ error: 'Invitation has already been processed' });
     }
-    await addMemberToStandingTeams(invitation.orgName, username);
+    await addMemberToStandingTeams(giteaService, invitation.orgName, username);
     orgInvitationRepository.updateStatusById(id, 'accepted');
     return { status: 'accepted', orgName: invitation.orgName };
   });
@@ -148,6 +143,24 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
     return orgInvitationRepository.listByOrg(org);
+  });
+
+  // 撤销邀请（ADR-0032 邀请制的发起方半边）：组织管理团队成员可撤回本组织已发出
+  // 的待处理邀请——被邀请人还没回应时，邀请不该是不可收回的。已接受/已拒绝/
+  // 已撤销的邀请不能再撤销。
+  app.delete('/api/orgs/:orgName/invitations/:id', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    if (!org) return;
+    const id = Number((request.params as { id: string }).id);
+    const invitation = orgInvitationRepository.getById(id);
+    if (!invitation || invitation.orgName !== org) {
+      return reply.status(404).send({ error: 'Invitation not found' });
+    }
+    if (invitation.status !== 'pending') {
+      return reply.status(409).send({ error: 'Invitation has already been processed' });
+    }
+    orgInvitationRepository.updateStatusById(id, 'revoked');
+    return { status: 'revoked', orgName: org, username: invitation.username, invitationId: id };
   });
 
   app.get('/api/orgs/:orgName/teams', async (request, reply) => {
@@ -349,15 +362,48 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    // Owners 团队承载组织管理权:组织管理员不可被移出(治理兜底入口)。
+    // 组织管理团队（Owners）适用成员互管规则（ADR-0033）
     if (team.permission === 'owner') {
-      const owners = await giteaService.listTeamMembers(teamId);
-      if (owners.some((member) => member.username === username)) {
-        return reply.status(400).send({ error: 'Organization administrators cannot be removed from the Owners team' });
+      const caller = await currentUsername(giteaService, request);
+      const blocked = await checkOrgManagerRemoval(giteaService, org, username, caller);
+      if (blocked) {
+        return reply.status(400).send({ error: blocked });
       }
     }
     await giteaService.removeTeamMember(teamId, username);
     return { teamId, username, removed: true };
+  });
+
+  // 组织删除（ADR-0034）：组织管理团队成员即可发起，手打组织名确认；沿用
+  // Organization Deletion State（deleting → 完成 / delete_failed）。删除失败必须
+  // 可由治理者重试，因此这条路由对非 active 的组织放行——其余组织管理操作仍被拦。
+  // 平台管理员的同款能力见 /api/admin/orgs/:orgName（治理兜底）。
+  app.delete('/api/orgs/:orgName', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowNonActive: true
+    });
+    if (!org) return;
+    const { confirm } = (request.body ?? {}) as { confirm?: string };
+    if (confirm !== org) {
+      return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
+    }
+    // 只有 ESL 开通的组织才允许自动删除（与超管路径同一守门），防止误删
+    // 直接在 Git Backend 建出来的外部组织。
+    if (!tenantOrganizationRepository.get(org)) {
+      return reply.status(404).send({ error: 'Organization not found or not managed by ESL' });
+    }
+    try {
+      await performOrganizationDeletion(
+        { giteaService, skillRepository: repository, tenantOrganizationRepository },
+        org
+      );
+    } catch (error) {
+      // 失败原因已由删除流程写入租户状态（delete_failed + lastError）
+      return reply
+        .status(409)
+        .send({ error: `Organization deletion failed: ${(error as Error).message}`, retryable: true });
+    }
+    return { status: 'deleted', orgName: org };
   });
 }
 
@@ -374,12 +420,14 @@ function normalizeTeamDisplayName(value: unknown): string | null | undefined {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-// 全局身份（ADR-0032）：组织从 URL 的 :orgName 提供，管理员 = Owners 团队成员。
+// 全局身份（ADR-0032）：组织从 URL 的 :orgName 提供，治理者 = Owners 团队成员。
 async function requireOrgAdministrator(
   request: FastifyRequest,
   reply: FastifyReply,
   giteaService: GiteaService,
-  tenantOrganizationRepository: TenantOrganizationRepository
+  tenantOrganizationRepository: TenantOrganizationRepository,
+  // 组织删除需要在 deleting / delete_failed 状态下仍可发起（重试），是唯一例外。
+  options: { allowNonActive?: boolean } = {}
 ): Promise<string | null> {
   const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
   const authorization = request.headers.authorization;
@@ -390,27 +438,21 @@ async function requireOrgAdministrator(
   const token = authorization.replace('token ', '').trim();
   const user = await giteaService.validateToken(token);
   if (!user) {
-    reply.status(403).send({ error: 'Forbidden: organization administrator token required' });
+    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }
   if (!(await giteaService.organizationExists(orgName))) {
-    reply.status(403).send({ error: 'Forbidden: organization administrator token required' });
+    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }
-  // Organization Admin = Owners 团队成员（ADR-0032），任何成员皆可治理。
-  let owners: Array<{ username: string }> = [];
-  try {
-    owners = await giteaService.listOrgOwners(orgName);
-  } catch {
-    owners = [];
-  }
-  if (!owners.some((owner) => owner.username === user.username)) {
-    reply.status(403).send({ error: 'Forbidden: organization administrator token required' });
+  // 治理权 = 组织管理团队（= Gitea Owners）成员身份（ADR-0033），任何成员皆可治理。
+  if (!(await isOrgManagerOf(giteaService, orgName, user.username))) {
+    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }
   // 处理中的组织(删除中、删除失败)禁止一切组织管理操作。
   const tenant = tenantOrganizationRepository.get(orgName);
-  if (tenant && tenant.status !== 'active') {
+  if (!options.allowNonActive && tenant && tenant.status !== 'active') {
     reply.status(409).send({ error: `Organization is not active: ${orgName}`, status: tenant.status });
     return null;
   }
