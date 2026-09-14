@@ -929,6 +929,33 @@ describe('GiteaService', () => {
     );
   });
 
+  it('surfaces a Git Backend name conflict from createOrg instead of swallowing it', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: async () => JSON.stringify({ message: 'user already exists [name: acme]' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createOrg('acme')).rejects.toMatchObject({ status: 422 });
+    // 幂等调用方（开发 seed）显式声明可以容忍既存
+    await expect(gitea.createOrg('acme', { tolerateExisting: true })).resolves.toBeUndefined();
+  });
+
+  it('surfaces a Git Backend name conflict from createUser instead of swallowing it', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({ message: 'user already exists' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.createUser('alice', 'password-123')).rejects.toMatchObject({ status: 409 });
+    await expect(
+      gitea.createUser('alice', 'password-123', { tolerateExisting: true })
+    ).resolves.toBeUndefined();
+  });
+
   it('checks whether a user belongs to a team', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);

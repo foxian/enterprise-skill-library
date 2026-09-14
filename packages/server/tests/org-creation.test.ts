@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { initDatabase } from '../src/db/database.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
+import { GiteaRequestError } from '../src/services/gitea.js';
 
 // npm 式组织创建（ADR-0032 / #54）：auto 即时开通、manual 申请审批（同步开通）、
 // 四个常设团队预置；部署模式 / 默认组织 / <org>_admin / system-admins 全部拆除。
@@ -231,6 +232,56 @@ describe('organization creation', () => {
       const team = (await gitea.listTeams('beta')).find((entry) => entry.name === name)!;
       expect(await gitea.isTeamMember(team.id, 'alice')).toBe(true);
     }
+  });
+
+  it('maps a Git Backend name conflict to 409 instead of 500', async () => {
+    // 并发窗口：预检通过后 Git Backend 仍可能拒绝重名（422）
+    gitea.createOrg.mockRejectedValueOnce(
+      new GiteaRequestError(422, 'Failed to create Gitea organization: user already exists')
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain('already exists');
+  });
+
+  it('reports an unreachable Git Backend as 502 rather than 500', async () => {
+    gitea.createOrg.mockRejectedValueOnce(
+      new GiteaRequestError(502, 'Failed to create Gitea organization: upstream unavailable')
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(res.statusCode).toBe(502);
+  });
+
+  it('refuses to claim an organization that already exists in the Git Backend', async () => {
+    // 预检时不存在，开通时已被他人建出：绝不把调用者塞进既有组织的 Owners
+    gitea.organizationExists
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(gitea.createOrg).not.toHaveBeenCalled();
+    expect(res.json().error).toContain('already taken');
   });
 
   it('deduplicates a pending application with the same name at submission time', async () => {

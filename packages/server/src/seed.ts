@@ -46,9 +46,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 const DEV_ACCOUNT_PASSWORD = 'esl-dev-password';
 
 export async function seedDevelopmentAccounts(giteaService: GiteaService): Promise<void> {
-  await giteaService.createUser('alice', DEV_ACCOUNT_PASSWORD);
-  await giteaService.createUser('bob', DEV_ACCOUNT_PASSWORD);
-  await giteaService.createOrg('acme');
+  // 开发 seed 幂等：重复启动时既存账号/组织不是错误
+  await giteaService.createUser('alice', DEV_ACCOUNT_PASSWORD, { tolerateExisting: true });
+  await giteaService.createUser('bob', DEV_ACCOUNT_PASSWORD, { tolerateExisting: true });
+  await giteaService.createOrg('acme', { tolerateExisting: true });
 
   const teams = await giteaService.listTeams('acme');
   // Gitea 新建组织自带 Owners 团队（permission=owner），找不到即环境异常

@@ -1,4 +1,4 @@
-import type { GiteaService } from './gitea.js';
+import { GiteaRequestError, type GiteaService } from './gitea.js';
 import type { TenantOrganizationRepository } from '../db/database.js';
 import { DEFAULT_TEAM_DISPLAY_NAMES } from './org-team-model.js';
 
@@ -13,6 +13,11 @@ export async function initializeOrganization(
   creatorUsername: string,
   tenantOrganizationRepository: TenantOrganizationRepository
 ): Promise<void> {
+  // 已存在的组织绝不能被"接管"：调用方会把创建者写进 Owners，若 Git Backend
+  // 侧该组织另有其主，这就是一次提权。预检 + 严格创建共同兜住并发窗口。
+  if (await giteaService.organizationExists(orgName)) {
+    throw new GiteaRequestError(409, `Organization name is already taken: ${orgName}`);
+  }
   await giteaService.createOrg(orgName);
 
   // 新建组织时 Gitea 会自动创建一个 Owners 常驻团队，其 permission 恒为 "owner"。

@@ -62,6 +62,18 @@ const TEAM_REPO_UNITS = [
   'repo.code'
 ];
 
+// Git Backend 请求失败（携带上游 HTTP 状态）。服务层只负责如实抛出，
+// 由 app 的全局错误处理器统一映射为对外语义（同名冲突 → 409，其余上游故障 → 502）。
+export class GiteaRequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'GiteaRequestError';
+  }
+}
+
 export class GiteaService {
   constructor(
     private baseUrl: string,
@@ -82,7 +94,7 @@ export class GiteaService {
     });
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to list Gitea users: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to list Gitea users: ${err}`);
     }
     return (await res.json()) as GiteaAdminUser[];
   }
@@ -107,7 +119,7 @@ export class GiteaService {
     if (res.status === 404) return null;
 
     const err = await res.text();
-    throw new Error(`Failed to get Gitea user: ${err}`);
+    throw new GiteaRequestError(404, `Failed to get Gitea user: ${err}`);
   }
 
   async validateAdminToken(token: string): Promise<boolean> {
@@ -144,7 +156,11 @@ export class GiteaService {
     };
   }
 
-  async createUser(username: string, password: string): Promise<void> {
+  async createUser(
+    username: string,
+    password: string,
+    options: { tolerateExisting?: boolean } = {}
+  ): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users`, {
       method: 'POST',
       headers: {
@@ -159,10 +175,12 @@ export class GiteaService {
       })
     });
 
-    if (!res.ok && res.status !== 409) {
-      const err = await res.text();
-      throw new Error(`Failed to create Gitea user: ${err}`);
+    if (res.ok || (options.tolerateExisting && (res.status === 409 || res.status === 422))) {
+      return;
     }
+    // 静默吞掉冲突会让调用方以为账号已就绪（注册竞态下即越权前提），一律如实抛出
+    const err = await res.text();
+    throw new GiteaRequestError(res.status, `Failed to create Gitea user: ${err}`);
   }
 
   async validateUserPassword(username: string, password: string): Promise<boolean> {
@@ -189,7 +207,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to issue Gitea user token: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to issue Gitea user token: ${err}`);
     }
 
     const body = (await res.json()) as { sha1: string };
@@ -212,7 +230,7 @@ export class GiteaService {
     }
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to authenticate with Gitea: ${err}`);
+      throw new GiteaRequestError(401, `Failed to authenticate with Gitea: ${err}`);
     }
 
     const body = (await res.json()) as { sha1: string };
@@ -231,7 +249,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to disable Gitea user: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to disable Gitea user: ${err}`);
     }
   }
 
@@ -247,7 +265,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to enable Gitea user: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to enable Gitea user: ${err}`);
     }
   }
 
@@ -263,7 +281,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to change Gitea user password: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to change Gitea user password: ${err}`);
     }
   }
 
@@ -291,7 +309,7 @@ export class GiteaService {
 
     if (!res.ok && res.status !== 409) {
       const err = await res.text();
-      throw new Error(`Failed to ensure Gitea admin user: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to ensure Gitea admin user: ${err}`);
     }
   }
 
@@ -307,7 +325,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to create Gitea admin token: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to create Gitea admin token: ${err}`);
     }
 
     const body = (await res.json()) as { sha1: string };
@@ -339,7 +357,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to create Gitea repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to create Gitea repository: ${err}`);
     }
 
     return (await res.json()) as GiteaRepo;
@@ -357,7 +375,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to create Gitea organization repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to create Gitea organization repository: ${err}`);
     }
 
     return (await res.json()) as GiteaRepo;
@@ -372,7 +390,7 @@ export class GiteaService {
     if (res.status === 404) return null;
 
     const err = await res.text();
-    throw new Error(`Failed to get Gitea repository: ${err}`);
+    throw new GiteaRequestError(404, `Failed to get Gitea repository: ${err}`);
   }
 
   async renameRepo(owner: string, name: string, nextName: string): Promise<void> {
@@ -386,7 +404,7 @@ export class GiteaService {
     });
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to rename Gitea repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to rename Gitea repository: ${err}`);
     }
   }
 
@@ -398,11 +416,11 @@ export class GiteaService {
 
     if (!res.ok && res.status !== 404) {
       const err = await res.text();
-      throw new Error(`Failed to delete Gitea repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to delete Gitea repository: ${err}`);
     }
   }
 
-  async createOrg(name: string): Promise<void> {
+  async createOrg(name: string, options: { tolerateExisting?: boolean } = {}): Promise<void> {
     const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs`, {
       method: 'POST',
       headers: {
@@ -412,10 +430,12 @@ export class GiteaService {
       body: JSON.stringify({ username: name })
     });
 
-    if (!res.ok && res.status !== 409) {
-      const err = await res.text();
-      throw new Error(`Failed to create Gitea organization: ${err}`);
+    if (res.ok || (options.tolerateExisting && (res.status === 409 || res.status === 422))) {
+      return;
     }
+    // 重名/占用的组织不能当作"创建成功"——否则调用方会去改既有组织的 Owners
+    const err = await res.text();
+    throw new GiteaRequestError(res.status, `Failed to create Gitea organization: ${err}`);
   }
 
   async listOrgRepos(org: string): Promise<GiteaRepo[]> {
@@ -425,7 +445,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to list Gitea organization repositories: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to list Gitea organization repositories: ${err}`);
     }
 
     return (await res.json()) as GiteaRepo[];
@@ -439,7 +459,7 @@ export class GiteaService {
 
     if (!res.ok && res.status !== 404) {
       const err = await res.text();
-      throw new Error(`Failed to delete Gitea organization: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to delete Gitea organization: ${err}`);
     }
   }
 
@@ -450,7 +470,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to list Gitea organizations: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to list Gitea organizations: ${err}`);
     }
 
     const body = (await res.json()) as Array<{ id: number; name: string; created?: string }>;
@@ -469,7 +489,7 @@ export class GiteaService {
 
       if (!res.ok) {
         const err = await res.text();
-        throw new Error(`Failed to list Gitea user organizations: ${err}`);
+        throw new GiteaRequestError(res.status, `Failed to list Gitea user organizations: ${err}`);
       }
 
       const batch = (await res.json()) as Array<{ id: number; name: string; created?: string }>;
@@ -523,7 +543,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to create Gitea team: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to create Gitea team: ${err}`);
     }
 
     const body = (await res.json()) as { id: number; name: string; permission: GiteaTeam['permission'] };
@@ -538,7 +558,7 @@ export class GiteaService {
 
     if (!res.ok && res.status !== 404) {
       const err = await res.text();
-      throw new Error(`Failed to delete Gitea team: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to delete Gitea team: ${err}`);
     }
   }
 
@@ -569,7 +589,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to update Gitea team: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to update Gitea team: ${err}`);
     }
 
     const response = (await res.json()) as { id: number; name: string; permission: GiteaTeam['permission'] };
@@ -583,7 +603,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to list Gitea teams: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to list Gitea teams: ${err}`);
     }
 
     const body = (await res.json()) as Array<{ id: number; name: string; permission: GiteaTeam['permission'] }>;
@@ -601,7 +621,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to add Gitea team member: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to add Gitea team member: ${err}`);
     }
   }
 
@@ -616,7 +636,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to remove Gitea team member: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to remove Gitea team member: ${err}`);
     }
   }
 
@@ -628,7 +648,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to add Gitea team repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to add Gitea team repository: ${err}`);
     }
   }
 
@@ -640,7 +660,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to remove Gitea team repository: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to remove Gitea team repository: ${err}`);
     }
   }
 
@@ -663,7 +683,7 @@ export class GiteaService {
     );
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to configure Gitea repository collaborator: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to configure Gitea repository collaborator: ${err}`);
     }
   }
 
@@ -678,7 +698,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to remove Gitea repository collaborator: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to remove Gitea repository collaborator: ${err}`);
     }
   }
 
@@ -698,7 +718,7 @@ export class GiteaService {
 
       if (!res.ok) {
         const err = await res.text();
-        throw new Error(`Failed to list Gitea organization members: ${err}`);
+        throw new GiteaRequestError(res.status, `Failed to list Gitea organization members: ${err}`);
       }
 
       const batch = (await res.json()) as GiteaUser[];
@@ -725,7 +745,7 @@ export class GiteaService {
 
       if (!res.ok) {
         const err = await res.text();
-        throw new Error(`Failed to list Gitea team members: ${err}`);
+        throw new GiteaRequestError(res.status, `Failed to list Gitea team members: ${err}`);
       }
 
       const batch = (await res.json()) as GiteaUser[];
@@ -748,7 +768,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to remove Gitea organization member: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to remove Gitea organization member: ${err}`);
     }
   }
 
@@ -764,7 +784,7 @@ export class GiteaService {
     // 容忍 404:可恢复清理流程重试时,账号可能已被上一次尝试删除。
     if (!res.ok && res.status !== 404) {
       const err = await res.text();
-      throw new Error(`Failed to delete Gitea user: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to delete Gitea user: ${err}`);
     }
   }
 
@@ -779,7 +799,7 @@ export class GiteaService {
         return [];
       }
       const err = await res.text();
-      throw new Error(`Failed to list Gitea repository collaborators: ${err}`);
+      throw new GiteaRequestError(404, `Failed to list Gitea repository collaborators: ${err}`);
     }
 
     return (await res.json()) as GiteaUser[];
@@ -801,7 +821,7 @@ export class GiteaService {
       if (/not owned by an organization/i.test(err)) {
         return [];
       }
-      throw new Error(`Failed to list Gitea repository teams: ${err}`);
+      throw new GiteaRequestError(404, `Failed to list Gitea repository teams: ${err}`);
     }
 
     const body = (await res.json()) as Array<{ id: number; name: string; permission: GiteaTeam['permission'] }>;
@@ -816,7 +836,7 @@ export class GiteaService {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to list Gitea team repositories: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to list Gitea team repositories: ${err}`);
     }
 
     return (await res.json()) as Array<{ id: number; name: string; full_name: string }>;
@@ -832,7 +852,7 @@ export class GiteaService {
     if (res.status === 404) return false;
 
     const err = await res.text();
-    throw new Error(`Failed to check Gitea team membership: ${err}`);
+    throw new GiteaRequestError(404, `Failed to check Gitea team membership: ${err}`);
   }
 
   async isCollaborator(owner: string, repository: string, username: string): Promise<boolean> {
@@ -845,7 +865,7 @@ export class GiteaService {
     if (res.status === 404) return false;
 
     const err = await res.text();
-    throw new Error(`Failed to check Gitea collaborator status: ${err}`);
+    throw new GiteaRequestError(404, `Failed to check Gitea collaborator status: ${err}`);
   }
 
   async getCollaboratorPermission(owner: string, repository: string, username: string): Promise<string> {
@@ -860,7 +880,7 @@ export class GiteaService {
         return 'none';
       }
       const err = await res.text();
-      throw new Error(`Failed to get Gitea collaborator permission: ${err}`);
+      throw new GiteaRequestError(404, `Failed to get Gitea collaborator permission: ${err}`);
     }
 
     const body = (await res.json()) as { permission: string };
@@ -878,7 +898,7 @@ export class GiteaService {
     });
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to update Gitea repository archive state: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to update Gitea repository archive state: ${err}`);
     }
   }
 
@@ -899,7 +919,7 @@ export class GiteaService {
     });
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to create Gitea release tag: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to create Gitea release tag: ${err}`);
     }
   }
 
@@ -914,7 +934,7 @@ export class GiteaService {
     // A missing tag is not an error: the release is being removed either way.
     if (!res.ok && res.status !== 404) {
       const err = await res.text();
-      throw new Error(`Failed to delete Gitea release tag: ${err}`);
+      throw new GiteaRequestError(res.status, `Failed to delete Gitea release tag: ${err}`);
     }
   }
 
@@ -926,7 +946,7 @@ export class GiteaService {
     if (res.status === 404) return null;
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Failed to get Gitea release tag: ${err}`);
+      throw new GiteaRequestError(404, `Failed to get Gitea release tag: ${err}`);
     }
 
     const body = (await res.json()) as {
@@ -941,7 +961,7 @@ export class GiteaService {
       );
       if (!tagObject.ok) {
         const err = await tagObject.text();
-        throw new Error(`Failed to get Gitea annotated release tag: ${err}`);
+        throw new GiteaRequestError(res.status, `Failed to get Gitea annotated release tag: ${err}`);
       }
       const tagBody = (await tagObject.json()) as { object?: { sha?: string } };
       return {
@@ -971,7 +991,7 @@ export class GiteaService {
       );
       if (!res.ok) {
         const error = await res.text();
-        throw new Error(`Failed to read source file ${entry.path}: ${error}`);
+        throw new GiteaRequestError(res.status, `Failed to read source file ${entry.path}: ${error}`);
       }
       const file = (await res.json()) as { content?: string; encoding?: string };
       return file.encoding === 'base64'
@@ -986,7 +1006,7 @@ export class GiteaService {
       );
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Failed to read source commit: ${error}`);
+        throw new GiteaRequestError(response.status, `Failed to read source commit: ${error}`);
       }
       const entries = (await response.json()) as GiteaContentEntry[];
       for (const entry of entries) {
@@ -1008,7 +1028,7 @@ export class GiteaService {
     });
     if (!read.ok) {
       const error = await read.text();
-      throw new Error(`Failed to read SKILL.md for rename: ${error}`);
+      throw new GiteaRequestError(read.status, `Failed to read SKILL.md for rename: ${error}`);
     }
     const file = (await read.json()) as { content: string; sha: string; encoding?: string };
     const source = file.encoding === 'base64'
@@ -1037,7 +1057,7 @@ export class GiteaService {
     );
     if (!write.ok) {
       const error = await write.text();
-      throw new Error(`Failed to update SKILL.md for rename: ${error}`);
+      throw new GiteaRequestError(write.status, `Failed to update SKILL.md for rename: ${error}`);
     }
   }
 
@@ -1050,6 +1070,6 @@ export class GiteaService {
     if (res.status === 404) return false;
 
     const err = await res.text();
-    throw new Error(`Failed to get Gitea organization: ${err}`);
+    throw new GiteaRequestError(404, `Failed to get Gitea organization: ${err}`);
   }
 }

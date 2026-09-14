@@ -47,9 +47,10 @@ describe('development seed', () => {
     await seedDevelopmentAccounts(gitea as any);
     await seedDevelopmentAccounts(gitea as any);
 
-    expect(gitea.createUser).toHaveBeenCalledWith('alice', expect.any(String));
-    expect(gitea.createUser).toHaveBeenCalledWith('bob', expect.any(String));
-    expect(gitea.createOrg).toHaveBeenCalledWith('acme');
+    // seed 幂等：重复启动时既存账号/组织不是错误，显式声明容忍
+    expect(gitea.createUser).toHaveBeenCalledWith('alice', expect.any(String), { tolerateExisting: true });
+    expect(gitea.createUser).toHaveBeenCalledWith('bob', expect.any(String), { tolerateExisting: true });
+    expect(gitea.createOrg).toHaveBeenCalledWith('acme', { tolerateExisting: true });
 
     const owners = await (gitea.listOrgOwners as ReturnType<typeof vi.fn>)('acme');
     expect(owners.map((owner: { username: string }) => owner.username)).toContain('alice');

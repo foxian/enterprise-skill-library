@@ -13,7 +13,7 @@ import { registerOrgRoutes } from './routes/orgs.js';
 import { registerOrgAdminRoutes } from './routes/org-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
-import type { GiteaService } from './services/gitea.js';
+import { GiteaRequestError, type GiteaService } from './services/gitea.js';
 import path from 'node:path';
 import { runOrganizationDeletion } from './services/org-delete.js';
 import { registerUserRoutes } from './routes/register.js';
@@ -78,6 +78,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
       tenantOrganizationRepository.transition(application.orgName, 'expired');
     }
   }
+
+  // Git Backend 错误统一映射（ADR-0032）：重名/占用类冲突如实回 409（调用方
+  // 需要当场换名），其余上游故障回 502——不把基础设施问题伪装成客户端 500。
+  // 非 Gitea 错误交回 Fastify 默认序列化，保持既有端点契约不变。
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof GiteaRequestError) {
+      const status = error.status === 409 || error.status === 422 ? 409 : 502;
+      return reply.status(status).send({ error: error.message });
+    }
+    return reply.send(error);
+  });
 
   app.get('/health', async () => ({ ok: true, service: 'esl-api' }));
   // 匿名平台信息(ADR-0032):CLI 与 Web 登录/注册页在登录前消费它自适应交互
