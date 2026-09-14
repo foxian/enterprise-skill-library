@@ -40,7 +40,7 @@
   <el-dialog v-model="resultDialogVisible" title="组织开通" width="440px">
     <p>
       组织 <strong>{{ handledOrgName }}</strong> 已同步开通，申请人已加入该组织并成为
-      组织管理团队成员（无需初始密码：成员是全局账号，用自己的凭据登录）。
+      所有者成员（无需初始密码：成员是全局账号，用自己的凭据登录）。
     </p>
     <template #footer>
       <el-button type="primary" data-test="initial-password-close" @click="resultDialogVisible = false">

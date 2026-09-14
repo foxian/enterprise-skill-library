@@ -1,5 +1,11 @@
 # ESL 管理后台（Web Console）工作流测试用例（Issue #15–#22）
 
+> **已归档（历史执行记录）**：本文写成于 ADR-0032 之前，描述的是当时的三角色控制台
+> ——`/admin/super`、`/admin/org`、`/admin/member` 三个视角、`<org>_admin` 账号、
+> 一次性密码、成员禁用/启用，以及 Operation/Provisioning 状态机。这些都已由
+> ADR-0032 / ADR-0033 / ADR-0035 取代，**照本文验收会得到错误结论**。现行口径见
+> [../README.md](../README.md)。
+
 ## 概述
 
 本文档为 ESL 管理后台（Web Console）针对 **跨系统一致性工作流** 批次的功能测试用例，供浏览器自动化逐步执行。它是 [web-console-e2e-test-cases.md](./web-console-e2e-test-cases.md)（45 条已执行基线，覆盖 Issue #3–#14）的**续篇**：用例编号延续基线编号，覆盖 2026-09-02 关闭的 GitHub Issue **#15–#22**。

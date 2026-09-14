@@ -1,6 +1,6 @@
 # 多租户组织、Web管理后台与RBAC权限模型
 
-Status: accepted
+Status: superseded by ADR-0032
 
 ESL 架构从原有的"单一平台组织（Platform Organization）+ CLI 管理"升级为"多组织（多租户）、Vue Web 管理后台 + RBAC 组织内协作权限模型"。原有面向平台管理员的 CLI 远程管理命令全部移除，统一收敛至 Web 管理后台；CLI 仅保留面向开发者的技能消费与协作开发功能。
 

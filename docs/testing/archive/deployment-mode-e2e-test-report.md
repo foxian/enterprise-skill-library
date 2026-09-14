@@ -1,5 +1,9 @@
 # 部署模式与默认组织（单组织 / 多组织）E2E 测试执行报告
 
+> **已归档（历史执行记录）**：本文记录的是**已废除**的 ADR-0022 在当时那次执行中的
+> 结果，是**当时的事实**，不随代码更新。**照本文验收会得到错误结论**。现行口径见
+> [../README.md](../README.md)。
+
 - **执行日期**：2026-09-06（PLT/LOGIN/GATE/DEL/WEB/REG/CLI/NEG 组），2026-09-07（BOOT 组补充执行）
 - **被测文档**：[deployment-mode-e2e-test-cases.md](./deployment-mode-e2e-test-cases.md)（v1.0，9 组 49 条用例）
 - **执行方式**：HTTP API 断言（PowerShell `Invoke-RestMethod` / `curl.exe`）+ Chrome 浏览器自动化（Web 自适应组）+ `esl` CLI 命令行（CLI 自适应组）

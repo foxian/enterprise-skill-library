@@ -420,12 +420,12 @@ describe('Fastify Server API', () => {
     expect(loginRes.json()).toEqual({
       token: 'skill-user-token',
       username: 'alice',
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
   });
 
-  it('marks organization management-team membership per organization from Owners membership', async () => {
+  it('marks owner membership per organization from Owners membership', async () => {
     const mockGitea = {
       loginUser: vi.fn().mockResolvedValue('admin-token'),
       adminUsername: 'eslroot',
@@ -444,8 +444,8 @@ describe('Fastify Server API', () => {
 
     expect(loginRes.statusCode).toBe(200);
     expect(loginRes.json().organizations).toEqual([
-      { org: 'acme', isOrgManager: false },
-      { org: 'beta', isOrgManager: true }
+      { org: 'acme', identity: 'ordinary', isOwnerMember: false },
+      { org: 'beta', identity: 'owner', isOwnerMember: true }
     ]);
   });
 

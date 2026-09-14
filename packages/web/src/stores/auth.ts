@@ -1,17 +1,23 @@
 import { defineStore } from 'pinia';
+// 深引入纯类型模块，避免把 @esl/core 的 Node 依赖打进浏览器包
+import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 
 /**
- * 组织隶属关系（ADR-0033）。组织内没有角色——`isOrgManager` 就是「是该组织
- * 管理团队（= Gitea Owners）成员」这一团队身份，它逐组织成立，不是全局角色。
+ * 组织隶属关系（ADR-0036）。组织内没有角色——`identity` 是由常设团队成员身份
+ * **推导**出的三档身份，逐组织成立，不是全局角色。
  */
 export interface SessionOrganization {
   org: string;
-  isOrgManager: boolean;
+  identity: OrgIdentity;
+  /** 便捷判据：是否所有者成员。治理入口以它为准。 */
+  isOwnerMember: boolean;
 }
+
+const ORG_IDENTITIES: readonly string[] = ['ordinary', 'managing', 'owner'];
 
 /**
  * 管理后台会话。平台角色只有两个（ADR-0033），会话因此只有两个维度：
- * 是不是平台管理员，以及在每个组织里是不是组织管理团队成员。
+ * 是不是平台管理员，以及在每个组织里是什么身份（三档，ADR-0036）。
  */
 export interface AuthSession {
   token: string;
@@ -33,13 +39,19 @@ function loadSession(): AuthSession | null {
       return null;
     }
     const session = JSON.parse(raw) as AuthSession;
-    // 旧会话带 role/org 而无 isPlatformAdmin（ADR-0032 的三视角形态），直接丢弃
-    // 走重新登录——比把旧角色当新语义用更安全。
+    // 旧会话直接丢弃走重新登录——比把旧语义当新语义用更安全。历次形态：
+    // ① 三视角的 role/org（ADR-0032 之前）；② 两档的 isOrgManager（ADR-0036 之前）。
     if (
       session?.token &&
       session.username &&
       typeof session.isPlatformAdmin === 'boolean' &&
-      Array.isArray(session.organizations)
+      Array.isArray(session.organizations) &&
+      session.organizations.every(
+        (membership) =>
+          typeof membership?.org === 'string' &&
+          ORG_IDENTITIES.includes(membership.identity) &&
+          typeof membership.isOwnerMember === 'boolean'
+      )
     ) {
       return session;
     }
@@ -75,9 +87,13 @@ export const useAuthStore = defineStore('auth', {
       this.session = null;
       localStorage.removeItem(STORAGE_KEY);
     },
-    /** 该组织在本会话中是否可治理（团队身份，逐组织判定）。 */
-    isOrgManager(org: string): boolean {
-      return this.organizations.some((membership) => membership.org === org && membership.isOrgManager);
+    /** 我在该组织的身份；不在该组织返回 null。 */
+    identityOf(org: string): OrgIdentity | null {
+      return this.organizations.find((membership) => membership.org === org)?.identity ?? null;
+    },
+    /** 该组织在本会话中是否可治理（所有者成员身份，逐组织判定）。 */
+    isOwnerMember(org: string): boolean {
+      return this.organizations.some((membership) => membership.org === org && membership.isOwnerMember);
     }
   }
 });

@@ -1,6 +1,6 @@
 # 部署模式与默认组织
 
-Status: accepted
+Status: superseded by ADR-0032
 
 ESL 引入平台级**部署模式**（单组织 / 多组织）与**默认组织**两个概念：部署
 模式由 Bootstrap 按部署场景声明初始值（企业自部署为单组织，技能云提供商为

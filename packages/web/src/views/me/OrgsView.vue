@@ -21,15 +21,18 @@
         </el-table-column>
         <el-table-column label="我的身份" width="180">
           <template #default="{ row }">
-            <el-tag v-if="row.isOrgManager" type="primary" data-test="org-manager-tag">组织管理团队</el-tag>
-            <el-tag v-else type="info" data-test="org-member-tag">组织成员</el-tag>
+            <!-- 待审申请还没产生组织，此时没有任何身份（ADR-0036） -->
+            <el-tag v-if="row.identity" :type="identityTagType(row.identity)" :data-test="`org-identity-${row.identity}`">
+              {{ identityLabel(row.identity) }}
+            </el-tag>
+            <span v-else data-test="org-identity-none">—</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180">
           <template #default="{ row }">
-            <!-- 治理入口只对组织管理团队成员渲染（ADR-0035）：其余成员看到的是只读视图 -->
+            <!-- 治理入口只对所有者成员渲染（ADR-0035）：其余成员看到的是只读视图 -->
             <el-button
-              v-if="row.isOrgManager && (row.status === 'active' || row.status === 'delete_failed' || row.status === 'deleting')"
+              v-if="row.isOwnerMember && (row.status === 'active' || row.status === 'delete_failed' || row.status === 'deleting')"
               link
               type="primary"
               :data-test="`manage-${row.org}`"
@@ -58,13 +61,14 @@
       <p class="create-hint">
         {{
           manualMode
-            ? '当前平台为审批制：提交申请后由平台管理员审批，通过即开通，你自动成为组织管理团队成员。'
-            : '组织创建后即时开通，你自动成为组织管理团队成员。'
+            ? '当前平台为审批制：提交申请后由平台管理员审批，通过即开通，你自动成为所有者成员。'
+            : '组织创建后即时开通，你自动成为所有者成员。'
         }}
       </p>
       <el-form label-width="90px">
         <el-form-item label="组织名" required>
           <el-input v-model="newOrgName" data-test="create-org-name" placeholder="小写字母、数字与连字符" />
+          <div v-if="newOrgNameError" class="field-error" data-test="create-org-name-error">{{ newOrgNameError }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -81,18 +85,24 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
+// 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
+import { validateOrgName } from '@esl/core/dist/org/org-name.js';
+import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
+import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { useAuthStore } from '../../stores/auth';
 
 interface OrganizationRow {
   org: string;
-  isOrgManager: boolean;
+  /** 我在该组织的身份；待审申请尚未产生组织，此时为 null（ADR-0036）。 */
+  identity: OrgIdentity | null;
+  isOwnerMember: boolean;
   /** 组织生命周期状态（ADR-0034）：active / pending / deleting / delete_failed … */
   status: string;
 }
 
 interface MyOrgsResponse {
-  organizations: Array<{ org: string; isOrgManager: boolean; status: string }>;
+  organizations: Array<{ org: string; identity: OrgIdentity; isOwnerMember: boolean; status: string }>;
   pendingApplications: Array<{ orgName: string; submittedAt: string }>;
 }
 
@@ -128,12 +138,23 @@ const createDialogVisible = ref(false);
 const newOrgName = ref('');
 const manualMode = ref(false);
 
+// 复用核心包的组织命名规则，前后端校验一致（服务端仍独立校验，前端只为即时反馈）
+const newOrgNameError = computed(() => {
+  const orgName = newOrgName.value.trim();
+  if (!orgName) {
+    return '';
+  }
+  const validation = validateOrgName(orgName);
+  return validation.success ? '' : validation.errors.join('；');
+});
+
 // 待审申请尚未产生组织，但它属于"我的组织"列表要呈现的状态（ADR-0035）。
 const rows = computed<OrganizationRow[]>(() => {
   const memberships: OrganizationRow[] = response.value?.organizations ?? [];
   const pending: OrganizationRow[] = (response.value?.pendingApplications ?? []).map((application) => ({
     org: application.orgName,
-    isOrgManager: false,
+    identity: null,
+    isOwnerMember: false,
     status: 'pending'
   }));
   return [...memberships, ...pending].sort((a, b) => a.org.localeCompare(b.org));
@@ -148,7 +169,11 @@ async function loadOrgs(): Promise<void> {
     // 会话只存身份与治理权，生命周期状态只用于本页展示。
     auth.establish({
       ...auth.session!,
-      organizations: response.value.organizations.map(({ org, isOrgManager }) => ({ org, isOrgManager }))
+      organizations: response.value.organizations.map(({ org, identity, isOwnerMember }) => ({
+        org,
+        identity,
+        isOwnerMember
+      }))
     });
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -175,6 +200,10 @@ async function submitCreate(): Promise<void> {
   const orgName = newOrgName.value.trim();
   if (!orgName) {
     errorMessage.value = '请输入组织名';
+    return;
+  }
+  // 命名不合规由 newOrgNameError 就地提示（随输入实时显示），这里只负责不发请求
+  if (!validateOrgName(orgName).success) {
     return;
   }
   try {
@@ -216,5 +245,11 @@ onMounted(async () => {
 .create-hint {
   margin-top: 0;
   color: var(--el-text-color-secondary);
+}
+
+.field-error {
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

@@ -2,7 +2,7 @@
   <div>
     <div class="org-identity">
       <span class="org-name" data-test="org-identity">@{{ org }}</span>
-      <el-tag type="primary" size="small">组织管理团队</el-tag>
+      <el-tag type="primary" size="small">所有者成员</el-tag>
     </div>
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="成员" name="members" />
@@ -11,7 +11,7 @@
     </el-tabs>
     <router-view />
 
-    <!-- 组织删除（ADR-0034）：组织管理团队成员即可发起，手打组织名确认 -->
+    <!-- 组织删除（ADR-0034）：所有者成员即可发起，手打组织名确认 -->
     <el-card class="danger-zone" data-test="org-danger-zone">
       <template #header>危险操作</template>
       <p class="danger-hint">

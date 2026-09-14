@@ -274,7 +274,7 @@ const selectedTeam = ref('');
 const selectedMember = ref('');
 const memberPermission = ref<'read' | 'write' | 'manage'>('read');
 
-// 组织管理团队成员提供团队/成员下拉建议；普通成员视角退化为手工输入
+// 所有者成员提供团队/成员下拉建议；普通成员视角退化为手工输入
 const teamOptions = computed(() => props.teamOptions ?? []);
 const memberOptions = computed(() => props.memberOptions ?? []);
 

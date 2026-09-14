@@ -19,11 +19,11 @@
           登录
         </el-button>
       </el-form>
+      <!-- 登录页只留账号注册：组织不属于登录前的上下文。组织申请是已登录
+           Skill User 在个人控制台「我的组织」里做的事（ADR-0032/0035）——
+          `POST /api/orgs/applications` 需要 token，匿名访客点进来必然 401。 -->
       <router-link to="/admin/register-user" class="auth-link" data-test="user-register-link">
         没有账号？注册个人账号
-      </router-link>
-      <router-link to="/admin/register" class="auth-link" data-test="register-link">
-        没有组织？注册组织申请
       </router-link>
     </el-card>
   </div>
@@ -53,7 +53,7 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     // 全局身份登录（ADR-0032）：username + password 一条凭据。服务端只回两件
-    // 事实——是不是平台管理员、在每个组织是不是组织管理团队成员（ADR-0033），
+    // 事实——是不是平台管理员、在每个组织是不是所有者成员（ADR-0033），
     // 前端不推导角色，也不挑"当前组织"（组织由路由显式指名，ADR-0035）。
     const result = await apiRequest<{
       token: string;

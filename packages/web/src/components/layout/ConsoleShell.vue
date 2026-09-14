@@ -84,7 +84,7 @@ const avatarText = computed<string>(() => (auth.username ?? '?').charAt(0).toUpp
 const roleLabel = computed<string>(() => (auth.isPlatformAdmin ? '超级管理员' : '用户'));
 
 const managerOrgsLabel = computed<string>(() => {
-  const orgs = auth.organizations.filter((membership) => membership.isOrgManager).map((m) => m.org);
+  const orgs = auth.organizations.filter((membership) => membership.isOwnerMember).map((m) => m.org);
   return orgs.length > 0 ? `组织管理：${orgs.join(', ')}` : '';
 });
 

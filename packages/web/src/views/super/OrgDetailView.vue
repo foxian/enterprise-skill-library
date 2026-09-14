@@ -25,26 +25,57 @@
       data-test="org-last-error"
     />
 
-    <!-- 平台管理员的成员兜底（ADR-0033）：超管不参与组织，因此不经成员身份
-         也能查看与移除成员。治理不变量（至少保留一名管理团队成员）仍成立。 -->
+    <!-- 平台管理员的身份兜底（ADR-0036）：超管不参与组织，因此不经成员身份也能
+         查看、变更身份与移出成员。"组织必须至少保留一名所有者成员"这条不变量对
+         超管同样成立；此外超管还能**空降**——把组织外的人直接设为所有者成员，
+         这是组织里确实无人可用时唯一不是"整体删除"的出路。 -->
     <el-card class="data-card" shadow="never" data-test="admin-members-card">
-      <template #header>成员</template>
+      <template #header>
+        <div class="card-header">
+          <span>成员</span>
+          <el-button type="primary" size="small" data-test="admin-airdrop-open" @click="airdropVisible = true">
+            指派所有者成员
+          </el-button>
+        </div>
+      </template>
       <el-table v-if="members.length > 0" :data="members" data-test="admin-members-table" v-loading="membersLoading">
         <el-table-column prop="username" label="成员" />
-        <el-table-column label="身份" width="170">
+        <el-table-column label="身份" width="130">
           <template #default="{ row }">
-            <el-tag v-if="row.isOrgManager" type="primary" data-test="admin-member-is-manager">组织管理团队</el-tag>
-            <el-tag v-else type="success">组织成员</el-tag>
+            <el-tag :type="identityTagType(row.identity)" :data-test="`admin-identity-${row.identity}`">
+              {{ identityLabel(row.identity) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column label="操作" width="320">
           <template #default="{ row }">
+            <el-button
+              v-for="next in promotionTargets(row)"
+              :key="next"
+              link
+              type="primary"
+              :data-test="`admin-set-${next}-${row.username}`"
+              @click="changeIdentity(row.username, next)"
+            >
+              {{ promotionLabel(next) }}
+            </el-button>
+            <el-button
+              v-if="row.identity !== 'ordinary'"
+              link
+              type="warning"
+              :data-test="`admin-demote-${row.username}`"
+              :disabled="isLastOwner(row)"
+              :title="isLastOwner(row) ? '组织必须至少保留一名所有者成员' : ''"
+              @click="changeIdentity(row.username, 'ordinary')"
+            >
+              收回为普通成员
+            </el-button>
             <el-button
               link
               type="danger"
               :data-test="`admin-remove-${row.username}`"
-              :disabled="row.isOrgManager && managerCount <= 1"
-              :title="row.isOrgManager && managerCount <= 1 ? '组织管理团队必须至少保留一名成员' : ''"
+              :disabled="isLastOwner(row)"
+              :title="isLastOwner(row) ? '组织必须至少保留一名所有者成员' : ''"
               @click="removeMember(row)"
             >
               移出
@@ -87,6 +118,22 @@
         <el-button type="danger" data-test="delete-org-confirm" @click="deleteOrg">确认删除</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="airdropVisible" title="指派所有者成员" width="460px">
+      <p class="dialog-hint">
+        用于组织里没有可用管理者时：把<strong>任何已注册账号</strong>设为该组织的所有者成员。
+        对方若还不在组织内，会同时被加入组织并进入只读、读写两个常设团队。
+      </p>
+      <el-form label-width="100px">
+        <el-form-item label="用户名" required>
+          <el-input v-model="airdropUsername" data-test="admin-airdrop-username" placeholder="对方的全局账号用户名" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="airdropVisible = false">取消</el-button>
+        <el-button type="primary" data-test="admin-airdrop-submit" @click="airdropOwner">指派</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -94,7 +141,9 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
+import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
+import { identityLabel, identityTagType, promotionLabel } from '../../constants/org-identity';
 import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
 
 interface OrgSummary {
@@ -111,7 +160,7 @@ const router = useRouter();
 
 interface AdminMemberView {
   username: string;
-  isOrgManager: boolean;
+  identity: OrgIdentity;
 }
 
 const orgName = computed(() => String(route.params.orgName ?? ''));
@@ -119,11 +168,60 @@ const summary = ref<OrgSummary | null>(null);
 const members = ref<AdminMemberView[]>([]);
 const membersLoading = ref(false);
 const memberError = ref('');
-const managerCount = computed(() => members.value.filter((member) => member.isOrgManager).length);
+const ownerCount = computed(() => members.value.filter((member) => member.identity === 'owner').length);
 const confirmInput = ref('');
 const dialogVisible = ref(false);
+const airdropVisible = ref(false);
+const airdropUsername = ref('');
 const deleting = ref(false);
 const errorMessage = ref('');
+
+/** 三档嵌套：往下的每一档都可作为提升目标；所有者成员没有可提的档。 */
+function promotionTargets(member: AdminMemberView): Array<'managing' | 'owner'> {
+  if (member.identity === 'ordinary') return ['managing', 'owner'];
+  if (member.identity === 'managing') return ['owner'];
+  return [];
+}
+
+/** 不变量（ADR-0036）：任何走法都不能让组织失去全部所有者成员。 */
+function isLastOwner(member: AdminMemberView): boolean {
+  return member.identity === 'owner' && ownerCount.value <= 1;
+}
+
+async function changeIdentity(username: string, identity: OrgIdentity): Promise<void> {
+  memberError.value = '';
+  try {
+    await apiRequest(
+      `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members/${encodeURIComponent(username)}/identity`,
+      { method: 'PUT', body: { identity } }
+    );
+    ElMessage.success(`${username} 现在是${identityLabel(identity)}`);
+    await Promise.all([loadMembers(), loadSummary()]);
+  } catch (error) {
+    memberError.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function airdropOwner(): Promise<void> {
+  memberError.value = '';
+  const username = airdropUsername.value.trim();
+  if (!username) {
+    memberError.value = '请输入用户名';
+    return;
+  }
+  try {
+    await apiRequest(
+      `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members/${encodeURIComponent(username)}/identity`,
+      { method: 'PUT', body: { identity: 'owner' } }
+    );
+    airdropVisible.value = false;
+    airdropUsername.value = '';
+    ElMessage.success(`${username} 已成为所有者成员`);
+    await Promise.all([loadMembers(), loadSummary()]);
+  } catch (error) {
+    memberError.value = error instanceof Error ? error.message : String(error);
+  }
+}
 
 function formatTime(value?: string): string {
   return value ? new Date(value).toLocaleString('zh-CN') : '-';
@@ -226,5 +324,16 @@ watch(orgName, () => {
 
 .page-error {
   margin-top: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-hint {
+  margin-top: 0;
+  color: var(--el-text-color-secondary);
 }
 </style>

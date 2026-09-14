@@ -43,7 +43,7 @@
 import { onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
-import { useAuthStore } from '../../stores/auth';
+import { useAuthStore, type SessionOrganization } from '../../stores/auth';
 
 interface Invitation {
   id: number;
@@ -76,9 +76,7 @@ async function respond(id: number, action: 'accept' | 'decline'): Promise<void> 
     await loadInvitations();
     if (action === 'accept') {
       // 接受后组织隶属关系变了，刷新会话里的组织列表
-      const mine = await apiRequest<{ organizations: Array<{ org: string; isOrgManager: boolean }> }>(
-        '/api/orgs/mine'
-      );
+      const mine = await apiRequest<{ organizations: SessionOrganization[] }>('/api/orgs/mine');
       if (auth.session) {
         auth.establish({ ...auth.session, organizations: mine.organizations });
       }

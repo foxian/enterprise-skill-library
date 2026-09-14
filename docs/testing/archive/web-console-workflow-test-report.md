@@ -1,5 +1,9 @@
 # ESL 管理后台（Web Console）工作流测试执行报告（Issue #15–#22）
 
+> **已归档（历史执行记录）**：本文记录的是 ADR-0032 之前的控制台在当时那次执行中的
+> 结果，是**当时的事实**，不随代码更新。其中的角色、路由、账号形态与流程多数已废除，
+> **照本文验收会得到错误结论**。现行口径见 [../README.md](../README.md)。
+
 - **执行日期**：2026-09-03
 - **被测文档**：[web-console-workflow-test-cases.md](./web-console-workflow-test-cases.md)（v1.0，29 条用例）
 - **执行方式**：Chrome DevTools MCP 浏览器自动化 + API 级断言（容器内 `node -e` / 脚本）

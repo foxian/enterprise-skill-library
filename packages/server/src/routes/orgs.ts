@@ -98,7 +98,7 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     // auto 模式：同步直调 Gitea 开通，创建者入组织管理团队（Gitea Owners）成为初始成员。
     await initializeOrganization(giteaService, orgName, username, tenantOrganizationRepository);
     tenantOrganizationRepository.create({ orgName, status: 'active' });
-    return reply.status(201).send({ orgName, status: 'active', isOrgManager: true });
+    return reply.status(201).send({ orgName, status: 'active', identity: 'owner', isOwnerMember: true });
   });
 
   app.post('/api/orgs/applications', async (request, reply) => {

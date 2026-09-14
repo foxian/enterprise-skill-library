@@ -79,7 +79,7 @@ describe('技能列表视图', () => {
       return { status: 200, json: [] };
     });
     wrapper = await mountConsoleView(SkillListView, {
-      account: 'orgManager',
+      account: 'owner',
       route: '/admin/me/orgs/acme/skills',
       props: { lockedNamespace: 'acme' }
     });
@@ -231,7 +231,7 @@ describe('SkillManagePanel 权限配置', () => {
         return { status: 200, json: [] };
       });
       wrapper = await mountConsoleView(SkillManageView, {
-        account: 'orgManager',
+        account: 'owner',
         route: '/admin/me/skills/acme/reviewer/manage'
       });
     } else {

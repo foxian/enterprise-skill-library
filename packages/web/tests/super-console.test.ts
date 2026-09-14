@@ -445,10 +445,12 @@ describe('DashboardView 平台概览', () => {
   });
 });
 
-// 平台管理员的组织成员兜底（ADR-0033）：超管不参与组织，不经成员身份也能查看并
-// 移除成员；"至少保留一名组织管理团队成员"这条不变量对超管同样成立。
+// 平台管理员的组织身份兜底（ADR-0036）：超管不参与组织，不经成员身份也能查看、
+// 变更身份与移除成员；"组织必须至少保留一名所有者成员"这条不变量对超管同样成立。
+// 与组织侧的唯一差别是**空降**——组织里确实无人可用时，超管可以把组织外的人
+// 直接设为所有者成员。
 describe('超管组织成员兜底', () => {
-  function mockAdminOrgsApi(members: Array<{ username: string; isOrgManager: boolean }>) {
+  function mockAdminOrgsApi(members: Array<{ username: string; identity: string }>) {
     return useApiMock((method, url) => {
       if (url === '/api/admin/orgs' && method === 'GET') {
         return {
@@ -474,11 +476,11 @@ describe('超管组织成员兜底', () => {
     await resetConsole();
   });
 
-  it('展示组织成员与治理身份，并允许移除普通成员', async () => {
+  it('展示组织成员与三档身份，并允许移除普通成员', async () => {
     const { requests } = mockAdminOrgsApi([
-      { username: 'admin-alice', isOrgManager: true },
-      { username: 'co-admin', isOrgManager: true },
-      { username: 'bob', isOrgManager: false }
+      { username: 'admin-alice', identity: 'owner' },
+      { username: 'co-admin', identity: 'managing' },
+      { username: 'bob', identity: 'ordinary' }
     ]);
     wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
@@ -486,7 +488,9 @@ describe('超管组织成员兜底', () => {
     const table = wrapper.find('[data-test="admin-members-table"]').text();
     expect(table).toContain('admin-alice');
     expect(table).toContain('bob');
-    expect(wrapper.find('[data-test="admin-member-is-manager"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="admin-identity-owner"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="admin-identity-managing"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="admin-identity-ordinary"]').exists()).toBe(true);
 
     await wrapper.find('[data-test="admin-remove-bob"]').trigger('click');
     await flushPromises();
@@ -498,10 +502,10 @@ describe('超管组织成员兜底', () => {
     ).toBe(true);
   });
 
-  it('只剩一名管理团队成员时禁止移除', async () => {
+  it('只剩一名所有者成员时禁止移除与收回', async () => {
     mockAdminOrgsApi([
-      { username: 'admin-alice', isOrgManager: true },
-      { username: 'bob', isOrgManager: false }
+      { username: 'admin-alice', identity: 'owner' },
+      { username: 'bob', identity: 'ordinary' }
     ]);
     wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
     await flushPromises();
@@ -509,6 +513,28 @@ describe('超管组织成员兜底', () => {
     expect(
       (wrapper.find('[data-test="admin-remove-admin-alice"]').element as HTMLButtonElement).disabled
     ).toBe(true);
+    expect(
+      (wrapper.find('[data-test="admin-demote-admin-alice"]').element as HTMLButtonElement).disabled
+    ).toBe(true);
     expect((wrapper.find('[data-test="admin-remove-bob"]').element as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('超管可以空降：把组织外的人指派为所有者成员', async () => {
+    const { requests } = mockAdminOrgsApi([{ username: 'admin-alice', identity: 'owner' }]);
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="admin-airdrop-open"]').trigger('click');
+    await flushPromises();
+    const input = wrapper.find('[data-test="admin-airdrop-username"]');
+    (input.element as HTMLInputElement).value = 'outsider';
+    await input.trigger('input');
+    await wrapper.find('[data-test="admin-airdrop-submit"]').trigger('click');
+    await flushPromises();
+
+    const airdrop = requests.find(
+      (request) => request.method === 'PUT' && request.url === '/api/admin/orgs/acme/members/outsider/identity'
+    );
+    expect(airdrop?.body).toEqual({ identity: 'owner' });
   });
 });

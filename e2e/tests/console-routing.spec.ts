@@ -4,7 +4,7 @@ import { SUPER_STATE, resolveTestEnv } from '../helpers/env';
 
 // 控制台视角与组织治理（ADR-0033 / ADR-0035）：平台角色只有超管与普通用户两个，
 // 各自的控制台互不越界；组织治理不是第三个视角，而是逐组织的团队身份——治理入口
-// 只对组织管理团队成员渲染，其余成员在同一页面看到的是只读视图。
+// 只对所有者成员渲染，其余成员在同一页面看到的是只读视图。
 
 const env = resolveTestEnv();
 
@@ -31,17 +31,17 @@ test('普通用户登录后落到个人控制台概览', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: '邀请' })).toBeVisible();
 });
 
-test('组织管理团队成员在本组织看到治理入口，并可进入组织详情', async ({ page }) => {
+test('所有者成员在本组织看到治理入口，并可进入组织详情', async ({ page }) => {
   const login = new LoginPage(page);
   await login.goto();
-  // alice 是开发 seed 中 acme 的组织管理团队成员（Owners）
+  // alice 是开发 seed 中 acme 的所有者成员（Owners）
   await login.login({ username: 'alice', password: env.devPassword });
 
   await expect(page).toHaveURL(/\/admin\/me\/overview$/);
   await page.getByRole('menuitem', { name: '我的组织' }).click();
 
   await expect(page).toHaveURL(/\/admin\/me\/orgs$/);
-  await expect(page.getByTestId('org-manager-tag')).toBeVisible();
+  await expect(page.getByTestId('org-identity-owner')).toBeVisible();
   await page.getByTestId('manage-acme').click();
 
   await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/members$/);
@@ -58,7 +58,8 @@ test('组织成员在同一页面只看到只读视图，且直接敲治理 URL 
   await expect(page).toHaveURL(/\/admin\/me\/overview$/);
 
   await page.goto('/admin/me/orgs');
-  await expect(page.getByTestId('org-member-tag')).toBeVisible();
+  // 普通成员：显示身份标签，但没有治理入口
+  await expect(page.getByTestId('org-identity-ordinary')).toBeVisible();
   await expect(page.getByTestId('manage-acme')).toHaveCount(0);
 
   await page.goto('/admin/me/orgs/acme/teams');

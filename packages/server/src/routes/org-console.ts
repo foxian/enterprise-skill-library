@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { isStandingTeam, validateMemberUsername } from '@esl/core';
+import { isStandingTeam, validateMemberUsername, type OrgIdentity } from '@esl/core';
 import type {
   OrgInvitationRepository,
   PlatformSettingsRepository,
@@ -9,10 +9,11 @@ import type {
 import type { GiteaService } from '../services/gitea.js';
 import { performOrganizationDeletion } from '../services/org-delete.js';
 import {
-  addMemberToStandingTeams,
-  checkOrgManagerRemoval,
-  isOrgManagerOf,
-  listOrgMembersWithGovernance,
+  addMemberToAutoJoinTeams,
+  applyOrgIdentity,
+  checkOwnerMemberInvariant,
+  isOwnerMemberOf,
+  listOrgMembersWithIdentity,
   removeMemberFromOrganization
 } from '../services/organization-membership.js';
 import { DEFAULT_TEAM_DISPLAY_NAMES } from '../services/org-team-model.js';
@@ -28,10 +29,15 @@ export interface OrgConsoleRouteOptions {
 // 团队显示名(ADR-0029):ESL 侧可选展示字段,允许中文,最长 64 字符。
 const TEAM_DISPLAY_NAME_MAX = 64;
 
-// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（组织管理团队，ADR-0033）
+// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（组织管理团队，ADR-0036）。
+// 它们同时不受通用团队成员接口管辖：那是身份，不是团队授权。
 function isProtectedTeam(team: { name: string; permission: string }): boolean {
   return team.permission === 'owner' || isStandingTeam(team.name);
 }
+
+// 受保护团队的成员增删会改变一个人的组织内身份，必须走成员列表的一等动作。
+const IDENTITY_NOT_A_TEAM_GRANT =
+  'This team carries an organization identity, not a skill grant; change the member identity instead';
 
 export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConsoleRouteOptions): void {
   const { giteaService, repository, platformSettingsRepository, orgInvitationRepository, tenantOrganizationRepository } =
@@ -40,10 +46,33 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   app.get('/api/orgs/:orgName/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
-    return listOrgMembersWithGovernance(giteaService, org);
+    return listOrgMembersWithIdentity(giteaService, org);
   });
 
-  // 直接添加：把已注册的全局账号拉进组织并自动加入三个常设团队。
+  // 身份变更（ADR-0036）：提升 / 收回，是成员列表上的一等动作，只有所有者成员能做。
+  // 三档嵌套由 applyOrgIdentity 落实；"不能让组织失去全部所有者成员"是唯一不变量。
+  app.put('/api/orgs/:orgName/members/:username/identity', async (request, reply) => {
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    if (!org) return;
+    const username = decodeURIComponent((request.params as { username: string }).username);
+    const { identity } = (request.body ?? {}) as { identity?: string };
+    if (identity !== 'ordinary' && identity !== 'managing' && identity !== 'owner') {
+      return reply.status(400).send({ error: 'Identity must be ordinary, managing, or owner' });
+    }
+    // 身份变更只作用于**已在组织里**的人；把组织外的人拉进来是「添加成员」或
+    // 平台超管的空降路径（/api/admin/...），不走这里。
+    if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
+      return reply.status(404).send({ error: `User is not a member of ${org}` });
+    }
+    const blocked = await checkOwnerMemberInvariant(giteaService, org, username, identity);
+    if (blocked) {
+      return reply.status(400).send({ error: blocked });
+    }
+    await applyOrgIdentity(giteaService, org, username, identity);
+    return { username, identity };
+  });
+
+  // 直接添加：把已注册的全局账号拉进组织，自动加入只读、读写两个常设团队（ADR-0036）。
   app.post('/api/orgs/:orgName/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
@@ -52,7 +81,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!usernameValidation.success) {
       return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
     }
-    // 全局账号必须已存在：组织管理团队成员只授予组织成员身份，不创建账号。
+    // 全局账号必须已存在：所有者成员只授予组织身份，不创建账号。
     const user = await giteaService.getUser(username);
     if (!user) {
       return reply.status(404).send({ error: `User does not exist: ${username}` });
@@ -72,11 +101,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
       });
     }
 
-    await addMemberToStandingTeams(giteaService, org, username);
+    await addMemberToAutoJoinTeams(giteaService, org, username);
     return reply.status(201).send({ status: 'added', username });
   });
 
-  // 移出成员：自动从全部团队（含三个常设团队）移出并退出组织。
+  // 移出成员，同时也是**自我退出**（username 就是调用者自己）：两者是同一次
+  // 组织隶属关系的终止，自动从全部团队移出并退出组织。唯一约束是"不能让组织
+  // 失去全部所有者成员"——自我降级、自我退出、被他人移出走同一条规则（ADR-0036）。
   app.delete('/api/orgs/:orgName/members/:username', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
@@ -84,9 +115,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
       return reply.status(404).send({ error: `User is not a member of ${org}` });
     }
-    // 移出组织管理团队成员等于收回其治理权，适用同一套互管规则（ADR-0033）
-    const caller = await currentUsername(giteaService, request);
-    const blocked = await checkOrgManagerRemoval(giteaService, org, username, caller);
+    const blocked = await checkOwnerMemberInvariant(giteaService, org, username, null);
     if (blocked) {
       return reply.status(400).send({ error: blocked });
     }
@@ -103,7 +132,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return orgInvitationRepository.listForUser(username);
   });
 
-  // 被邀请人接受邀请：加入组织并自动进入三个常设团队。
+  // 被邀请人接受邀请：加入组织并自动进入只读、读写两个常设团队（ADR-0036）。
   app.post('/api/orgs/invitations/:id/accept', async (request, reply) => {
     const username = await currentUsername(giteaService, request);
     if (!username) {
@@ -117,7 +146,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (invitation.status !== 'pending') {
       return reply.status(409).send({ error: 'Invitation has already been processed' });
     }
-    await addMemberToStandingTeams(giteaService, invitation.orgName, username);
+    await addMemberToAutoJoinTeams(giteaService, invitation.orgName, username);
     orgInvitationRepository.updateStatusById(id, 'accepted');
     return { status: 'accepted', orgName: invitation.orgName };
   });
@@ -145,7 +174,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return orgInvitationRepository.listByOrg(org);
   });
 
-  // 撤销邀请（ADR-0032 邀请制的发起方半边）：组织管理团队成员可撤回本组织已发出
+  // 撤销邀请（ADR-0032 邀请制的发起方半边）：所有者成员可撤回本组织已发出
   // 的待处理邀请——被邀请人还没回应时，邀请不该是不可收回的。已接受/已拒绝/
   // 已撤销的邀请不能再撤销。
   app.delete('/api/orgs/:orgName/invitations/:id', async (request, reply) => {
@@ -332,7 +361,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return { teamId, skillsCount };
   });
 
-  // 团队成员授权:逐团队添加/移除成员(ADR-0032 权限矩阵的团队载体)。
+  // 团队成员授权:逐团队添加/移除成员(ADR-0032 权限矩阵的团队载体)。**只对自定义
+  // 团队成立**——受保护团队（Owners 与三个常设团队）的成员增删是身份变更，见
+  // /members/:username/identity。留着这条暗门，身份变更就有第二个入口，"至少保留
+  // 一名所有者成员"与超管兜底都能被绕过去（ADR-0036）。
   app.post('/api/orgs/:orgName/teams/:teamId/members', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
     if (!org) return;
@@ -342,8 +374,12 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!usernameValidation.success) {
       return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
     }
-    if (!(await orgHasTeam(giteaService, org, teamId))) {
+    const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
+    if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
+    }
+    if (isProtectedTeam(team)) {
+      return reply.status(400).send({ error: IDENTITY_NOT_A_TEAM_GRANT });
     }
     // 授权对象必须是已注册的全局账号（与拉人路径同一前置校验）
     if (!(await giteaService.getUser(username))) {
@@ -362,19 +398,14 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    // 组织管理团队（Owners）适用成员互管规则（ADR-0033）
-    if (team.permission === 'owner') {
-      const caller = await currentUsername(giteaService, request);
-      const blocked = await checkOrgManagerRemoval(giteaService, org, username, caller);
-      if (blocked) {
-        return reply.status(400).send({ error: blocked });
-      }
+    if (isProtectedTeam(team)) {
+      return reply.status(400).send({ error: IDENTITY_NOT_A_TEAM_GRANT });
     }
     await giteaService.removeTeamMember(teamId, username);
     return { teamId, username, removed: true };
   });
 
-  // 组织删除（ADR-0034）：组织管理团队成员即可发起，手打组织名确认；沿用
+  // 组织删除（ADR-0034）：所有者成员即可发起，手打组织名确认；沿用
   // Organization Deletion State（deleting → 完成 / delete_failed）。删除失败必须
   // 可由治理者重试，因此这条路由对非 active 的组织放行——其余组织管理操作仍被拦。
   // 平台管理员的同款能力见 /api/admin/orgs/:orgName（治理兜底）。
@@ -445,8 +476,8 @@ async function requireOrgAdministrator(
     reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }
-  // 治理权 = 组织管理团队（= Gitea Owners）成员身份（ADR-0033），任何成员皆可治理。
-  if (!(await isOrgManagerOf(giteaService, orgName, user.username))) {
+  // 治理权 = 所有者成员身份（= Gitea Owners 团队成员，ADR-0036），任何所有者成员皆可治理。
+  if (!(await isOwnerMemberOf(giteaService, orgName, user.username))) {
     reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }

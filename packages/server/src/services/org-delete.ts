@@ -13,7 +13,7 @@ export interface OrganizationDeletionOptions {
 /**
  * 组织删除的统一入口（ADR-0034）：先置 `deleting` 让"处理中"对外可见，再执行
  * 跨系统清理。失败由 runOrganizationDeletion 落成 `delete_failed` + 原因，可由
- * 组织管理团队成员或平台管理员重试。组织管理团队成员与平台管理员两条路由共用。
+ * 所有者成员或平台管理员重试。所有者成员与平台管理员两条路由共用。
  */
 export async function performOrganizationDeletion(
   options: OrganizationDeletionOptions,

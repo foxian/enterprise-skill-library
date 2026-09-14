@@ -1,6 +1,6 @@
 # 四默认团队与系统管理团队（ADR-0025 修订）
 
-Status: accepted
+Status: superseded by ADR-0032
 
 修订 ADR-0025 的团队模型：组织默认团队从两个（`all-readers` / `all-writers`）扩展为
 四档阶梯，新增全员 Manage 团队（推翻 ADR-0025"不设全员 Manage 团队"的决定），并以

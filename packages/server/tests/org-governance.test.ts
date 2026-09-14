@@ -31,6 +31,7 @@ describe('organization governance powers', () => {
         { username: 'admin-alice', password: 'password-123' },
         { username: 'co-admin', password: 'password-123' },
         { username: 'bob', password: 'password-123' },
+        { username: 'outsider', password: 'password-123' },
         { username: 'eslroot', password: 'root-password' }
       ],
       orgs: [{ name: 'acme', teams: [] }]
@@ -180,7 +181,7 @@ describe('organization governance powers', () => {
     expect(tenantStatus()).toBe('deleted');
   });
 
-  it('keeps the last organization management team member from everyone', async () => {
+  it('keeps the last owner member from everyone', async () => {
     const gitea = giteaWithMembers();
     const superToken = (await gitea.loginUser('eslroot', 'root-password'))!;
     await buildWith(gitea);
@@ -194,15 +195,65 @@ describe('organization governance powers', () => {
     });
     expect(first.statusCode).toBe(200);
 
-    // 最后一名：平台管理员也不能移除——留下的会是无主组织
+    // 最后一名：平台管理员也不能移除——留下的会是无主组织（ADR-0036 的不变量
+    // 对超管同样成立）
     const last = await app!.inject({
       method: 'DELETE',
       url: '/api/admin/orgs/acme/members/admin-alice',
       headers: superHeaders
     });
     expect(last.statusCode).toBe(400);
-    expect(last.json().error).toContain('at least one member');
+    expect(last.json().error).toContain('owner member');
     expect((await gitea.listOrgMembers('acme')).map((member) => member.username)).toContain('admin-alice');
+  });
+
+  // 空降（ADR-0036）：组织里确实无人可用时，超管可以把**组织外的人**直接设为
+  // 所有者成员。没有这条，超管对这个组织只剩"整体删除"一条不可逆的死路。
+  it('lets the platform administrator air-drop an outsider as an owner member', async () => {
+    const gitea = giteaWithMembers();
+    await gitea.createTeam('acme', 'all-readers', 'read');
+    await gitea.createTeam('acme', 'all-writers', 'write');
+    await gitea.createTeam('acme', 'all-managers', 'admin');
+    const superToken = (await gitea.loginUser('eslroot', 'root-password'))!;
+    await buildWith(gitea);
+    const superHeaders = { authorization: `token ${superToken}` };
+
+    expect(await gitea.listUserOrgs('outsider')).toEqual([]);
+
+    const res = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/acme/members/outsider/identity',
+      headers: superHeaders,
+      payload: { identity: 'owner' }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ username: 'outsider', identity: 'owner' });
+    // 空降必须同时建立组织隶属关系并补进两个常设团队，否则会造出"不在组织里、
+    // 却是组织所有者"的状态
+    expect((await gitea.listUserOrgs('outsider')).map((org) => org.name)).toEqual(['acme']);
+    const teams = await gitea.listTeams('acme');
+    const owners = teams.find((team) => team.permission === 'owner')!;
+    const managing = teams.find((team) => team.name === 'all-managers')!;
+    expect(await gitea.isTeamMember(owners.id, 'outsider')).toBe(true);
+    expect(await gitea.isTeamMember(managing.id, 'outsider')).toBe(true);
+  });
+
+  it('refuses to air-drop an outsider into a non-owner identity', async () => {
+    const gitea = giteaWithMembers();
+    await gitea.createTeam('acme', 'all-managers', 'admin');
+    const superToken = (await gitea.loginUser('eslroot', 'root-password'))!;
+    await buildWith(gitea);
+
+    const res = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/acme/members/outsider/identity',
+      headers: { authorization: `token ${superToken}` },
+      payload: { identity: 'managing' }
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(await gitea.listUserOrgs('outsider')).toEqual([]);
   });
 
   it('lets the platform administrator inspect and remove org members without being one', async () => {
@@ -219,9 +270,9 @@ describe('organization governance powers', () => {
 
     expect(members.statusCode).toBe(200);
     expect(members.json()).toEqual([
-      expect.objectContaining({ username: 'admin-alice', isOrgManager: true }),
-      expect.objectContaining({ username: 'co-admin', isOrgManager: true }),
-      expect.objectContaining({ username: 'bob', isOrgManager: false })
+      expect.objectContaining({ username: 'admin-alice', identity: 'owner' }),
+      expect.objectContaining({ username: 'co-admin', identity: 'owner' }),
+      expect.objectContaining({ username: 'bob', identity: 'ordinary' })
     ]);
 
     const removed = await app!.inject({

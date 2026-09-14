@@ -61,7 +61,7 @@ describe('esl whoami', () => {
     expect(result.expired).toBe(true);
   });
 
-  it('marks the organizations where the user is in the management team and leaves the others bare', async () => {
+  it('annotates every organization with the identity held there', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
@@ -69,8 +69,8 @@ describe('esl whoami', () => {
         username: 'alice',
         tools: [],
         organizations: [
-          { org: 'acme', isOrgManager: false },
-          { org: 'beta', isOrgManager: true }
+          { org: 'acme', identity: 'ordinary', isOwnerMember: false },
+          { org: 'beta', identity: 'owner', isOwnerMember: true }
         ]
       },
       { homeDir }
@@ -79,7 +79,7 @@ describe('esl whoami', () => {
 
     const result = await executeWhoami({ homeDir });
 
-    expect(formatWhoami(result)).toContain('Organizations: acme, beta (manager)');
+    expect(formatWhoami(result)).toContain('Organizations: acme (ordinary), beta (owner)');
   });
 
   it('reports not logged in when there is no token', async () => {

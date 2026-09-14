@@ -1,6 +1,6 @@
 # CLI 与管理后台登录面分离
 
-Status: accepted
+Status: partially superseded by ADR-0032（登录不再拼装组织前缀账号）
 
 ESL CLI 只面向组织内成员（Organization Admin 与普通成员）；平台管理员（Super
 Administrator）不通过 CLI 登录，只通过管理后台（Admin Console，`/admin/`）以

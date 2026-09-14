@@ -12,9 +12,9 @@ export interface AuthRouteOptions {
 }
 
 // 全局身份登录（ADR-0032）：账号无 <org>_ 前缀，登录只提交 username + password；
-// 所属组织列表与逐组织治理权由 Gitea 成员关系派生（ADR-0033）。组织内没有角色——
-// 服务端不派生任何全局角色，由客户端按 isPlatformAdmin 与逐组织 isOrgManager
-// 分别选视角与渲染治理入口。
+// 所属组织列表与逐组织身份由 Gitea 成员关系派生（ADR-0036）。组织内没有角色——
+// 服务端不派生任何全局角色，由客户端按 isPlatformAdmin 与逐组织的
+// identity / isOwnerMember 分别选视角与渲染治理入口。
 export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptions): void {
   const { repository, giteaService } = options;
 
@@ -41,8 +41,8 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
   });
 
   // 管理后台专用登录：平台管理员与普通用户都收，平台角色只有这两个
-  // （ADR-0033）。响应只声明两件事实——是不是平台管理员、在每个组织是不是
-  // 组织管理团队成员——由客户端据此选视角与渲染治理入口。
+  // （ADR-0033）。响应只声明两件事实——是不是平台管理员、在每个组织是什么
+  // 身份（三档，ADR-0036）——由客户端据此选视角与渲染治理入口。
   app.post('/api/console/login', async (request, reply) => {
     const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
     if (!username || !password) {

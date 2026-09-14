@@ -77,7 +77,7 @@ describe('local store', () => {
     const config = {
       server: 'http://skills.company.com',
       username: 'zhangsan',
-      organizations: [{ org: 'acme', isOrgManager: false }],
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }],
       tools: []
     };
 
@@ -123,13 +123,31 @@ describe('local store', () => {
     expect(loaded.legacyIdentity).toBe(true);
   });
 
-  it('does not flag a current isOrgManager-shaped organization list', async () => {
+  it('flags a two-tier isOrgManager-shaped list as legacy (ADR-0036 replaced it with identity)', async () => {
+    await initializeLocalStore({ homeDir });
+    const paths = resolveLocalStorePaths({ homeDir });
+    fs.writeFileSync(
+      paths.configJson,
+      JSON.stringify({
+        server: 'http://skills.company.com',
+        username: 'zhangsan',
+        organizations: [{ org: 'acme', isOrgManager: true }],
+        tools: []
+      })
+    );
+
+    const loaded = await loadConfig({ homeDir });
+
+    expect(loaded.legacyIdentity).toBe(true);
+  });
+
+  it('does not flag a current identity-shaped organization list', async () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
         server: 'http://skills.company.com',
         username: 'zhangsan',
-        organizations: [{ org: 'acme', isOrgManager: true }],
+        organizations: [{ org: 'acme', identity: 'owner', isOwnerMember: true }],
         tools: []
       },
       { homeDir }

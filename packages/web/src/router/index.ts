@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginView from '../views/LoginView.vue';
-import RegisterView from '../views/RegisterView.vue';
 import UserRegisterView from '../views/UserRegisterView.vue';
 import SuperLayout from '../views/super/SuperLayout.vue';
 import SuperDashboard from '../views/super/DashboardView.vue';
@@ -23,14 +22,14 @@ import InvitationsView from '../views/me/InvitationsView.vue';
 import { useAuthStore } from '../stores/auth';
 
 /**
- * 路由守卫用的两个正交判定（ADR-0033）：`view` 是平台角色轴（超管控制台 /
- * 个人控制台，恰好两个），`requiresOrgManager` 是资源级治理权（该路由参数
- * 指名的组织，查看者是否是其组织管理团队成员）。不再用一个全局角色值代理
- * 资源级权限。
+ * 路由守卫用的两个正交判定（ADR-0033 / ADR-0036）：`view` 是平台角色轴
+ * （超管控制台 / 个人控制台，恰好两个），`requiresOwnerMember` 是资源级治理权
+ * （该路由参数指名的组织，查看者是否是其所有者成员）。不再用一个全局角色值
+ * 代理资源级权限。
  */
 export interface ConsoleRouteMeta {
   view?: 'platform' | 'personal';
-  requiresOrgManager?: boolean;
+  requiresOwnerMember?: boolean;
   public?: boolean;
   title?: string;
   description?: string;
@@ -40,7 +39,8 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/admin/login', name: 'login', component: LoginView, meta: { public: true } },
-    { path: '/admin/register', name: 'register', component: RegisterView, meta: { public: true } },
+    // 公开路由只有账号注册。组织注册申请没有公开入口：它是已登录 Skill User
+    // 在个人控制台内的动作（ADR-0032/0035），匿名提交连 token 都拿不出来。
     { path: '/admin/register-user', name: 'register-user', component: UserRegisterView, meta: { public: true } },
     {
       path: '/admin/super',
@@ -71,7 +71,7 @@ export const router = createRouter({
         {
           path: 'orgs/:org',
           component: OrgDetailLayout,
-          meta: { requiresOrgManager: true },
+          meta: { requiresOwnerMember: true },
           children: [
             { path: '', redirect: { name: 'me-org-members' } },
             { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: '成员管理', description: '管理本组织成员，移出即自动离开三个常设团队' } },
@@ -112,8 +112,8 @@ router.beforeEach((to) => {
   if (meta.view === 'personal' && auth.isPlatformAdmin) {
     return { name: 'login' };
   }
-  // 资源级判定：治理入口只对组织管理团队成员开放，其余人回只读的组织列表
-  if (meta.requiresOrgManager && !auth.isOrgManager(String(to.params.org ?? ''))) {
+  // 资源级判定：治理入口只对所有者成员开放，其余人回只读的组织列表
+  if (meta.requiresOwnerMember && !auth.isOwnerMember(String(to.params.org ?? ''))) {
     return { name: 'me-orgs' };
   }
   return true;

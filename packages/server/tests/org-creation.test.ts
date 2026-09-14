@@ -57,7 +57,7 @@ describe('organization creation', () => {
     return (await gitea.listTeamMembers(owners.id)).map((member) => member.username);
   }
 
-  it('lists my organizations with per-organization management-team membership', async () => {
+  it('lists my organizations with per-organization identity', async () => {
     await app.inject({
       method: 'POST',
       url: '/api/orgs',
@@ -75,8 +75,8 @@ describe('organization creation', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().organizations).toEqual([
-      { org: 'acme', isOrgManager: true, status: 'active' },
-      { org: 'beta', isOrgManager: false, status: 'active' }
+      { org: 'acme', identity: 'owner', isOwnerMember: true, status: 'active' },
+      { org: 'beta', identity: 'ordinary', isOwnerMember: false, status: 'active' }
     ]);
     expect(res.json().pendingApplications).toEqual([]);
   });
@@ -134,7 +134,9 @@ describe('organization creation', () => {
       url: '/api/orgs/mine',
       headers: { authorization: 'token alice-token' }
     });
-    expect(mine.json().organizations).toEqual([{ org: 'acme', isOrgManager: true, status: 'active' }]);
+    expect(mine.json().organizations).toEqual([
+      { org: 'acme', identity: 'owner', isOwnerMember: true, status: 'active' }
+    ]);
   });
 
   it('auto mode creates the organization instantly with the creator in the management team', async () => {
@@ -146,7 +148,7 @@ describe('organization creation', () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ orgName: 'beta', status: 'active', isOrgManager: true });
+    expect(res.json()).toMatchObject({ orgName: 'beta', status: 'active', identity: 'owner', isOwnerMember: true });
     expect(gitea.createOrg).toHaveBeenCalledWith('beta');
     expect(await ownerMembers('beta')).toContain('alice');
   });

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DOMWrapper, flushPromises, type VueWrapper } from '@vue/test-utils';
 import MembersView from '../src/views/me/OrgMembersView.vue';
 import TeamsView from '../src/views/me/OrgTeamsView.vue';
+import MeOrgsView from '../src/views/me/OrgsView.vue';
 import TeamMemberPanel from '../src/components/TeamMemberPanel.vue';
 import OrgDetailLayout from '../src/views/me/OrgDetailLayout.vue';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
@@ -54,7 +55,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -86,7 +87,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -118,7 +119,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="remove-bob"]').trigger('click');
@@ -145,7 +146,7 @@ describe('MembersView 成员管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-add-member"]').trigger('click');
@@ -166,7 +167,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'owner', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     const text = wrapper.text();
@@ -183,7 +184,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'owner', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     await wrapper.find('[data-test="open-create-team"]').trigger('click');
@@ -209,7 +210,7 @@ describe('TeamsView 团队管理', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(TeamsView, { account: 'orgManager', route: '/admin/me/orgs/acme/teams' });
+    wrapper = await mountConsoleView(TeamsView, { account: 'owner', route: '/admin/me/orgs/acme/teams' });
     await flushPromises();
 
     await wrapper.find('[data-test="delete-team-frontend"]').trigger('click');
@@ -242,7 +243,7 @@ describe('TeamMemberPanel 团队成员', () => {
       return { status: 200, json: [] };
     });
     wrapper = await mountConsoleView(TeamMemberPanel, {
-      account: 'orgManager',
+      account: 'owner',
       route: '/admin/me/orgs/acme/teams',
       props: { team: teams[0], org: 'acme' }
     });
@@ -270,41 +271,70 @@ describe('TeamMemberPanel 团队成员', () => {
 // 以及组织详情页的删除危险区。
 describe('组织治理界面', () => {
   const governedMembers = [
-    { username: 'admin', isOrgManager: true },
-    { username: 'bob', isOrgManager: false }
+    { username: 'admin', identity: 'owner' },
+    { username: 'bob', identity: 'ordinary' }
   ];
 
-  it('标注治理身份，并禁止移除自己', async () => {
+  it('标注三档身份，并只对最后一个所有者成员封禁', async () => {
     useApiMock((method, url) => {
       if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
       if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
-    expect(wrapper.find('[data-test="member-is-manager"]').exists()).toBe(true);
-    // 会话账号 admin 是唯一的管理团队成员：不能移除自己，也不能移除最后一名
+    expect(wrapper.find('[data-test="identity-owner"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="identity-ordinary"]').exists()).toBe(true);
+    // 会话账号 admin 是唯一的**所有者成员**：移出与自我降级都封禁（组织不能变无主），
+    // 但"不能移除自己"这条已被 ADR-0036 取代——他不是最后一个时就能退出
     expect((wrapper.find('[data-test="remove-admin"]').element as HTMLButtonElement).disabled).toBe(true);
+    expect((wrapper.find('[data-test="demote-admin"]').element as HTMLButtonElement).disabled).toBe(true);
     expect((wrapper.find('[data-test="remove-bob"]').element as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('管理团队成员不止一名时可以互相移除', async () => {
+  it('所有者成员不止一名时可以互管，也可以自我降级', async () => {
     useApiMock((method, url) => {
       if (url === '/api/orgs/acme/members') {
         return {
           status: 200,
-          json: [...governedMembers, { username: 'co-admin', isOrgManager: true }]
+          json: [...governedMembers, { username: 'co-admin', identity: 'owner' }]
         };
       }
       if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     expect((wrapper.find('[data-test="remove-co-admin"]').element as HTMLButtonElement).disabled).toBe(false);
-    expect((wrapper.find('[data-test="remove-admin"]').element as HTMLButtonElement).disabled).toBe(true);
+    expect((wrapper.find('[data-test="remove-admin"]').element as HTMLButtonElement).disabled).toBe(false);
+    expect((wrapper.find('[data-test="demote-admin"]').element as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('提升与收回身份都走成员列表的一等动作', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
+      if (url === '/api/orgs/mine') return { status: 200, json: { organizations: [], pendingApplications: [] } };
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
+    await flushPromises();
+
+    // 普通成员可提两档，所有者成员没有可提的档（三档嵌套，往上到头了）
+    expect(wrapper.find('[data-test="set-owner-admin"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="set-managing-owner"]').exists()).toBe(false);
+
+    await wrapper.find('[data-test="set-managing-bob"]').trigger('click');
+    await flushPromises();
+    await wrapper.find('[data-test="set-owner-bob"]').trigger('click');
+    await flushPromises();
+
+    const changes = requests.filter(
+      (request) => request.method === 'PUT' && request.url === '/api/orgs/acme/members/bob/identity'
+    );
+    expect(changes.map((request) => request.body)).toEqual([{ identity: 'managing' }, { identity: 'owner' }]);
   });
 
   it('列出待接受邀请并可撤销', async () => {
@@ -317,7 +347,7 @@ describe('组织治理界面', () => {
       if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'invite' } };
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(MembersView, { account: 'orgManager', route: '/admin/me/orgs/acme/members' });
+    wrapper = await mountConsoleView(MembersView, { account: 'owner', route: '/admin/me/orgs/acme/members' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="pending-invitations-table"]').text()).toContain('carol');
@@ -338,7 +368,7 @@ describe('组织治理界面', () => {
       return { status: 200, json: [] };
     });
     wrapper = await mountConsoleView(OrgDetailLayout, {
-      account: 'orgManager',
+      account: 'owner',
       route: '/admin/me/orgs/acme/members'
     });
     await flushPromises();
@@ -352,5 +382,92 @@ describe('组织治理界面', () => {
 
     const deletion = requests.find((request) => request.method === 'DELETE' && request.url === '/api/orgs/acme');
     expect(deletion?.body).toEqual({ confirm: 'acme' });
+  });
+});
+
+// 没有组织的用户（ADR-0032/0035）：组织创建/申请是登录后的动作，入口在个人控制台
+// 的「我的组织」里——它必须对一个组织数为零的账号可用，不能假定你先有组织。
+describe('我的组织：组织数为零的账号', () => {
+  const NO_ORGS = { organizations: [], pendingApplications: [] };
+
+  function orgsMock(mode: 'auto' | 'manual', extra?: (method: string, url: string) => unknown) {
+    return useApiMock((method, url) => {
+      if (url === '/api/public/platform-info') return { status: 200, json: { orgRegistrationMode: mode } };
+      if (url === '/api/orgs/mine') return { status: 200, json: NO_ORGS };
+      const handled = extra?.(method, url) as { status: number; json: unknown } | undefined;
+      if (handled) return handled;
+      return { status: 200, json: [] };
+    });
+  }
+
+  it('空列表上仍留着创建组织的入口', async () => {
+    orgsMock('auto');
+    wrapper = await mountConsoleView(MeOrgsView, { account: 'solo', route: '/admin/me/orgs' });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('你还没有加入任何组织');
+    expect(wrapper.find('[data-test="create-org"]').exists()).toBe(true);
+  });
+
+  it('auto 模式下直接创建组织', async () => {
+    const { requests } = orgsMock('auto', (method, url) =>
+      url === '/api/orgs' && method === 'POST'
+        ? { status: 201, json: { orgName: 'acme', status: 'active', identity: 'owner', isOwnerMember: true } }
+        : undefined
+    );
+    wrapper = await mountConsoleView(MeOrgsView, { account: 'solo', route: '/admin/me/orgs' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="create-org"]').trigger('click');
+    await flushPromises();
+    await setDocInput('create-org-name', 'acme');
+    await doc('create-org-submit').trigger('click');
+    await flushPromises();
+
+    const create = requests.find((request) => request.method === 'POST' && request.url === '/api/orgs');
+    expect(create?.body).toEqual({ orgName: 'acme' });
+  });
+
+  it('manual 模式下同一入口提交的是组织注册申请', async () => {
+    const { requests } = orgsMock('manual', (method, url) =>
+      url === '/api/orgs/applications' && method === 'POST'
+        ? { status: 201, json: { status: 'pending', applicationId: 1, orgName: 'acme' } }
+        : undefined
+    );
+    wrapper = await mountConsoleView(MeOrgsView, { account: 'solo', route: '/admin/me/orgs' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="create-org"]').trigger('click');
+    await flushPromises();
+    expect(doc('create-org-name').exists()).toBe(true);
+    await setDocInput('create-org-name', 'acme');
+    await doc('create-org-submit').trigger('click');
+    await flushPromises();
+
+    expect(
+      requests.some((request) => request.method === 'POST' && request.url === '/api/orgs/applications')
+    ).toBe(true);
+    expect(requests.some((request) => request.method === 'POST' && request.url === '/api/orgs')).toBe(false);
+  });
+
+  it('非法组织名在提交前被拦下，不发请求', async () => {
+    const { requests } = orgsMock('auto');
+    wrapper = await mountConsoleView(MeOrgsView, { account: 'solo', route: '/admin/me/orgs' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="create-org"]').trigger('click');
+    await flushPromises();
+    await setDocInput('create-org-name', 'Bad Name');
+    await doc('create-org-submit').trigger('click');
+    await flushPromises();
+
+    expect(doc('create-org-name-error').text()).toContain('lowercase');
+    expect(
+      requests.some(
+        (request) =>
+          request.method === 'POST' &&
+          (request.url === '/api/orgs' || request.url === '/api/orgs/applications')
+      )
+    ).toBe(false);
   });
 });

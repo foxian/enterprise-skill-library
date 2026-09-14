@@ -5,7 +5,6 @@ import ElementPlus from 'element-plus';
 import type { Component } from 'vue';
 import { router } from '../src/router';
 import LoginView from '../src/views/LoginView.vue';
-import RegisterView from '../src/views/RegisterView.vue';
 import { useApiMock } from './helpers';
 
 // 按 URL 路由的 fetch mock：platform-info 与登录/注册端点返回各自响应
@@ -15,7 +14,7 @@ function routeMock(info: { registrationMode: string; memberAddMode: string; orgR
     if (url === '/api/console/login') {
       return {
         status: 200,
-        json: { token: 't', username: 'bob', isPlatformAdmin: false, organizations: [{ org: 'acme', isOrgManager: false }] }
+        json: { token: 't', username: 'bob', isPlatformAdmin: false, organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }] }
       };
     }
     if (url === '/api/orgs/applications') {
@@ -26,7 +25,6 @@ function routeMock(info: { registrationMode: string; memberAddMode: string; orgR
 }
 
 const OPEN_PLATFORM = { registrationMode: 'open', memberAddMode: 'direct', orgRegistrationMode: 'auto' };
-const APPROVAL_PLATFORM = { registrationMode: 'open', memberAddMode: 'direct', orgRegistrationMode: 'manual' };
 
 async function setField(wrapper: VueWrapper, testId: string, value: string): Promise<void> {
   const input = wrapper.find(testId);
@@ -78,22 +76,17 @@ describe('web login and registration adapting to platform-info', () => {
     expect(login!.body).not.toHaveProperty('org');
   });
 
-  it('always shows the organization application entry on the login page', async () => {
+  // 回归：登录页曾有一个「没有组织？注册组织申请」入口，通向公开的 /admin/register。
+  // 组织不属于登录前的上下文——`POST /api/orgs/applications` 要 token，匿名访客点
+  // 进去只会拿到 401。组织申请是已登录 Skill User 在个人控制台「我的组织」里的动作
+  // （ADR-0032/0035），登录页只留账号注册。
+  it('offers only account registration on the login page, never an organization entry', async () => {
     routeMock(OPEN_PLATFORM);
     wrapper = await mountView(LoginView);
     await flushPromises();
 
-    expect(wrapper.find('[data-test="register-link"]').exists()).toBe(true);
-  });
-
-  // 部署模式（ADR-0022）已随 ADR-0032 废除：注册页始终展示组织名申请表单，
-  // 由服务端按 org_registration_mode 决定拒绝或受理。
-  it('always shows the organization application form on the register page', async () => {
-    routeMock(APPROVAL_PLATFORM);
-    wrapper = await mountView(RegisterView);
-    await flushPromises();
-
-    expect(wrapper.find('[data-test="org-name"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="register-submit"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="user-register-link"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="register-link"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('注册组织申请');
   });
 });

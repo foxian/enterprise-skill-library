@@ -29,7 +29,7 @@ describe('router guards', () => {
       token: 'member-token',
       username: 'bob',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
 
     await router.push('/admin/super/applications');
@@ -54,7 +54,7 @@ describe('router guards', () => {
       token: 'org-manager-token',
       username: 'admin',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: true }]
+      organizations: [{ org: 'acme', identity: 'owner', isOwnerMember: true }]
     });
 
     await router.push('/admin/me/orgs/acme/members');
@@ -69,7 +69,7 @@ describe('router guards', () => {
       token: 'member-token',
       username: 'bob',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
 
     await router.push('/admin/me/orgs/acme/teams');
@@ -85,8 +85,8 @@ describe('router guards', () => {
       username: 'alice',
       isPlatformAdmin: false,
       organizations: [
-        { org: 'acme', isOrgManager: true },
-        { org: 'beta', isOrgManager: false }
+        { org: 'acme', identity: 'owner', isOwnerMember: true },
+        { org: 'beta', identity: 'ordinary', isOwnerMember: false }
       ]
     });
 

@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import type { GiteaService } from './services/gitea.js';
 import { initDatabase, SkillRepository, type TenantOrganizationRepository } from './db/database.js';
+import { applyOrgIdentity, removeMemberFromOrganization } from './services/organization-membership.js';
 
 const sampleSkill = {
   name: '@myorg/my-skill',
@@ -41,7 +42,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 // 开发环境自动 seed 的全局账号（ADR-0032）：账号无 <org>_ 前缀。
-// alice 是组织 acme 的组织管理团队成员（Owners），bob 是普通组织成员（ADR-0033）。
+// alice 是组织 acme 的所有者成员，bob 是普通成员（ADR-0036）。
 // 幂等：GiteaService 的创建调用对已存在（409）保持沉默。
 const DEV_ACCOUNT_PASSWORD = 'esl-dev-password';
 
@@ -56,37 +57,30 @@ export async function seedDevelopmentAccounts(
   // 与生产路径一致：组织在平台注册表中登记为 active（幂等）
   tenantOrganizationRepository?.create({ orgName: 'acme', status: 'active' });
 
+  // 三个常设团队按 ADR-0032 的预置形状幂等补建（与 initializeOrganization 同形）
   const teams = await giteaService.listTeams('acme');
-  // Gitea 新建组织自带 Owners 团队（permission=owner），找不到即环境异常
-  const owners = teams.find((team) => team.permission === 'owner');
-  if (!owners) {
-    throw new Error('Development seed expected the organization Owners team to exist');
-  }
-  await giteaService.addTeamMember(owners.id, 'alice');
-  // 与生产路径同一不变量（initializeOrganization / ADR-0033）：用 admin token 建
-  // 组织会把站点管理员自动塞进 Owners，平台系统账号不属于任何组织，必须整体移出。
-  // 漏掉这一步会让超管以"组织管理团队成员"的身份出现在示例组织里。
-  if (giteaService.adminUsername && giteaService.adminUsername !== 'alice') {
-    const ownersMembers = await giteaService.listTeamMembers(owners.id);
-    if (ownersMembers.some((member) => member.username === giteaService.adminUsername)) {
-      await giteaService.removeTeamMember(owners.id, giteaService.adminUsername);
-    }
-    if (typeof giteaService.removeOrgMember === 'function') {
-      await giteaService.removeOrgMember('acme', giteaService.adminUsername);
-    }
-  }
-  // bob 是普通成员：与生产路径同一不变量（成员 ∈ 三个常设团队），
-  // 常设团队不存在时按 ADR-0032 的预置形状补建。
   for (const [name, permission] of [
     ['all-readers', 'read'],
     ['all-writers', 'write'],
     ['all-managers', 'admin']
   ] as const) {
-    let team = teams.find((candidate) => candidate.name === name);
-    if (!team) {
-      team = await giteaService.createTeam('acme', name, permission);
+    if (!teams.some((team) => team.name === name)) {
+      await giteaService.createTeam('acme', name, permission);
     }
-    await giteaService.addTeamMember(team.id, 'alice');
-    await giteaService.addTeamMember(team.id, 'bob');
+  }
+
+  // 身份与生产路径同一落实方式（ADR-0036）：alice 是所有者成员（三档嵌套，四支
+  // 团队全员到位），bob 是普通成员（只进只读、读写两个常设团队）。
+  await applyOrgIdentity(giteaService, 'acme', 'alice', 'owner');
+  await applyOrgIdentity(giteaService, 'acme', 'bob', 'ordinary');
+
+  // 与生产路径同一不变量（initializeOrganization / ADR-0033）：用 admin token 建
+  // 组织会把站点管理员自动塞进 Owners，平台系统账号不属于任何组织，必须整体移出。
+  // 漏掉这一步会让超管以"所有者成员"的身份出现在示例组织里。
+  const adminUsername = giteaService.adminUsername;
+  if (adminUsername && adminUsername !== 'alice' && adminUsername !== 'bob') {
+    if ((await giteaService.listOrgMembers('acme')).some((m) => m.username === adminUsername)) {
+      await removeMemberFromOrganization(giteaService, 'acme', adminUsername);
+    }
   }
 }

@@ -95,7 +95,7 @@ describe('LoginView', () => {
       token: 'member-token',
       username: 'bob',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
     setFetchImpl(fetchMock.impl);
     await fillAndSubmit(wrapper, { username: 'bob', password: 'secret' });
@@ -113,7 +113,7 @@ describe('LoginView', () => {
       token: 'member-token',
       username: 'bob',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
     setFetchImpl(fetchMock.impl);
     wrapper = await mountLogin();
@@ -123,13 +123,13 @@ describe('LoginView', () => {
     const auth = useAuthStore();
     expect(auth.token).toBe('member-token');
     expect(auth.isPlatformAdmin).toBe(false);
-    expect(auth.organizations).toEqual([{ org: 'acme', isOrgManager: false }]);
+    expect(auth.organizations).toEqual([{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]);
     const stored = JSON.parse(localStorage.getItem('esl-admin-session') ?? '{}');
     expect(stored).toMatchObject({
       token: 'member-token',
       username: 'bob',
       isPlatformAdmin: false,
-      organizations: [{ org: 'acme', isOrgManager: false }]
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
     expect(router.push).toHaveBeenCalledWith('/admin/me/overview');
   });
@@ -141,8 +141,8 @@ describe('LoginView', () => {
         username: 'alice',
         isPlatformAdmin: false,
         organizations: [
-          { org: 'acme', isOrgManager: false },
-          { org: 'beta', isOrgManager: true }
+          { org: 'acme', identity: 'ordinary', isOwnerMember: false },
+          { org: 'beta', identity: 'owner', isOwnerMember: true }
         ]
       }).impl
     );
@@ -152,8 +152,8 @@ describe('LoginView', () => {
 
     const auth = useAuthStore();
     expect(auth.organizations).toEqual([
-      { org: 'acme', isOrgManager: false },
-      { org: 'beta', isOrgManager: true }
+      { org: 'acme', identity: 'ordinary', isOwnerMember: false },
+      { org: 'beta', identity: 'owner', isOwnerMember: true }
     ]);
     // 不挑"第一个可治理的组织"当上下文——那是被 ADR-0035 消灭的隐式组织
     expect(router.push).toHaveBeenCalledWith('/admin/me/overview');

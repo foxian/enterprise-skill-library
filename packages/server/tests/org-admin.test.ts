@@ -27,7 +27,9 @@ describe('super administrator org console API', () => {
       createUser: vi.fn().mockResolvedValue(undefined),
       listTeams: vi.fn().mockResolvedValue([{ id: 1, name: 'Owners', permission: 'owner' }]),
       listTeamMembers: vi.fn().mockResolvedValue([]),
+      isTeamMember: vi.fn().mockResolvedValue(false),
       addTeamMember: vi.fn().mockResolvedValue(undefined),
+      removeTeamMember: vi.fn().mockResolvedValue(undefined),
       createTeam: vi.fn().mockResolvedValue({ id: 9, name: 'team', permission: 'read' }),
       listOrgs: vi.fn().mockResolvedValue([{ id: 1, name: 'acme' }]),
       listOrgMembers: vi.fn().mockResolvedValue([

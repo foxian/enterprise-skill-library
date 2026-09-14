@@ -12,15 +12,40 @@
         <el-table-column label="成员">
           <template #default="{ row }">{{ row.username }}</template>
         </el-table-column>
-        <el-table-column label="身份" width="170">
+        <el-table-column label="身份" width="130">
           <template #default="{ row }">
-            <el-tag v-if="row.isOrgManager" type="primary" data-test="member-is-manager">组织管理团队</el-tag>
-            <el-tag v-else type="success" data-test="member-status">组织成员</el-tag>
+            <el-tag :type="identityTagType(row.identity)" :data-test="`identity-${row.identity}`">
+              {{ identityLabel(row.identity) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column label="操作" width="320">
           <template #default="{ row }">
-            <!-- 互管规则（ADR-0033）在服务端兜底，前端按同一规则禁用以免点了才吃 400 -->
+            <!-- 身份变更是一等动作（ADR-0036）。三档嵌套，所以可用的动作就是
+                 "往下补"与"往上收"两件，直落普通成员，没有中间档。 -->
+            <el-button
+              v-for="next in promotionTargets(row)"
+              :key="next"
+              link
+              type="primary"
+              :data-test="`set-${next}-${row.username}`"
+              @click="changeIdentity(row, next)"
+            >
+              {{ promotionLabel(next) }}
+            </el-button>
+            <el-button
+              v-if="row.identity !== 'ordinary'"
+              link
+              type="warning"
+              :data-test="`demote-${row.username}`"
+              :disabled="!canDemote(row)"
+              :title="demoteBlockReason(row)"
+              @click="changeIdentity(row, 'ordinary')"
+            >
+              收回为普通成员
+            </el-button>
+            <!-- 互管与"至少保留一名所有者成员"（ADR-0036）在服务端兜底，
+                 前端按同一规则禁用，以免点了才吃 400 -->
             <el-button
               link
               type="danger"
@@ -29,7 +54,7 @@
               :title="removalBlockReason(row)"
               @click="openRemove(row)"
             >
-              移出
+              {{ row.username === auth.username ? '退出组织' : '移出' }}
             </el-button>
           </template>
         </el-table-column>
@@ -79,13 +104,18 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="removeDialogVisible" title="移出成员" width="420px">
-      <p>
-        移出后 <strong>{{ removeTarget }}</strong> 将离开组织并自动从只读、读写、技能管理团队移除。确认继续？
+    <el-dialog v-model="removeDialogVisible" :title="leaveSelf ? '退出组织' : '移出成员'" width="420px">
+      <p v-if="leaveSelf">
+        退出后你将离开 <strong>@{{ org }}</strong> 并从全部团队移出；你在平台上的账号不受影响。
+      </p>
+      <p v-else>
+        移出后 <strong>{{ removeTarget }}</strong> 将离开组织并从全部团队移出。确认继续？
       </p>
       <template #footer>
         <el-button @click="removeDialogVisible = false">取消</el-button>
-        <el-button type="danger" data-test="remove-member-confirm" @click="removeMember">确认移出</el-button>
+        <el-button type="danger" data-test="remove-member-confirm" @click="removeMember">
+          {{ leaveSelf ? '确认退出' : '确认移出' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -95,12 +125,14 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
+import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
-import { useAuthStore } from '../../stores/auth';
+import { identityLabel, identityTagType, promotionLabel } from '../../constants/org-identity';
+import { useAuthStore, type SessionOrganization } from '../../stores/auth';
 
 interface OrgMemberView {
   username: string;
-  isOrgManager: boolean;
+  identity: OrgIdentity;
 }
 
 interface InvitationView {
@@ -130,21 +162,41 @@ const removeTarget = ref('');
 const inviteMode = computed(() => platformInfo.value?.memberAddMode === 'invite');
 const platformInfo = ref<{ memberAddMode?: 'direct' | 'invite' } | null>(null);
 
-const managerCount = computed(() => members.value.filter((member) => member.isOrgManager).length);
+const ownerCount = computed(() => members.value.filter((member) => member.identity === 'owner').length);
+const leaveSelf = computed(() => removeTarget.value === auth.username);
 
-/** 服务端同一条互管规则的镜像：不能移除自己，且管理团队至少保留一名成员。 */
-function canRemove(member: OrgMemberView): boolean {
-  return removalBlockReason(member) === '';
+/** 三档嵌套：往下的每一档都可作为提升目标；所有者成员没有可提的档。 */
+function promotionTargets(member: OrgMemberView): Array<'managing' | 'owner'> {
+  if (member.identity === 'ordinary') return ['managing', 'owner'];
+  if (member.identity === 'managing') return ['owner'];
+  return [];
+}
+
+/**
+ * 服务端不变量（ADR-0036）的镜像：**任何走法都不能让组织失去全部所有者成员**——
+ * 被他人移出、自我降级、自我退出，三者同一条规则。除此之外，把自己降级或退出
+ * 都是正当动作，前端不再拦。
+ */
+function demoteBlockReason(member: OrgMemberView): string {
+  if (member.identity === 'owner' && ownerCount.value <= 1) {
+    return '组织必须至少保留一名所有者成员';
+  }
+  return '';
 }
 
 function removalBlockReason(member: OrgMemberView): string {
-  if (member.username === auth.username) {
-    return '不能移除自己';
-  }
-  if (member.isOrgManager && managerCount.value <= 1) {
-    return '组织管理团队必须至少保留一名成员';
+  if (member.identity === 'owner' && ownerCount.value <= 1) {
+    return '组织必须至少保留一名所有者成员';
   }
   return '';
+}
+
+function canDemote(member: OrgMemberView): boolean {
+  return demoteBlockReason(member) === '';
+}
+
+function canRemove(member: OrgMemberView): boolean {
+  return removalBlockReason(member) === '';
 }
 
 async function loadMembers(): Promise<void> {
@@ -159,6 +211,21 @@ async function loadMembers(): Promise<void> {
   }
 }
 
+/**
+ * 身份可能变的是自己（自我降级、自我退出），会话里的组织列表要跟着刷新，
+ * 否则路由守卫会拿旧身份放行。
+ */
+async function refreshSessionOrganizations(): Promise<void> {
+  try {
+    const mine = await apiRequest<{ organizations: SessionOrganization[] }>('/api/orgs/mine');
+    if (auth.session) {
+      auth.establish({ ...auth.session, organizations: mine.organizations });
+    }
+  } catch {
+    // 刷新失败不阻断列表更新：服务端每次请求仍会按真实身份复检
+  }
+}
+
 async function loadInvitations(): Promise<void> {
   if (!inviteMode.value) return;
   invitationsLoading.value = true;
@@ -168,6 +235,20 @@ async function loadInvitations(): Promise<void> {
     invitations.value = [];
   } finally {
     invitationsLoading.value = false;
+  }
+}
+
+async function changeIdentity(member: OrgMemberView, identity: OrgIdentity): Promise<void> {
+  errorMessage.value = '';
+  try {
+    await apiRequest(`/api/orgs/${org.value}/members/${encodeURIComponent(member.username)}/identity`, {
+      method: 'PUT',
+      body: { identity }
+    });
+    ElMessage.success(`${member.username} 现在是${identityLabel(identity)}`);
+    await Promise.all([loadMembers(), refreshSessionOrganizations()]);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -207,8 +288,10 @@ async function removeMember(): Promise<void> {
       method: 'DELETE'
     });
     removeDialogVisible.value = false;
-    ElMessage.success(`成员 ${removeTarget.value} 已移出组织`);
-    await loadMembers();
+    ElMessage.success(
+      leaveSelf.value ? `你已退出 @${org.value}` : `成员 ${removeTarget.value} 已移出组织`
+    );
+    await Promise.all([loadMembers(), refreshSessionOrganizations()]);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
   }

@@ -1,12 +1,14 @@
 import { GiteaRequestError, type GiteaService } from './gitea.js';
 import type { TenantOrganizationRepository } from '../db/database.js';
 import { DEFAULT_TEAM_DISPLAY_NAMES } from './org-team-model.js';
+import { applyOrgIdentity, removeMemberFromOrganization } from './organization-membership.js';
 
-// 组织同步开通（ADR-0032）：组织 = Gitea Organization，管理员 = Owners 团队成员。
-// 创建者（申请人或 auto 模式发起人）加入 Owners 即成为组织管理团队初始成员。
-// 组织创建时预置三个常设团队（只读 / 读写 / 技能管理）——管理员团队就是 Gitea
-// 原生 Owners，第四个常设团队无需创建。`<org>_admin` 专用账号与 system-admins
-// 团队（ADR-0025/0026/0022）随多租户模型一并废除。
+// 组织同步开通（ADR-0032）：组织 = Gitea Organization，组织内身份 = 常设团队
+// 成员身份（ADR-0036）。创建者（申请人或 auto 模式发起人）成为初始**所有者成员**
+// ——三档嵌套，落实为只读 / 读写 / 技能管理 / Owners 四支团队全员到位。三个常设
+// 团队在此预置；管理员团队就是 Gitea 原生 Owners，第四个常设团队无需创建。
+// `<org>_admin` 专用账号与 system-admins 团队（ADR-0025/0026/0022）随多租户模型
+// 一并废除。
 export async function initializeOrganization(
   giteaService: GiteaService,
   orgName: string,
@@ -22,36 +24,11 @@ export async function initializeOrganization(
 
   // 新建组织时 Gitea 会自动创建一个 Owners 常驻团队，其 permission 恒为 "owner"。
   const teams = await giteaService.listTeams(orgName);
-  const ownersTeam = teams.find((team) => team.permission === 'owner');
-  if (!ownersTeam) {
+  if (!teams.some((team) => team.permission === 'owner')) {
     throw new Error(`Gitea organization has no Owners team: ${orgName}`);
   }
-  const ownersMembers = await giteaService.listTeamMembers(ownersTeam.id);
-  if (!ownersMembers.some((member) => member.username === creatorUsername)) {
-    await giteaService.addTeamMember(ownersTeam.id, creatorUsername);
-  }
 
-  // Gitea 用 admin token 创建组织时会把 site admin 自动加入 Owners；
-  // 平台系统账号不属于任何组织（ADR-0033），必须整体移出——只摘掉 Owners 会留下
-  // 一个"在成员列表里、却不属于任何团队"的残影，与"超管不参与组织"自相矛盾。
-  if (giteaService.adminUsername && giteaService.adminUsername !== creatorUsername &&
-      typeof giteaService.removeTeamMember === 'function') {
-    if (ownersMembers.some((member) => member.username === giteaService.adminUsername)) {
-      await giteaService.removeTeamMember(ownersTeam.id, giteaService.adminUsername);
-    }
-    if (
-      typeof giteaService.isTeamMember === 'function' &&
-      (await giteaService.isTeamMember(ownersTeam.id, giteaService.adminUsername))
-    ) {
-      throw new Error(`Failed to detach the platform administrator from ${orgName}`);
-    }
-    if (typeof giteaService.removeOrgMember === 'function') {
-      await giteaService.removeOrgMember(orgName, giteaService.adminUsername);
-    }
-  }
-
-  // 常设团队幂等预置；创建者作为组织成员一并进入三个常设团队（与后续拉人同一
-  // 不变量：成员 ∈ 只读 ∪ 读写 ∪ 技能管理）。显示名按 ADR-0029 播种（幂等）。
+  // 常设团队幂等预置；显示名按 ADR-0029 播种（幂等）。
   for (const [name, permission] of [
     ['all-readers', 'read'],
     ['all-writers', 'write'],
@@ -65,9 +42,29 @@ export async function initializeOrganization(
     if (displayName && tenantOrganizationRepository.getTeamDisplayName(orgName, team.id) === undefined) {
       tenantOrganizationRepository.setTeamDisplayName(orgName, team.id, displayName);
     }
-    const members = await giteaService.listTeamMembers(team.id);
-    if (!members.some((member) => member.username === creatorUsername)) {
-      await giteaService.addTeamMember(team.id, creatorUsername);
+  }
+
+  // 创建者成为初始所有者成员（ADR-0036）。
+  await applyOrgIdentity(giteaService, orgName, creatorUsername, 'owner');
+
+  // Gitea 用 admin token 创建组织时会把 site admin 自动加入 Owners；
+  // 平台系统账号不属于任何组织（ADR-0033），必须整体移出——只摘掉 Owners 会留下
+  // 一个"在成员列表里、却不属于任何团队"的残影，与"超管不参与组织"自相矛盾。
+  const adminUsername = giteaService.adminUsername;
+  if (adminUsername && adminUsername !== creatorUsername) {
+    const isPresent = (members: { username: string }[]): boolean =>
+      members.some((member) => member.username === adminUsername);
+    if (isPresent(await giteaService.listOrgMembers(orgName))) {
+      await removeMemberFromOrganization(giteaService, orgName, adminUsername);
+    }
+    if (isPresent(await giteaService.listOrgMembers(orgName))) {
+      throw new Error(`Failed to detach the platform administrator from ${orgName}`);
+    }
+    const ownersTeam = (await giteaService.listTeams(orgName)).find(
+      (team) => team.permission === 'owner'
+    )!;
+    if (await giteaService.isTeamMember(ownersTeam.id, adminUsername)) {
+      throw new Error(`Failed to detach the platform administrator from ${orgName}`);
     }
   }
 }

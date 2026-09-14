@@ -31,10 +31,10 @@
         <el-tag
           v-for="membership in organizations"
           :key="membership.org"
-          :type="membership.isOrgManager ? 'primary' : 'info'"
+          :type="identityTagType(membership.identity)"
           size="large"
         >
-          @{{ membership.org }}{{ membership.isOrgManager ? ' · 组织管理团队' : '' }}
+          @{{ membership.org }} · {{ identityLabel(membership.identity) }}
         </el-tag>
       </div>
     </el-card>
@@ -75,8 +75,9 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../../api/client';
+import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { loadSkillInventorySummaries, type SkillInventoryItem } from '../../skills/skill-list';
-import { useAuthStore } from '../../stores/auth';
+import { useAuthStore, type SessionOrganization } from '../../stores/auth';
 
 interface Invitation {
   id: number;
@@ -121,7 +122,7 @@ onMounted(async () => {
   // 待办与技能来自不同端点，任一失败不应让整页空掉，故各自兜底。
   const [invitationResult, orgResult, skillResult] = await Promise.allSettled([
     apiRequest<Invitation[]>('/api/orgs/invitations'),
-    apiRequest<{ organizations: Array<{ org: string; isOrgManager: boolean }>; pendingApplications: PendingApplication[] }>(
+    apiRequest<{ organizations: SessionOrganization[]; pendingApplications: PendingApplication[] }>(
       '/api/orgs/mine'
     ),
     loadSkillInventorySummaries()

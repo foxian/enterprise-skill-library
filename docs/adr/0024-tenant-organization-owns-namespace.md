@@ -1,6 +1,6 @@
 # 技能身份 Namespace 归属租户组织
 
-Status: accepted
+Status: superseded by ADR-0032
 
 `@scope/skill-name` 中 scope 段（Namespace）由上传者所属的 **Tenant
 Organization** 提供：Source Upload 服务器按调用方的组织作用域账号
@@ -28,7 +28,7 @@ Namespace 并承诺组织间完全隔离。实现跟随了前者，于是出现�
 3. 多组织模式下所有组织的仓库都建在同一个 Gitea 组织里，「完全私有隔离」
    不成立。
 
-e2e 测试用例（docs/testing/web-console-e2e-test-cases.md）中「历史成员技能
+e2e 测试用例（已归档：docs/testing/archive/web-console-e2e-test-cases.md）中「历史成员技能
 建仓于全局 esl-skills 组织，无法跨组织授权」的教训也是同一矛盾。
 
 ## 决策细节

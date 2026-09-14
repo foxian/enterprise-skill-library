@@ -81,7 +81,7 @@ describe('organization console API', () => {
     }
   });
 
-  it('direct-add puts an existing global account into the org and the three standing teams', async () => {
+  it('direct-add puts an existing global account into the org as an ordinary member', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/orgs/acme/members',
@@ -91,10 +91,14 @@ describe('organization console API', () => {
 
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ status: 'added', username: 'carol' });
-    for (const name of ['all-readers', 'all-writers', 'all-managers']) {
+    // 普通成员只进只读、读写两个常设团队——技能管理团队承载管理成员身份，
+    // 要显式授予（ADR-0036）
+    for (const name of ['all-readers', 'all-writers']) {
       const id = await teamId('acme', name);
       expect(await gitea.isTeamMember(id!, 'carol')).toBe(true);
     }
+    const managingId = await teamId('acme', 'all-managers');
+    expect(await gitea.isTeamMember(managingId!, 'carol')).toBe(false);
   });
 
   it('refuses to add a non-existent account or an existing member', async () => {
@@ -151,10 +155,12 @@ describe('organization console API', () => {
       headers: { authorization: 'token carol-token' }
     });
     expect(accept.statusCode).toBe(200);
-    for (const name of ['all-readers', 'all-writers', 'all-managers']) {
+    for (const name of ['all-readers', 'all-writers']) {
       const id = await teamId('acme', name);
       expect(await gitea.isTeamMember(id!, 'carol')).toBe(true);
     }
+    const managingId = await teamId('acme', 'all-managers');
+    expect(await gitea.isTeamMember(managingId!, 'carol')).toBe(false);
   });
 
   it('declining an invitation leaves the org untouched', async () => {
@@ -461,64 +467,156 @@ describe('organization console API', () => {
     expect(res.json().error).toContain('ghost');
   });
 
-  // 成员互管（ADR-0033）：组织管理团队成员之间可以互相移除——不能移除自己，
-  // 且团队必须至少保留一名成员。同一条规则也适用于"把管理团队的人移出组织"。
-  it('lets an organization management team member remove another one', async () => {
+  // 身份变更（ADR-0036）：提升 / 收回是成员列表上的一等动作，只有所有者成员能做。
+  // 唯一的硬约束是"组织必须至少保留一名所有者成员"——自我降级、自我退出、被他人
+  // 移出，三者同一条规则；"不能移除自己"已被取代。
+  it('promotes a member to managing and to owner, then takes it back', async () => {
+    const managingId = await teamId('acme', 'all-managers');
     const ownersId = await teamId('acme', 'Owners');
 
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/orgs/acme/teams/${ownersId}/members/co-admin`,
-      headers: aliceHeaders
+    const promote = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/bob/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'managing' }
     });
+    expect(promote.statusCode).toBe(200);
+    expect(promote.json()).toEqual({ username: 'bob', identity: 'managing' });
+    expect(await gitea.isTeamMember(managingId!, 'bob')).toBe(true);
+    expect(await gitea.isTeamMember(ownersId!, 'bob')).toBe(false);
 
-    expect(res.statusCode).toBe(200);
-    expect(await gitea.isTeamMember(ownersId, 'co-admin')).toBe(false);
+    const toOwner = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/bob/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'owner' }
+    });
+    expect(toOwner.statusCode).toBe(200);
+    expect(await gitea.isTeamMember(ownersId!, 'bob')).toBe(true);
+
+    // 收回为普通成员：摘掉 Owners 与技能管理团队，只读/读写保留（三档是嵌套的）
+    const demote = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/bob/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'ordinary' }
+    });
+    expect(demote.statusCode).toBe(200);
+    expect(await gitea.isTeamMember(ownersId!, 'bob')).toBe(false);
+    expect(await gitea.isTeamMember(managingId!, 'bob')).toBe(false);
+    for (const name of ['all-readers', 'all-writers']) {
+      const id = await teamId('acme', name);
+      expect(await gitea.isTeamMember(id!, 'bob')).toBe(true);
+    }
   });
 
-  it('refuses to let an organization management team member remove themselves', async () => {
-    const ownersId = await teamId('acme', 'Owners');
-
+  it('only lets owner members change identities', async () => {
+    // bob 是普通成员：连路由守卫都过不去
     const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/orgs/acme/teams/${ownersId}/members/admin-alice`,
-      headers: aliceHeaders
+      method: 'PUT',
+      url: '/api/orgs/acme/members/carol/identity',
+      headers: { authorization: 'token bob-token' },
+      payload: { identity: 'owner' }
     });
+    expect(res.statusCode).toBe(403);
+  });
 
+  it('refuses to change the identity of someone outside the organization', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/carol/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'managing' }
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects an unknown identity value', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/bob/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'admin' }
+    });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain('yourself');
-    expect(await gitea.isTeamMember(ownersId, 'admin-alice')).toBe(true);
   });
 
-  it('applies the management-team rules to removing a manager from the organization', async () => {
-    const viaOrgRoute = await app.inject({
-      method: 'DELETE',
-      url: '/api/orgs/acme/members/admin-alice',
-      headers: aliceHeaders
-    });
-    expect(viaOrgRoute.statusCode).toBe(400);
-    expect(viaOrgRoute.json().error).toContain('yourself');
-
-    // 移除另一名管理团队成员等于收回其治理权，是允许的
-    const other = await app.inject({
+  it('lets an owner member remove another owner member from the organization', async () => {
+    const res = await app.inject({
       method: 'DELETE',
       url: '/api/orgs/acme/members/co-admin',
       headers: aliceHeaders
     });
-    expect(other.statusCode).toBe(200);
 
-    // 普通成员的移出不受治理规则影响
-    await gitea.__state.addOrgMember('acme', 'carol');
-    const plain = await app.inject({
-      method: 'DELETE',
-      url: '/api/orgs/acme/members/carol',
-      headers: aliceHeaders
-    });
-    expect(plain.statusCode).toBe(200);
+    expect(res.statusCode).toBe(200);
+    expect(await gitea.listUserOrgs('co-admin')).toEqual([]);
   });
 
-  it('reports management-team membership in the member list', async () => {
-    await gitea.__state.addOrgMember('acme', 'bob');
+  it('lets an owner member leave the organization themselves', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/admin-alice',
+      headers: aliceHeaders
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(await gitea.listUserOrgs('admin-alice')).toEqual([]);
+  });
+
+  it('keeps the last owner member from leaving or demoting themselves', async () => {
+    // 先把 co-admin 移出，acme 只剩 admin-alice 一名所有者成员
+    await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/co-admin',
+      headers: aliceHeaders
+    });
+
+    const leave = await app.inject({
+      method: 'DELETE',
+      url: '/api/orgs/acme/members/admin-alice',
+      headers: aliceHeaders
+    });
+    expect(leave.statusCode).toBe(400);
+    expect(leave.json().error).toContain('last owner member');
+
+    const demoteSelf = await app.inject({
+      method: 'PUT',
+      url: '/api/orgs/acme/members/admin-alice/identity',
+      headers: aliceHeaders,
+      payload: { identity: 'ordinary' }
+    });
+    expect(demoteSelf.statusCode).toBe(400);
+    expect(demoteSelf.json().error).toContain('at least one owner member');
+
+    const ownersId = await teamId('acme', 'Owners');
+    expect(await gitea.isTeamMember(ownersId!, 'admin-alice')).toBe(true);
+  });
+
+  it('refuses to change identity through the generic team member endpoints', async () => {
+    // 受保护团队（Owners 与三个常设团队）的成员增删是身份变更，不是团队授权——
+    // 留着这条暗门就能绕过"至少保留一名所有者成员"（ADR-0036）
+    for (const name of ['Owners', 'all-readers', 'all-managers']) {
+      const id = await teamId('acme', name);
+      const add = await app.inject({
+        method: 'POST',
+        url: `/api/orgs/acme/teams/${id}/members`,
+        headers: aliceHeaders,
+        payload: { username: 'carol' }
+      });
+      expect(add.statusCode).toBe(400);
+
+      const remove = await app.inject({
+        method: 'DELETE',
+        url: `/api/orgs/acme/teams/${id}/members/co-admin`,
+        headers: aliceHeaders
+      });
+      expect(remove.statusCode).toBe(400);
+    }
+  });
+
+  it('reports the three-tier identity in the member list', async () => {
+    const managingId = await teamId('acme', 'all-managers');
+    await gitea.addTeamMember(managingId!, 'bob');
 
     const res = await app.inject({
       method: 'GET',
@@ -528,13 +626,13 @@ describe('organization console API', () => {
 
     expect(res.statusCode).toBe(200);
     const byName = new Map(
-      (res.json() as Array<{ username: string; isOrgManager: boolean }>).map((member) => [
+      (res.json() as Array<{ username: string; identity: string }>).map((member) => [
         member.username,
-        member.isOrgManager
+        member.identity
       ])
     );
-    expect(byName.get('admin-alice')).toBe(true);
-    expect(byName.get('co-admin')).toBe(true);
-    expect(byName.get('bob')).toBe(false);
+    expect(byName.get('admin-alice')).toBe('owner');
+    expect(byName.get('co-admin')).toBe('owner');
+    expect(byName.get('bob')).toBe('managing');
   });
 });
