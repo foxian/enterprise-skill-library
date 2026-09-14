@@ -89,8 +89,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     }
     // 取消即释放名字（ADR-0032）：状态翻转，无外部副作用。
     orgApplicationRepository.updateApplicationStatusById(id, 'cancelled');
-    // 取消仅撤回尚未进入开通流程的申请;已进入 provisioning/failed 的组织
-    // 由管理员经审批重试或删除流程处理,不随申请取消而变更状态。
+    // 取消只撤回待审申请；组织从未开通（ADR-0032 取消即释放名字）。
     const tenant = options.tenantOrganizationRepository.get(application.orgName);
     if (tenant && tenant.status === 'pending') {
       options.tenantOrganizationRepository.transition(application.orgName, 'cancelled');

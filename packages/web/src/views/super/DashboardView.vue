@@ -76,7 +76,6 @@ interface OrgSummary {
 interface ApplicationView {
   id: number;
   orgName: string;
-  adminDisplayName: string;
   status: string;
   createdAt: string;
   updatedAt: string;

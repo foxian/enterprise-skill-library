@@ -92,6 +92,12 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
         .map((org) => ({ id: org.name.length, name: org.name }))
     ),
 
+    listOrgRepos: vi.fn(async (_orgName: string) => [] as Array<{ id: number; name: string; full_name: string }>),
+
+    deleteOrg: vi.fn(async (orgName: string) => {
+      orgs.delete(orgName);
+    }),
+
     listOrgMembers: vi.fn(async (orgName: string) => {
       const org = orgs.get(orgName);
       if (!org) return [];

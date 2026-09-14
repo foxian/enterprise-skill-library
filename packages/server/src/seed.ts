@@ -51,17 +51,24 @@ export async function seedDevelopmentAccounts(giteaService: GiteaService): Promi
   await giteaService.createOrg('acme');
 
   const teams = await giteaService.listTeams('acme');
+  // Gitea 新建组织自带 Owners 团队（permission=owner），找不到即环境异常
   const owners = teams.find((team) => team.permission === 'owner');
-  if (owners) {
-    await giteaService.addTeamMember(owners.id, 'alice');
-  } else {
-    await giteaService.createTeam('acme', 'Owners', 'admin');
+  if (!owners) {
+    throw new Error('Development seed expected the organization Owners team to exist');
   }
-  // bob 的成员身份挂在组织读团队上；常设团队机制（#55）落地前
-  // 先用普通 read 团队承载。
-  let readTeam = teams.find((team) => team.permission === 'read');
-  if (!readTeam) {
-    readTeam = await giteaService.createTeam('acme', 'dev-readers', 'read');
+  await giteaService.addTeamMember(owners.id, 'alice');
+  // bob 是普通成员：与生产路径同一不变量（成员 ∈ 三个常设团队），
+  // 常设团队不存在时按 ADR-0032 的预置形状补建。
+  for (const [name, permission] of [
+    ['all-readers', 'read'],
+    ['all-writers', 'write'],
+    ['all-managers', 'admin']
+  ] as const) {
+    let team = teams.find((candidate) => candidate.name === name);
+    if (!team) {
+      team = await giteaService.createTeam('acme', name, permission);
+    }
+    await giteaService.addTeamMember(team.id, 'alice');
+    await giteaService.addTeamMember(team.id, 'bob');
   }
-  await giteaService.addTeamMember(readTeam.id, 'bob');
 }

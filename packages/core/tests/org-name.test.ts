@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PASSWORD_MIN_LENGTH,
   RESERVED_SCOPE_NAMES,
-  buildGiteaUsername,
-  parseGiteaUsername,
   validateMemberUsername,
   validateOrgName,
   validatePassword
@@ -99,25 +97,4 @@ describe('account and password policy', () => {
     expect(validateMemberUsername('alice_user').success).toBe(false);
   });
 
-  it('builds the canonical Gitea username for organization members', () => {
-    expect(buildGiteaUsername('acme', 'alice')).toBe('acme_alice');
-    expect(buildGiteaUsername('acme', 'admin')).toBe('acme_admin');
-  });
-
-  it('rejects a canonical Gitea username longer than 255 characters', () => {
-    const result = buildGiteaUsername('a'.repeat(39), 'b'.repeat(216));
-    expect(result).toBeNull();
-  });
-
-  it('parses the organization and member short name back from the canonical Gitea username', () => {
-    expect(parseGiteaUsername('acme_alice')).toEqual({ org: 'acme', username: 'alice' });
-    expect(parseGiteaUsername('platform-ai_alice')).toEqual({ org: 'platform-ai', username: 'alice' });
-  });
-
-  it('returns null for accounts without an organization scope', () => {
-    expect(parseGiteaUsername('eslroot')).toBeNull();
-    expect(parseGiteaUsername('')).toBeNull();
-    expect(parseGiteaUsername('_alice')).toBeNull();
-    expect(parseGiteaUsername('acme_')).toBeNull();
-  });
 });

@@ -13,7 +13,6 @@ export const RESERVED_SCOPE_NAMES: ReadonlySet<string> = new Set([
   'system'
 ]);
 export const DEFAULT_PASSWORD_MIN_LENGTH = 8;
-export const MAX_GITEA_USERNAME_LENGTH = 255;
 
 export function validatePassword(
   password: string,
@@ -31,13 +30,13 @@ export function validatePassword(
 export function validateMemberUsername(username: string): ValidationResult<string> {
   const errors: string[] = [];
   if (username.length < 2 || username.length > 39) {
-    errors.push('member username must be 2-39 characters');
+    errors.push('username must be 2-39 characters');
   }
   if (!ACCOUNT_NAME_PATTERN.test(username)) {
-    errors.push('member username may only contain lowercase letters, digits, and hyphens');
+    errors.push('username may only contain lowercase letters, digits, and hyphens');
   }
   if (username.startsWith('-') || username.endsWith('-')) {
-    errors.push('member username must not start or end with a hyphen');
+    errors.push('username must not start or end with a hyphen');
   }
   if (RESERVED_SCOPE_NAMES.has(username)) {
     errors.push('username is reserved');
@@ -45,10 +44,6 @@ export function validateMemberUsername(username: string): ValidationResult<strin
   return errors.length > 0 ? { success: false, errors } : { success: true, data: username };
 }
 
-export function buildGiteaUsername(orgName: string, username: string): string | null {
-  const giteaUsername = `${orgName}_${username}`;
-  return giteaUsername.length <= MAX_GITEA_USERNAME_LENGTH ? giteaUsername : null;
-}
 
 // Git Backend 用户账号的 email 约定(用户创建流程统一使用该格式):以该 email
 // 作为 commit author 时,Git Backend 可通过 email 把提交匹配到对应账号。
@@ -56,27 +51,4 @@ export function giteaUserEmail(giteaUsername: string): string {
   return `${giteaUsername}@local.esl`;
 }
 
-// 组织作用域账号名的逆向解析(ADR-0020):组织名与成员用户名都不允许下划线,
-// 首个下划线即唯一分隔点。平台管理员等无组织账号不含下划线,解析返回 null。
-export function parseGiteaUsername(giteaUsername: string): { org: string; username: string } | null {
-  const separator = giteaUsername.indexOf('_');
-  if (separator <= 0 || separator === giteaUsername.length - 1) {
-    return null;
-  }
-  return {
-    org: giteaUsername.slice(0, separator),
-    username: giteaUsername.slice(separator + 1)
-  };
-}
 
-export type OrganizationRole = 'super' | 'org-admin' | 'member';
-
-// 按组织作用域账号模型推导角色:无组织即平台管理员(super);组织内
-// 用户名为 admin 即组织管理员(org-admin);其余为普通成员(member)。
-// 服务端登录响应以此为准,客户端不再自行推导。
-export function deriveOrganizationRole(org: string | null | undefined, username: string): OrganizationRole {
-  if (!org) {
-    return 'super';
-  }
-  return username === 'admin' ? 'org-admin' : 'member';
-}

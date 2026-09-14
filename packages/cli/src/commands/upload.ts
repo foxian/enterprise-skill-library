@@ -193,7 +193,6 @@ async function uploadSource(
   shortName: string,
   description: string
 ): Promise<UploadedSkill> {
-  void identity;
   const authToken = await requireFreshToken(options);
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;

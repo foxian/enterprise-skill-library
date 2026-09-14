@@ -1,6 +1,8 @@
 import {
   highestSatisfyingVersion,
   highestStableVersion,
+  SHARE_TIER_TEAM_NAMES,
+  STANDING_TEAM_NAMES,
   parseSkillName,
   parseSkillIdentity,
   sortVersionsDescending,
@@ -256,12 +258,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       case 'share_all_read':
       case 'share_all_write':
       case 'share_all_manage': {
-        const teamName =
-          body.action === 'share_all_read'
-            ? 'all-readers'
-            : body.action === 'share_all_write'
-              ? 'all-writers'
-              : 'all-managers';
+        const teamName = SHARE_TIER_TEAM_NAMES[shareTierOf(body.action)];
         const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === teamName);
         if (!team) {
           return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
@@ -308,15 +305,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
 
     // 常设团队档位互斥（原 ADR-0026 组织共享级别语义）：设置某档时卸载其余两档
-    const ALL_SHARE_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
+    const ALL_SHARE_TEAM_NAMES = new Set(STANDING_TEAM_NAMES);
     try {
       switch (payload.action) {
         case 'share_all_read':
         case 'share_all_write':
         case 'share_all_manage': {
           await giteaService.addTeamRepo(payload.teamId!, repo.owner, repo.name);
-          const mountName =
-            payload.action === 'share_all_read' ? 'all-readers' : payload.action === 'share_all_write' ? 'all-writers' : 'all-managers';
+          const mountName = SHARE_TIER_TEAM_NAMES[shareTierOf(payload.action)];
           for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
             if (team.name !== mountName && ALL_SHARE_TEAM_NAMES.has(team.name)) {
               await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
@@ -876,6 +872,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         : undefined
     });
   });
+}
+
+// share_all_* 动作 → 授权档位（落点为对应的常设团队）
+function shareTierOf(action: string): 'read' | 'write' | 'manage' {
+  return action === 'share_all_read' ? 'read' : action === 'share_all_write' ? 'write' : 'manage';
 }
 
 function newestStableRelease<T extends { version: string }>(

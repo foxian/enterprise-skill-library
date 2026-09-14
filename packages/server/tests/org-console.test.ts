@@ -306,6 +306,19 @@ describe('organization console API', () => {
     expect(await gitea.isTeamMember(created.id, 'carol')).toBe(false);
   });
 
+  it('refuses to add a team member who has no platform account', async () => {
+    const created = await gitea.createTeam('acme', 'frontend', 'read');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/orgs/acme/teams/${created.id}/members`,
+      headers: aliceHeaders,
+      payload: { username: 'ghost' }
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain('ghost');
+  });
+
   it('refuses to remove an Owners member from the Owners team', async () => {
     const ownersId = await teamId('acme', 'Owners');
     const res = await app.inject({

@@ -362,9 +362,9 @@ describe('Fastify Server API', () => {
     expect(mockGitea.validateToken).not.toHaveBeenCalled();
   });
 
-  it('blocks skill access while a tenant is provisioning', async () => {
+  it('blocks skill access while a tenant is not active', async () => {
     const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'provisioning' });
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'failed' });
     db.close();
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'acme_admin' })
@@ -378,12 +378,12 @@ describe('Fastify Server API', () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json()).toMatchObject({ status: 'provisioning' });
+    expect(response.json()).toMatchObject({ status: 'failed' });
   });
 
   it('lets the platform administrator inspect skills of a non-active tenant (ADR-0025)', async () => {
     const db = initDatabase(dbPath);
-    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'provisioning' });
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'failed' });
     db.close();
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'eslroot' }),

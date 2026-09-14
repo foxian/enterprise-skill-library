@@ -55,9 +55,6 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
     if (existing) {
       return reply.status(409).send({ error: `Username is already taken: ${username}` });
     }
-    if (orgApplicationRepository.getApplication(username)?.status === 'pending') {
-      return reply.status(409).send({ error: `Username is claimed by a pending organization application: ${username}` });
-    }
 
     const mode = platformSettingsRepository.getSetting('registration_mode') ?? 'open';
     if (mode === 'approval') {

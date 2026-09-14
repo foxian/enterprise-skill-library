@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { validateMemberUsername } from '@esl/core';
+import { isStandingTeam, validateMemberUsername } from '@esl/core';
 import type {
   OrgInvitationRepository,
   PlatformSettingsRepository,
@@ -17,15 +17,13 @@ export interface OrgConsoleRouteOptions {
   tenantOrganizationRepository: TenantOrganizationRepository;
 }
 
-// 常设团队（ADR-0032）：只读 / 读写 / 技能管理三个常设团队 + Owners（管理员
-// 团队）。不可删除、不可改名；成员加入组织自动进入前三个，离开自动移出。
-const STANDING_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
-
 // 团队显示名(ADR-0029):ESL 侧可选展示字段,允许中文,最长 64 字符。
 const TEAM_DISPLAY_NAME_MAX = 64;
 
-// 成员加入组织时的自动入组团队（三个常设团队；Owners 仅组织管理员）。
-const AUTO_JOIN_TEAM_NAMES = STANDING_TEAM_NAMES;
+// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（管理员团队，ADR-0032）
+function isProtectedTeam(team: { name: string; permission: string }): boolean {
+  return team.permission === 'owner' || isStandingTeam(team.name);
+}
 
 export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConsoleRouteOptions): void {
   const { giteaService, repository, platformSettingsRepository, orgInvitationRepository, tenantOrganizationRepository } =
@@ -34,7 +32,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   async function addMemberToStandingTeams(org: string, username: string): Promise<void> {
     const teams = await giteaService.listTeams(org);
     for (const team of teams) {
-      if (AUTO_JOIN_TEAM_NAMES.has(team.name) && !(await giteaService.isTeamMember(team.id, username))) {
+      if (isStandingTeam(team.name) && !(await giteaService.isTeamMember(team.id, username))) {
         await giteaService.addTeamMember(team.id, username);
       }
     }
@@ -159,7 +157,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     // ADR-0032:Owners 与三个常设团队是授权载体,不属于可管理的自定义团队,
     // 不出现在团队管理界面。显示名读时惰性播种(ADR-0029)。
     return (await giteaService.listTeams(org))
-      .filter((team) => team.permission !== 'owner' && !STANDING_TEAM_NAMES.has(team.name))
+      .filter((team) => !isProtectedTeam(team))
       .map((team) => {
         let displayName = tenantOrganizationRepository.getTeamDisplayName(org, team.id);
         if (displayName === undefined && DEFAULT_TEAM_DISPLAY_NAMES[team.name] !== undefined) {
@@ -182,7 +180,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!/^[a-z0-9-]{1,64}$/.test(name)) {
       return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
     }
-    if (STANDING_TEAM_NAMES.has(name) || name === 'Owners') {
+    if (isStandingTeam(name) || name === 'Owners') {
       return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
     }
     // ADR-0025 三档:read/write/manage;ESL 的 manage 档映射为 Gitea admin 级团队,
@@ -215,7 +213,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
     // 常设团队与 Owners 不可删除(ADR-0032):授权载体必须稳定。
-    if (STANDING_TEAM_NAMES.has(team.name) || team.permission === 'owner') {
+    if (isProtectedTeam(team)) {
       return reply.status(400).send({ error: 'Standing teams cannot be deleted' });
     }
     await giteaService.deleteTeam(teamId);
@@ -237,14 +235,14 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    if (STANDING_TEAM_NAMES.has(team.name) || team.permission === 'owner') {
+    if (isProtectedTeam(team)) {
       return reply.status(400).send({ error: 'Standing teams cannot be edited' });
     }
     const body = request.body as { name?: string; permission?: string; display_name?: unknown };
     if (body.name !== undefined && !/^[a-z0-9-]{1,64}$/.test(body.name)) {
       return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
     }
-    if (body.name !== undefined && (STANDING_TEAM_NAMES.has(body.name) || body.name === 'Owners')) {
+    if (body.name !== undefined && (isStandingTeam(body.name) || body.name === 'Owners')) {
       return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
     }
     if (
@@ -333,6 +331,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     }
     if (!(await orgHasTeam(giteaService, org, teamId))) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
+    }
+    // 授权对象必须是已注册的全局账号（与拉人路径同一前置校验）
+    if (!(await giteaService.getUser(username))) {
+      return reply.status(404).send({ error: `User does not exist: ${username}` });
     }
     await giteaService.addTeamMember(teamId, username);
     return reply.status(201).send({ teamId, username });

@@ -16,6 +16,8 @@ import { useRoute } from 'vue-router';
 import SkillManagePanel from '../../components/SkillManagePanel.vue';
 import { apiRequest } from '../../api/client';
 import { useAuthStore } from '../../stores/auth';
+// 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
+import { STANDING_TEAM_NAMES } from '@esl/core/dist/org/standing-teams.js';
 import type { MemberOption, TeamOption } from '../../skills/skill-list';
 
 const route = useRoute();
@@ -27,7 +29,7 @@ const teams = ref<TeamOption[]>([]);
 const memberOptions = ref<MemberOption[]>([]);
 const errorMessage = ref('');
 
-const DEFAULT_TEAM_NAMES = new Set(['all-readers', 'all-writers', 'all-managers']);
+const DEFAULT_TEAM_NAMES = new Set(STANDING_TEAM_NAMES);
 
 onMounted(async () => {
   // 组织管理员可为授权提供团队与成员下拉建议

@@ -158,6 +158,81 @@ describe('organization creation', () => {
     expect(gitea.createOrg).not.toHaveBeenCalled();
   });
 
+  it('lets auto mode create an organization whose name was previously rejected', async () => {
+    // 被拒的组织名已释放（ADR-0032）：auto 模式重建立即可用，不残留冲突
+    await switchMode('manual');
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/reject',
+      headers: { authorization: `token ${superToken}` }
+    });
+    await switchMode('auto');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(await ownerMembers('beta')).toContain('alice');
+  });
+
+  it('lets a deleted organization name be applied for again in manual mode', async () => {
+    await switchMode('manual');
+    await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/orgs/applications/1/approve',
+      headers: { authorization: `token ${superToken}` }
+    });
+    // 删除组织：名字释放
+    gitea.listOrgRepos.mockResolvedValue([]);
+    await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/orgs/beta',
+      headers: { authorization: `token ${superToken}` },
+      payload: { confirm: 'beta' }
+    });
+
+    const reapply = await app.inject({
+      method: 'POST',
+      url: '/api/orgs/applications',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+
+    expect(reapply.statusCode).toBe(201);
+    expect(reapply.json()).toMatchObject({ status: 'pending' });
+  });
+
+  it('adds the creator to the three standing teams at creation', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/orgs',
+      headers: { authorization: 'token alice-token' },
+      payload: { orgName: 'beta' }
+    });
+    expect(res.statusCode).toBe(201);
+
+    for (const name of ['all-readers', 'all-writers', 'all-managers']) {
+      const team = (await gitea.listTeams('beta')).find((entry) => entry.name === name)!;
+      expect(await gitea.isTeamMember(team.id, 'alice')).toBe(true);
+    }
+  });
+
   it('deduplicates a pending application with the same name at submission time', async () => {
     await switchMode('manual');
     await app.inject({

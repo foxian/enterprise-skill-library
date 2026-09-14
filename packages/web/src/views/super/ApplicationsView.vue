@@ -5,7 +5,6 @@
         <span class="toolbar-caption">按状态筛选申请</span>
         <el-select v-model="statusFilter" data-test="status-filter" style="width: 160px">
           <el-option label="待审批" value="pending" />
-          <el-option label="开通中" value="provisioning" />
           <el-option label="已批准" value="approved" />
           <el-option label="已拒绝" value="rejected" />
           <el-option label="全部" value="all" />
@@ -14,7 +13,7 @@
 
       <el-table :data="filteredApplications" data-test="applications-table" v-loading="loading">
       <el-table-column prop="orgName" label="组织名" />
-      <el-table-column prop="adminDisplayName" label="管理员名称" />
+      <el-table-column prop="applicantUsername" label="申请人" />
       <el-table-column label="申请时间" width="180">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
@@ -60,7 +59,7 @@ import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
 interface ApplicationView {
   id: number;
   orgName: string;
-  adminDisplayName: string;
+  applicantUsername: string;
   status: string;
   createdAt: string;
   updatedAt: string;

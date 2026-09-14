@@ -35,7 +35,8 @@ export async function initializeOrganization(
     }
   }
 
-  // 常设团队幂等预置；显示名按 ADR-0029 的预置数据机制播种（幂等）。
+  // 常设团队幂等预置；创建者作为组织成员一并进入三个常设团队（与后续拉人同一
+  // 不变量：成员 ∈ 只读 ∪ 读写 ∪ 技能管理）。显示名按 ADR-0029 播种（幂等）。
   for (const [name, permission] of [
     ['all-readers', 'read'],
     ['all-writers', 'write'],
@@ -48,6 +49,10 @@ export async function initializeOrganization(
     const displayName = DEFAULT_TEAM_DISPLAY_NAMES[name];
     if (displayName && tenantOrganizationRepository.getTeamDisplayName(orgName, team.id) === undefined) {
       tenantOrganizationRepository.setTeamDisplayName(orgName, team.id, displayName);
+    }
+    const members = await giteaService.listTeamMembers(team.id);
+    if (!members.some((member) => member.username === creatorUsername)) {
+      await giteaService.addTeamMember(team.id, creatorUsername);
     }
   }
 }

@@ -701,9 +701,10 @@ export class OrgApplicationRepository {
   constructor(private readonly db: Database.Database) {}
 
   createApplication(input: { orgName: string; applicantUsername: string }): OrgApplicationRecord {
-    // 拒绝/取消/过期的旧申请不占用名字（ADR-0032 名字释放）：重置为待审复用。
+    // 已了结的旧申请不占用名字（ADR-0032 名字释放）：拒绝/取消/过期，以及
+    // 组织已被删除的 approved 旧行，一律重置为待审复用（组织仍存在时上游已拦截）。
     const previous = this.getApplication(input.orgName);
-    if (previous && previous.status !== 'pending' && previous.status !== 'approved') {
+    if (previous && previous.status !== 'pending') {
       const reset = this.updateApplicationStatusById(previous.id, 'pending')!;
       return { ...reset, applicantUsername: input.applicantUsername };
     }
@@ -1006,7 +1007,6 @@ export class OrgInvitationRepository {
 
 export type TenantOrganizationStatus =
   | 'pending'
-  | 'provisioning'
   | 'active'
   | 'failed'
   | 'rejected'
@@ -1027,15 +1027,21 @@ export interface TenantOrganizationRecord {
 export class TenantOrganizationRepository {
   constructor(private readonly db: Database.Database) {}
 
+  // 幂等登记（ADR-0032 名字释放）：名字被拒绝/取消/删除后再次启用同一名字时
+  // 记录已存在，这里回到目标状态而不是撞主键（旧记录只剩状态语义）。
   create(input: {
     orgName: string;
     status?: TenantOrganizationStatus;
   }): TenantOrganizationRecord {
     const transaction = this.db.transaction(() => {
+      const existing = this.get(input.orgName);
+      if (existing) {
+        return this.transition(input.orgName, input.status ?? 'active')!;
+      }
       this.db.prepare(`
         INSERT INTO tenant_organizations (org_name, status)
         VALUES (?, ?)
-      `).run(input.orgName, input.status ?? 'active');
+      `).run(input.orgName, input.status ?? 'pending');
       return this.get(input.orgName)!;
     });
     return transaction() as TenantOrganizationRecord;

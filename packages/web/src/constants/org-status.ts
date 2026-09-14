@@ -3,7 +3,6 @@
 
 export const ORG_STATUS_TEXT: Record<string, string> = {
   pending: '待审批',
-  provisioning: '开通中',
   active: '已激活',
   failed: '开通失败',
   rejected: '已拒绝',
@@ -23,7 +22,6 @@ export function orgStatusTagType(status?: string | null): 'success' | 'warning' 
   const mapping: Record<string, 'success' | 'warning' | 'danger' | 'info'> = {
     active: 'success',
     pending: 'warning',
-    provisioning: 'warning',
     deleting: 'warning',
     failed: 'danger',
     delete_failed: 'danger'
