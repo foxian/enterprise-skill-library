@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { initDatabase, SkillRepository } from '../src/db/database.js';
+import { initDatabase, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from '../src/seed.js';
 import { createGlobalGitea } from './helpers/global-gitea.js';
 
@@ -44,8 +44,11 @@ describe('development seed', () => {
 
   it('seeds global development accounts idempotently (alice owns acme, bob is a member)', async () => {
     const gitea = createGlobalGitea();
-    await seedDevelopmentAccounts(gitea as any);
-    await seedDevelopmentAccounts(gitea as any);
+    const db = initDatabase(dbPath);
+    const tenantRepository = new TenantOrganizationRepository(db);
+    await seedDevelopmentAccounts(gitea as any, tenantRepository);
+    await seedDevelopmentAccounts(gitea as any, tenantRepository);
+    db.close();
 
     // seed 幂等：重复启动时既存账号/组织不是错误，显式声明容忍
     expect(gitea.createUser).toHaveBeenCalledWith('alice', expect.any(String), { tolerateExisting: true });
@@ -63,5 +66,10 @@ describe('development seed', () => {
       }
     }
     expect(bobTeams.length).toBeGreaterThan(0);
+
+    // 开发组织同样登记进平台组织注册表（与生产路径一致：组织=active）
+    const db2 = initDatabase(dbPath);
+    expect(new TenantOrganizationRepository(db2).get('acme')?.status).toBe('active');
+    db2.close();
   });
 });

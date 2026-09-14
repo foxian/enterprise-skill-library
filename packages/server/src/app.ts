@@ -60,8 +60,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const db = initDatabase(options.dbPath);
   if (options.autoSeed) {
     seedDevelopmentData(options.dbPath);
-    // 开发环境同时产出全局账号（ADR-0032）；尽力而为，不阻塞启动。
-    void seedDevelopmentAccounts(options.giteaService).catch(() => {});
+    // 开发环境同时产出全局账号与示例组织（ADR-0032）；尽力而为，不阻塞启动。
+    void seedDevelopmentAccounts(options.giteaService, new TenantOrganizationRepository(db)).catch(() => {});
   }
   const repository = new SkillRepository(db);
   const adminRepository = new AdminRepository(db);

@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import type { GiteaService } from './services/gitea.js';
-import { initDatabase, SkillRepository } from './db/database.js';
+import { initDatabase, SkillRepository, type TenantOrganizationRepository } from './db/database.js';
 
 const sampleSkill = {
   name: '@myorg/my-skill',
@@ -45,11 +45,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 // 幂等：GiteaService 的创建调用对已存在（409）保持沉默。
 const DEV_ACCOUNT_PASSWORD = 'esl-dev-password';
 
-export async function seedDevelopmentAccounts(giteaService: GiteaService): Promise<void> {
+export async function seedDevelopmentAccounts(
+  giteaService: GiteaService,
+  tenantOrganizationRepository?: TenantOrganizationRepository
+): Promise<void> {
   // 开发 seed 幂等：重复启动时既存账号/组织不是错误
   await giteaService.createUser('alice', DEV_ACCOUNT_PASSWORD, { tolerateExisting: true });
   await giteaService.createUser('bob', DEV_ACCOUNT_PASSWORD, { tolerateExisting: true });
   await giteaService.createOrg('acme', { tolerateExisting: true });
+  // 与生产路径一致：组织在平台注册表中登记为 active（幂等）
+  tenantOrganizationRepository?.create({ orgName: 'acme', status: 'active' });
 
   const teams = await giteaService.listTeams('acme');
   // Gitea 新建组织自带 Owners 团队（permission=owner），找不到即环境异常
