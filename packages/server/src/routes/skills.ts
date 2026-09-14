@@ -3,7 +3,6 @@ import {
   highestStableVersion,
   parseSkillName,
   parseSkillIdentity,
-  parseGiteaUsername,
   sortVersionsDescending,
   validateReleaseManifest
 } from '@esl/core';
@@ -189,27 +188,47 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return accessible;
   });
 
-  // 角色化技能清单(ADR-0025):与 search(只返回已发布、面向安装消费)不同,
+  // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
   // 这里返回调用方可见的全部技能(含未发布)及其权限关系,供管理后台的
-  // "我管理的/共享给我的"与超管、组织管理员视图消费。
-  // - 超级管理员:跨组织全部技能(组织冻结状态下仍可治理巡检);
-  // - 组织管理员/成员:本组织技能,组织间完全隔离;
-  // - relation: managed=持有管理权, shared=可读/可写但无管理权。
+  // "我管理的/共享给我的"与超管、组织管理员视图消费。可见性 = public ∪
+  // 被授权 private,跨命名空间不再按调用者组织隔离;
+  // relation: managed=持有管理权, shared=可读/可写但无管理权。
   app.get('/api/skills/inventory', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
       return reply.status(401).send({ error: 'Unauthorized: invalid token' });
     }
-    const account = parseGiteaUsername(user.username);
-    const isSuper = !account;
     const view: Array<SkillRecord & { access: SkillAccessLevel; relation: 'managed' | 'shared' }> = [];
     for (const skill of repository.listSkills()) {
-      if (!isSuper && skill.scope !== account.org) continue;
       const access = await getAccessLevel(giteaService, skill, user.username);
       if (access === 'none') continue;
       view.push({ ...skill, access, relation: access === 'manage' ? 'managed' : 'shared' });
     }
     return view;
+  });
+
+  // 可见性切换(ADR-0032):Maintainer 或 Organization Admin 可在 public/private
+  // 间切换。public = 平台全员可搜可装可作依赖;private = 仅 Maintainer 与被授权者。
+  app.post('/api/skills/:scope/:skillName/visibility', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send({ error: 'Skill not found' });
+    }
+    if (!(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+    }
+    const { visibility = '' } = request.body as { visibility?: string };
+    if (visibility !== 'public' && visibility !== 'private') {
+      return reply.status(400).send({ error: 'Visibility must be public or private' });
+    }
+    repository.setVisibility(name, visibility);
+    return { name: skill.name, visibility };
   });
 
   app.get('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
@@ -225,7 +244,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     // 读矩阵与技能上下文不是敏感数据:任何对该技能有可见性的用户都能查看;变更仍走 POST 的管理权守门。
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: read access required' });
+      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
     }
     return buildPermissionsResponse(skill, user.username);
   });
@@ -643,7 +662,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(404).send({ error: 'Skill not found' });
     }
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: read access required' });
+      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
     }
     const packagePath = path.join(packageRoot, params.skillId, params.version, params.checksum);
     try {
@@ -840,7 +859,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!(await hasReadAccess(giteaService, skill, user?.username))) {
-      return reply.status(403).send({ error: 'Forbidden: read access required' });
+      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
     }
 
     const releases = repository.getReleases(name);

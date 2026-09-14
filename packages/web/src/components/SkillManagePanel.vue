@@ -93,6 +93,21 @@
     </el-card>
 
     <el-card class="section-card">
+      <template #header>可见性</template>
+      <el-space wrap>
+        <el-tag :type="visibility === 'public' ? 'success' : 'info'" data-test="visibility-tag">
+          {{ visibility === 'public' ? 'public（平台全员可搜可装）' : 'private（仅被授权者）' }}
+        </el-tag>
+        <el-switch
+          :model-value="visibility === 'public'"
+          :disabled="!canManage"
+          data-test="visibility-switch"
+          @change="onVisibilityChange"
+        />
+      </el-space>
+    </el-card>
+
+    <el-card class="section-card">
       <template #header>常设团队授权</template>
       <el-radio-group
         :model-value="shareLevel"
@@ -269,6 +284,23 @@ const stateText = computed(() => shareState.value.text);
 
 const stateTagType = computed(() => shareState.value.tagType);
 
+// 逐技能可见性(ADR-0032):public/private 由技能记录携带,经专用端点切换
+const visibility = ref<'public' | 'private'>('private');
+
+async function onVisibilityChange(next: boolean | string | number): Promise<void> {
+  const target = next ? 'public' : 'private';
+  try {
+    const result = await apiRequest<{ name: string; visibility: 'public' | 'private' }>(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/visibility`,
+      { method: 'POST', body: { visibility: target } }
+    );
+    visibility.value = result.visibility;
+    ElMessage.success(result.visibility === 'public' ? '技能已设为 public' : '技能已设为 private');
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
 // 常设团队授权(ADR-0032):由共享状态推导当前单选档位
 const shareLevel = computed<'none' | 'read' | 'write' | 'manage'>(() => {
   if (matrix.value.sharedAllManage) return 'manage';
@@ -344,6 +376,8 @@ function assignPermissionsResponse(response: PermissionsResponse): void {
   context.value = skill;
   viewerAccess.value = accessLevel;
   matrix.value = matrixResponse;
+  // 可见性随技能记录一并下发（public/private）
+  visibility.value = (skill as { visibility?: 'public' | 'private' }).visibility ?? 'private';
 }
 
 // 单版本删除(CONTEXT:单版本删除):不可变发布模型下的外科手术式清理。服务端以
