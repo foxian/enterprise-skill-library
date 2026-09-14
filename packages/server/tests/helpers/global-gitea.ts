@@ -207,8 +207,14 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     listRepoTeams: vi.fn(async (owner: string, repo: string) => {
       const org = orgs.get(owner);
+      // 个人仓库（owner 不是组织）：Gitea 返回 4xx 而非空列表
+      if (!org) {
+        throw new Error(
+          `Failed to list Gitea repository teams: {"message":"repo is not owned by an organization"}`
+        );
+      }
       const mounted = repoTeams.get(`${owner}/${repo}`);
-      if (!org || !mounted) return [];
+      if (!mounted) return [];
       return org.teams
         .filter((team) => mounted.has(team.id))
         .map((team) => ({ id: team.id, name: team.name, permission: team.permission }));

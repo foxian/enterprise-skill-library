@@ -907,6 +907,19 @@ describe('GiteaService', () => {
     });
   });
 
+  it('treats a personal repository as having no teams (Gitea rejects org team listing)', async () => {
+    // 个人仓库不属于任何组织，Gitea 返回 4xx 而非空列表；ESL 侧等价于「无团队授权」。
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: async () =>
+        JSON.stringify({ message: 'repo is not owned by an organization', url: 'http://gitea/api/swagger' })
+    });
+    const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
+
+    await expect(gitea.listRepoTeams('alice', 'handbook')).resolves.toEqual([]);
+  });
+
   it('throws when listing repository teams fails', async () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);

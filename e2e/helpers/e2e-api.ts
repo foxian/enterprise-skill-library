@@ -1,96 +1,157 @@
-import { expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
-import { MEMBER_PASSWORD, resolveTestEnv } from './env';
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
+import { resolveTestEnv } from './env';
 
-/** 经组织管理员 API 造成员(异步 Operation),轮询到成员出现在在册列表为止 */
-export async function createOrgMember(adminApi: APIRequestContext, shortUsername: string): Promise<string> {
-  const env = resolveTestEnv();
-  const fullUsername = `${env.org}_${shortUsername}`;
-  const created = await adminApi.post('/api/orgs/members', {
-    data: { username: shortUsername, password: MEMBER_PASSWORD }
-  });
-  if (created.status() !== 202) {
-    throw new Error(`成员创建失败: ${created.status()} ${await created.text()}`);
-  }
-  await expect
-    .poll(async () => {
-      const response = await adminApi.get('/api/orgs/members');
-      const members = (await response.json()) as Array<{ username: string }>;
-      return members.some((member) => member.username === fullUsername);
-    }, { timeout: 30_000 })
-    .toBe(true);
-  return fullUsername;
+// 全局身份（ADR-0032）：注册 → 登录 → 建组织 → 拉人 → 上传发布，全部经真实
+// 栈的 API 完成。账号无组织前缀，一条凭据走遍个人空间与所有组织。
+
+export interface RegisteredUser {
+  username: string;
+  password: string;
 }
 
-/** 成员密码登录换取 token 的 APIRequestContext;调用方负责 dispose */
-export async function loginMemberApi(
+let sequence = 0;
+
+/** 生成一个平台内唯一的测试用户名（扁平命名池：先到先得） */
+export function uniqueUsername(prefix: string): string {
+  sequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${sequence}`;
+}
+
+export function uniqueOrgName(prefix: string): string {
+  return uniqueUsername(prefix);
+}
+
+export async function registerUser(
   request: APIRequestContext,
-  shortUsername: string
-): Promise<APIRequestContext> {
-  const env = resolveTestEnv();
-  const login = await request.post('/api/console/login', {
-    data: { username: shortUsername, org: env.org, password: MEMBER_PASSWORD }
-  });
-  if (!login.ok()) {
-    throw new Error(`成员 API 登录失败: ${login.status()} ${await login.text()}`);
+  username: string,
+  password: string
+): Promise<void> {
+  const response = await request.post('/api/auth/register', { data: { username, password } });
+  if (response.status() !== 201) {
+    throw new Error(`注册失败 (${username}): ${response.status()} ${await response.text()}`);
   }
-  const { token } = (await login.json()) as { token: string };
-  return playwrightRequest.newContext({
-    baseURL: env.baseURL,
-    extraHTTPHeaders: { Authorization: `token ${token}` }
-  });
 }
 
-/** Source Upload 创建私有未发布技能(ADR-0025:创建者自动成为初始 Maintainer) */
+/** 以 username + password 换取一个带 Authorization 头的 API 上下文；调用方负责 dispose */
+export async function loginApi(username: string, password: string): Promise<APIRequestContext> {
+  const env = resolveTestEnv();
+  const bootstrap = await playwrightRequest.newContext({ baseURL: env.baseURL });
+  try {
+    const login = await bootstrap.post('/api/auth/login', { data: { username, password } });
+    if (!login.ok()) {
+      throw new Error(`登录失败 (${username}): ${login.status()} ${await login.text()}`);
+    }
+    const { token } = (await login.json()) as { token: string };
+    return playwrightRequest.newContext({
+      baseURL: env.baseURL,
+      extraHTTPHeaders: { Authorization: `token ${token}` }
+    });
+  } finally {
+    await bootstrap.dispose();
+  }
+}
+
+/** 注册并登录一个全新的全局账号 */
+export async function registerAndLogin(
+  request: APIRequestContext,
+  prefix: string,
+  password: string
+): Promise<{ api: APIRequestContext; user: RegisteredUser }> {
+  const username = uniqueUsername(prefix);
+  await registerUser(request, username, password);
+  return { api: await loginApi(username, password), user: { username, password } };
+}
+
+/** 创建组织（auto 模式即时开通，创建者成为初始 Organization Admin） */
+export async function createOrg(api: APIRequestContext, orgName: string): Promise<void> {
+  const response = await api.post('/api/orgs', { data: { orgName } });
+  if (response.status() !== 201) {
+    throw new Error(`创建组织失败 (${orgName}): ${response.status()} ${await response.text()}`);
+  }
+}
+
+/** 直拉成员入组（direct 拉人方式即时生效，成员自动进入三个常设团队） */
+export async function addOrgMember(
+  adminApi: APIRequestContext,
+  orgName: string,
+  username: string
+): Promise<void> {
+  const response = await adminApi.post(`/api/orgs/${orgName}/members`, { data: { username } });
+  if (response.status() !== 201) {
+    throw new Error(`拉人失败 (${orgName} ← ${username}): ${response.status()} ${await response.text()}`);
+  }
+}
+
+export interface UploadedSkill {
+  name: string;
+  skillId: string;
+  cloneUrl: string;
+  gitRepoPath: string;
+  status?: string;
+}
+
+/** 首次 Source Upload：按 release.json 的 name 在对应命名空间建仓库并固定身份 */
 export async function uploadSkill(
   api: APIRequestContext,
-  shortName: string,
+  identity: string,
   description: string
-): Promise<void> {
-  const response = await api.post('/api/skills/upload', { data: { name: shortName, description } });
+): Promise<UploadedSkill> {
+  const response = await api.post('/api/skills/upload', { data: { name: identity, description } });
   if (response.status() !== 201) {
-    throw new Error(`技能上传失败: ${response.status()} ${await response.text()}`);
+    throw new Error(`上传失败 (${identity}): ${response.status()} ${await response.text()}`);
   }
+  return (await response.json()) as UploadedSkill;
 }
 
-export interface InventoryItem {
-  skillName: string;
-  scope: string;
-  status?: string;
-  access: 'read' | 'write' | 'manage';
-  relation: 'managed' | 'shared';
-}
-
-/** 平台超管 token 的 APIRequestContext(技能删除等平台级操作用);调用方负责 dispose */
-export async function loginSuperApi(request: APIRequestContext): Promise<APIRequestContext> {
-  const env = resolveTestEnv();
-  const login = await request.post('/api/console/login', {
-    data: { username: env.superAdmin.username, org: null, password: env.superAdmin.password }
-  });
-  if (!login.ok()) {
-    throw new Error(`超管 API 登录失败: ${login.status()} ${await login.text()}`);
-  }
-  const { token } = (await login.json()) as { token: string };
-  return playwrightRequest.newContext({
-    baseURL: env.baseURL,
-    extraHTTPHeaders: { Authorization: `token ${token}` }
-  });
-}
-
-/** 平台管理员删除技能:用例收尾清理自造数据,抑制 inventory 随运行累积膨胀 */
-export async function deleteSkill(api: APIRequestContext, scope: string, shortName: string): Promise<void> {
+/** 设置技能可见性（public = 平台全员可搜可装；private 默认） */
+export async function setVisibility(
+  api: APIRequestContext,
+  identity: string,
+  visibility: 'public' | 'private'
+): Promise<void> {
+  const [scope, shortName] = identity.replace(/^@/, '').split('/');
   const response = await api.post(
-    `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}/delete`,
-    { data: { confirm: `@${scope}/${shortName}` } }
+    `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}/visibility`,
+    { data: { visibility } }
   );
   if (!response.ok()) {
-    throw new Error(`技能删除失败: ${response.status()} ${await response.text()}`);
+    throw new Error(`可见性切换失败 (${identity} → ${visibility}): ${response.status()} ${await response.text()}`);
   }
 }
 
-export async function inventoryOf(api: APIRequestContext): Promise<InventoryItem[]> {
-  const response = await api.get('/api/skills/inventory');
+export interface SkillView {
+  name: string;
+  packageUrl?: string;
+  releases: Array<{ version: string; packageUrl: string }>;
+}
+
+/** 以调用方身份读取技能（含可下载的 Published Skill Package URL） */
+export async function getSkill(api: APIRequestContext, identity: string): Promise<SkillView> {
+  const [scope, shortName] = identity.replace(/^@/, '').split('/');
+  const response = await api.get(
+    `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}`
+  );
   if (!response.ok()) {
-    throw new Error(`inventory 读取失败: ${response.status()} ${await response.text()}`);
+    throw new Error(`技能读取失败 (${identity}): ${response.status()} ${await response.text()}`);
   }
-  return (await response.json()) as InventoryItem[];
+  return (await response.json()) as SkillView;
+}
+
+/**
+ * “安装”的服务端等价：下载 Published Skill Package（CLI install 的第一步，
+ * 受同一可见性门禁保护）。
+ */
+export async function downloadPackage(
+  api: APIRequestContext,
+  identity: string
+): Promise<{ status: number; body: { name?: string; version?: string } | null }> {
+  const skill = await getSkill(api, identity);
+  if (!skill.packageUrl) {
+    throw new Error(`技能 ${identity} 没有可下载的发布包`);
+  }
+  const response = await api.get(skill.packageUrl.replace(resolveTestEnv().baseURL, ''));
+  if (!response.ok()) {
+    return { status: response.status(), body: { name: identity } };
+  }
+  return { status: response.status(), body: (await response.json()) as { name?: string; version?: string } };
 }

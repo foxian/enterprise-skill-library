@@ -1,18 +1,18 @@
 import { type APIRequestContext } from '@playwright/test';
-import { resolveTestEnv } from './env';
 import { giteaAdminApi } from './gitea-api';
 
-// 单版本删除等 Release 生命周期的 E2E 需要真实已发布的技能。CLI 的发布链路
-// 依赖本地 Git push 会话(克隆、commit、push HEAD:main),这里用 Gitea 的
-// Contents API 直接写源文件——它是 push 的服务端等价物,产出同样的事实:
-// 技能仓库 main 分支上含 SKILL.md 与 release.json 的 commit。随后走与 CLI
-// 相同的发布端点 POST /releases,由服务端读源树、生成发布包与 Release Tag。
+// Release 生命周期的 E2E 需要真实已发布的技能。CLI 的发布链路依赖本地 Git
+// push 会话(克隆、commit、push HEAD:main),这里用 Gitea 的 Contents API 直接
+// 写源文件——它是 push 的服务端等价物,产出同样的事实:技能仓库 main 分支上
+// 含 SKILL.md 与 release.json 的 commit。随后走与 CLI 相同的发布端点
+// POST /releases,由服务端读源树、按 release.json 断言身份并生成发布包。
 
-function releaseJson(version: string): string {
-  // ADR-0030:Release Manifest 要求 schemaVersion 2 且携带 version(.strict() 校验)
+/** Release Manifest v3（ADR-0032）：name 必填，是归属的唯一权威来源 */
+export function releaseJson(name: string, version: string): string {
   return `${JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      name,
       version,
       license: 'MIT',
       keywords: ['e2e'],
@@ -24,8 +24,8 @@ function releaseJson(version: string): string {
   )}\n`;
 }
 
-function skillMd(name: string, description: string): string {
-  return `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`;
+export function skillMd(shortName: string, description: string): string {
+  return `---\nname: ${shortName}\ndescription: ${description}\n---\n\n# ${shortName}\n`;
 }
 
 interface GiteaFileResponse {
@@ -48,7 +48,7 @@ async function getExistingSha(
 }
 
 /** 创建或更新 Gitea 仓库文件,返回该次变更的 commit SHA(空仓库首次写入会建出默认分支) */
-async function upsertGiteaFile(
+export async function upsertGiteaFile(
   gitea: APIRequestContext,
   owner: string,
   repo: string,
@@ -78,42 +78,51 @@ async function upsertGiteaFile(
   return sha;
 }
 
+export interface PublishOptions {
+  description?: string;
+  notes?: string;
+}
+
 /**
  * 为已上传的技能源发布一个 Release(等价开发者的 `esl version <v>` + `esl publish`):
- * 先确保 SKILL.md 存在,再以 release.json 的新版本内容产生 commit,最后用创建者
+ * 先把 SKILL.md 与带权威 name 的 release.json 写入技能仓库,再以创建者
  * (初始 Maintainer,持管理权)的 token 调发布端点。
+ * identity 形如 "@scope/skill-name";仓库路径为 "{scope}/{shortName}"。
  */
 export async function publishSkillRelease(
   ownerApi: APIRequestContext,
-  skillName: string,
+  identity: string,
   version: string,
-  options: { description?: string; notes?: string } = {}
+  options: PublishOptions = {}
 ): Promise<void> {
-  const env = resolveTestEnv();
+  const parsed = /^@([a-z0-9-]+)\/([a-z0-9-]+)$/.exec(identity);
+  if (!parsed) {
+    throw new Error(`E2E 身份必须是 @scope/skill-name 形式: ${identity}`);
+  }
+  const [, scope, shortName] = parsed;
   const gitea = await giteaAdminApi();
   try {
-    const owner = env.org;
     // SKILL.md 只在缺失时写入,避免每个版本多一个无意义 commit
-    if (!(await getExistingSha(gitea, owner, skillName, 'SKILL.md'))) {
+    if (!(await getExistingSha(gitea, scope, shortName, 'SKILL.md'))) {
       await upsertGiteaFile(
         gitea,
-        owner,
-        skillName,
+        scope,
+        shortName,
         'SKILL.md',
-        skillMd(skillName, options.description ?? `E2E 发布技能 ${skillName}`),
+        skillMd(shortName, options.description ?? `E2E 发布技能 ${shortName}`),
         'chore: seed SKILL.md'
       );
     }
     const sourceCommit = await upsertGiteaFile(
       gitea,
-      owner,
-      skillName,
+      scope,
+      shortName,
       'release.json',
-      releaseJson(version),
+      releaseJson(identity, version),
       `chore: release ${version}`
     );
     const response = await ownerApi.post(
-      `/api/skills/${encodeURIComponent(env.org)}/${encodeURIComponent(skillName)}/releases`,
+      `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}/releases`,
       { data: { version, sourceCommit, notes: options.notes } }
     );
     if (!response.ok()) {

@@ -796,6 +796,11 @@ export class GiteaService {
         return [];
       }
       const err = await res.text();
+      // 个人仓库不属于任何组织,Gitea 对团队列表返回 4xx(ADR-0032 个人命名空间):
+      // 语义上等价于「没有任何团队授权」,不构成错误。
+      if (/not owned by an organization/i.test(err)) {
+        return [];
+      }
       throw new Error(`Failed to list Gitea repository teams: ${err}`);
     }
 
