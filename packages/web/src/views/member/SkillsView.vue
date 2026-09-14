@@ -1,10 +1,30 @@
 <template>
   <div>
     <el-card class="data-card" shadow="never">
+      <div class="console-toolbar">
+        <span class="toolbar-caption">我的技能（跨命名空间聚合）</span>
+        <el-select
+          v-model="namespaceFilter"
+          data-test="namespace-filter"
+          placeholder="全部命名空间"
+          clearable
+          style="width: 220px"
+        >
+          <el-option v-for="scope in namespaces" :key="scope" :label="`@${scope}`" :value="scope" />
+        </el-select>
+      </div>
       <el-tabs v-model="activeTab">
         <el-tab-pane label="我管理的" name="managed">
-          <el-table :data="managedRows" data-test="member-skills-table" v-loading="loading">
+          <el-table :data="visibleManagedRows" data-test="member-skills-table" v-loading="loading">
             <el-table-column prop="name" label="技能名" />
+            <el-table-column label="命名空间" width="140">
+              <template #default="{ row }">@{{ row.scope }}</template>
+            </el-table-column>
+            <el-table-column label="归属关系" width="120">
+              <template #default>
+                <el-tag type="primary" data-test="relation-managed">我管理</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="createdBy" label="创建者" width="160" />
             <el-table-column label="共享状态" width="140">
               <template #default="{ row }">
@@ -26,8 +46,16 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane label="共享给我的" name="shared">
-          <el-table :data="sharedRows" data-test="member-shared-table" v-loading="loading">
+          <el-table :data="visibleSharedRows" data-test="member-shared-table" v-loading="loading">
             <el-table-column prop="name" label="技能名" />
+            <el-table-column label="命名空间" width="140">
+              <template #default="{ row }">@{{ row.scope }}</template>
+            </el-table-column>
+            <el-table-column label="归属关系" width="120">
+              <template #default>
+                <el-tag type="info" data-test="relation-shared">共享给我</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="createdBy" label="创建者" width="160" />
             <el-table-column label="我的权限" width="120">
               <template #default="{ row }">
@@ -46,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   accessText,
@@ -68,6 +96,23 @@ const managedRows = ref<ManagedRow[]>([]);
 const sharedRows = ref<SkillInventoryItem[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
+// 跨命名空间聚合（ADR-0032）：个人 + 所有所在组织的技能，可按命名空间筛选
+const namespaceFilter = ref<string>('');
+
+const namespaces = computed(() => {
+  const scopes = new Set<string>();
+  for (const row of [...managedRows.value, ...sharedRows.value]) {
+    scopes.add(row.scope);
+  }
+  return [...scopes].sort();
+});
+
+const visibleManagedRows = computed(() =>
+  namespaceFilter.value ? managedRows.value.filter((row) => row.scope === namespaceFilter.value) : managedRows.value
+);
+const visibleSharedRows = computed(() =>
+  namespaceFilter.value ? sharedRows.value.filter((row) => row.scope === namespaceFilter.value) : sharedRows.value
+);
 
 function openPermissions(scope: string, skillName: string): void {
   void router.push({

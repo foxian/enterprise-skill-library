@@ -6,6 +6,7 @@ import ApplicationsView from '../src/views/super/ApplicationsView.vue';
 import OrgDetailView from '../src/views/super/OrgDetailView.vue';
 import OrgsView from '../src/views/super/OrgsView.vue';
 import SettingsView from '../src/views/super/SettingsView.vue';
+import SuperRegistrations from '../src/views/super/RegistrationsView.vue';
 import DashboardView from '../src/views/super/DashboardView.vue';
 import { mountConsoleView, resetConsole, useApiMock, type RecordedRequest } from './helpers';
 import * as clientApi from '../src/api/client';
@@ -178,6 +179,57 @@ describe('ApplicationsView 审批工作台', () => {
   });
 });
 
+describe('RegistrationsView 用户注册审批', () => {
+  const pending = [
+    { id: 1, username: 'erin', status: 'pending', createdAt: '2026-09-14T08:00:00Z' }
+  ];
+
+  it('默认展示待审批账号并可批准', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/admin/registrations?status=pending' && method === 'GET') {
+        return { status: 200, json: pending };
+      }
+      if (url === '/api/admin/registrations/1/approve') {
+        return { status: 200, json: { status: 'approved', username: 'erin' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SuperRegistrations, { role: 'super', route: '/admin/super/registrations' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="registrations-table"]').text()).toContain('erin');
+    expect(wrapper.find('[data-test="registration-status-1"]').text()).toContain('待审批');
+
+    await wrapper.find('[data-test="approve-registration-1"]').trigger('click');
+    await flushPromises();
+
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
+      'POST /api/admin/registrations/1/approve'
+    );
+  });
+
+  it('拒绝待审批账号后调用拒绝接口', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/admin/registrations?status=pending' && method === 'GET') {
+        return { status: 200, json: pending };
+      }
+      if (url === '/api/admin/registrations/1/reject') {
+        return { status: 200, json: { status: 'rejected', username: 'erin' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SuperRegistrations, { role: 'super', route: '/admin/super/registrations' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="reject-registration-1"]').trigger('click');
+    await flushPromises();
+
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toContain(
+      'POST /api/admin/registrations/1/reject'
+    );
+  });
+});
+
 describe('OrgsView 组织生命周期状态展示', () => {
   const lifecycleOrgs = [
     { name: 'alpha', memberCount: 1, skillCount: 0, status: 'pending', lastError: null },
@@ -308,186 +360,62 @@ describe('OrgDetailView 删除组织二次确认', () => {
 });
 
 describe('SettingsView 平台设置', () => {
-  const sampleOrgs = [
-    { name: 'acme', memberCount: 3, skillCount: 2, status: 'active', createdAt: '2026-08-01T10:00:00Z' },
-    { name: 'beta', memberCount: 2, skillCount: 1, status: 'active', createdAt: '2026-08-02T10:00:00Z' },
-    { name: 'gamma', memberCount: 1, skillCount: 0, status: 'pending', createdAt: '2026-08-03T10:00:00Z' },
-  ];
-
-  function mockSettingsApi(initial: {
-    orgRegistrationMode?: string;
-    deploymentMode?: string;
-    defaultOrg?: string | null;
-  } = {}) {
-    const defaults = {
-      orgRegistrationMode: 'auto',
-      deploymentMode: 'multi',
-      defaultOrg: null,
-      ...initial,
-    };
-    return useApiMock((method, url, body) => {
-      if (url === '/api/admin/orgs/settings') {
-        if (method === 'PUT') {
-          const merged = { ...defaults, ...(body as Record<string, unknown>) };
-          return { status: 200, json: merged };
-        }
-        return { status: 200, json: defaults };
+  function mockSettings(settings: Partial<Record<string, string>> = {}) {
+    return useApiMock((method, url) => {
+      if (url === '/api/admin/orgs/settings' && method === 'GET') {
+        return {
+          status: 200,
+          json: {
+            orgRegistrationMode: 'auto',
+            registrationMode: 'open',
+            memberAddMode: 'direct',
+            ...settings
+          }
+        };
       }
-      if (url === '/api/admin/orgs') {
-        return { status: 200, json: sampleOrgs };
+      if (url === '/api/admin/orgs/settings' && method === 'PUT') {
+        return {
+          status: 200,
+          json: {
+            orgRegistrationMode: 'auto',
+            registrationMode: 'open',
+            memberAddMode: 'direct',
+            ...settings
+          }
+        };
       }
       return { status: 200, json: [] };
     });
   }
 
-  it('加载当前审批模式并保存切换', async () => {
-    const { requests } = mockSettingsApi();
+  it('展示三项平台设置（用户注册 / 组织注册 / 拉人方式）', async () => {
+    mockSettings();
     wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
     await flushPromises();
 
-    const manualRadio = wrapper.find('[data-test="registration-mode"] input[value="manual"]');
-    (manualRadio.element as HTMLInputElement).checked = true;
-    await manualRadio.trigger('change');
-    await wrapper.find('[data-test="save-settings"]').trigger('click');
-    await flushPromises();
-
-    expect(requests.some((request) => request.method === 'PUT')).toBe(true);
-    const putReq = requests.find((request) => request.method === 'PUT');
-    expect(putReq?.body).toMatchObject({ orgRegistrationMode: 'manual' });
-    // 保存后按钮回到禁用（无未保存修改）
+    expect(wrapper.find('[data-test="user-registration-mode"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="registration-mode"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="member-add-mode"]').exists()).toBe(true);
+    // 表单与已保存值一致时不出现保存变更
     expect((wrapper.find('[data-test="save-settings"]').element as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('加载部署模式和默认组织，默认组织下拉仅展示 active 组织', async () => {
-    mockSettingsApi({ deploymentMode: 'multi', defaultOrg: 'acme' });
+  it('切换注册模式后保存三项设置', async () => {
+    const { requests } = mockSettings();
     wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
     await flushPromises();
 
-    const select = wrapper.find('[data-test="default-org-select"]');
-    expect(select.exists()).toBe(true);
-    // 通过 vm 直接访问 activeOrgs 计算属性，验证只有 active 的组织被过滤出来
-    const vm = wrapper.vm as unknown as { activeOrgs: Array<{ name: string; status: string }> };
-    expect(vm.activeOrgs.map((o) => o.name)).toEqual(['acme', 'beta']);
-    expect(vm.activeOrgs.map((o) => o.name)).not.toContain('gamma');
-  });
-
-  it('从多组织切换到单组织并选择默认组织（原子切换，无需确认）', async () => {
-    const { requests } = mockSettingsApi({ deploymentMode: 'multi', defaultOrg: null });
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
+    const approvalRadio = wrapper
+      .findAll('[data-test="user-registration-mode"] input[type="radio"]')
+      .at(1)!;
+    await approvalRadio.setValue(true);
     await flushPromises();
-
-    const vm = wrapper.vm as unknown as {
-      deploymentMode: string;
-      defaultOrg: string;
-      hasChanges: boolean;
-      hasValidationError: boolean;
-    };
-
-    // 切换部署模式为单组织
-    vm.deploymentMode = 'single';
-    await flushPromises();
-
-    // 未选默认组织时有校验错误（按钮禁用）
-    expect(vm.hasValidationError).toBe(true);
-    expect((wrapper.find('[data-test="save-settings"]').element as HTMLButtonElement).disabled).toBe(true);
-
-    // 选择默认组织 beta
-    vm.defaultOrg = 'beta';
-    await flushPromises();
-
-    expect(vm.hasChanges).toBe(true);
-    expect(vm.hasValidationError).toBe(false);
-    expect((wrapper.find('[data-test="save-settings"]').element as HTMLButtonElement).disabled).toBe(false);
 
     await wrapper.find('[data-test="save-settings"]').trigger('click');
     await flushPromises();
 
-    // 确认对话框不应出现（原子切换不需要 confirm）
-    expect(wrapper.find('[data-test="confirm-default-org-dialog"]').exists()).toBe(false);
-
-    const putReq = requests.find((r) => r.method === 'PUT');
-    expect(putReq?.body).toMatchObject({
-      deploymentMode: 'single',
-      defaultOrg: 'beta',
-    });
-    expect(putReq?.body).not.toHaveProperty('confirm');
-  });
-
-  it('单组织模式下更换默认组织弹出确认对话框，输入匹配后提交', async () => {
-    const { requests } = mockSettingsApi({ deploymentMode: 'single', defaultOrg: 'acme' });
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
-    await flushPromises();
-
-    const vm = wrapper.vm as unknown as {
-      defaultOrg: string;
-      confirmInput: string;
-      needsConfirm: boolean;
-    };
-
-    // 将默认组织从 acme 改为 beta
-    vm.defaultOrg = 'beta';
-    await flushPromises();
-
-    expect(vm.needsConfirm).toBe(true);
-
-    await wrapper.find('[data-test="save-settings"]').trigger('click');
-    await flushPromises();
-
-    // 弹出确认对话框
-    const dialog = wrapper.find('[data-test="confirm-default-org-dialog"]');
-    expect(dialog.exists()).toBe(true);
-
-    // 输入不匹配时按钮禁用
-    const input = wrapper.find('[data-test="confirm-default-org-input"]');
-    await input.setValue('wrong-name');
-    await flushPromises();
-    expect(
-      (wrapper.find('[data-test="confirm-default-org-button"]').element as HTMLButtonElement).disabled
-    ).toBe(true);
-
-    // 输入匹配后可点击
-    await input.setValue('beta');
-    await flushPromises();
-    expect(
-      (wrapper.find('[data-test="confirm-default-org-button"]').element as HTMLButtonElement).disabled
-    ).toBe(false);
-
-    await wrapper.find('[data-test="confirm-default-org-button"]').trigger('click');
-    await flushPromises();
-
-    const putReq = requests.find((r) => r.method === 'PUT');
-    expect(putReq?.body).toMatchObject({
-      deploymentMode: 'single',
-      defaultOrg: 'beta',
-      confirm: 'beta',
-    });
-    // 保存后对话框关闭
-    const vm2 = wrapper.vm as unknown as { confirmDialogVisible: boolean };
-    expect(vm2.confirmDialogVisible).toBe(false);
-  });
-
-  it('多组织模式下默认组织可清空（clearable=true）', async () => {
-    mockSettingsApi({ deploymentMode: 'multi', defaultOrg: 'acme' });
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
-    await flushPromises();
-
-    const vm = wrapper.vm as unknown as { deploymentMode: string };
-    expect(vm.deploymentMode).toBe('multi');
-    // el-select 的 clearable 属性通过 DOM 类名不好直接断言，
-    // 用 vm 状态和组件属性验证：多组织模式下应该可清空
-    const selectComp = wrapper.findComponent({ name: 'ElSelect' });
-    expect(selectComp.props('clearable')).toBe(true);
-  });
-
-  it('单组织模式下默认组织不可清空（clearable=false）', async () => {
-    mockSettingsApi({ deploymentMode: 'single', defaultOrg: 'acme' });
-    wrapper = await mountConsoleView(SettingsView, { role: 'super', route: '/admin/super/settings' });
-    await flushPromises();
-
-    const vm = wrapper.vm as unknown as { deploymentMode: string };
-    expect(vm.deploymentMode).toBe('single');
-    const selectComp = wrapper.findComponent({ name: 'ElSelect' });
-    expect(selectComp.props('clearable')).toBe(false);
+    const put = requests.find((request) => request.method === 'PUT' && request.url === '/api/admin/orgs/settings');
+    expect(put?.body).toMatchObject({ registrationMode: 'approval' });
   });
 });
 

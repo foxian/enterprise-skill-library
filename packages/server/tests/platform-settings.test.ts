@@ -57,7 +57,7 @@ describe('platform settings', () => {
 
   it('lets the super administrator switch org_registration_mode', async () => {
     const initial = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
-    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open' });
+    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open', memberAddMode: 'direct' });
 
     const updated = await app!.inject({
       method: 'PUT',
@@ -65,10 +65,10 @@ describe('platform settings', () => {
       headers: headers(),
       payload: { orgRegistrationMode: 'manual' }
     });
-    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
+    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
 
     const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
-    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open' });
+    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
   });
 
   it('rejects invalid mode values', async () => {

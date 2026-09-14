@@ -7,6 +7,7 @@ import SuperDashboard from '../views/super/DashboardView.vue';
 import SuperOrgs from '../views/super/OrgsView.vue';
 import SuperOrgDetail from '../views/super/OrgDetailView.vue';
 import SuperApplications from '../views/super/ApplicationsView.vue';
+import SuperRegistrations from '../views/super/RegistrationsView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
 import SuperSkills from '../views/super/SkillsView.vue';
 import SuperSkillManage from '../views/super/SkillManageView.vue';
@@ -35,7 +36,8 @@ export const router = createRouter({
         { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard, meta: { title: '平台概览', description: '组织、审批与技能资源的实时汇总' } },
         { path: 'orgs', name: 'super-orgs', component: SuperOrgs, meta: { title: '组织管理', description: '查看平台内全部组织的生命周期与资源概况' } },
         { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: '组织详情' } },
-        { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '注册审批', description: '处理组织注册申请，批准后将自动开通组织资源' } },
+        { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '组织申请审批', description: '处理组织注册申请，批准即同步开通组织资源' } },
+        { path: 'registrations', name: 'super-registrations', component: SuperRegistrations, meta: { title: '用户注册审批', description: '审批待激活的平台账号（approval 注册模式）' } },
         { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: '技能总览', description: '跨组织查看全部技能（含未发布）并代管权限' } },
         { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: '技能管理' } },
         { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: '平台设置', description: '配置组织注册的审批模式与平台级策略' } }

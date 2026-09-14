@@ -121,6 +121,47 @@ describe('技能列表视图', () => {
     expect(sharedTable).toContain('@acme/secret');
     expect(sharedTable).toContain('只读');
     expect(wrapper.find('[data-test="member-shared-table"]').find('[data-test="configure-secret"]').exists()).toBe(false);
+
+    // 归属关系标注（ADR-0032）：managed / shared 在表内显式可见
+    expect(wrapper.find('[data-test="relation-managed"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="relation-shared"]').exists()).toBe(true);
+  });
+
+  it('个人中心按命名空间筛选跨命名空间聚合的技能', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            { ...skills[0], name: '@acme/reviewer', scope: 'acme', skillName: 'reviewer', access: 'manage', relation: 'managed' },
+            {
+              name: '@beta/tool',
+              scope: 'beta',
+              skillName: 'tool',
+              createdBy: 'bob',
+              owner: 'bob',
+              access: 'manage',
+              relation: 'managed'
+            }
+          ]
+        };
+      }
+      if (url.startsWith('/api/skills/') && url.endsWith('/permissions')) {
+        return { status: 200, json: matrixFor('reviewer') };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MemberSkillsView, { role: 'member', route: '/admin/member/skills' });
+    await flushPromises();
+
+    // 未筛选时两个命名空间的技能都在
+    expect(wrapper.find('[data-test="member-skills-table"]').text()).toContain('@beta/tool');
+
+    // 选定命名空间后仅展示该命名空间的技能
+    const filter = wrapper.find('[data-test="namespace-filter"]');
+    await filter.find('input').setValue('beta');
+    await filter.find('input').trigger('keydown', { key: 'Enter' });
+    await flushPromises();
   });
 
   it('超管可见跨组织技能总览（含未发布）', async () => {

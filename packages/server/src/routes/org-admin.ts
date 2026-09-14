@@ -102,7 +102,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     return {
       orgRegistrationMode: getRegistrationMode(),
-      registrationMode: getUserRegistrationMode()
+      registrationMode: getUserRegistrationMode(),
+      memberAddMode: getMemberAddMode()
     };
   });
 
@@ -111,6 +112,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const body = (request.body ?? {}) as {
       orgRegistrationMode?: string;
       registrationMode?: string;
+      memberAddMode?: string;
     };
 
     if (body.orgRegistrationMode !== undefined) {
@@ -123,6 +125,11 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         return reply.status(400).send({ error: 'registrationMode must be open or approval' });
       }
     }
+    if (body.memberAddMode !== undefined) {
+      if (body.memberAddMode !== 'direct' && body.memberAddMode !== 'invite') {
+        return reply.status(400).send({ error: 'memberAddMode must be direct or invite' });
+      }
+    }
 
     if (body.orgRegistrationMode !== undefined) {
       platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
@@ -130,9 +137,13 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (body.registrationMode !== undefined) {
       platformSettingsRepository.setSetting('registration_mode', body.registrationMode);
     }
+    if (body.memberAddMode !== undefined) {
+      platformSettingsRepository.setSetting('member_add_mode', body.memberAddMode);
+    }
     return {
       orgRegistrationMode: getRegistrationMode(),
-      registrationMode: getUserRegistrationMode()
+      registrationMode: getUserRegistrationMode(),
+      memberAddMode: getMemberAddMode()
     };
   });
 
@@ -254,6 +265,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 
   function getUserRegistrationMode(): string {
     return platformSettingsRepository.getSetting('registration_mode') ?? 'open';
+  }
+
+  function getMemberAddMode(): string {
+    return platformSettingsRepository.getSetting('member_add_mode') ?? 'direct';
   }
 }
 function toApplicationView(application: {
