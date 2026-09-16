@@ -71,6 +71,32 @@ describe('organization namespace publish', () => {
     });
     // 组织技能 = 组织仓库
     expect(gitea.createRepo).toHaveBeenCalledWith('acme', 'tool', true);
+    // 创建者（普通成员）必须在 Gitea 层获得来源仓库访问权，否则首次 push 被拒
+    expect(gitea.addCollaborator).toHaveBeenCalledWith('acme', 'tool', 'bob', 'admin');
+    expect(await gitea.getCollaboratorPermission('acme', 'tool', 'bob')).toBe('admin');
+  });
+
+  it('re-grants creator Git access when resuming an interrupted first upload', async () => {
+    const first = await upload('bob-token', '@acme/tool');
+    expect(first.statusCode).toBe(201);
+    // 模拟修复前注册的无授权来源：清掉创建者的协作者授权后断点续传
+    await gitea.removeCollaborator('acme', 'tool', 'bob');
+    gitea.addCollaborator.mockClear();
+    gitea.createRepo.mockClear();
+
+    const retry = await upload('bob-token', '@acme/tool');
+    expect(retry.statusCode).toBe(200);
+    expect(gitea.createRepo).not.toHaveBeenCalled();
+    expect(gitea.addCollaborator).toHaveBeenCalledWith('acme', 'tool', 'bob', 'admin');
+  });
+
+  it('cleans up the orphan repository when the creator Git grant fails', async () => {
+    gitea.addCollaborator.mockRejectedValueOnce(new Error('gitea unavailable'));
+
+    const res = await upload('bob-token', '@acme/broken');
+    expect(res.statusCode).toBe(500);
+    expect(gitea.deleteRepo).toHaveBeenCalledWith('acme', 'broken');
+    expect(gitea.__state.repos.has('acme/broken')).toBe(false);
   });
 
   it('non-members are rejected with a membership-specific error', async () => {

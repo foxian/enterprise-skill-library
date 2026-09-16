@@ -36,6 +36,7 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
   // 仓库挂载的团队与协作者（权限事实源的状态镜像）
   const repoTeams = new Map<string, Set<number>>(); // "owner/repo" → teamIds
   const collaborators = new Map<string, Map<string, 'read' | 'write' | 'admin'>>();
+  const repos = new Set<string>(); // 已创建的仓库（"owner/repo"）
 
   for (const user of seed.users ?? []) {
     users.set(user.username, user.password);
@@ -150,23 +151,33 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     // GiteaService.createRepo 的语义：先按 admin/users/{owner}/repos 建（个人
     // 仓库与组织仓库同型），组织不存在时回退 /orgs/{owner}/repos。
-    createRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => ({
-      id: 1,
-      name,
-      full_name: `${owner}/${name}`,
-      clone_url: `http://gitea.local/${owner}/${name}.git`,
-      html_url: `http://gitea.local/${owner}/${name}`,
-      private: isPrivate
-    })),
+    createRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => {
+      repos.add(`${owner}/${name}`);
+      return {
+        id: 1,
+        name,
+        full_name: `${owner}/${name}`,
+        clone_url: `http://gitea.local/${owner}/${name}.git`,
+        html_url: `http://gitea.local/${owner}/${name}`,
+        private: isPrivate
+      };
+    }),
 
-    createOrganizationRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => ({
-      id: 1,
-      name,
-      full_name: `${owner}/${name}`,
-      clone_url: `http://gitea.local/${owner}/${name}.git`,
-      html_url: `http://gitea.local/${owner}/${name}`,
-      private: isPrivate
-    })),
+    createOrganizationRepo: vi.fn(async (owner: string, name: string, isPrivate = false) => {
+      repos.add(`${owner}/${name}`);
+      return {
+        id: 1,
+        name,
+        full_name: `${owner}/${name}`,
+        clone_url: `http://gitea.local/${owner}/${name}.git`,
+        html_url: `http://gitea.local/${owner}/${name}`,
+        private: isPrivate
+      };
+    }),
+
+    deleteRepo: vi.fn(async (owner: string, name: string) => {
+      repos.delete(`${owner}/${name}`);
+    }),
 
     addCollaborator: vi.fn(async (owner: string, repo: string, username: string, permission: 'read' | 'write' | 'admin' = 'write') => {
       const key = `${owner}/${repo}`;
@@ -335,6 +346,7 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       orgs,
       users,
       tokens,
+      repos,
       ownersTeam,
       ensureTeam,
       setOrgOwner(orgName: string, username: string): void {

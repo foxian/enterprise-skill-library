@@ -75,6 +75,8 @@ describe('Skill Source Upload API', () => {
       cloneUrl: expect.stringContaining('/git/alice/reviewer.git')
     });
     expect(gitea.createRepo).toHaveBeenCalledTimes(1);
+    // 个人命名空间仓库 owner 就是上传者本人，不需要协作者授权
+    expect(gitea.addCollaborator).not.toHaveBeenCalled();
   });
 
   it('still rejects re-upload of a published skill', async () => {

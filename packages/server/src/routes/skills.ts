@@ -110,6 +110,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       }
       // An interrupted first Source Upload: the same creator may resume against
       // the Active Unreleased Skill Source instead of hitting a duplicate error.
+      // 断点续传同样补齐创建者的 Git 访问权：修复前注册的来源可能从未授权。
+      await ensureSourceCreatorGitAccess(giteaService, scope, shortName, user.username);
       return reply
         .status(200)
         .send(withCloneUrl(request, { ...existing, versions: repository.getVersions(name) }));
@@ -119,6 +121,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     let skill: ReturnType<SkillRepository['createServerSkill']> | undefined;
     try {
       gitRepo = await giteaService.createRepo(scope, shortName, true);
+      // 组织命名空间的技能仓库是私有的且只挂组织 owners 团队，而 ADR-0032
+      // 允许任何成员 upload；创建者必须在 Gitea 层显式持有访问权（manage 档
+      // → admin 级协作者，ADR-0025），否则首次 Git push 会被 Gitea 以
+      // "Repository not found" 拒绝。
+      await ensureSourceCreatorGitAccess(giteaService, scope, shortName, user.username);
       skill = repository.createServerSkill({
         name,
         scope,
@@ -1238,6 +1245,20 @@ async function authenticateSkillUser(
   if (adminRepository?.hasIssuedToken(token) || token.startsWith('esl_')) return null;
   const user = await giteaService.validateToken(token);
   return user ? { username: user.username } : null;
+}
+
+// 组织命名空间的技能仓库创建时是私有的，只挂组织 owners 团队，而 ADR-0032
+// 允许任何组织成员 upload。创建者在 API 权限层被视为 owner/manage，但 Gitea
+// 不会因此自动获得私有仓库访问权，必须显式授权为协作者（manage 档映射为
+// admin 级，ADR-0025）。个人命名空间的仓库 owner 就是上传者本人，无需授权。
+async function ensureSourceCreatorGitAccess(
+  giteaService: GiteaService,
+  scope: string,
+  shortName: string,
+  username: string
+): Promise<void> {
+  if (scope === username || typeof giteaService.addCollaborator !== 'function') return;
+  await giteaService.addCollaborator(scope, shortName, username, 'admin');
 }
 
 function withCloneUrl<T extends { gitRepoPath: string }>(request: FastifyRequest, skill: T): T & { cloneUrl: string } {
