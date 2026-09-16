@@ -79,7 +79,7 @@ describe('esl whoami', () => {
 
     const result = await executeWhoami({ homeDir });
 
-    expect(formatWhoami(result)).toContain('Organizations: acme (ordinary), beta (owner)');
+    expect(formatWhoami(result)).toContain('Organization memberships: acme (ordinary), beta (owner)');
   });
 
   it('reports not logged in when there is no token', async () => {

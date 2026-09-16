@@ -11,7 +11,7 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 - **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
 
 ## 查看登录状态
-`esl whoami` —— 输出当前用户名 / 所属组织列表 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
+`esl whoami` —— 输出当前用户名 / Organization memberships（组织成员关系列表）/ Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
 （全局身份模型：一条凭据走遍个人命名空间与所有所在组织，组织列表由服务端按 Git Backend 成员关系派生。旧版配置带 `org`/`role` 字段时输出一行重新登录提示。）
 
 ## 登录

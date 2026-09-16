@@ -4,6 +4,7 @@ import type {
   OrgInvitationRepository,
   PlatformSettingsRepository,
   SkillRepository,
+  SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
@@ -12,11 +13,19 @@ import {
   addMemberToAutoJoinTeams,
   applyOrgIdentity,
   checkOwnerMemberInvariant,
+  isManagingMemberOf,
   isOwnerMemberOf,
   listOrgMembersWithIdentity,
   removeMemberFromOrganization
 } from '../services/organization-membership.js';
 import { DEFAULT_TEAM_DISPLAY_NAMES } from '../services/org-team-model.js';
+import {
+  backendTeamName,
+  deleteLogicalTeamProjection,
+  ensureLogicalTeamProjection,
+  type LogicalTeamProjection,
+  syncLogicalTeamMembers
+} from '../services/logical-team-projection.js';
 
 export interface OrgConsoleRouteOptions {
   giteaService: GiteaService;
@@ -24,12 +33,13 @@ export interface OrgConsoleRouteOptions {
   platformSettingsRepository: PlatformSettingsRepository;
   orgInvitationRepository: OrgInvitationRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
+  skillTeamGrantRepository: SkillTeamGrantRepository;
 }
 
 // 团队显示名(ADR-0029):ESL 侧可选展示字段,允许中文,最长 64 字符。
 const TEAM_DISPLAY_NAME_MAX = 64;
 
-// 不可删除/改名的团队 = 三个常设团队 ∪ Owners（组织管理团队，ADR-0036）。
+// 不可删除/改名的团队 = 四个命名常设团队 ∪ Owners（组织管理团队，ADR-0038）。
 // 它们同时不受通用团队成员接口管辖：那是身份，不是团队授权。
 function isProtectedTeam(team: { name: string; permission: string }): boolean {
   return team.permission === 'owner' || isStandingTeam(team.name);
@@ -40,16 +50,39 @@ const IDENTITY_NOT_A_TEAM_GRANT =
   'This team carries an organization identity, not a skill grant; change the member identity instead';
 
 export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConsoleRouteOptions): void {
-  const { giteaService, repository, platformSettingsRepository, orgInvitationRepository, tenantOrganizationRepository } =
+  const {
+    giteaService,
+    repository,
+    platformSettingsRepository,
+    orgInvitationRepository,
+    tenantOrganizationRepository,
+    skillTeamGrantRepository
+  } =
     options;
 
+  async function logicalProjectionForTeam(org: string, teamId: number): Promise<LogicalTeamProjection | undefined> {
+    const teams = await giteaService.listTeams(org);
+    const readTeam = teams.find((team) => team.id === teamId && team.name.endsWith('-read'));
+    if (!readTeam) return undefined;
+    const teamKey = readTeam.name.slice(0, -'-read'.length);
+    const projection = {} as LogicalTeamProjection;
+    for (const permission of ['read', 'write', 'manage'] as const) {
+      const team = teams.find((candidate) => candidate.name === backendTeamName(teamKey, permission));
+      if (!team) return undefined;
+      projection[permission] = team;
+    }
+    return projection;
+  }
+
   app.get('/api/orgs/:orgName/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     return listOrgMembersWithIdentity(giteaService, org);
   });
 
-  // 身份变更（ADR-0036）：提升 / 收回，是成员列表上的一等动作，只有所有者成员能做。
+  // 身份变更（ADR-0038）：提升 / 收回，是成员列表上的一等动作，只有所有者成员能做。
   // 三档嵌套由 applyOrgIdentity 落实；"不能让组织失去全部所有者成员"是唯一不变量。
   app.put('/api/orgs/:orgName/members/:username/identity', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
@@ -72,9 +105,11 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return { username, identity };
   });
 
-  // 直接添加：把已注册的全局账号拉进组织，自动加入只读、读写两个常设团队（ADR-0036）。
+  // 直接添加：把已注册的全局账号拉进组织，自动加入三个技能授权团队（ADR-0038）。
   app.post('/api/orgs/:orgName/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const { username = '' } = request.body as { username?: string };
     const usernameValidation = validateMemberUsername(username);
@@ -107,11 +142,20 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
 
   // 移出成员，同时也是**自我退出**（username 就是调用者自己）：两者是同一次
   // 组织隶属关系的终止，自动从全部团队移出并退出组织。唯一约束是"不能让组织
-  // 失去全部所有者成员"——自我降级、自我退出、被他人移出走同一条规则（ADR-0036）。
+  // 失去全部所有者成员"——自我降级、自我退出、被他人移出走同一条规则（ADR-0038）。
   app.delete('/api/orgs/:orgName/members/:username', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const username = decodeURIComponent((request.params as { username: string }).username);
+    const actor = await currentUsername(giteaService, request);
+    if (!actor) {
+      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    }
+    if (actor !== username && !(await isOwnerMemberOf(giteaService, org, actor))) {
+      return reply.status(403).send({ error: 'Forbidden: managing members can only remove themselves' });
+    }
     if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
       return reply.status(404).send({ error: `User is not a member of ${org}` });
     }
@@ -132,7 +176,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     return orgInvitationRepository.listForUser(username);
   });
 
-  // 被邀请人接受邀请：加入组织并自动进入只读、读写两个常设团队（ADR-0036）。
+  // 被邀请人接受邀请：加入组织并自动进入三个技能授权团队（ADR-0038）。
   app.post('/api/orgs/invitations/:id/accept', async (request, reply) => {
     const username = await currentUsername(giteaService, request);
     if (!username) {
@@ -193,107 +237,114 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   app.get('/api/orgs/:orgName/teams', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     // ADR-0025:对外统一 ESL 三档词汇,Gitea 的 admin 级团队呈现为 manage。
-    // ADR-0032:Owners 与三个常设团队是授权载体,不属于可管理的自定义团队,
+    // ADR-0032:Owners 与四个常设团队是授权载体,不属于可管理的自定义团队,
     // 不出现在团队管理界面。显示名读时惰性播种(ADR-0029)。
-    return (await giteaService.listTeams(org))
-      .filter((team) => !isProtectedTeam(team))
-      .map((team) => {
-        let displayName = tenantOrganizationRepository.getTeamDisplayName(org, team.id);
-        if (displayName === undefined && DEFAULT_TEAM_DISPLAY_NAMES[team.name] !== undefined) {
-          displayName = DEFAULT_TEAM_DISPLAY_NAMES[team.name];
-          tenantOrganizationRepository.setTeamDisplayName(org, team.id, displayName);
-        }
-        return {
-          ...team,
-          display_name: displayName,
-          permission: team.permission === 'admin' ? 'manage' : team.permission
-        };
-      });
+    const teams = await giteaService.listTeams(org);
+    const teamNames = new Set(teams.map((team) => team.name));
+    return teams
+      .filter((team) => team.name.endsWith('-read'))
+      .filter((team) => {
+        const key = team.name.slice(0, -'-read'.length);
+        return ['write', 'manage'].every((permission) =>
+          teamNames.has(backendTeamName(key, permission as 'write' | 'manage'))
+        );
+      })
+      .map((team) => ({
+        id: team.id,
+        name: team.name.slice(0, -'-read'.length),
+        display_name: tenantOrganizationRepository.getTeamDisplayName(org, team.id)
+      }));
   });
 
   app.post('/api/orgs/:orgName/teams', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
-    const body = request.body as { name?: string; permission?: string; display_name?: unknown };
-    const { name = '', permission = '' } = body;
+    const body = request.body as { name?: string; display_name?: unknown; permission?: unknown };
+    const { name = '' } = body;
     if (!/^[a-z0-9-]{1,64}$/.test(name)) {
       return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
     }
     if (isStandingTeam(name) || name === 'Owners') {
       return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
     }
-    // ADR-0025 三档:read/write/manage;ESL 的 manage 档映射为 Gitea admin 级团队,
-    // 该团队被关联到技能仓库即获得代管权。
-    if (permission !== 'read' && permission !== 'write' && permission !== 'manage') {
-      return reply.status(400).send({ error: 'Team permission must be read, write, or manage' });
+    if (body.permission !== undefined) {
+      return reply.status(400).send({ error: 'Custom teams do not have a fixed permission' });
     }
     const displayName = normalizeTeamDisplayName(body.display_name);
     if (displayName !== null && displayName !== undefined && displayName.length > TEAM_DISPLAY_NAME_MAX) {
       return reply.status(400).send({ error: 'Team display name must be at most 64 characters' });
     }
-    const team = await giteaService.createTeam(org, name, permission === 'manage' ? 'admin' : permission);
+    const projection = await ensureLogicalTeamProjection(giteaService, org, name, []);
     // ADR-0029:显示名是 ESL 侧数据,创建成功后落库;空显示名视为未设置。
     if (displayName) {
-      tenantOrganizationRepository.setTeamDisplayName(org, team.id, displayName);
+      tenantOrganizationRepository.setTeamDisplayName(org, projection.read.id, displayName);
     }
     return reply.status(201).send({
-      ...team,
-      display_name: displayName ?? undefined,
-      permission: team.permission === 'admin' ? 'manage' : team.permission
+      id: projection.read.id,
+      name,
+      display_name: displayName ?? undefined
     });
   });
 
   app.delete('/api/orgs/:orgName/teams/:teamId', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    // 常设团队与 Owners 不可删除(ADR-0032):授权载体必须稳定。
-    if (isProtectedTeam(team)) {
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) {
       return reply.status(400).send({ error: 'Standing teams cannot be deleted' });
     }
-    await giteaService.deleteTeam(teamId);
-    // ADR-0029:删除团队后清理其显示名记录,不留孤儿数据。
+    for (const grant of skillTeamGrantRepository.listByTeam(teamId)) {
+      const skill = repository.getSkill(grant.skillName);
+      if (!skill) continue;
+      const slash = skill.gitRepoPath.indexOf('/');
+      const repoOwner = skill.gitRepoPath.slice(0, slash);
+      const repoName = skill.gitRepoPath.slice(slash + 1);
+      await giteaService.removeTeamRepo(projection[grant.permission].id, repoOwner, repoName);
+    }
+    skillTeamGrantRepository.removeByTeam(teamId);
+    await deleteLogicalTeamProjection(giteaService, projection);
     tenantOrganizationRepository.deleteTeamProfile(org, teamId);
     return { deleted: true };
   });
 
-  // 自定义团队编辑(ADR-0029):标识名、权限档、显示名三者可选修改。标识名与
-  // 权限档经 Gitea(权限变更连带 units_map,保证单元级授权一致);显示名只落
-  // ESL DB,仅显示名变化时不调 Gitea。常设团队不可编辑(ADR-0032)。
-  // 权限档是跨技能联动开关:矩阵按团队当前权限实时派生,变更即改变该团队
-  // 挂载的所有技能上全体成员的访问级别——前端对此做影响面提示与二次确认。
+  // 自定义逻辑团队编辑只允许修改标识名和显示名；技能权限属于单个技能。
   app.patch('/api/orgs/:orgName/teams/:teamId', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    if (isProtectedTeam(team)) {
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) {
       return reply.status(400).send({ error: 'Standing teams cannot be edited' });
     }
-    const body = request.body as { name?: string; permission?: string; display_name?: unknown };
+    const body = request.body as { name?: string; permission?: unknown; display_name?: unknown };
     if (body.name !== undefined && !/^[a-z0-9-]{1,64}$/.test(body.name)) {
       return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
     }
     if (body.name !== undefined && (isStandingTeam(body.name) || body.name === 'Owners')) {
       return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
     }
-    if (
-      body.permission !== undefined &&
-      body.permission !== 'read' &&
-      body.permission !== 'write' &&
-      body.permission !== 'manage'
-    ) {
-      return reply.status(400).send({ error: 'Team permission must be read, write, or manage' });
+    if (body.permission !== undefined) {
+      return reply.status(400).send({ error: 'Custom teams do not have a fixed permission' });
     }
     // 显示名:字段存在即覆盖(空串/空 → 清空),不存在则保持。
     let displayNameChange: string | null | undefined;
@@ -303,20 +354,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
         return reply.status(400).send({ error: 'Team display name must be at most 64 characters' });
       }
     }
-    // 仅当标识名/权限档实际变化才调 Gitea(Gitea EditTeam 是部分更新)。
-    const giteaChanges: { name?: string; permission?: 'read' | 'write' | 'admin' } = {};
-    if (body.name !== undefined && body.name !== team.name) {
-      giteaChanges.name = body.name;
-    }
-    let giteaPermission: 'read' | 'write' | 'admin' | undefined;
-    if (body.permission === 'manage') giteaPermission = 'admin';
-    else if (body.permission === 'read' || body.permission === 'write') giteaPermission = body.permission;
-    if (giteaPermission !== undefined && giteaPermission !== team.permission) {
-      giteaChanges.permission = giteaPermission;
-    }
-    let updatedTeam = team;
-    if (Object.keys(giteaChanges).length > 0) {
-      updatedTeam = await giteaService.updateTeam(teamId, giteaChanges);
+    const currentKey = team.name.slice(0, -'-read'.length);
+    if (body.name !== undefined && body.name !== currentKey) {
+      for (const permission of ['read', 'write', 'manage'] as const) {
+        await giteaService.updateTeam(projection[permission].id, {
+          name: backendTeamName(body.name, permission)
+        });
+      }
     }
     if (displayNameChange !== undefined) {
       tenantOrganizationRepository.setTeamDisplayName(org, teamId, displayNameChange);
@@ -324,27 +368,33 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const displayName =
       displayNameChange ?? tenantOrganizationRepository.getTeamDisplayName(org, teamId);
     return {
-      ...updatedTeam,
-      display_name: displayName ?? undefined,
-      permission: updatedTeam.permission === 'admin' ? 'manage' : updatedTeam.permission
+      id: projection.read.id,
+      name: body.name ?? currentKey,
+      display_name: displayName ?? undefined
     };
   });
 
   app.get('/api/orgs/:orgName/teams/:teamId/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     if (!(await orgHasTeam(giteaService, org, teamId))) {
       return reply.status(403).send({ error: 'Team does not belong to your organization' });
     }
-    return giteaService.listTeamMembers(teamId);
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    return giteaService.listTeamMembers(projection.read.id);
   });
 
-  // ADR-0029:该团队已授权的技能数(= 团队挂载仓库中属于本组织技能仓库的数量)。
-  // 供前端编辑对话框在权限档变更时展示影响面("该团队已授权 N 个技能")。
+  // ADR-0029:该逻辑团队已授权的技能数(= 三个内部权限团队挂载仓库中属于
+  // 本组织技能仓库的去重数量)。
   // gitRepoPath 与 Gitea repo full_name 同为 "{owner}/{name}",直接匹配。
   app.get('/api/orgs/:orgName/teams/:teamId/skills-count', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     if (!(await orgHasTeam(giteaService, org, teamId))) {
@@ -356,17 +406,26 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
         .filter((skill) => skill.scope === org)
         .map((skill) => skill.gitRepoPath)
     );
-    const teamRepos = await giteaService.listTeamRepos(teamId);
-    const skillsCount = teamRepos.filter((repo) => skillRepoKeys.has(repo.full_name)).length;
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    const mountedRepos = new Set<string>();
+    for (const team of Object.values(projection)) {
+      for (const repo of await giteaService.listTeamRepos(team.id)) {
+        if (skillRepoKeys.has(repo.full_name)) mountedRepos.add(repo.full_name);
+      }
+    }
+    const skillsCount = mountedRepos.size;
     return { teamId, skillsCount };
   });
 
   // 团队成员授权:逐团队添加/移除成员(ADR-0032 权限矩阵的团队载体)。**只对自定义
-  // 团队成立**——受保护团队（Owners 与三个常设团队）的成员增删是身份变更，见
+  // 团队成立**——受保护团队（Owners 与四个常设团队）的成员增删是身份变更，见
   // /members/:username/identity。留着这条暗门，身份变更就有第二个入口，"至少保留
-  // 一名所有者成员"与超管兜底都能被绕过去（ADR-0036）。
+  // 一名所有者成员"与超管兜底都能被绕过去（ADR-0038）。
   app.post('/api/orgs/:orgName/teams/:teamId/members', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const { username = '' } = request.body as { username?: string };
@@ -385,12 +444,21 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!(await giteaService.getUser(username))) {
       return reply.status(404).send({ error: `User does not exist: ${username}` });
     }
-    await giteaService.addTeamMember(teamId, username);
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    await syncLogicalTeamMembers(giteaService, projection, [
+      ...new Set([
+        ...(await giteaService.listTeamMembers(projection.read.id)).map((member) => member.username),
+        username
+      ])
+    ]);
     return reply.status(201).send({ teamId, username });
   });
 
   app.delete('/api/orgs/:orgName/teams/:teamId/members/:username', async (request, reply) => {
-    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
+    const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository, {
+      allowManaging: true
+    });
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     const username = decodeURIComponent((request.params as { username: string }).username);
@@ -401,7 +469,12 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (isProtectedTeam(team)) {
       return reply.status(400).send({ error: IDENTITY_NOT_A_TEAM_GRANT });
     }
-    await giteaService.removeTeamMember(teamId, username);
+    const projection = await logicalProjectionForTeam(org, teamId);
+    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    const members = (await giteaService.listTeamMembers(projection.read.id))
+      .map((member) => member.username)
+      .filter((member) => member !== username);
+    await syncLogicalTeamMembers(giteaService, projection, members);
     return { teamId, username, removed: true };
   });
 
@@ -458,7 +531,8 @@ async function requireOrgAdministrator(
   giteaService: GiteaService,
   tenantOrganizationRepository: TenantOrganizationRepository,
   // 组织删除需要在 deleting / delete_failed 状态下仍可发起（重试），是唯一例外。
-  options: { allowNonActive?: boolean } = {}
+  // allowManaging 仅用于管理成员可执行的运营端点，不适用于身份与清退治理。
+  options: { allowNonActive?: boolean; allowManaging?: boolean } = {}
 ): Promise<string | null> {
   const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
   const authorization = request.headers.authorization;
@@ -476,8 +550,9 @@ async function requireOrgAdministrator(
     reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }
-  // 治理权 = 所有者成员身份（= Gitea Owners 团队成员，ADR-0036），任何所有者成员皆可治理。
-  if (!(await isOwnerMemberOf(giteaService, orgName, user.username))) {
+  const isOwner = await isOwnerMemberOf(giteaService, orgName, user.username);
+  const isOperator = options.allowManaging && (await isManagingMemberOf(giteaService, orgName, user.username));
+  if (!isOwner && !isOperator) {
     reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
     return null;
   }

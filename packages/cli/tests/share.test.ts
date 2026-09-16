@@ -54,7 +54,7 @@ describe('esl share', () => {
     );
   });
 
-  it('shares with a named team', async () => {
+  it('shares with a named team as read by default', async () => {
     const mockFetch = mockPermissionFetch();
 
     await executeShare('@acme/reviewer', { team: 'frontend', homeDir, customFetch: mockFetch as any });
@@ -62,7 +62,33 @@ describe('esl share', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/skills/acme/reviewer/permissions',
       expect.objectContaining({
-        body: JSON.stringify({ action: 'add_team', team: 'frontend' })
+        body: JSON.stringify({ action: 'set_team', team: 'frontend', permission: 'read' })
+      })
+    );
+  });
+
+  it('shares with a named team as write with --write', async () => {
+    const mockFetch = mockPermissionFetch();
+
+    await executeShare('@acme/reviewer', { team: 'frontend', write: true, homeDir, customFetch: mockFetch as any });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/skills/acme/reviewer/permissions',
+      expect.objectContaining({
+        body: JSON.stringify({ action: 'set_team', team: 'frontend', permission: 'write' })
+      })
+    );
+  });
+
+  it('shares with a named team as manage with --manage', async () => {
+    const mockFetch = mockPermissionFetch();
+
+    await executeShare('@acme/reviewer', { team: 'frontend', manage: true, homeDir, customFetch: mockFetch as any });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/skills/acme/reviewer/permissions',
+      expect.objectContaining({
+        body: JSON.stringify({ action: 'set_team', team: 'frontend', permission: 'manage' })
       })
     );
   });

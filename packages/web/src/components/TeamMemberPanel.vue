@@ -36,7 +36,6 @@ import { apiRequest } from '../api/client';
 interface TeamView {
   id: number;
   name: string;
-  permission: string;
 }
 
 interface GiteaUserView {

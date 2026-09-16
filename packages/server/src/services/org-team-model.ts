@@ -4,5 +4,6 @@
 export const DEFAULT_TEAM_DISPLAY_NAMES: Record<string, string> = {
   'all-readers': '组织只读团队',
   'all-writers': '组织读写团队',
-  'all-managers': '组织技能管理团队'
+  'all-managers': '组织技能管理团队',
+  'org-managers': '组织管理成员团队'
 };

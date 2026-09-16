@@ -5,6 +5,7 @@ import {
   OrgApplicationRepository,
   PlatformSettingsRepository,
   SkillRepository,
+  SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from './db/database.js';
 import { registerAdminRoutes } from './routes/admin.js';
@@ -67,6 +68,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
+  const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   expireStalePendingApplications();
 
   // 待审组织申请默认保留 30 天：过期即释放名字（ADR-0032）。
@@ -159,7 +161,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repository,
     platformSettingsRepository,
     orgInvitationRepository: new OrgInvitationRepository(db),
-    tenantOrganizationRepository
+    tenantOrganizationRepository,
+    skillTeamGrantRepository
   });
   registerAdminRoutes(app, {
     repository: adminRepository,
@@ -173,6 +176,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     giteaService: options.giteaService,
     repoOwner: options.repoOwner,
     tenantOrganizationRepository,
+    skillTeamGrantRepository,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
   });
   app.addHook('onClose', () => db.close());

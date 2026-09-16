@@ -11,14 +11,22 @@ const orgTeams = [
   { id: 1, name: 'Owners', permission: 'owner' },
   { id: 2, name: 'all-readers', permission: 'read' },
   { id: 3, name: 'all-writers', permission: 'write' },
-  { id: 7, name: 'frontend', permission: 'read' },
-  { id: 8, name: 'admins', permission: 'admin' }
+  { id: 4, name: 'all-managers', permission: 'admin' },
+  { id: 6, name: 'org-managers', permission: 'read' },
+  { id: 7, name: 'frontend-read', permission: 'read' },
+  { id: 8, name: 'frontend-write', permission: 'write' },
+  { id: 9, name: 'frontend-manage', permission: 'admin' }
 ];
 
 function createRbacGitea() {
   const mountedTeams = new Map<string, Set<number>>();
   const collaborators = new Map<string, Map<string, 'read' | 'write' | 'admin'>>();
-  const teamMembers = new Map<number, Set<string>>([[7, new Set(['acme_bob'])]]);
+  const frontendMembers = new Set(['acme_bob']);
+  const teamMembers = new Map<number, Set<string>>([
+    [7, frontendMembers],
+    [8, frontendMembers],
+    [9, frontendMembers]
+  ]);
 
   const repoCollaborators = (repo: string): Map<string, 'read' | 'write' | 'admin'> => {
     let perRepo = collaborators.get(repo);
@@ -49,9 +57,11 @@ function createRbacGitea() {
       return null;
     }),
     // ADR-0032：组织管理团队成员 = Owners 团队成员（不再依赖 <org>_admin 命名约定）
-    listOrgOwners: vi.fn(async () => [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }]),
+    listOrgOwners: vi.fn(async (org: string) =>
+      org === 'acme' ? [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }] : []
+    ),
     adminUsername: 'eslroot',
-    listTeams: vi.fn(async () => orgTeams),
+    listTeams: vi.fn(async (org: string) => (org === 'acme' ? orgTeams : [])),
     listRepoTeams: vi.fn(async (_owner: string, repo: string) =>
       orgTeams.filter((team) => repoMountedTeams(repo).has(team.id))
     ),
@@ -157,7 +167,6 @@ describe('skill RBAC permissions', () => {
     const mockGitea = createRbacGitea();
     mockGitea.listTeams.mockResolvedValue([
       ...orgTeams,
-      { id: 4, name: 'all-managers', permission: 'admin' },
       { id: 5, name: 'system-admins', permission: 'admin' }
     ]);
     // all-managers 与 system-admins 都挂载到仓库:前者构成共享级别,
@@ -265,7 +274,7 @@ describe('skill RBAC permissions', () => {
     expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(2, 'acme', 'reviewer');
   });
 
-  it('grants and revokes a custom team through the team repo API', async () => {
+  it('sets and removes one logical team permission per skill', async () => {
     const mockGitea = createRbacGitea();
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
     const headers = { authorization: 'token alice-token' };
@@ -274,20 +283,55 @@ describe('skill RBAC permissions', () => {
       method: 'POST',
       url: '/api/skills/acme/reviewer/permissions',
       headers,
-      payload: { action: 'add_team', team: 'frontend' }
+      payload: { action: 'set_team', team_id: 7, permission: 'write' }
     });
     expect(granted.statusCode).toBe(200);
-    expect(mockGitea.addTeamRepo).toHaveBeenCalledWith(7, 'acme', 'reviewer');
-    expect(granted.json().teams).toEqual([{ id: 7, name: 'frontend', permission: 'read' }]);
+    expect(mockGitea.addTeamRepo).toHaveBeenCalledWith(8, 'acme', 'reviewer');
+    expect(granted.json().teams).toEqual([{ id: 7, name: 'frontend', permission: 'write' }]);
+
+    const raised = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers,
+      payload: { action: 'set_team', team_id: 7, permission: 'manage' }
+    });
+    expect(raised.statusCode).toBe(200);
+    expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(8, 'acme', 'reviewer');
+    expect(mockGitea.addTeamRepo).toHaveBeenCalledWith(9, 'acme', 'reviewer');
+    expect(raised.json().teams).toEqual([{ id: 7, name: 'frontend', permission: 'manage' }]);
 
     const revoked = await app.inject({
       method: 'POST',
       url: '/api/skills/acme/reviewer/permissions',
       headers,
-      payload: { action: 'remove_team', team: 'frontend' }
+      payload: { action: 'remove_team', team_id: 7 }
     });
     expect(revoked.json().teams).toEqual([]);
-    expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(7, 'acme', 'reviewer');
+    expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(9, 'acme', 'reviewer');
+  });
+
+  it('keeps logical team permissions independent per skill', async () => {
+    const mockGitea = createRbacGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+    const headers = { authorization: 'token admin-token' };
+
+    const reviewerRead = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers,
+      payload: { action: 'set_team', team_id: 7, permission: 'read' }
+    });
+    const secretWrite = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/secret/permissions',
+      headers,
+      payload: { action: 'set_team', team_id: 7, permission: 'write' }
+    });
+
+    expect(reviewerRead.json().teams).toEqual([{ id: 7, name: 'frontend', permission: 'read' }]);
+    expect(secretWrite.json().teams).toEqual([{ id: 7, name: 'frontend', permission: 'write' }]);
+    expect(mockGitea.__state.repoMountedTeams('reviewer')).toEqual(new Set([7]));
+    expect(mockGitea.__state.repoMountedTeams('secret')).toEqual(new Set([8]));
   });
 
   it('rejects an unknown team when granting team access', async () => {
@@ -298,7 +342,7 @@ describe('skill RBAC permissions', () => {
       method: 'POST',
       url: '/api/skills/acme/reviewer/permissions',
       headers: { authorization: 'token alice-token' },
-      payload: { action: 'add_team', team: 'ghost' }
+      payload: { action: 'set_team', team_id: 999, permission: 'read' }
     });
 
     expect(response.statusCode).toBe(404);
@@ -365,6 +409,104 @@ describe('skill RBAC permissions', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().sharedAllRead).toBe(true);
+  });
+
+  it('lets a managing member manage any organization skill', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.teamMembers.set(6, new Set(['acme_bob']));
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const matrix = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/secret/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+    expect(matrix.statusCode).toBe(200);
+    expect(matrix.json().viewerAccess).toBe('manage');
+
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/secret/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'share_all_read' }
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json().sharedAllRead).toBe(true);
+  });
+
+  it('does not grant organization skill management from all-managers membership alone', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.teamMembers.set(4, new Set(['acme_bob']));
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const matrix = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/secret/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+    expect(matrix.statusCode).toBe(403);
+
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme/secret/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'share_all_read' }
+    });
+    expect(changed.statusCode).toBe(403);
+  });
+
+  it('does not extend managing authority into a personal namespace', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.teamMembers.set(6, new Set(['acme_bob']));
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createServerSkill({
+      name: '@acme_zed/personal',
+      scope: 'acme_zed',
+      skillName: 'personal',
+      description: 'Personal skill',
+      createdBy: 'acme_zed',
+      owner: 'acme_zed',
+      maintainers: ['acme_zed'],
+      visibility: 'private',
+      gitRepoPath: 'acme_zed/personal',
+      status: 'active-published'
+    });
+    db.close();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const matrix = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme_zed/personal/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+    expect(matrix.statusCode).toBe(403);
+  });
+
+  it('does not extend managing authority into another organization namespace', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.teamMembers.set(6, new Set(['acme_bob']));
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createServerSkill({
+      name: '@beta/internal',
+      scope: 'beta',
+      skillName: 'internal',
+      description: 'Beta skill',
+      createdBy: 'beta_zoe',
+      owner: 'beta_zoe',
+      maintainers: ['beta_zoe'],
+      visibility: 'private',
+      gitRepoPath: 'beta/internal',
+      status: 'active-published'
+    });
+    db.close();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const matrix = await app.inject({
+      method: 'GET',
+      url: '/api/skills/beta/internal/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+    expect(matrix.statusCode).toBe(403);
   });
 
   it('rejects permission changes from a member without ownership', async () => {
@@ -536,8 +678,7 @@ describe('skill RBAC permissions', () => {
 
   it('lets a manage-level team member configure permissions', async () => {
     const mockGitea = createRbacGitea();
-    mockGitea.__state.repoMountedTeams('secret').add(8);
-    mockGitea.__state.teamMembers.set(8, new Set(['acme_bob']));
+    mockGitea.__state.repoMountedTeams('secret').add(9);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     const response = await app.inject({
@@ -860,10 +1001,10 @@ describe('skill RBAC permissions', () => {
     expect(after.statusCode).toBe(403);
   });
 
-  // SC-G11 (ADR-0025):矩阵把 Gitea admin 级团队呈现为 manage
-  it('reports an admin-level team as manage in the permission matrix', async () => {
+  // 逻辑团队的管理投影挂载后，矩阵仍以逻辑团队和 manage 档呈现。
+  it('reports a manage projection as the logical team permission', async () => {
     const mockGitea = createRbacGitea();
-    mockGitea.__state.repoMountedTeams('secret').add(8);
+    mockGitea.__state.repoMountedTeams('secret').add(9);
     app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
 
     // 组织管理团队成员对本组织技能持有管理权,可读任意技能矩阵
@@ -874,7 +1015,7 @@ describe('skill RBAC permissions', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().teams).toContainEqual({ id: 8, name: 'admins', permission: 'manage' });
+    expect(response.json().teams).toContainEqual({ id: 7, name: 'frontend', permission: 'manage' });
   });
 
   // 技能管理页面:读级成员可查看矩阵与只读技能上下文,但变更仍需管理权
@@ -973,6 +1114,24 @@ describe('skill RBAC permissions', () => {
     });
     expect(reader.statusCode).toBe(200);
     expect(reader.json().viewerAccess).toBe('read');
+  });
+
+  it('uses public read as a baseline but keeps higher team access', async () => {
+    const mockGitea = createRbacGitea();
+    mockGitea.__state.repoMountedTeams('reviewer').add(8);
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).setVisibility('@acme/reviewer', 'public');
+    db.close();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/skills/acme/reviewer/permissions',
+      headers: { authorization: 'token bob-token' }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().viewerAccess).toBe('write');
   });
 
   it('reports the highest stable release as latestRelease, not the most recently published one', async () => {

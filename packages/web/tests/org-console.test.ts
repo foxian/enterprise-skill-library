@@ -29,7 +29,7 @@ const members = [
   { id: 4, username: 'carol', email: 'carol@local.esl' }
 ];
 // 服务端 /api/orgs/:org/teams 已过滤 Owners 与三个常设团队,只返回自定义团队
-const teams = [{ id: 7, name: 'frontend', permission: 'read' }];
+const teams = [{ id: 7, name: 'frontend' }];
 
 let wrapper: VueWrapper | undefined;
 
@@ -42,6 +42,37 @@ afterEach(async () => {
 });
 
 describe('MembersView 成员管理', () => {
+  it('管理成员可以添加成员，但看不到身份变更与移除操作', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') {
+        return {
+          status: 200,
+          json: [
+            { username: 'admin', identity: 'owner' },
+            { username: 'manager', identity: 'managing' },
+            { username: 'bob', identity: 'ordinary' }
+          ]
+        };
+      }
+      if (url === '/api/public/platform-info') {
+        return { status: 200, json: { registrationMode: 'open', memberAddMode: 'direct' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MembersView, {
+      account: 'managing',
+      route: '/admin/me/orgs/acme/members'
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="open-add-member"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="set-managing-bob"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="set-owner-bob"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="remove-bob"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="demote-bob"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="remove-manager"]').exists()).toBe(true);
+  });
+
   it('直接添加已注册账号即生效并刷新列表', async () => {
     const { requests } = useApiMock((method, url) => {
       if (url === '/api/orgs/acme/members') {
@@ -174,10 +205,10 @@ describe('TeamsView 团队管理', () => {
     expect(text).toContain('frontend');
   });
 
-  it('新建团队携带权限级别并请求组织作用域端点', async () => {
+  it('新建团队不携带固定权限并请求组织作用域端点', async () => {
     const { requests } = useApiMock((method, url) => {
       if (url === '/api/orgs/acme/teams' && method === 'POST') {
-        return { status: 201, json: { id: 9, name: 'backend', permission: 'write' } };
+        return { status: 201, json: { id: 9, name: 'backend' } };
       }
       if (url === '/api/orgs/acme/teams') {
         return { status: 200, json: teams };
@@ -197,7 +228,7 @@ describe('TeamsView 团队管理', () => {
       (request) => request.method === 'POST' && request.url === '/api/orgs/acme/teams'
     );
     expect(createRequest).toBeDefined();
-    expect(createRequest?.body).toMatchObject({ name: 'backend' });
+    expect(createRequest?.body).toEqual({ name: 'backend', display_name: '' });
   });
 
   it('删除自定义团队需弹窗确认', async () => {
@@ -315,7 +346,15 @@ describe('组织治理界面', () => {
   it('提升与收回身份都走成员列表的一等动作', async () => {
     const { requests } = useApiMock((method, url) => {
       if (url === '/api/orgs/acme/members') return { status: 200, json: governedMembers };
-      if (url === '/api/orgs/mine') return { status: 200, json: { organizations: [], pendingApplications: [] } };
+      if (url === '/api/orgs/mine') {
+        return {
+          status: 200,
+          json: {
+            organizations: [{ org: 'acme', identity: 'owner', isOwnerMember: true }],
+            pendingApplications: []
+          }
+        };
+      }
       if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
       return { status: 200, json: [] };
     });
@@ -382,6 +421,60 @@ describe('组织治理界面', () => {
 
     const deletion = requests.find((request) => request.method === 'DELETE' && request.url === '/api/orgs/acme');
     expect(deletion?.body).toEqual({ confirm: 'acme' });
+  });
+
+  it('管理成员详情页显示管理成员身份，且不显示组织删除区', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') {
+        return {
+          status: 200,
+          json: [
+            { username: 'manager', identity: 'managing' },
+            { username: 'bob', identity: 'ordinary' }
+          ]
+        };
+      }
+      if (url === '/api/public/platform-info') {
+        return { status: 200, json: { memberAddMode: 'direct' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(OrgDetailLayout, {
+      account: 'managing',
+      route: '/admin/me/orgs/acme/members'
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="org-identity"]').text()).toContain('@acme');
+    expect(wrapper.text()).toContain('管理成员');
+    expect(wrapper.find('[data-test="org-danger-zone"]').exists()).toBe(false);
+  });
+});
+
+describe('我的组织：管理成员入口', () => {
+  it('管理成员可以从我的组织进入运营控制台', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/mine') {
+        return {
+          status: 200,
+          json: {
+            organizations: [
+              { org: 'acme', identity: 'managing', isOwnerMember: false, status: 'active' }
+            ],
+            pendingApplications: []
+          }
+        };
+      }
+      if (url === '/api/public/platform-info') {
+        return { status: 200, json: { orgRegistrationMode: 'auto' } };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(MeOrgsView, { account: 'managing', route: '/admin/me/orgs' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="manage-acme"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="browse-acme"]').exists()).toBe(false);
   });
 });
 

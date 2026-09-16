@@ -25,7 +25,7 @@
       data-test="org-last-error"
     />
 
-    <!-- 平台管理员的身份兜底（ADR-0036）：超管不参与组织，因此不经成员身份也能
+    <!-- 平台管理员的身份兜底（ADR-0038）：超管不参与组织，因此不经成员身份也能
          查看、变更身份与移出成员。"组织必须至少保留一名所有者成员"这条不变量对
          超管同样成立；此外超管还能**空降**——把组织外的人直接设为所有者成员，
          这是组织里确实无人可用时唯一不是"整体删除"的出路。 -->
@@ -122,7 +122,7 @@
     <el-dialog v-model="airdropVisible" title="指派所有者成员" width="460px">
       <p class="dialog-hint">
         用于组织里没有可用管理者时：把<strong>任何已注册账号</strong>设为该组织的所有者成员。
-        对方若还不在组织内，会同时被加入组织并进入只读、读写两个常设团队。
+        对方若还不在组织内，会同时被加入组织并进入三个技能授权团队与 org-managers。
       </p>
       <el-form label-width="100px">
         <el-form-item label="用户名" required>
@@ -183,7 +183,7 @@ function promotionTargets(member: AdminMemberView): Array<'managing' | 'owner'> 
   return [];
 }
 
-/** 不变量（ADR-0036）：任何走法都不能让组织失去全部所有者成员。 */
+/** 不变量（ADR-0038）：任何走法都不能让组织失去全部所有者成员。 */
 function isLastOwner(member: AdminMemberView): boolean {
   return member.identity === 'owner' && ownerCount.value <= 1;
 }

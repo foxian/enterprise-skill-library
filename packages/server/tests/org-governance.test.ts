@@ -214,6 +214,7 @@ describe('organization governance powers', () => {
     await gitea.createTeam('acme', 'all-readers', 'read');
     await gitea.createTeam('acme', 'all-writers', 'write');
     await gitea.createTeam('acme', 'all-managers', 'admin');
+    await gitea.createTeam('acme', 'org-managers', 'read');
     const superToken = (await gitea.loginUser('eslroot', 'root-password'))!;
     await buildWith(gitea);
     const superHeaders = { authorization: `token ${superToken}` };
@@ -229,12 +230,12 @@ describe('organization governance powers', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ username: 'outsider', identity: 'owner' });
-    // 空降必须同时建立组织隶属关系并补进两个常设团队，否则会造出"不在组织里、
-    // 却是组织所有者"的状态
+    // 空降必须同时建立组织隶属关系并补进技能团队与 org-managers，否则会造出
+    // "不在组织里、却是组织所有者"的状态。
     expect((await gitea.listUserOrgs('outsider')).map((org) => org.name)).toEqual(['acme']);
     const teams = await gitea.listTeams('acme');
     const owners = teams.find((team) => team.permission === 'owner')!;
-    const managing = teams.find((team) => team.name === 'all-managers')!;
+    const managing = teams.find((team) => team.name === 'org-managers')!;
     expect(await gitea.isTeamMember(owners.id, 'outsider')).toBe(true);
     expect(await gitea.isTeamMember(managing.id, 'outsider')).toBe(true);
   });

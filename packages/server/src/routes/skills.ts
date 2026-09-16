@@ -13,9 +13,16 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import semver from 'semver';
-import type { AdminRepository, SkillRecord, SkillRepository, TenantOrganizationRepository } from '../db/database.js';
-import type { GiteaService } from '../services/gitea.js';
-import { isOwnerMemberOf } from '../services/organization-membership.js';
+import type {
+  AdminRepository,
+  SkillRecord,
+  SkillRepository,
+  SkillTeamGrantRepository,
+  TenantOrganizationRepository
+} from '../db/database.js';
+import type { GiteaService, GiteaTeam } from '../services/gitea.js';
+import { isManagingMemberOf, isOwnerMemberOf } from '../services/organization-membership.js';
+import { backendTeamName } from '../services/logical-team-projection.js';
 
 export interface SkillsRouteOptions {
   repository: SkillRepository;
@@ -23,17 +30,30 @@ export interface SkillsRouteOptions {
   giteaService: GiteaService;
   repoOwner: string;
   tenantOrganizationRepository: TenantOrganizationRepository;
+  skillTeamGrantRepository: SkillTeamGrantRepository;
   packageRoot?: string;
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
-  const { repository, adminRepository, giteaService, repoOwner, tenantOrganizationRepository } = options;
+  const {
+    repository,
+    adminRepository,
+    giteaService,
+    repoOwner,
+    tenantOrganizationRepository,
+    skillTeamGrantRepository
+  } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
   // 权限矩阵的响应体;读路径(GET)与变更路径(POST)共用同一形状——客户端用响应整体
   // 替换本地状态,两个路由少一个字段就会让界面状态退化(变更后控件集体失效)。
   const buildPermissionsResponse = async (skill: SkillRecord, username: string) => ({
-    ...(await getPermissionMatrix(giteaService, tenantOrganizationRepository, skill)),
+    ...(await getPermissionMatrix(
+      giteaService,
+      tenantOrganizationRepository,
+      skillTeamGrantRepository,
+      skill
+    )),
     skill: buildSkillContext(repository, skill),
     // 查看者自己的权限档:与变更守门、技能列表的 access 用同一套判定(getAccessLevel),
     // 前端据此决定变更类控件是否可用,避免「点了才知道 403」。
@@ -241,7 +261,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(403).send({ error: 'Forbidden: manage permission required' });
     }
 
-    const body = request.body as { action?: string; team?: string; username?: string; permission?: string };
+    const body = request.body as {
+      action?: string;
+      team?: string;
+      team_id?: number;
+      username?: string;
+      permission?: string;
+    };
     const repo = skillRepo(skill);
     // 路由侧做无副作用的参数与目标校验,实际的 Gitea 变更同步执行
     // (ADR-0032:Operation 机器退役);Gitea 始终是权限的事实来源。
@@ -267,16 +293,46 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, teamId: team.id };
         break;
       }
-      case 'add_team':
-      case 'remove_team': {
-        if (!body.team) {
-          return reply.status(400).send({ error: 'Team name is required' });
-        }
-        const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === body.team);
-        if (!team) {
+      case 'remove_team':
+      case 'set_team': {
+        const teams = await giteaService.listTeams(skill.scope);
+        const teamKey = body.team ?? undefined;
+        const teamById =
+          typeof body.team_id === 'number'
+            ? teams.find((entry) => entry.id === body.team_id && entry.name.endsWith('-read'))
+            : undefined;
+        const readTeam =
+          teamById ??
+          (teamKey ? teams.find((entry) => entry.name === teamKey || entry.name === `${teamKey}-read`) : undefined);
+        const logicalName = readTeam?.name.endsWith('-read')
+          ? readTeam.name.slice(0, -'-read'.length)
+          : teamKey;
+        if (!readTeam || !logicalName) {
           return reply.status(404).send({ error: 'Team not found in organization' });
         }
-        payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, teamId: team.id };
+        const isProjection =
+          teams.some((entry) => entry.name === backendTeamName(logicalName, 'read')) &&
+          teams.some((entry) => entry.name === backendTeamName(logicalName, 'write')) &&
+          teams.some((entry) => entry.name === backendTeamName(logicalName, 'manage'));
+        if (!isProjection) {
+          return reply.status(400).send({ error: 'Team is not a logical custom team' });
+        }
+        if (body.action === 'set_team' &&
+            body.permission !== 'read' &&
+            body.permission !== 'write' &&
+            body.permission !== 'manage') {
+          return reply.status(400).send({ error: 'Team permission must be read, write, or manage' });
+        }
+        payload = {
+          skillName: name,
+          scope: skill.scope,
+          repoOwner: repo.owner,
+          repoName: repo.name,
+          action: body.action,
+          teamId: readTeam.id,
+          permission: body.permission,
+          username: logicalName
+        };
         break;
       }
       case 'add_member': {
@@ -321,12 +377,34 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           }
           break;
         }
-        case 'add_team':
-          await giteaService.addTeamRepo(payload.teamId!, repo.owner, repo.name);
+        case 'set_team': {
+          const teams = await giteaService.listTeams(skill.scope);
+          const logicalName = payload.username!;
+          const projection = {
+            read: teams.find((team) => team.name === backendTeamName(logicalName, 'read')),
+            write: teams.find((team) => team.name === backendTeamName(logicalName, 'write')),
+            manage: teams.find((team) => team.name === backendTeamName(logicalName, 'manage'))
+          };
+          for (const team of Object.values(projection)) {
+            if (team) await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
+          }
+          const permission = payload.permission as 'read' | 'write' | 'manage';
+          const selected = projection[permission];
+          if (!selected) return reply.status(409).send({ error: 'Logical team projection is incomplete' });
+          await giteaService.addTeamRepo(selected.id, repo.owner, repo.name);
+          skillTeamGrantRepository.set(payload.skillName, payload.teamId!, permission);
           break;
-        case 'remove_team':
-          await giteaService.removeTeamRepo(payload.teamId!, repo.owner, repo.name);
+        }
+        case 'remove_team': {
+          const teams = await giteaService.listTeams(skill.scope);
+          const logicalName = payload.username!;
+          for (const permission of ['read', 'write', 'manage'] as const) {
+            const team = teams.find((entry) => entry.name === backendTeamName(logicalName, permission));
+            if (team) await giteaService.removeTeamRepo(team.id, repo.owner, repo.name);
+          }
+          skillTeamGrantRepository.remove(payload.skillName, payload.teamId!);
           break;
+        }
         case 'add_member':
           await giteaService.addCollaborator(
             repo.owner,
@@ -348,6 +426,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
               await giteaService.removeCollaborator(repo.owner, repo.name, member.username);
             }
           }
+          skillTeamGrantRepository.clearAllForSkill?.(payload.skillName);
           break;
         }
         default:
@@ -957,12 +1036,12 @@ async function getAccessLevel(
   if (giteaService.adminUsername && username === giteaService.adminUsername) return 'manage';
   // 组织管理团队治理兜底（ADR-0033）：Owners 团队成员可见并管理
   // 本组织名下全部技能；个人技能的 scope 即所有者本人，已在上面命中。
-  if (skill.scope !== username && (await isOrgAdministrator(giteaService, skill.scope, username))) {
+  if (skill.scope !== username && (await isOrgSkillManager(giteaService, skill.scope, username))) {
     return 'manage';
   }
-  // public 技能对任何已登录用户可读,无需向 Git Backend 查询权限。
-  // 也避免对 DB 中存在但 Gitea 侧仓库缺失的孤儿记录触发 Gitea 调用。
-  if (skill.visibility === 'public') return 'read';
+  // public 是 Read 基线而不是权限上限：继续合并团队与个人授权，使 write/manage
+  // 来源能够提升最终权限。仓库缺失或查询失败时仍保留 public 的可读兜底。
+  const publicRead = skill.visibility === 'public';
   const hasPermissionSupport =
     typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
   if (!hasPermissionSupport) {
@@ -970,28 +1049,34 @@ async function getAccessLevel(
     return 'read';
   }
   const repo = skillRepo(skill);
-  let level: SkillAccessLevel = 'none';
-  if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
-    for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
-      if (!(await giteaService.isTeamMember(team.id, username))) continue;
-      if (team.permission === 'admin' || team.permission === 'owner') return 'manage';
-      if (team.permission === 'write') level = 'write';
-      else if (level === 'none') level = 'read';
+  let level: SkillAccessLevel = publicRead ? 'read' : 'none';
+  try {
+    if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
+      for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
+        if (!(await giteaService.isTeamMember(team.id, username))) continue;
+        if (team.permission === 'admin' || team.permission === 'owner') return 'manage';
+        if (team.permission === 'write') level = 'write';
+        else if (level === 'none') level = 'read';
+      }
     }
-  }
-  if (typeof giteaService.getCollaboratorPermission === 'function') {
-    const permission = await giteaService.getCollaboratorPermission(repo.owner, repo.name, username);
-    if (permission === 'admin' || permission === 'owner') return 'manage';
-    if (permission === 'write') level = 'write';
-    else if (permission === 'read' && level === 'none') level = 'read';
+    if (typeof giteaService.getCollaboratorPermission === 'function') {
+      const permission = await giteaService.getCollaboratorPermission(repo.owner, repo.name, username);
+      if (permission === 'admin' || permission === 'owner') return 'manage';
+      if (permission === 'write') level = 'write';
+      else if (permission === 'read' && level === 'none') level = 'read';
+    }
+  } catch (error) {
+    if (publicRead) return level;
+    throw error;
   }
   return level;
 }
 
-// 组织治理权判定（ADR-0033）：scope 组织的管理团队（= Gitea Owners）成员身份。
-// scope 不是组织（个人技能）时按非治理者处理，判定统一走共享实现。
-function isOrgAdministrator(giteaService: GiteaService, org: string, username: string): Promise<boolean> {
-  return isOwnerMemberOf(giteaService, org, username);
+// 组织级技能管理权（ADR-0038）：所有者成员或 org-managers 成员。scope 不是组织
+// （个人技能）时按无组织级权限处理，判定统一走共享实现。
+async function isOrgSkillManager(giteaService: GiteaService, org: string, username: string): Promise<boolean> {
+  return (await isOwnerMemberOf(giteaService, org, username)) ||
+    (await isManagingMemberOf(giteaService, org, username));
 }
 
 async function hasReadAccess(
@@ -1017,9 +1102,47 @@ function normalizePermission(permission: string): string {
   return permission === 'admin' || permission === 'owner' ? 'manage' : permission;
 }
 
+function projectionPermission(teamName: string): 'read' | 'write' | 'manage' | undefined {
+  if (teamName.endsWith('-read')) return 'read';
+  if (teamName.endsWith('-write')) return 'write';
+  if (teamName.endsWith('-manage')) return 'manage';
+  return undefined;
+}
+
+function buildLogicalTeamViews(
+  repoTeams: GiteaTeam[],
+  orgTeams: GiteaTeam[],
+  grants: Array<{ teamId: number; permission: 'read' | 'write' | 'manage' }>,
+  tenantOrganizationRepository: TenantOrganizationRepository,
+  scope: string
+): Array<{ id: number; name: string; display_name?: string; permission: string }> {
+  const views = new Map<number, { id: number; name: string; display_name?: string; permission: string }>();
+  for (const mounted of repoTeams) {
+    const mountedPermission = projectionPermission(mounted.name);
+    if (!mountedPermission) continue;
+    const logicalName = mounted.name.slice(0, -`-${mountedPermission}`.length);
+    const projection = {
+      read: orgTeams.find((team) => team.name === backendTeamName(logicalName, 'read')),
+      write: orgTeams.find((team) => team.name === backendTeamName(logicalName, 'write')),
+      manage: orgTeams.find((team) => team.name === backendTeamName(logicalName, 'manage'))
+    };
+    if (!projection.read || !projection.write || !projection.manage) continue;
+    const readTeam = projection.read;
+    const grant = grants.find((entry) => entry.teamId === readTeam.id);
+    views.set(readTeam.id, {
+      id: readTeam.id,
+      name: logicalName,
+      display_name: tenantOrganizationRepository.getTeamDisplayName(scope, readTeam.id),
+      permission: grant?.permission ?? mountedPermission
+    });
+  }
+  return [...views.values()];
+}
+
 async function getPermissionMatrix(
   giteaService: GiteaService,
   tenantOrganizationRepository: TenantOrganizationRepository,
+  skillTeamGrantRepository: SkillTeamGrantRepository,
   skill: SkillRecord
 ) {
   const repo = skillRepo(skill);
@@ -1027,6 +1150,12 @@ async function getPermissionMatrix(
     typeof giteaService.listRepoTeams === 'function'
       ? await giteaService.listRepoTeams(repo.owner, repo.name)
       : [];
+  let orgTeams: GiteaTeam[] = [];
+  try {
+    orgTeams = await giteaService.listTeams(skill.scope);
+  } catch {
+    // 个人技能没有组织团队；权限矩阵只保留共享状态与个人协作者。
+  }
   const members =
     typeof giteaService.listCollaborators === 'function'
       ? await giteaService.listCollaborators(repo.owner, repo.name)
@@ -1048,13 +1177,13 @@ async function getPermissionMatrix(
     sharedAllManage: repoTeams.some((team) => team.name === 'all-managers'),
     // 团队授权下拉仅列自定义团队:默认团队由共享级别承载,Owners 与
     // system-admins 的权限是结构性的,逐技能授予无意义(ADR-0026)。
-    teams: repoTeams
-      .filter((team) => !['all-readers', 'all-writers', 'all-managers', 'system-admins', 'Owners'].includes(team.name))
-      .map((team) => ({
-        ...team,
-        display_name: tenantOrganizationRepository.getTeamDisplayName(skill.scope, team.id),
-        permission: normalizePermission(team.permission)
-      })),
+    teams: buildLogicalTeamViews(
+      repoTeams,
+      orgTeams,
+      skillTeamGrantRepository.list(skill.name),
+      tenantOrganizationRepository,
+      skill.scope
+    ),
     members: memberViews
   };
 }

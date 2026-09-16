@@ -40,7 +40,7 @@ export type PermissionsResponse = PermissionMatrix & {
 export interface TeamOption {
   id: number;
   name: string;
-  permission: string;
+  permission?: string;
   display_name?: string;
 }
 

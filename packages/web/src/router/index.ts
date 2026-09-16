@@ -22,14 +22,14 @@ import InvitationsView from '../views/me/InvitationsView.vue';
 import { useAuthStore } from '../stores/auth';
 
 /**
- * 路由守卫用的两个正交判定（ADR-0033 / ADR-0036）：`view` 是平台角色轴
- * （超管控制台 / 个人控制台，恰好两个），`requiresOwnerMember` 是资源级治理权
- * （该路由参数指名的组织，查看者是否是其所有者成员）。不再用一个全局角色值
+ * 路由守卫用的两个正交判定（ADR-0033 / ADR-0038）：`view` 是平台角色轴
+ * （超管控制台 / 个人控制台，恰好两个），`requiresOrgOperator` 是资源级运营权
+ * （该路由参数指名的组织，查看者是否是其管理成员或所有者成员）。不再用一个全局角色值
  * 代理资源级权限。
  */
 export interface ConsoleRouteMeta {
   view?: 'platform' | 'personal';
-  requiresOwnerMember?: boolean;
+  requiresOrgOperator?: boolean;
   public?: boolean;
   title?: string;
   description?: string;
@@ -71,11 +71,11 @@ export const router = createRouter({
         {
           path: 'orgs/:org',
           component: OrgDetailLayout,
-          meta: { requiresOwnerMember: true },
+          meta: { requiresOrgOperator: true },
           children: [
             { path: '', redirect: { name: 'me-org-members' } },
-            { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: '成员管理', description: '管理本组织成员，移出即自动离开三个常设团队' } },
-            { path: 'teams', name: 'me-org-teams', component: OrgTeamsView, meta: { title: '团队管理', description: '自定义团队按权限级别批量授权；常设团队由平台维护' } },
+            { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: '成员管理', description: '管理本组织成员，移出即自动离开全部技能授权团队' } },
+            { path: 'teams', name: 'me-org-teams', component: OrgTeamsView, meta: { title: '团队管理', description: '自定义团队按技能授权；常设团队由平台维护' } },
             {
               path: 'skills',
               name: 'me-org-skills',
@@ -112,8 +112,8 @@ router.beforeEach((to) => {
   if (meta.view === 'personal' && auth.isPlatformAdmin) {
     return { name: 'login' };
   }
-  // 资源级判定：治理入口只对所有者成员开放，其余人回只读的组织列表
-  if (meta.requiresOwnerMember && !auth.isOwnerMember(String(to.params.org ?? ''))) {
+  // 资源级判定：运营入口对管理成员与所有者成员开放，其余人回只读的组织列表。
+  if (meta.requiresOrgOperator && !auth.isOrgOperator(String(to.params.org ?? ''))) {
     return { name: 'me-orgs' };
   }
   return true;

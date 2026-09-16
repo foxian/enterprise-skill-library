@@ -21,40 +21,51 @@
         </el-table-column>
         <el-table-column label="操作" width="320">
           <template #default="{ row }">
-            <!-- 身份变更是一等动作（ADR-0036）。三档嵌套，所以可用的动作就是
-                 "往下补"与"往上收"两件，直落普通成员，没有中间档。 -->
+            <template v-if="canGovern">
+              <!-- 身份变更是一等动作（ADR-0038）。三档嵌套，所以可用的动作就是
+                   "往下补"与"往上收"两件，直落普通成员，没有中间档。 -->
+              <el-button
+                v-for="next in promotionTargets(row)"
+                :key="next"
+                link
+                type="primary"
+                :data-test="`set-${next}-${row.username}`"
+                @click="changeIdentity(row, next)"
+              >
+                {{ promotionLabel(next) }}
+              </el-button>
+              <el-button
+                v-if="row.identity !== 'ordinary'"
+                link
+                type="warning"
+                :data-test="`demote-${row.username}`"
+                :disabled="!canDemote(row)"
+                :title="demoteBlockReason(row)"
+                @click="changeIdentity(row, 'ordinary')"
+              >
+                收回为普通成员
+              </el-button>
+              <!-- 互管与"至少保留一名所有者成员"（ADR-0038）在服务端兜底，
+                   前端按同一规则禁用，以免点了才吃 400 -->
+              <el-button
+                link
+                type="danger"
+                :data-test="`remove-${row.username}`"
+                :disabled="!canRemove(row)"
+                :title="removalBlockReason(row)"
+                @click="openRemove(row)"
+              >
+                {{ row.username === auth.username ? '退出组织' : '移出' }}
+              </el-button>
+            </template>
             <el-button
-              v-for="next in promotionTargets(row)"
-              :key="next"
-              link
-              type="primary"
-              :data-test="`set-${next}-${row.username}`"
-              @click="changeIdentity(row, next)"
-            >
-              {{ promotionLabel(next) }}
-            </el-button>
-            <el-button
-              v-if="row.identity !== 'ordinary'"
-              link
-              type="warning"
-              :data-test="`demote-${row.username}`"
-              :disabled="!canDemote(row)"
-              :title="demoteBlockReason(row)"
-              @click="changeIdentity(row, 'ordinary')"
-            >
-              收回为普通成员
-            </el-button>
-            <!-- 互管与"至少保留一名所有者成员"（ADR-0036）在服务端兜底，
-                 前端按同一规则禁用，以免点了才吃 400 -->
-            <el-button
+              v-else-if="row.username === auth.username"
               link
               type="danger"
               :data-test="`remove-${row.username}`"
-              :disabled="!canRemove(row)"
-              :title="removalBlockReason(row)"
               @click="openRemove(row)"
             >
-              {{ row.username === auth.username ? '退出组织' : '移出' }}
+              退出组织
             </el-button>
           </template>
         </el-table-column>
@@ -63,7 +74,7 @@
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
 
-    <el-card v-if="inviteMode" class="data-card" shadow="never">
+    <el-card v-if="inviteMode && canGovern" class="data-card" shadow="never">
       <template #header>待接受的邀请</template>
       <el-table
         v-if="invitations.length > 0"
@@ -164,6 +175,7 @@ const platformInfo = ref<{ memberAddMode?: 'direct' | 'invite' } | null>(null);
 
 const ownerCount = computed(() => members.value.filter((member) => member.identity === 'owner').length);
 const leaveSelf = computed(() => removeTarget.value === auth.username);
+const canGovern = computed(() => auth.isOwnerMember(org.value));
 
 /** 三档嵌套：往下的每一档都可作为提升目标；所有者成员没有可提的档。 */
 function promotionTargets(member: OrgMemberView): Array<'managing' | 'owner'> {
@@ -173,7 +185,7 @@ function promotionTargets(member: OrgMemberView): Array<'managing' | 'owner'> {
 }
 
 /**
- * 服务端不变量（ADR-0036）的镜像：**任何走法都不能让组织失去全部所有者成员**——
+ * 服务端不变量（ADR-0038）的镜像：**任何走法都不能让组织失去全部所有者成员**——
  * 被他人移出、自我降级、自我退出，三者同一条规则。除此之外，把自己降级或退出
  * 都是正当动作，前端不再拦。
  */
@@ -227,7 +239,7 @@ async function refreshSessionOrganizations(): Promise<void> {
 }
 
 async function loadInvitations(): Promise<void> {
-  if (!inviteMode.value) return;
+  if (!inviteMode.value || !canGovern.value) return;
   invitationsLoading.value = true;
   try {
     invitations.value = await apiRequest<InvitationView[]>(`/api/orgs/${org.value}/invitations`);

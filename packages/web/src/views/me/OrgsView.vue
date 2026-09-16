@@ -21,7 +21,7 @@
         </el-table-column>
         <el-table-column label="我的身份" width="180">
           <template #default="{ row }">
-            <!-- 待审申请还没产生组织，此时没有任何身份（ADR-0036） -->
+            <!-- 待审申请还没产生组织，此时没有任何身份（ADR-0038） -->
             <el-tag v-if="row.identity" :type="identityTagType(row.identity)" :data-test="`org-identity-${row.identity}`">
               {{ identityLabel(row.identity) }}
             </el-tag>
@@ -30,15 +30,24 @@
         </el-table-column>
         <el-table-column label="操作" width="180">
           <template #default="{ row }">
-            <!-- 治理入口只对所有者成员渲染（ADR-0035）：其余成员看到的是只读视图 -->
+            <!-- 运营入口对管理成员与所有者成员开放；其余成员看到只读技能入口。 -->
             <el-button
-              v-if="row.isOwnerMember && (row.status === 'active' || row.status === 'delete_failed' || row.status === 'deleting')"
+              v-if="row.identity === 'owner' && (row.status === 'delete_failed' || row.status === 'deleting')"
               link
               type="primary"
               :data-test="`manage-${row.org}`"
               @click="openOrg(row.org)"
             >
-              {{ row.status === 'delete_failed' ? '重试删除' : '管理' }}
+              {{ row.status === 'delete_failed' ? '重试删除' : '查看进度' }}
+            </el-button>
+            <el-button
+              v-else-if="(row.identity === 'managing' || row.identity === 'owner') && row.status === 'active'"
+              link
+              type="primary"
+              :data-test="`manage-${row.org}`"
+              @click="openOrg(row.org)"
+            >
+              管理
             </el-button>
             <el-button
               v-else-if="row.status === 'active'"
@@ -94,7 +103,7 @@ import { useAuthStore } from '../../stores/auth';
 
 interface OrganizationRow {
   org: string;
-  /** 我在该组织的身份；待审申请尚未产生组织，此时为 null（ADR-0036）。 */
+  /** 我在该组织的身份；待审申请尚未产生组织，此时为 null（ADR-0038）。 */
   identity: OrgIdentity | null;
   isOwnerMember: boolean;
   /** 组织生命周期状态（ADR-0034）：active / pending / deleting / delete_failed … */

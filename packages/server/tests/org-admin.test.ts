@@ -131,6 +131,7 @@ describe('super administrator org console API', () => {
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-readers', 'read');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-writers', 'write');
     expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'all-managers', 'admin');
+    expect(mockGitea.createTeam).toHaveBeenCalledWith('acme', 'org-managers', 'read');
     expect(JSON.stringify(mockGitea.createTeam.mock.calls)).not.toContain('system-admins');
 
     const db = initDatabase(dbPath);

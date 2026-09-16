@@ -7,10 +7,12 @@ import {
   loadConfig,
   validateSkillMd,
   validateSkillSourceDirectory,
-  type LocalStoreOptions
+  type LocalStoreOptions,
+  type OrganizationMembership
 } from '@esl/core';
 import { notify } from '../output.js';
 import { isInteractive, readText } from '../prompt.js';
+import { apiUrl, fetchWithTimeout, resolveOptionalFreshToken } from './network-options.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +21,8 @@ export interface InitOptions extends LocalStoreOptions {
   directory?: string;
   /** Skill short name for a generated SKILL.md. Defaults to the directory basename. */
   name?: string;
+  /** Namespace for release.json: "personal" (default) or an organization name. */
+  namespace?: string;
   runGitInit?: boolean;
   license?: string;
   keywords?: string[];
@@ -27,6 +31,8 @@ export interface InitOptions extends LocalStoreOptions {
   noInput?: boolean;
   /** Injected by tests in place of the interactive prompt. */
   promptText?: (question: string, fallback: string) => Promise<string>;
+  /** Injected by tests in place of the real fetch for the namespace menu. */
+  customFetch?: typeof fetch;
 }
 
 /**
@@ -40,6 +46,53 @@ function yamlScalar(value: string): string {
 
 function isValidSkillName(name: string): boolean {
   return /^[a-z0-9-]{1,64}$/.test(name);
+}
+
+function normalizeNamespace(value: string): string | null {
+  const namespace = value.trim().replace(/^@/, '');
+  if (!namespace || namespace === 'personal') return null;
+  if (!isValidSkillName(namespace)) {
+    throw new Error(
+      'Namespace must be "personal" or use lowercase letters, digits, and hyphens (1-64 characters)'
+    );
+  }
+  return namespace;
+}
+
+// namespace 菜单的数据来源：优先实时查询服务端组织列表，请求失败或未登录时
+// 回退登录时缓存的成员关系；两者都没有则返回 null，由调用方退回手输提示。
+// 整个解析尽力而为，绝不阻断离线的 init。
+async function resolveNamespaceChoices(options: InitOptions): Promise<string[] | null> {
+  const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+  let memberships: (OrganizationMembership & { status?: string })[] | null = null;
+
+  const token = await resolveOptionalFreshToken(options);
+  if (token && config?.server) {
+    try {
+      const fetchImpl = options.customFetch ?? fetch;
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        apiUrl(config.server, '/api/orgs/mine'),
+        { headers: { Authorization: `token ${token}` } },
+        // 菜单是锦上添花：网络不健康时快速回退，不让 init 卡在超时上。
+        3_000
+      );
+      if (response.ok) {
+        const data = (await response.json()) as {
+          organizations?: (OrganizationMembership & { status?: string })[];
+        };
+        memberships = Array.isArray(data.organizations)
+          ? data.organizations.filter((membership) => !membership.status || membership.status === 'active')
+          : [];
+      }
+    } catch {
+      // Fall back to the login-time cache below.
+    }
+  }
+  if (!memberships && config?.organizations) {
+    memberships = config.organizations;
+  }
+  return memberships ? memberships.map((membership) => membership.org) : null;
 }
 
 export async function executeInit(options: InitOptions = {}): Promise<string> {
@@ -92,6 +145,7 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
   let description = options.description ?? defaultDescription;
   let license = options.license ?? 'MIT';
   let keywords = options.keywords ?? [];
+  let namespace: string | null | undefined;
 
   // Interactive terminals get asked; scripts and --no-input keep the template.
   const ask = options.promptText ?? (isInteractive() ? readText : undefined);
@@ -111,15 +165,44 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
         .map((keyword) => keyword.trim())
         .filter((keyword) => keyword.length > 0);
     }
+    if (generateReleaseJson && options.namespace === undefined) {
+      const choices = await resolveNamespaceChoices(options);
+      if (choices) {
+        // 编号选择：1 固定为 personal，其余为所在组织；也接受直接输入组织名。
+        const menu = [
+          'Namespace:',
+          '  1. personal (default)',
+          ...choices.map((org, index) => `  ${index + 2}. @${org}`)
+        ].join('\n');
+        notify(menu);
+        while (true) {
+          const answer = (await ask('Select namespace [1]: ', '1')).trim().replace(/^@/, '');
+          if (!answer || answer === '1' || answer === 'personal') break;
+          if (/^\d+$/.test(answer)) {
+            const org = choices[Number(answer) - 2];
+            if (org) {
+              namespace = org;
+              break;
+            }
+          } else if (choices.includes(answer)) {
+            namespace = answer;
+            break;
+          }
+          notify(`Invalid namespace; enter 1-${choices.length + 1}, "personal", or an organization name.`);
+        }
+      } else {
+        const answer = (await ask('Namespace (personal or organization) [personal]: ', 'personal')).trim();
+        namespace = normalizeNamespace(answer || 'personal');
+      }
+    }
   }
 
   if (generateReleaseJson) {
-    // v3 的 name 是归属声明（ADR-0032）：已登录时默认归属到个人命名空间
-    // @用户名/技能名；未登录写裸名（等价——服务端按上传者补全个人命名空间）。
+    // v3 的 name 是归属声明（ADR-0032）：默认裸名，由服务端按上传者补全
+    // 个人命名空间；组织归属必须显式选择，避免静默推断不可逆身份。
     const defaultName = skillName ?? path.basename(targetDir);
-    const scopedName = await loadConfig({ homeDir: options.homeDir })
-      .then((config) => (config.username ? `@${config.username}/${defaultName}` : defaultName))
-      .catch(() => defaultName);
+    namespace ??= options.namespace === undefined ? null : normalizeNamespace(options.namespace);
+    const scopedName = namespace ? `@${namespace}/${defaultName}` : defaultName;
     const releaseJson = { ...createMinimalReleaseManifest(scopedName, license), keywords };
     await fs.writeFile(releaseJsonPath, `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
   }

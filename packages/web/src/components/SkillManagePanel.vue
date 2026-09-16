@@ -145,6 +145,11 @@
               placeholder="团队名"
               style="width: 220px"
             />
+            <el-select v-model="teamPermission" :disabled="!canManage" data-test="team-permission" style="width: 110px">
+              <el-option label="只读" value="read" />
+              <el-option label="读写" value="write" />
+              <el-option label="管理" value="manage" />
+            </el-select>
             <el-button type="primary" :disabled="!canManage" data-test="grant-team" @click="grantTeam">添加授权</el-button>
           </div>
           <el-table v-if="matrix.teams.length" :data="matrix.teams" size="small">
@@ -158,7 +163,7 @@
                   type="danger"
                   :disabled="!canManage"
                   :data-test="`revoke-team-${row.name}`"
-                  @click="applyAction('remove_team', { team: row.name })"
+                  @click="applyAction('remove_team', { team_id: row.id })"
                 >
                   移除
                 </el-button>
@@ -271,6 +276,7 @@ const canManage = computed(() => viewerAccess.value === 'manage');
 const errorMessage = ref('');
 
 const selectedTeam = ref('');
+const teamPermission = ref<'read' | 'write' | 'manage'>('read');
 const selectedMember = ref('');
 const memberPermission = ref<'read' | 'write' | 'manage'>('read');
 
@@ -328,11 +334,13 @@ function permissionText(permission: string): string {
 }
 
 function teamLabel(team: TeamOption): string {
-  return `${teamDisplayName(team)}（${permissionText(team.permission)}）`;
+  return team.permission
+    ? `${teamDisplayName(team)}（${permissionText(team.permission)}）`
+    : teamDisplayName(team);
 }
 
 // ADR-0029:界面优先展示团队显示名(允许中文),未设置回退标识名。
-// 授权 value 与 remove_team 请求体仍用标识名(team.name)。
+// 团队授权使用逻辑团队的稳定 read 投影 ID，权限档只在当前技能生效。
 function teamDisplayName(team: { name: string; display_name?: string }): string {
   return team.display_name || team.name;
 }
@@ -443,7 +451,11 @@ async function grantTeam(): Promise<void> {
     return;
   }
   const team = selectedTeam.value;
-  if (await applyAction('add_team', { team })) {
+  const option = teamOptions.value.find((entry) => entry.name === team);
+  const payload = option
+    ? { team_id: option.id, permission: teamPermission.value }
+    : { team, permission: teamPermission.value };
+  if (await applyAction('set_team', payload)) {
     selectedTeam.value = '';
     ElMessage.success('团队授权已更新');
   }

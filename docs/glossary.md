@@ -37,3 +37,18 @@ authorized users and teams can discover, install, adapt, and use it.
 
 A tool-specific transformation that copies or formats a skill for an AI Agent
 environment such as Claude, Codex, TRAE, or TRAE CN.
+
+## Logical Team
+
+ESL 层的自定义团队，只表示一组组织成员，不携带固定技能权限。逻辑团队可以在
+不同技能上分别获得 Read、Write 或 Manage 授权。
+
+## Skill Team Grant
+
+针对单个技能授予逻辑团队的权限档位。同一技能、同一逻辑团队最多有一个档位，
+不同技能之间互不影响。
+
+## Backend Permission Team
+
+Git Backend 中由逻辑团队投影出的内部团队，分别对应 Read、Write 和 Manage。它们
+是实现细节，不作为 ESL 用户可见的自定义团队。

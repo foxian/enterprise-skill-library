@@ -200,6 +200,24 @@ docker compose exec api npm run seed --workspace @esl/server
 （默认为 `false`，因此生产环境以干净数据库启动），然后执行
 `docker compose up -d api` 使新值生效到容器中。
 
+## 权限数据初始化
+
+从旧版固定团队权限模型切换到技能级团队授权时，执行一次权限数据初始化。该操作会
+清空自定义团队、技能团队/个人授权与显示名记录，但保留组织、成员账号、技能源码和
+发布记录，并重建 `all-readers`、`all-writers`、`all-managers` 及成员关系。
+
+本地 Docker 环境先重建并启动 API，再在容器内执行：
+
+```powershell
+docker compose build api
+docker compose up -d api
+docker compose exec -T api npm run initialize:permissions --workspace @esl/server
+```
+
+命令是幂等的，但会撤销全部技能级权限，适合用户已确认“不迁移存量权限”的维护窗口。
+非 Docker 部署可在具备 `DATABASE_PATH`、`GITEA_URL` 与管理员令牌的进程中运行
+`npm run initialize:permissions`。
+
 ## 重置环境
 
 开发或 E2E 运行后，持久化卷中会累积陈旧数据

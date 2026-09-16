@@ -35,9 +35,9 @@ const STANDING_TEAMS = new Set(STANDING_TEAM_NAMES);
 
 onMounted(async () => {
   errorMessage.value = '';
-  // 个人命名空间不属于任何组织，没有组织级授权目标；组织命名空间则要求查看者
-  // 是它的所有者成员（ADR-0033 的逐组织治理权）。
-  if (!auth.isOwnerMember(scope.value)) {
+  // 个人命名空间不属于任何组织，没有组织级授权目标；组织命名空间要求查看者
+  // 是管理成员或所有者成员（ADR-0038 的逐组织运营权）。
+  if (!auth.isOrgOperator(scope.value)) {
     return;
   }
   try {

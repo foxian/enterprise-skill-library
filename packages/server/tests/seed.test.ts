@@ -57,15 +57,23 @@ describe('development seed', () => {
 
     const owners = await (gitea.listOrgOwners as ReturnType<typeof vi.fn>)('acme');
     expect(owners.map((owner: { username: string }) => owner.username)).toContain('alice');
-    // bob 是组织成员（在某个非 Owners 团队里）
+    // 所有成员进三个技能团队；org-managers 只承载管理成员身份。
     const teams = await (gitea.listTeams as ReturnType<typeof vi.fn>)('acme');
-    const bobTeams = [];
-    for (const team of teams) {
-      if (team.permission !== 'owner' && (await gitea.isTeamMember(team.id, 'bob'))) {
-        bobTeams.push(team.name);
+    const teamNamesFor = async (username: string): Promise<string[]> => {
+      const names: string[] = [];
+      for (const team of teams) {
+        if (await gitea.isTeamMember(team.id, username)) names.push(team.name);
       }
-    }
-    expect(bobTeams.length).toBeGreaterThan(0);
+      return names.sort();
+    };
+    expect(await teamNamesFor('bob')).toEqual(['all-managers', 'all-readers', 'all-writers']);
+    expect(await teamNamesFor('alice')).toEqual([
+      'Owners',
+      'all-managers',
+      'all-readers',
+      'all-writers',
+      'org-managers'
+    ]);
 
     // 开发组织同样登记进平台组织注册表（与生产路径一致：组织=active）
     const db2 = initDatabase(dbPath);

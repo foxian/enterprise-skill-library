@@ -14,7 +14,7 @@ import {
 } from './network-options.js';
 import { ensureReleaseManifest } from './release-manifest.js';
 import { executeInfo } from './info.js';
-import { isInteractive, readText } from '../prompt.js';
+import { confirm, isInteractive, readText } from '../prompt.js';
 import { notify } from '../output.js';
 
 const defaultExecFileAsync = promisify(execFile);
@@ -26,6 +26,10 @@ export interface UploadOptions extends NetworkCommandOptions {
   license?: string;
   message?: string;
   noInput?: boolean;
+  /** Required in non-interactive first uploads; must equal release.json.name. */
+  confirmIdentity?: string;
+  /** Injected by tests in place of the interactive confirmation prompt. */
+  confirmPrompt?: (question: string) => Promise<boolean>;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -55,6 +59,10 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
   if (!sourceValidation.success) {
     throw new Error(`Invalid skill source: ${sourceValidation.errors.join(', ')}`);
   }
+  const identity = sourceValidation.data.releaseManifest.name;
+  if (!(await hasEslRemote(execFileAsync, directory))) {
+    await confirmFirstUpload(options, identity);
+  }
   const message = await resolveUploadMessage(options);
   await prepareSourceGit(execFileAsync, directory, message, await resolveFallbackGitIdentity(options));
   // ADR-0032:release.json v3 的 name 是归属的唯一权威来源,原样上送——
@@ -62,10 +70,32 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
   return uploadSource(
     options,
     directory,
-    sourceValidation.data.releaseManifest.name,
+    identity,
     sourceValidation.data.skillMd.name,
     sourceValidation.data.skillMd.description
   );
+}
+
+async function confirmFirstUpload(options: UploadOptions, identity: string): Promise<void> {
+  if (options.confirmIdentity !== undefined) {
+    if (options.confirmIdentity !== identity) {
+      throw new Error(`Upload identity confirmation mismatch: expected ${identity}, got ${options.confirmIdentity}`);
+    }
+    return;
+  }
+
+  const prompt = options.confirmPrompt ?? (isInteractive() ? confirm : undefined);
+  if (!prompt) {
+    throw new Error(
+      `First upload fixes the skill identity; pass --confirm-identity ${identity} to confirm it in non-interactive mode`
+    );
+  }
+  const approved = await prompt(
+    `About to create a server-hosted skill source as ${identity}. This identity is fixed after upload. Continue? [y/N] `
+  );
+  if (!approved) {
+    throw new Error('Upload cancelled');
+  }
 }
 
 const DEFAULT_GITIGNORE = [
@@ -215,6 +245,7 @@ async function uploadSource(
           'renames must go through "esl rename", not by editing SKILL.md'
       );
     }
+    await assertHostedNamespace(options, identity, skillNameFromRemote(remoteUrl));
     uploaded = { name: skillNameFromRemote(remoteUrl), skillId: '', cloneUrl: remoteUrl };
     // 技能描述(CONTEXT:Skill Description)随每次 Source Update 登记到服务器:
     // 它是纯元数据更新,尽力而为——失败不阻断源码同步,仅在输出中提示。
@@ -282,6 +313,36 @@ async function uploadSource(
     throw hostedSourceAccessError((error as Error).message, { includePushHint: true });
   }
   return uploaded;
+}
+
+async function assertHostedNamespace(options: UploadOptions, declaredIdentity: string, hostedIdentity: string): Promise<void> {
+  let expectedNamespace: string;
+  if (!declaredIdentity.startsWith('@')) {
+    const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+    if (!config?.username) {
+      throw new Error(
+        `Cannot verify the bare release.json name "${declaredIdentity}" against the hosted source; log in again so the personal namespace can be resolved`
+      );
+    }
+    expectedNamespace = config.username;
+  } else {
+    expectedNamespace = namespaceFromIdentity(declaredIdentity);
+  }
+  const hostedNamespace = namespaceFromIdentity(hostedIdentity);
+  if (expectedNamespace !== hostedNamespace) {
+    throw new Error(
+      `release.json declares namespace "${expectedNamespace}", but this source is hosted under namespace "${hostedNamespace}". ` +
+        'Restore the established namespace, or create a new source; cross-namespace migration is not supported.'
+    );
+  }
+}
+
+function namespaceFromIdentity(identity: string): string {
+  const namespace = identity.match(/^@([^/]+)\//)?.[1];
+  if (!namespace) {
+    throw new Error(`Cannot determine the namespace from the skill identity "${identity}"`);
+  }
+  return namespace;
 }
 
 // 带身份标记的「已托管源不可访问」错误:调用方据此识别错误已被包裹,避免对已

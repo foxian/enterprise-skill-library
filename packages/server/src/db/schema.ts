@@ -112,6 +112,19 @@ export const databaseSchema = `
     PRIMARY KEY (org_name, gitea_team_id)
   );
 
+  CREATE TABLE IF NOT EXISTS skill_team_grants (
+    skill_name TEXT NOT NULL,
+    team_id INTEGER NOT NULL,
+    permission TEXT NOT NULL CHECK (permission IN ('read', 'write', 'manage')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (skill_name, team_id),
+    FOREIGN KEY (skill_name) REFERENCES skills(name) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS skill_team_grants_team_index
+    ON skill_team_grants (team_id);
+
   -- 组织邀请（ADR-0032）：邀请制拉人方式下的入组凭证，被邀请人接受后入组。
   CREATE TABLE IF NOT EXISTS org_invitations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

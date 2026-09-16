@@ -42,7 +42,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 // 开发环境自动 seed 的全局账号（ADR-0032）：账号无 <org>_ 前缀。
-// alice 是组织 acme 的所有者成员，bob 是普通成员（ADR-0036）。
+// alice 是组织 acme 的所有者成员，bob 是普通成员（ADR-0038）。
 // 幂等：GiteaService 的创建调用对已存在（409）保持沉默。
 const DEV_ACCOUNT_PASSWORD = 'esl-dev-password';
 
@@ -57,20 +57,21 @@ export async function seedDevelopmentAccounts(
   // 与生产路径一致：组织在平台注册表中登记为 active（幂等）
   tenantOrganizationRepository?.create({ orgName: 'acme', status: 'active' });
 
-  // 三个常设团队按 ADR-0032 的预置形状幂等补建（与 initializeOrganization 同形）
+  // 四个常设团队按 ADR-0038 的预置形状幂等补建（与 initializeOrganization 同形）
   const teams = await giteaService.listTeams('acme');
   for (const [name, permission] of [
     ['all-readers', 'read'],
     ['all-writers', 'write'],
-    ['all-managers', 'admin']
+    ['all-managers', 'admin'],
+    ['org-managers', 'read']
   ] as const) {
     if (!teams.some((team) => team.name === name)) {
       await giteaService.createTeam('acme', name, permission);
     }
   }
 
-  // 身份与生产路径同一落实方式（ADR-0036）：alice 是所有者成员（三档嵌套，四支
-  // 团队全员到位），bob 是普通成员（只进只读、读写两个常设团队）。
+  // 身份与生产路径同一落实方式（ADR-0038）：alice 是所有者成员（含 org-managers），
+  // bob 是普通成员（三个技能授权团队全员到位，但不进 org-managers）。
   await applyOrgIdentity(giteaService, 'acme', 'alice', 'owner');
   await applyOrgIdentity(giteaService, 'acme', 'bob', 'ordinary');
 

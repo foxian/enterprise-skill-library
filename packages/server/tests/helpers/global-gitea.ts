@@ -258,7 +258,15 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       }
     }),
 
-    listTeamRepos: vi.fn(async (_teamId: number) => []),
+    listTeamRepos: vi.fn(async (teamId: number) =>
+      Array.from(repoTeams.entries())
+        .filter(([, teamIds]) => teamIds.has(teamId))
+        .map(([fullName]) => ({
+          id: 1,
+          name: fullName.slice(fullName.indexOf('/') + 1),
+          full_name: fullName
+        }))
+    ),
 
     removeOrgMember: vi.fn(async (orgName: string, username: string) => {
       const org = orgs.get(orgName);

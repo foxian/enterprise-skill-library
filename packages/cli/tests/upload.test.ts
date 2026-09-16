@@ -32,6 +32,7 @@ describe('esl upload', () => {
     );
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-upload-home-'));
     await initializeLocalStore({ homeDir });
+    await saveConfig({ username: 'platform-ai', organizations: [] }, { homeDir });
     await saveCredentials({ token: 'token', loginAt: new Date().toISOString() }, { homeDir });
   });
 
@@ -117,6 +118,103 @@ describe('esl upload', () => {
     cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
   };
 
+  it('requires an explicit identity confirmation for the first upload in non-interactive mode', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ dirty: '', remoteUrl: null });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        noInput: true,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/pass --confirm-identity reviewer/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects a first-upload identity confirmation that does not match release.json', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ dirty: '', remoteUrl: null });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        noInput: true,
+        confirmIdentity: '@acme/reviewer',
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/expected reviewer/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('asks for confirmation before the first upload in interactive mode', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ dirty: '', remoteUrl: null });
+    const confirmPrompt = vi.fn().mockResolvedValue(true);
+
+    const result = await executeUpload({
+      directory: skillDir,
+      server: 'http://localhost:3000',
+      homeDir,
+      confirmPrompt,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any
+    });
+
+    expect(confirmPrompt).toHaveBeenCalledWith(
+      expect.stringContaining('About to create a server-hosted skill source as reviewer')
+    );
+    expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/upload',
+      expect.objectContaining({
+        body: JSON.stringify({ name: 'reviewer', description: 'Shared reviewer' })
+      })
+    );
+  });
+
+  it('blocks a hosted-source upload when release.json changes the namespace', async () => {
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@beta/reviewer',
+        version: '0.1.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
+    const execFileAsync = gitMock({ dirty: '', remoteUrl: 'http://localhost:3000/git/platform-ai/reviewer.git' });
+
+    await expect(
+      executeUpload({
+        directory: skillDir,
+        server: 'http://localhost:3000',
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow(/namespace "beta".*namespace "platform-ai"/s);
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      'http://localhost:3000/api/skills/upload',
+      expect.anything()
+    );
+    expect(execFileAsync).not.toHaveBeenCalledWith(
+      'git',
+      ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
+      { cwd: skillDir }
+    );
+  });
+
   it('creates a server source and adds the esl remote without changing origin', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -137,6 +235,7 @@ describe('esl upload', () => {
       directory: skillDir,
       server: 'http://localhost:3000',
       homeDir,
+      confirmIdentity: 'reviewer',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
@@ -291,6 +390,7 @@ describe('esl upload', () => {
         directory: skillDir,
         server: 'http://localhost:3000',
         homeDir,
+        confirmIdentity: 'reviewer',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
@@ -326,6 +426,7 @@ describe('esl upload', () => {
         directory: skillDir,
         server: 'http://localhost:3000',
         homeDir,
+        confirmIdentity: 'reviewer',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
@@ -371,6 +472,7 @@ describe('esl upload', () => {
     const result = await executeUpload({
       directory: skillDir,
       homeDir,
+      confirmIdentity: 'reviewer',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
@@ -387,6 +489,7 @@ describe('esl upload', () => {
       directory: skillDir,
       server: 'http://localhost:3000',
       homeDir,
+      confirmIdentity: 'reviewer',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
@@ -498,6 +601,19 @@ describe('esl upload', () => {
   });
 
   it('sets a repository-local git identity when none is configured', async () => {
+    await saveConfig({ username: null }, { homeDir });
+    fs.writeFileSync(
+      path.join(skillDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@platform-ai/reviewer',
+        version: '0.1.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = gitMock({ userName: '', userEmail: '' });
 
@@ -516,7 +632,11 @@ describe('esl upload', () => {
   it('falls back to the logged-in identity so commits match the Gitea account', async () => {
     await saveConfig({ username: 'author01', organizations: [] }, { homeDir });
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
-    const execFileAsync = gitMock({ userName: '', userEmail: '' });
+    const execFileAsync = gitMock({
+      userName: '',
+      userEmail: '',
+      remoteUrl: 'http://localhost:3000/git/author01/reviewer.git'
+    });
 
     await executeUpload({
       directory: skillDir,
@@ -550,6 +670,7 @@ describe('esl upload', () => {
       server: 'http://localhost:3000',
       homeDir,
       noInput: true,
+      confirmIdentity: '@acme/reviewer',
       customFetch: fetchImpl as any,
       execFileAsync: gitMock({ dirty: '', remoteUrl: null }) as any
     });

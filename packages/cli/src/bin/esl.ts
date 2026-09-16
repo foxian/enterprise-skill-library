@@ -63,6 +63,7 @@ export function createProgram(): Command {
     .command('init')
     .argument('[path]', 'target skill directory (defaults to --cd or the current directory)')
     .option('--name <name>', 'skill short name (defaults to the target directory basename)')
+    .option('--namespace <namespace>', 'release.json namespace: personal (default) or an organization')
     .option('--license <spdx>', 'release.json license (default MIT)')
     .option('--description <text>', 'SKILL.md description (asked interactively when omitted)')
     .option('--keywords <list>', 'comma-separated release.json keywords')
@@ -70,11 +71,12 @@ export function createProgram(): Command {
     .action(
       async (
         skillPath: string | undefined,
-        options: { name?: string; license?: string; description?: string; keywords?: string }
+        options: { name?: string; namespace?: string; license?: string; description?: string; keywords?: string }
       ) => {
         const targetDir = await executeInit({
           directory: skillPath,
           name: options.name,
+          namespace: options.namespace,
           license: options.license,
           description: options.description,
           keywords: options.keywords
@@ -195,9 +197,10 @@ program
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('--message <text>', 'description of this upload, used as the source commit message')
+    .option('--confirm-identity <skill-name>', 'confirm the first-upload skill identity for non-interactive use')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl upload ./my-skill --message "fix: correct the regex"'))
-    .action(async (skillPath: string | undefined, options: { license?: string; message?: string; server?: string }) => {
+    .addHelpText('after', example('$ esl upload ./my-skill --confirm-identity @acme/my-skill'))
+    .action(async (skillPath: string | undefined, options: { license?: string; message?: string; confirmIdentity?: string; server?: string }) => {
       const uploaded = await executeUpload({
         ...options,
         directory: skillPath,
@@ -271,7 +274,7 @@ program
     .description('Share a skill with your organization, a team, or a member')
     .argument('<skill-name>')
     .option('--all', 'share with the whole organization (read; add --write for edit)')
-    .option('--team <name>', 'share with a team (keeps the team permission level)')
+    .option('--team <name>', 'share with a team (read; add --write or --manage)')
     .option('--user <username>', 'share with a member (read; add --write for edit; add --manage for co-management)')
     .option('--write', 'grant edit (write) permission where applicable')
     .option('--manage', 'grant manage permission (share, publish, and grant others)')

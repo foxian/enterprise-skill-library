@@ -4,7 +4,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInit } from '../src/index.js';
-import { initializeLocalStore, saveConfig } from '@esl/core';
+import { initializeLocalStore, saveConfig, saveCredentials } from '@esl/core';
 
 describe('esl init', () => {
   let tmpDir: string;
@@ -48,7 +48,7 @@ describe('esl init', () => {
     expect(skillMd).toContain('description: Use when');
   });
 
-  it('writes @username/skill as the default name when logged in', async () => {
+  it('writes the bare short name by default when logged in', async () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
     await initializeLocalStore({ homeDir });
     await saveConfig({ username: 'alice', organizations: [] }, { homeDir });
@@ -57,7 +57,119 @@ describe('esl init', () => {
       await executeInit({ directory: skillPath(), runGitInit: false, homeDir });
 
       const releaseJson = JSON.parse(fs.readFileSync(path.join(skillPath(), 'release.json'), 'utf8'));
-      expect(releaseJson.name).toBe('@alice/my-skill');
+      expect(releaseJson.name).toBe('my-skill');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes an organization namespace passed explicitly', async () => {
+    const targetDir = await executeInit({
+      directory: skillPath(),
+      name: 'my-skill',
+      namespace: 'acme',
+      runGitInit: false
+    });
+
+    const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+    expect(releaseJson.name).toBe('@acme/my-skill');
+  });
+
+  it('asks for the namespace when creating release.json interactively', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
+    await initializeLocalStore({ homeDir });
+
+    try {
+      const asked: string[] = [];
+      const targetDir = await executeInit({
+        directory: skillPath(),
+        runGitInit: false,
+        homeDir,
+        promptText: async (question, fallback) => {
+          asked.push(question);
+          if (question.includes('Namespace')) return 'acme';
+          return fallback;
+        }
+      });
+
+      expect(asked.some((question) => question.includes('Namespace'))).toBe(true);
+      const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+      expect(releaseJson.name).toBe('@acme/my-skill');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows a namespace menu fetched from the server', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ server: 'http://localhost:3000', username: 'alice', organizations: [] }, { homeDir });
+    await saveCredentials({ token: 'token', loginAt: new Date().toISOString() }, { homeDir });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        organizations: [
+          { org: 'acme', identity: 'owner', isOwnerMember: true },
+          { org: 'beta', identity: 'ordinary', isOwnerMember: false }
+        ],
+        pendingApplications: []
+      })
+    });
+
+    try {
+      const targetDir = await executeInit({
+        directory: skillPath(),
+        runGitInit: false,
+        homeDir,
+        customFetch: fetchImpl as any,
+        promptText: async (question, fallback) => (question === 'Select namespace [1]: ' ? '2' : fallback)
+      });
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'http://localhost:3000/api/orgs/mine',
+        expect.objectContaining({ headers: { Authorization: 'token token' } })
+      );
+      const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+      expect(releaseJson.name).toBe('@acme/my-skill');
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the cached organization list when the server cannot be reached', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      {
+        server: 'http://localhost:3000',
+        username: 'alice',
+        organizations: [{ org: 'cached-org', identity: 'member', isOwnerMember: false }]
+      },
+      { homeDir }
+    );
+    await saveCredentials({ token: 'token', loginAt: new Date().toISOString() }, { homeDir });
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('offline'));
+    let namespaceQuestion = '';
+
+    try {
+      const targetDir = await executeInit({
+        directory: skillPath(),
+        runGitInit: false,
+        homeDir,
+        customFetch: fetchImpl as any,
+        promptText: async (question, fallback) => {
+          if (question === 'Select namespace [1]: ') {
+            namespaceQuestion = question;
+            return '1';
+          }
+          return fallback;
+        }
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(namespaceQuestion).toBe('Select namespace [1]: ');
+      const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
+      expect(releaseJson.name).toBe('my-skill');
     } finally {
       fs.rmSync(homeDir, { recursive: true, force: true });
     }
@@ -148,6 +260,7 @@ describe('esl init', () => {
   });
 
   it('asks only for the fields that are still missing', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
     fs.mkdirSync(skillPath(), { recursive: true });
     fs.writeFileSync(path.join(skillPath(), 'SKILL.md'), '---\nname: my-skill\ndescription: Kept.\n---\n');
     const asked: string[] = [];
@@ -158,9 +271,9 @@ describe('esl init', () => {
       return fallback;
     };
 
-    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, promptText });
+    const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, homeDir, promptText });
 
-    expect(asked).toHaveLength(2);
+    expect(asked).toHaveLength(3);
     expect(asked.some((question) => question.includes('escription'))).toBe(false);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('Apache-2.0');
@@ -169,17 +282,19 @@ describe('esl init', () => {
   });
 
   it('keeps interactive defaults when the answers are empty', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
     const asked: string[] = [];
     const targetDir = await executeInit({
       directory: skillPath('fresh'),
       runGitInit: false,
+      homeDir,
       promptText: async (question, fallback) => {
         asked.push(question);
         return fallback;
       }
     });
 
-    expect(asked).toHaveLength(3);
+    expect(asked).toHaveLength(4);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('MIT');
     expect(releaseJson.keywords).toEqual([]);

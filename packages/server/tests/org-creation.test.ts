@@ -9,7 +9,7 @@ import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.
 import { GiteaRequestError } from '../src/services/gitea.js';
 
 // npm 式组织创建（ADR-0032 / #54）：auto 即时开通、manual 申请审批（同步开通）、
-// 四个常设团队预置；部署模式 / 默认组织 / <org>_admin / system-admins 全部拆除。
+// 五个常设团队预置；部署模式 / 默认组织 / <org>_admin / system-admins 全部拆除。
 describe('organization creation', () => {
   let tmpDir: string;
   let dbPath: string;
@@ -168,7 +168,7 @@ describe('organization creation', () => {
     expect((await gitea.listOrgMembers('beta')).map((member) => member.username)).not.toContain('eslroot');
   });
 
-  it('presets the four standing teams with display names on creation', async () => {
+  it('presets the five standing teams with display names on creation', async () => {
     await app.inject({
       method: 'POST',
       url: '/api/orgs',
@@ -178,13 +178,14 @@ describe('organization creation', () => {
 
     const teams = await gitea.listTeams('beta');
     const names = teams.map((team) => team.name).sort();
-    expect(names).toEqual(['all-managers', 'all-readers', 'all-writers', 'Owners'].sort());
+    expect(names).toEqual(['all-managers', 'all-readers', 'all-writers', 'org-managers', 'Owners'].sort());
     // Owners 是管理员团队（第四常设团队），其余三档权限固定
     const byName = new Map(teams.map((team) => [team.name, team.permission]));
     expect(byName.get('Owners')).toBe('owner');
     expect(byName.get('all-readers')).toBe('read');
     expect(byName.get('all-writers')).toBe('write');
     expect(byName.get('all-managers')).toBe('admin');
+    expect(byName.get('org-managers')).toBe('read');
   });
 
   it('rejects creation with a reserved or taken name at submission time', async () => {
@@ -228,7 +229,7 @@ describe('organization creation', () => {
     expect(await ownerMembers('beta')).toContain('alice');
     const teams = await gitea.listTeams('beta');
     expect(teams.map((team) => team.name).sort()).toEqual(
-      ['all-managers', 'all-readers', 'all-writers', 'Owners'].sort()
+      ['all-managers', 'all-readers', 'all-writers', 'org-managers', 'Owners'].sort()
     );
   });
 
@@ -316,7 +317,7 @@ describe('organization creation', () => {
     expect(reapply.json()).toMatchObject({ status: 'pending' });
   });
 
-  it('adds the creator to the three standing teams at creation', async () => {
+  it('adds the creator to the three skill teams and the managing identity team at creation', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/orgs',
@@ -325,7 +326,7 @@ describe('organization creation', () => {
     });
     expect(res.statusCode).toBe(201);
 
-    for (const name of ['all-readers', 'all-writers', 'all-managers']) {
+    for (const name of ['all-readers', 'all-writers', 'all-managers', 'org-managers']) {
       const team = (await gitea.listTeams('beta')).find((entry) => entry.name === name)!;
       expect(await gitea.isTeamMember(team.id, 'alice')).toBe(true);
     }

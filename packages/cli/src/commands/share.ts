@@ -11,7 +11,7 @@ export interface ShareOptions extends NetworkCommandOptions {
 }
 
 export interface ShareTarget {
-  action: 'share_all_read' | 'share_all_write' | 'add_team' | 'add_member' | 'reset_to_private';
+  action: 'share_all_read' | 'share_all_write' | 'set_team' | 'add_member' | 'reset_to_private';
   team?: string;
   username?: string;
   permission?: 'read' | 'write' | 'manage';
@@ -32,7 +32,11 @@ export function resolveShareTarget(options: ShareOptions): ShareTarget {
     return { action: options.write ? 'share_all_write' : 'share_all_read' };
   }
   if (options.team) {
-    return { action: 'add_team', team: options.team };
+    return {
+      action: 'set_team',
+      team: options.team,
+      permission: options.manage ? 'manage' : options.write ? 'write' : 'read'
+    };
   }
   if (options.user) {
     // ADR-0025 三档:manage 档授予对方协管(配权限、发布)的能力。

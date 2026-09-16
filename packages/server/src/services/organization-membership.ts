@@ -2,10 +2,9 @@ import { AUTO_JOIN_TEAM_NAMES, MANAGING_TEAM_NAME, type OrgIdentity } from '@esl
 import type { GiteaOrg, GiteaService } from './gitea.js';
 
 /**
- * 组织隶属关系（ADR-0036）。`identity` 是组织内三档身份，全部**由常设团队成员
- * 身份推导**——普通成员 = 只读/读写团队成员，管理成员 = 技能管理团队成员，
- * 所有者成员 = 组织管理团队（Gitea Owners）的成员。组织内不存储角色——它是逐
- * 组织的团队身份，不是平台角色。
+ * 组织隶属关系（ADR-0038）。`identity` 是组织内三档身份，由常设团队成员身份
+ * 推导——管理成员 = org-managers 团队成员，所有者成员 = Gitea Owners 团队成员，
+ * 其余为普通成员。组织内不存储角色。
  */
 export interface OrganizationMembership {
   org: string;
@@ -33,7 +32,7 @@ export async function isOwnerMemberOf(
 }
 
 /**
- * 该用户是否持有**管理成员**身份（技能管理团队成员）。与治理权判定同样 fail
+ * 该用户是否持有**管理成员**身份（org-managers 团队成员）。与治理权判定同样 fail
  * closed：查询失败按"不是"处理——它跑在登录路径上，不能因为一次读失败就让
  * 整个登录塌掉，而"少一档身份"是安全的降级方向。
  */
@@ -52,8 +51,8 @@ export async function isManagingMemberOf(
 }
 
 /**
- * 从"在不在 Owners / 在不在技能管理团队"推出身份。三档嵌套：所有者成员自动兼任
- * 管理成员（ADR-0036），因此判定顺序必须是 owner → managing → ordinary。
+ * 从"在不在 Owners / 在不在 org-managers"推出身份。三档嵌套：所有者成员自动
+ * 兼任管理成员（ADR-0038），因此判定顺序必须是 owner → managing → ordinary。
  */
 export function identityFromTeamMembership(isOwner: boolean, isManaging: boolean): OrgIdentity {
   if (isOwner) return 'owner';
@@ -126,8 +125,8 @@ export async function listOrgMembersWithIdentity(
 }
 
 /**
- * 加入组织时的自动入队：只读、读写两个常设团队。**技能管理团队不在其中**——
- * 它承载管理成员身份，必须显式授予（ADR-0036）；组织管理团队（Owners）同理。
+ * 加入组织时的自动入队：三个技能授权团队。**org-managers 不在其中**——它承载
+ * 管理成员身份，必须显式授予（ADR-0038）；组织管理团队（Owners）同理。
  */
 export async function addMemberToAutoJoinTeams(
   giteaService: GiteaService,
@@ -142,8 +141,8 @@ export async function addMemberToAutoJoinTeams(
 }
 
 /**
- * 把某人置为指定身份（ADR-0036）。三档嵌套，因此落实方式是"补齐下级、摘掉上级"：
- * 三档都保证在只读/读写，管理成员与所有者成员在技能管理团队，仅所有者成员在
+ * 把某人置为指定身份（ADR-0038）。三档嵌套，因此落实方式是"补齐下级、摘掉上级"：
+ * 三档都在三个技能授权团队，管理成员与所有者成员在 org-managers，仅所有者成员在
  * Owners。调用方负责先做不变量校验。
  */
 export async function applyOrgIdentity(
@@ -154,13 +153,19 @@ export async function applyOrgIdentity(
 ): Promise<void> {
   await addMemberToAutoJoinTeams(giteaService, org, username);
   const teams = await giteaService.listTeams(org);
-  const managing = teams.find((team) => team.name === MANAGING_TEAM_NAME);
   const owners = teams.find((team) => team.permission === 'owner');
+  let managing = teams.find((team) => team.name === MANAGING_TEAM_NAME);
+  if (!managing) {
+    managing = await giteaService.createTeam(org, MANAGING_TEAM_NAME, 'read');
+    if (owners) {
+      for (const owner of await giteaService.listTeamMembers(owners.id)) {
+        await giteaService.addTeamMember(managing.id, owner.username);
+      }
+    }
+  }
 
   const shouldManage = identity === 'managing' || identity === 'owner';
-  if (managing) {
-    await syncTeamMember(giteaService, managing.id, username, shouldManage);
-  }
+  await syncTeamMember(giteaService, managing.id, username, shouldManage);
   if (owners) {
     await syncTeamMember(giteaService, owners.id, username, identity === 'owner');
   }
@@ -195,7 +200,7 @@ export async function removeMemberFromOrganization(
 }
 
 /**
- * 所有者成员不变量（ADR-0036）：**任何走法都不能让组织失去全部所有者成员**——
+ * 所有者成员不变量（ADR-0038）：**任何走法都不能让组织失去全部所有者成员**——
  * 被他人移除、自我降级、自我退出，三者是同一条规则。`nextIdentity` 为 null 表示
  * 离开组织。
  *
@@ -209,6 +214,7 @@ export async function checkOwnerMemberInvariant(
   target: string,
   nextIdentity: OrgIdentity | null
 ): Promise<string | null> {
+  if (nextIdentity === 'owner') return null;
   const ownerNames = await listOwnerMemberNames(giteaService, org);
   if (!ownerNames.has(target) || ownerNames.size > 1) {
     return null;

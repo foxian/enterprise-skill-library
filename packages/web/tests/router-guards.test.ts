@@ -63,6 +63,21 @@ describe('router guards', () => {
     expect(router.currentRoute.value.name).toBe('me-org-members');
   });
 
+  it('管理成员访问本组织运营路径被放行', async () => {
+    const auth = useAuthStore();
+    auth.establish({
+      token: 'managing-token',
+      username: 'bob',
+      isPlatformAdmin: false,
+      organizations: [{ org: 'acme', identity: 'managing', isOwnerMember: false }]
+    });
+
+    await router.push('/admin/me/orgs/acme/teams');
+    await router.isReady();
+
+    expect(router.currentRoute.value.name).toBe('me-org-teams');
+  });
+
   it('非治理者访问组织治理路径被退回只读的组织列表', async () => {
     const auth = useAuthStore();
     auth.establish({

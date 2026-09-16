@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 
 /**
- * 组织隶属关系（ADR-0036）。组织内没有角色——`identity` 是由常设团队成员身份
+ * 组织隶属关系（ADR-0038）。组织内没有角色——`identity` 是由常设团队成员身份
  * **推导**出的三档身份，逐组织成立，不是全局角色。
  */
 export interface SessionOrganization {
@@ -17,7 +17,7 @@ const ORG_IDENTITIES: readonly string[] = ['ordinary', 'managing', 'owner'];
 
 /**
  * 管理后台会话。平台角色只有两个（ADR-0033），会话因此只有两个维度：
- * 是不是平台管理员，以及在每个组织里是什么身份（三档，ADR-0036）。
+ * 是不是平台管理员，以及在每个组织里是什么身份（三档，ADR-0038）。
  */
 export interface AuthSession {
   token: string;
@@ -94,6 +94,11 @@ export const useAuthStore = defineStore('auth', {
     /** 该组织在本会话中是否可治理（所有者成员身份，逐组织判定）。 */
     isOwnerMember(org: string): boolean {
       return this.organizations.some((membership) => membership.org === org && membership.isOwnerMember);
+    },
+    /** 该组织在本会话中是否可进入运营控制台（管理成员或所有者成员）。 */
+    isOrgOperator(org: string): boolean {
+      const identity = this.identityOf(org);
+      return identity === 'managing' || identity === 'owner';
     }
   }
 });

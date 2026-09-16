@@ -21,7 +21,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `whoami` `validate`——直接跑，跑完把结果给用户。会改状态或写盘的命令——`install` `update` `uninstall` `adapt` `init` `upload` `publish` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `whoami` `validate`——直接跑，跑完把结果给用户。会改状态或写盘的命令——`install` `update` `uninstall` `adapt` `init` `upload` `publish` `share` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`install` 会把远端内容拉进项目、`publish` 把东西推到全公司共享的服务器、`uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。
 
@@ -29,7 +29,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
-**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v3，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。首次 `upload` 即固定身份，`publish` 只断言一致，改归属不得靠改 `name`。
+**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v3，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`publish` 只断言一致，改归属不得靠改 `name`。
 
 ## 输出与解析
 

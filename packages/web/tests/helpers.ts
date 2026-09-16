@@ -40,7 +40,7 @@ export function useApiMock(handler: MockHandler): { requests: RecordedRequest[] 
  * 测试用账号画像（ADR-0036）：平台角色只有"是/不是平台管理员"，组织内身份逐组织
  * 声明，三档。这里覆盖四种典型形态，而不是四个"角色"。
  */
-export type AccountKind = 'platformAdmin' | 'owner' | 'member' | 'solo';
+export type AccountKind = 'platformAdmin' | 'owner' | 'managing' | 'member' | 'solo';
 
 const ACCOUNTS: Record<AccountKind, AuthSession> = {
   platformAdmin: { token: 'super-token', username: 'eslroot', isPlatformAdmin: true, organizations: [] },
@@ -49,6 +49,12 @@ const ACCOUNTS: Record<AccountKind, AuthSession> = {
     username: 'admin',
     isPlatformAdmin: false,
     organizations: [{ org: 'acme', identity: 'owner', isOwnerMember: true }]
+  },
+  managing: {
+    token: 'managing-token',
+    username: 'manager',
+    isPlatformAdmin: false,
+    organizations: [{ org: 'acme', identity: 'managing', isOwnerMember: false }]
   },
   member: {
     token: 'member-token',

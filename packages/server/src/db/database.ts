@@ -924,7 +924,7 @@ export interface OrgInvitationRecord {
 }
 
 // 组织邀请（ADR-0032）：邀请制拉人方式下，所有者成员发出邀请，
-// 被邀请人接受后加入组织并自动进入只读、读写两个常设团队（ADR-0036）。
+// 被邀请人接受后加入组织并自动进入三个技能授权团队（ADR-0038）。
 export class OrgInvitationRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -1134,6 +1134,66 @@ export class TenantOrganizationRepository {
       DELETE FROM org_team_profiles
       WHERE org_name = ? AND gitea_team_id = ?
     `).run(orgName, giteaTeamId);
+  }
+}
+
+export type SkillPermission = 'read' | 'write' | 'manage';
+
+export interface SkillTeamGrant {
+  skillName: string;
+  teamId: number;
+  permission: SkillPermission;
+}
+
+export class SkillTeamGrantRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  set(skillName: string, teamId: number, permission: SkillPermission): void {
+    this.db.prepare(`
+      INSERT INTO skill_team_grants (skill_name, team_id, permission, created_at, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(skill_name, team_id) DO UPDATE SET
+        permission = excluded.permission,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(skillName, teamId, permission);
+  }
+
+  remove(skillName: string, teamId: number): void {
+    this.db.prepare(`
+      DELETE FROM skill_team_grants
+      WHERE skill_name = ? AND team_id = ?
+    `).run(skillName, teamId);
+  }
+
+  list(skillName: string): Array<{ teamId: number; permission: SkillPermission }> {
+    const rows = this.db.prepare(`
+      SELECT team_id AS teamId, permission
+      FROM skill_team_grants
+      WHERE skill_name = ?
+      ORDER BY team_id ASC
+    `).all(skillName) as Array<{ teamId: number; permission: SkillPermission }>;
+    return rows;
+  }
+
+  removeByTeam(teamId: number): void {
+    this.db.prepare('DELETE FROM skill_team_grants WHERE team_id = ?').run(teamId);
+  }
+
+  listByTeam(teamId: number): Array<{ skillName: string; permission: SkillPermission }> {
+    return this.db.prepare(`
+      SELECT skill_name AS skillName, permission
+      FROM skill_team_grants
+      WHERE team_id = ?
+      ORDER BY skill_name ASC
+    `).all(teamId) as Array<{ skillName: string; permission: SkillPermission }>;
+  }
+
+  clearAll(): void {
+    this.db.prepare('DELETE FROM skill_team_grants').run();
+  }
+
+  clearAllForSkill(skillName: string): void {
+    this.db.prepare('DELETE FROM skill_team_grants WHERE skill_name = ?').run(skillName);
   }
 }
 

@@ -15,9 +15,6 @@
       <el-table-column label="显示名" min-width="150">
         <template #default="{ row }">{{ row.display_name || '—' }}</template>
       </el-table-column>
-      <el-table-column label="权限级别" width="100">
-        <template #default="{ row }">{{ permissionText(row.permission) }}</template>
-      </el-table-column>
       <el-table-column label="类型" width="100">
         <template #default>
           <el-tag>自定义</el-tag>
@@ -55,13 +52,6 @@
             placeholder="中文显示名，可留空"
           />
         </el-form-item>
-        <el-form-item label="权限级别" required>
-          <el-radio-group v-model="newTeamPermission" data-test="new-team-permission">
-            <el-radio value="read">只读</el-radio>
-            <el-radio value="write">读写</el-radio>
-            <el-radio value="manage">管理</el-radio>
-          </el-radio-group>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
@@ -79,21 +69,6 @@
 
     <el-dialog v-model="editDialogVisible" title="编辑团队" width="460px">
       <el-form label-width="100px">
-        <el-form-item label="权限级别" required>
-          <el-radio-group v-model="editPermission" data-test="edit-team-permission">
-            <el-radio value="read">只读</el-radio>
-            <el-radio value="write">读写</el-radio>
-            <el-radio value="manage">管理</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-alert
-          v-if="editPermissionChanged"
-          type="warning"
-          :closable="false"
-          show-icon
-          class="permission-warning"
-          :title="permissionImpactTitle()"
-        />
         <el-form-item label="标识名" required>
           <el-input v-model="editName" data-test="edit-team-name" placeholder="小写字母、数字与连字符" />
         </el-form-item>
@@ -117,7 +92,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import TeamMemberPanel from '../../components/TeamMemberPanel.vue';
 
@@ -128,17 +103,11 @@ const org = computed<string>(() => String(route.params.org ?? ''));
 interface TeamView {
   id: number;
   name: string;
-  permission: string;
   display_name?: string;
 }
 
 // 常设团队（含组织管理团队）由服务端从 /api/orgs/:org/teams 过滤掉，此页只
 // 展示自定义团队——因此没有"默认团队"分支，也不做前端的可变保护判断。
-function permissionText(permission: string): string {
-  if (permission === 'manage' || permission === 'admin' || permission === 'owner') return '管理';
-  return permission === 'write' ? '读写' : '只读';
-}
-
 const teams = ref<TeamView[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
@@ -146,7 +115,6 @@ const errorMessage = ref('');
 const createDialogVisible = ref(false);
 const newTeamName = ref('');
 const newTeamDisplayName = ref('');
-const newTeamPermission = ref<'read' | 'write' | 'manage'>('read');
 
 const deleteDialogVisible = ref(false);
 const deleteTargetId = ref(0);
@@ -156,21 +124,6 @@ const editDialogVisible = ref(false);
 const editTargetId = ref(0);
 const editName = ref('');
 const editDisplayName = ref('');
-const editPermission = ref<'read' | 'write' | 'manage'>('read');
-const editOriginalPermission = ref<'read' | 'write' | 'manage'>('read');
-// ADR-0029:该团队已授权的技能数,编辑打开时按团队拉取,用于影响面提示。
-const editSkillsCount = ref(0);
-
-// ADR-0029:权限档是跨技能联动开关——矩阵按团队当前权限实时派生,变更即改变
-// 该团队挂载的所有技能上全体成员的访问级别。对话框内内联提示 + 保存时二次确认。
-const editPermissionChanged = computed(() => editPermission.value !== editOriginalPermission.value);
-
-function permissionImpactTitle(): string {
-  if (editSkillsCount.value > 0) {
-    return `该团队已授权 ${editSkillsCount.value} 个技能，变更将实时改变这些技能的访问级别，保存时需二次确认。`;
-  }
-  return '调整权限级别会实时改变该团队在已授权技能上的访问级别，保存时需二次确认。';
-}
 
 async function loadTeams(): Promise<void> {
   loading.value = true;
@@ -191,14 +144,12 @@ async function createTeam(): Promise<void> {
       method: 'POST',
       body: {
         name: newTeamName.value,
-        permission: newTeamPermission.value,
         display_name: newTeamDisplayName.value
       }
     });
     createDialogVisible.value = false;
     newTeamName.value = '';
     newTeamDisplayName.value = '';
-    newTeamPermission.value = 'read';
     ElMessage.success('团队已创建');
     await loadTeams();
   } catch (error) {
@@ -224,57 +175,22 @@ async function deleteTeam(): Promise<void> {
   }
 }
 
-// 编辑(ADR-0029):权限级别 + 标识名 + 显示名,一个对话框里改完。标识名按
-// 团队 ID 引用,改名不断授权(ADR-0026);显示名只落 ESL DB。
+// 编辑(ADR-0029):标识名 + 显示名,一个对话框里改完。标识名按团队 ID
+// 引用,改名不断授权(ADR-0026);显示名只落 ESL DB。
 async function confirmEditTeam(team: TeamView): Promise<void> {
   editTargetId.value = team.id;
   editName.value = team.name;
   editDisplayName.value = team.display_name ?? '';
-  const level = normalizePermission(team.permission);
-  editPermission.value = level;
-  editOriginalPermission.value = level;
-  // 编辑打开时拉取该团队已授权的技能数,供权限变更影响面提示用;
-  // 取不到则回退泛化文案(计数仅影响提示措辞)。
-  editSkillsCount.value = 0;
-  try {
-    const res = await apiRequest<{ skillsCount: number }>(`/api/orgs/${org.value}/teams/${team.id}/skills-count`);
-    editSkillsCount.value = res.skillsCount;
-  } catch {
-    editSkillsCount.value = 0;
-  }
   editDialogVisible.value = true;
-}
-
-function normalizePermission(permission: string): 'read' | 'write' | 'manage' {
-  if (permission === 'manage' || permission === 'admin' || permission === 'owner') return 'manage';
-  return permission === 'write' ? 'write' : 'read';
 }
 
 async function editTeam(): Promise<void> {
   errorMessage.value = '';
-  // 权限档变更:二次确认。服务端矩阵按团队当前权限实时派生,调高即静默越权
-  // 方向,调低即静默降权方向,都要显式确认。
-  if (editPermissionChanged.value) {
-    const impact =
-      editSkillsCount.value > 0
-        ? `该团队已授权 ${editSkillsCount.value} 个技能，权限级别变更会实时改变这些技能的访问级别，且不会逐技能提示。确认继续？`
-        : '权限级别变更会实时改变该团队在已授权技能上的访问级别，且不会逐技能提示。确认继续？';
-    try {
-      await ElMessageBox.confirm(impact, '权限级别变更', {
-        type: 'warning',
-        confirmButtonText: '确认变更',
-        cancelButtonText: '取消'
-      });
-    } catch {
-      return;
-    }
-  }
   try {
     await apiRequest(`/api/orgs/${org.value}/teams/${editTargetId.value}`, {
       method: 'PATCH',
       body: {
         name: editName.value,
-        permission: editPermission.value,
         display_name: editDisplayName.value
       }
     });
@@ -299,7 +215,4 @@ onMounted(loadTeams);
   margin-top: 16px;
 }
 
-.permission-warning {
-  margin-bottom: 16px;
-}
 </style>

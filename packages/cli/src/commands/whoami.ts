@@ -46,14 +46,14 @@ export function formatWhoami(result: WhoamiResult): string {
     lines.push(`Username: ${result.username}`);
   }
   if (result.organizations && result.organizations.length > 0) {
-    // 括号里是组织内身份（ADR-0036）：所有者成员 / 管理成员 / 普通成员，由常设团队
+    // 括号里是组织内身份（ADR-0038）：所有者成员 / 管理成员 / 普通成员，由常设团队
     // 成员身份推导。组织内没有角色，这里标注的始终是团队身份。
     const rendered = result.organizations
       .map((membership) => `${membership.org} (${membership.identity})`)
       .join(', ');
-    lines.push(`Organizations: ${rendered}`);
+    lines.push(`Organization memberships: ${rendered}`);
   } else if (result.organizations) {
-    lines.push('Organizations: none');
+    lines.push('Organization memberships: none');
   }
   if (result.server) {
     lines.push(`Server: ${result.server}`);

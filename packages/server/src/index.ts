@@ -5,3 +5,5 @@ export * from './db/schema.js';
 export * from './routes/skills.js';
 export * from './routes/admin.js';
 export * from './services/gitea.js';
+export * from './services/logical-team-projection.js';
+export * from './services/permission-initialization.js';

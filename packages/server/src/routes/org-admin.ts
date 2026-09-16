@@ -49,7 +49,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     }
 
     // ADR-0032：审批只是申请表上的状态翻转 + 同步开通，异步 Operation 机器退役。
-    // 申请人为已登录 Skill User，批准后即成为初始所有者成员（ADR-0036）。
+    // 申请人为已登录 Skill User，批准后即成为初始所有者成员（ADR-0038）。
     const applicant = application.applicantUsername ?? admin.username;
     try {
       await initializeOrganization(options.giteaService, application.orgName, applicant, options.tenantOrganizationRepository);
@@ -263,7 +263,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     return { status: 'deleted', orgName };
   });
 
-  // 平台管理员的组织身份兜底（ADR-0036）：超管不参与组织（不属于任何组织、不入
+  // 平台管理员的组织身份兜底（ADR-0038）：超管不参与组织（不属于任何组织、不入
   // 组织管理团队），因此不能走组织侧路由；这里给出不经成员身份的同款查看、变更、
   // 移除能力。"组织必须至少保留一名所有者成员"这条不变量对超管同样成立——无主
   // 组织不是可治理状态，超管也无"自己"，故不适用自我退出限制。
@@ -278,7 +278,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 
   // 与组织侧的唯一差别是**空降**：组织里确实无人可用时，超管可以把组织外的人直接
   // 设为所有者成员。没有这条，只剩"整体删除"这一条不可逆的死路——而删除是本该
-  // 最后才动的手段（ADR-0036）。
+  // 最后才动的手段（ADR-0038）。
   app.put('/api/admin/orgs/:orgName/members/:username/identity', async (request, reply) => {
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);

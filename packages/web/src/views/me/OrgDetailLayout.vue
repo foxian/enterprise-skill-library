@@ -2,7 +2,7 @@
   <div>
     <div class="org-identity">
       <span class="org-name" data-test="org-identity">@{{ org }}</span>
-      <el-tag type="primary" size="small">所有者成员</el-tag>
+      <el-tag :type="identityTagType(identity ?? '')" size="small">{{ identityLabel(identity ?? '') }}</el-tag>
     </div>
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="成员" name="members" />
@@ -12,7 +12,7 @@
     <router-view />
 
     <!-- 组织删除（ADR-0034）：所有者成员即可发起，手打组织名确认 -->
-    <el-card class="danger-zone" data-test="org-danger-zone">
+    <el-card v-if="isOwnerMember" class="danger-zone" data-test="org-danger-zone">
       <template #header>危险操作</template>
       <p class="danger-hint">
         删除组织将移除其全部技能仓库与关联数据（成员是全局账号，不受影响），操作不可恢复。
@@ -43,13 +43,18 @@ import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
+import { identityLabel, identityTagType } from '../../constants/org-identity';
+import { useAuthStore } from '../../stores/auth';
 
 // 组织详情：成员 / 团队 / 技能三个页签（ADR-0035）。没有"设置"页签——组织名
 // 不可改名（ADR-0032）是既定事实，不是被藏起来的功能。
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
 
 const org = computed<string>(() => String(route.params.org ?? ''));
+const identity = computed(() => auth.identityOf(org.value));
+const isOwnerMember = computed(() => auth.isOwnerMember(org.value));
 
 const activeTab = computed<string>(() => {
   const name = String(route.name ?? '');

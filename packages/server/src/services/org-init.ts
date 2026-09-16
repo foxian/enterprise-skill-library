@@ -4,9 +4,9 @@ import { DEFAULT_TEAM_DISPLAY_NAMES } from './org-team-model.js';
 import { applyOrgIdentity, removeMemberFromOrganization } from './organization-membership.js';
 
 // 组织同步开通（ADR-0032）：组织 = Gitea Organization，组织内身份 = 常设团队
-// 成员身份（ADR-0036）。创建者（申请人或 auto 模式发起人）成为初始**所有者成员**
-// ——三档嵌套，落实为只读 / 读写 / 技能管理 / Owners 四支团队全员到位。三个常设
-// 团队在此预置；管理员团队就是 Gitea 原生 Owners，第四个常设团队无需创建。
+// 成员身份（ADR-0038）。创建者（申请人或 auto 模式发起人）成为初始**所有者成员**
+// ——落实为只读 / 读写 / 技能管理 / org-managers / Owners 五支团队全员到位。
+// 四个常设团队在此预置；管理员团队就是 Gitea 原生 Owners，第五个无需创建。
 // `<org>_admin` 专用账号与 system-admins 团队（ADR-0025/0026/0022）随多租户模型
 // 一并废除。
 export async function initializeOrganization(
@@ -32,7 +32,8 @@ export async function initializeOrganization(
   for (const [name, permission] of [
     ['all-readers', 'read'],
     ['all-writers', 'write'],
-    ['all-managers', 'admin']
+    ['all-managers', 'admin'],
+    ['org-managers', 'read']
   ] as const) {
     let team = teams.find((candidate) => candidate.name === name);
     if (!team) {
@@ -44,7 +45,7 @@ export async function initializeOrganization(
     }
   }
 
-  // 创建者成为初始所有者成员（ADR-0036）。
+  // 创建者成为初始所有者成员（ADR-0038）。
   await applyOrgIdentity(giteaService, orgName, creatorUsername, 'owner');
 
   // Gitea 用 admin token 创建组织时会把 site admin 自动加入 Owners；
