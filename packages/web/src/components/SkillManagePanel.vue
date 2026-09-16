@@ -92,6 +92,79 @@
       </el-collapse>
     </el-card>
 
+    <el-card class="section-card" data-test="lifecycle-card">
+      <template #header>生命周期</template>
+      <el-space wrap>
+        <el-button
+          v-if="canArchive && context?.status !== 'archived' && context?.status !== 'deleting'"
+          data-test="archive-skill"
+          @click="archiveSkill"
+        >
+          Archive
+        </el-button>
+        <el-button
+          v-if="lifecycle?.canRestore && context?.status === 'archived'"
+          type="primary"
+          data-test="restore-skill"
+          @click="restoreSkill"
+        >
+          Restore
+        </el-button>
+        <el-button
+          v-if="lifecycle?.canDelete && (context?.status === 'archived' || context?.status === 'delete_failed')"
+          type="danger"
+          data-test="delete-skill"
+          @click="openDeleteDialog"
+        >
+          彻底删除
+        </el-button>
+      </el-space>
+      <el-alert
+        v-if="context?.status === 'delete_failed'"
+        type="error"
+        :title="context.deletionError || '上次删除失败，可以重试'"
+        :closable="false"
+        class="lifecycle-alert"
+      />
+
+      <el-divider v-if="deleteDialogVisible" />
+      <div v-if="deleteDialogVisible" class="delete-dialog">
+        <el-alert
+          type="warning"
+          title="彻底删除不可恢复"
+          :closable="false"
+          class="lifecycle-alert"
+        />
+        <div class="delete-context" data-test="delete-context">
+          <p>将被删除的 Skill Release 数量：{{ deleteContext?.releasesRemoved ?? '—' }}</p>
+          <p>曾经发布：{{ deleteContext?.everPublished ? '是' : '否' }}</p>
+          <p>
+            依赖方：
+            <span v-if="deleteContext?.dependents?.length">
+              {{ deleteContext.dependents.join('、') }}
+            </span>
+            <span v-else>无</span>
+          </p>
+        </div>
+        <el-input
+          v-model="deleteReason"
+          data-test="delete-reason-input"
+          type="textarea"
+          :rows="2"
+          placeholder="删除原因（必填，将写入审计）"
+        />
+        <el-input
+          v-model="deleteConfirm"
+          data-test="delete-confirm-input"
+          :placeholder="`输入 ${props.scope}/${props.skillName} 确认`"
+        />
+        <div class="delete-actions">
+          <el-button @click="deleteDialogVisible = false">取消</el-button>
+          <el-button type="danger" data-test="confirm-delete-skill" @click="deleteWholeSkill">确认删除</el-button>
+        </div>
+      </div>
+    </el-card>
+
     <el-card class="section-card">
       <template #header>可见性</template>
       <el-space wrap>
@@ -239,12 +312,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { apiRequest } from '../api/client';
 import { shortUsername } from '../utils/short-username';
 import {
   deriveShareState,
   statusText,
+  type DeleteContext,
   type MemberOption,
   type PermissionMatrix,
   type PermissionsResponse,
@@ -252,6 +327,8 @@ import {
   type TeamOption
 } from '../skills/skill-list';
 
+const route = useRoute();
+const router = useRouter();
 const props = defineProps<{
   scope: string;
   skillName: string;
@@ -269,10 +346,16 @@ const matrix = ref<PermissionMatrix>({
   members: []
 });
 const context = ref<SkillContext | undefined>();
+const lifecycle = ref<PermissionsResponse['viewerLifecycle']>();
+const deleteDialogVisible = ref(false);
+const deleteContext = ref<DeleteContext>();
+const deleteReason = ref('');
+const deleteConfirm = ref('');
 // 变更类控件的可用性以服务端的判定为准(POST 仍会守门);旧服务端不带该字段时
 // 退化为不可用,不出现「能点但必然 403」的按钮。
 const viewerAccess = ref<PermissionsResponse['viewerAccess']>(undefined);
 const canManage = computed(() => viewerAccess.value === 'manage');
+const canArchive = computed(() => lifecycle.value?.canArchive ?? canManage.value);
 const errorMessage = ref('');
 
 const selectedTeam = ref('');
@@ -352,7 +435,12 @@ const contextStatusText = computed(() => {
   return statusText(status);
 });
 
-const contextStatusType = computed<'success' | 'warning'>(() => (context.value?.status === 'archived' ? 'warning' : 'success'));
+const contextStatusType = computed<'success' | 'warning' | 'danger'>(() => {
+  const status = context.value?.status;
+  if (status === 'archived' || status === 'delete_failed') return 'warning';
+  if (status === 'deleting') return 'danger';
+  return 'success';
+});
 
 function formatDate(value: string): string {
   const date = new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
@@ -383,9 +471,77 @@ function assignPermissionsResponse(response: PermissionsResponse): void {
   const { skill, viewerAccess: accessLevel, ...matrixResponse } = response;
   context.value = skill;
   viewerAccess.value = accessLevel;
+  lifecycle.value = response.viewerLifecycle;
   matrix.value = matrixResponse;
   // 可见性随技能记录一并下发（public/private）
   visibility.value = (skill as { visibility?: 'public' | 'private' }).visibility ?? 'private';
+}
+
+// 生命周期操作(CONTEXT:技能生命周期):Archive 是可恢复停用；Delete 是两阶段
+// 删除的第二阶段。删除上下文必须先展示依赖方，原因和完整身份在提交前本地校验。
+async function archiveSkill(): Promise<void> {
+  try {
+    await apiRequest(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/archive`,
+      { method: 'POST' }
+    );
+    ElMessage.success('技能已归档');
+    await loadMatrix();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function restoreSkill(): Promise<void> {
+  try {
+    await apiRequest(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/restore`,
+      { method: 'POST' }
+    );
+    ElMessage.success('技能已恢复');
+    await loadMatrix();
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function openDeleteDialog(): Promise<void> {
+  errorMessage.value = '';
+  try {
+    deleteContext.value = await apiRequest<DeleteContext>(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/delete-context`
+    );
+    deleteReason.value = '';
+    deleteConfirm.value = '';
+    deleteDialogVisible.value = true;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function deleteWholeSkill(): Promise<void> {
+  const reason = deleteReason.value.trim();
+  const identity = `@${props.scope}/${props.skillName}`;
+  if (!reason) {
+    errorMessage.value = '请填写删除原因';
+    return;
+  }
+  if (deleteConfirm.value.trim() !== identity) {
+    errorMessage.value = `确认失败：请输入完整技能身份 ${identity}`;
+    return;
+  }
+  try {
+    await apiRequest(
+      `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/delete`,
+      { method: 'POST', body: { confirm: identity, reason } }
+    );
+    deleteDialogVisible.value = false;
+    ElMessage.success('技能已彻底删除');
+    await router.push(String(route.name ?? '').startsWith('super-') ? { name: 'super-skills' } : { name: 'me-skills' });
+  } catch (error) {
+    await loadMatrix();
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  }
 }
 
 // 单版本删除(CONTEXT:单版本删除):不可变发布模型下的外科手术式清理。服务端以
@@ -477,6 +633,22 @@ onMounted(loadMatrix);
 </script>
 
 <style scoped>
+.delete-dialog {
+  display: grid;
+  gap: 10px;
+}
+.delete-context p {
+  margin: 0 0 6px;
+}
+.delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.lifecycle-alert {
+  margin-top: 10px;
+}
+
 .panel-title {
   margin: 0;
   font-size: 16px;

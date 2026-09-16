@@ -291,6 +291,18 @@ esl release-delete @platform-ai/reviewer 1.0.0 --confirm 1.0.0
 > `release-delete` 移除该版本的发布包、版本记录与 Release Tag，保留源码 Git 历史、技能本身与其他版本；**版本号烧毁、不可重发**，所以要求 `--confirm` 回显。技能 Maintainer 可删自己技能的版本；被其他技能的依赖锁定引用时服务端会拒绝并列出引用方，只有平台管理员能加 `--force` 强制（强制后依赖它的技能安装会失败）。
 > 管理后台的技能管理页面「发布历史」里也有同样的删除入口（需回显版本号确认），Web 与 CLI 走同一个接口。
 
+### 整技能生命周期：Archive / Restore / Delete
+
+整技能 Archive、Restore 和彻底 Delete 只在 Web 的「技能管理 → 生命周期」区域提供；CLI 不提供 `esl delete`。
+
+- **Archive**：持有该技能 `manage` 权限的人可停用技能。归档后不能修改源码或发布新版本。
+- **Restore**：Archive 的逆操作。从未发布技能恢复为未发布；曾发布技能（包括只留下已删除 Release tombstone 的技能）恢复为已发布。权限与 Delete 相同。
+- **Delete**：必须先 Archive。从未发布技能可由 `manage` 权限持有者删除；曾发布组织技能由平台管理员或组织 Owners 成员删除；曾发布个人技能由平台管理员或技能 owner / 创建者删除。组织管理成员和普通 `manage` 授权者不能删除已发布整技能。
+
+Delete 前页面会展示将被移除的 Release 数和完整依赖方列表。依赖方不会阻断删除，但删除后这些依赖方可能安装失败。提交时必须填写非空原因，并输入完整技能身份（如 `@acme/code-review`）。删除成功后审计独立保存；完整 Skill Identity 名字释放，同名可重新登记为新 Skill 并生成新的 Skill ID。
+
+如果 Git 仓库或发布包清理失败，技能会显示「删除失败」和错误原因；修复后可在同一入口重试。
+
 ### 5. 升级版本号 (Version)
 源码形态（`SKILL.md` + `release.json`）的版本号存在 `release.json` 的 `version` 字段里，随源码走 Git 历史：
 ```bash

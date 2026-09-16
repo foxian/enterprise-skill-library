@@ -67,7 +67,7 @@
 `esl source @ns/name [./dir]` —— 克隆远端 Git 源码到本地（默认当前目录），可改可修。这拿的是源码仓库，不是 Published Package。
 
 ## 重置源链接（源已在服务器删除后重建）
-`esl reset-source [./path] [-f]` —— 把一个已托管目录（有 `esl` remote）还原为未托管的本地源：删除 `esl` remote 并把 `release.json` 改名保留为 `release.json.before-reset`。**它只做本地脱管，绝不删服务器上任何东西，也不自动重新登记**——重传始终是下一条显式的 `esl upload`（将生成全新 Skill ID）。适用场景只有一个：确认服务器源已被删除、本地要按新源重建。执行前的守门：CLI 先向 Registry API 询问一次该身份是否还存在——**身份仍可见时直接拒绝执行**（服务器源还在，别拿它当删除手段；报错会给出两条正途：切维护账号重登后 `esl upload` 同步，或让平台管理员走 Archived/Deleted 流程真正删除），只有 `--force` 能越过阻断；探测失败才对应「确实没删到」的场景静默通过。要求确认，非交互传 `--force`。重传后缺 `release.json` 会自动补最小清单，需要的字段可从 `.before-reset` 备份拷回。别在源只是「维护账号不对」时怂恿用户 `--force`——阻断报错就是在拦这种情况，先让用户去服务器核实。
+`esl reset-source [./path] [-f]` —— 把一个已托管目录（有 `esl` remote）还原为未托管的本地源：删除 `esl` remote 并把 `release.json` 改名保留为 `release.json.before-reset`。**它只做本地脱管，绝不删服务器上任何东西，也不自动重新登记**——重传始终是下一条显式的 `esl upload`（将生成全新 Skill ID）。适用场景只有一个：确认服务器源已被删除、本地要按新源重建。执行前的守门：CLI 先向 Registry API 询问一次该身份是否还存在——**身份仍可见时直接拒绝执行**（服务器源还在，别拿它当删除手段；报错会给出两条正途：切维护账号重登后 `esl upload` 同步，或在 Web 技能生命周期页真正删除：未发布技能由 manage 权限持有者删除，已发布技能由平台管理员或组织所有者删除），只有 `--force` 能越过阻断；探测失败才对应「确实没删到」的场景静默通过。要求确认，非交互传 `--force`。重传后缺 `release.json` 会自动补最小清单，需要的字段可从 `.before-reset` 备份拷回。别在源只是「维护账号不对」时怂恿用户 `--force`——阻断报错就是在拦这种情况，先让用户去服务器核实。
 
 ## 共享与权限
 `esl share @ns/skill-name --all [--write]` —— 授权给组织常设团队：`--all` 为组织只读团队（全员可读），`--write` 为组织读写团队。

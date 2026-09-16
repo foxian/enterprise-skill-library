@@ -128,19 +128,37 @@ Server-hosted Skill Source。它可以被授权用户下载源码，但不能作
 
 被明确停用或废弃的 Server-hosted Skill。它不再接受源码修改或新的
 Skill Release；其 Skill ID、Git 历史、历史 Skill Release、Published Skill
-Package、安装记录和名称重定向仍然保留。恢复 Archived Skill 仅允许
-ESL Platform Administrator 执行。
+Package、安装记录和名称重定向仍然保留。Restore 是它的逆操作：从未发布技能
+恢复为 Active Unreleased；曾发布技能（含存在已删除 Release tombstone 的技能）
+恢复为 Active Published。
+
+## Deleting Workflow
+
+整技能删除的第二阶段工作流。技能先进入 deleting，依次清理 Git 仓库和
+Published Skill Package；外部资产清理失败时进入 Delete Failed 并保留请求者、
+原因与错误，等待授权用户重试；最终清理在数据库事务中完成并写入审计。
+
+## Delete Failed
+
+Deleting Workflow 中外部资产清理失败后的技能状态。技能记录、原因与错误仍
+保留，允许从已授权的 Web 入口重试；它不是可安装、可修改或可发布的正常状态。
+
+## Skill Deletion Audit
+
+整技能物理删除后的独立治理记录，保存被删 Skill ID、完整名、scope、short
+name、删除人、原因、被移除 Release 数和删除时的依赖方列表。审计不引用
+skills 表，技能删除后仍保留；首版只落库，不提供查询 UI。
 
 ## Deleted Skill
 
-被 ESL Platform Administrator 完全删除的 Server-hosted Skill，用于彻底清理
-（与 Archived Skill 的保留式停用相对）。删除是物理的、不可恢复的：移除其
-Git 仓库、Published Skill Package 与全部 DB 记录（含 Release、版本、Tag 与
-名称重定向），Skill Identity 随即不可用且不可复用。只允许 ESL Platform
-Administrator 执行，删除前要求显式确认。「Skill Identity 不可复用」这一承诺
-以 Registry 数据存在为前提：同址的服务端数据整体丢失或重建（如开发期的
-Bootstrap Reset）时，承诺无法延续，同一 Identity 物理上可作为全新源再次
-登记，产生新的 Skill ID。
+经过 Archive → Delete 两阶段流程后被物理删除的 Server-hosted Skill，用于
+彻底清理（与 Archived Skill 的保留式停用相对）。删除不可恢复：移除 Git 仓库、
+Published Skill Package 与全部 DB 记录（含 Release、版本、Tag 与名称重定向），
+并写入 Skill Deletion Audit。从未发布技能由 manage 权限持有者删除；曾发布
+组织技能由平台管理员或组织所有者成员删除；曾发布个人技能由平台管理员或技能
+owner / 创建者删除。删除前必须展示依赖方、填写原因并输入完整 Skill Identity
+确认。删除成功后名字释放，同名可重新登记为新 Skill，生成新的 Skill ID，与
+旧 Skill 不连续。
 
 ## Unreleased Skill Source
 

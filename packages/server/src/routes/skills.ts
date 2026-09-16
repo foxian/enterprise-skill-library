@@ -45,9 +45,31 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
 
+  // 整技能 Delete/Restore 使用同一权限模型（ADR-0040）：平台管理员兜底；
+  // 未发布技能由 manage 权限处理；曾发布技能只升级到组织 Owners 或个人
+  // owner/creator，普通 manage 授权者与组织管理成员不得删除公共发布资产。
+  const canDeleteWholeSkill = async (
+    skill: SkillRecord,
+    username: string,
+    isPlatformAdmin: boolean
+  ): Promise<boolean> => {
+    if (isPlatformAdmin) return true;
+    if (!repository.hasEverPublished(skill.name)) {
+      return await canManageSkill(giteaService, skill, username);
+    }
+    if (skill.owner === username || skill.createdBy === username) return true;
+    return await isOwnerMemberOf(giteaService, skill.scope, username);
+  };
+
+  const canRestoreSkill = canDeleteWholeSkill;
+
   // 权限矩阵的响应体;读路径(GET)与变更路径(POST)共用同一形状——客户端用响应整体
   // 替换本地状态,两个路由少一个字段就会让界面状态退化(变更后控件集体失效)。
-  const buildPermissionsResponse = async (skill: SkillRecord, username: string) => ({
+  const buildPermissionsResponse = async (
+    skill: SkillRecord,
+    username: string,
+    isPlatformAdmin = false
+  ) => ({
     ...(await getPermissionMatrix(
       giteaService,
       tenantOrganizationRepository,
@@ -57,7 +79,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     skill: buildSkillContext(repository, skill),
     // 查看者自己的权限档:与变更守门、技能列表的 access 用同一套判定(getAccessLevel),
     // 前端据此决定变更类控件是否可用,避免「点了才知道 403」。
-    viewerAccess: await getAccessLevel(giteaService, skill, username)
+    viewerAccess: await getAccessLevel(giteaService, skill, username),
+    // 生命周期按钮单独下发:平台管理员不一定持有仓库 manage，但一定可 Restore/Delete。
+    viewerLifecycle: {
+      canArchive: await canManageSkill(giteaService, skill, username),
+      canRestore: await canRestoreSkill(skill, username, isPlatformAdmin),
+      canDelete: await canDeleteWholeSkill(skill, username, isPlatformAdmin)
+    }
   });
 
   app.post('/api/skills/upload', async (request, reply) => {
@@ -226,7 +254,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
       return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
     }
-    return buildPermissionsResponse(skill, user.username);
+    return buildPermissionsResponse(
+      skill,
+      user.username,
+      await authorizePlatformAdministrator(request, adminRepository, giteaService)
+    );
   });
 
   // 技能描述随 Source Upload 更新(CONTEXT:Skill Description):仅 Maintainer
@@ -874,50 +906,105 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.post('/api/skills/:scope/:skillName/restore', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
-    if (!(await authorizePlatformAdministrator(request, adminRepository, giteaService))) {
-      return reply.status(403).send({ error: 'Forbidden: platform administrator required' });
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    const platformAdmin = Boolean(
+      await authorizePlatformAdministrator(request, adminRepository, giteaService)
+    );
+    if (!(await canRestoreSkill(skill, user.username, platformAdmin))) {
+      return reply.status(403).send({ error: 'Forbidden: restore permission required' });
     }
-    if (!repository.getSkill(name)) return reply.status(404).send({ error: 'Skill not found' });
-    const restored = repository.getSkill(name);
-    if (restored && typeof giteaService.setRepositoryArchived === 'function') {
+    if (skill.status !== 'archived') {
+      return reply.status(409).send({ error: 'Only archived skills can be restored' });
+    }
+    if (typeof giteaService.setRepositoryArchived === 'function') {
       try {
-        const repo = skillRepo(restored);
+        const repo = skillRepo(skill);
         await giteaService.setRepositoryArchived(repo.owner, repo.name, false);
       } catch (error) {
         return reply.status(409).send({ error: (error as Error).message });
       }
     }
-    repository.restoreSkill(name);
+    repository.restoreSkill(name, repository.hasEverPublished(name));
     return reply.send(repository.getSkill(name));
+  });
+
+  // 删除前 Web 需要完整风险上下文：依赖方不阻断删除，但必须先展示并进入审计。
+  app.get('/api/skills/:scope/:skillName/delete-context', async (request, reply) => {
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    const skill = repository.getSkill(name);
+    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    const platformAdmin = Boolean(
+      await authorizePlatformAdministrator(request, adminRepository, giteaService)
+    );
+    if (!(await canDeleteWholeSkill(skill, user.username, platformAdmin))) {
+      return reply.status(403).send({ error: 'Forbidden: delete permission required' });
+    }
+    const skillId = skill.skillId ?? '';
+    const releasesRemoved = (repository as SkillRepository).getReleases(skill.name).length;
+    return reply.send({
+      name,
+      everPublished: repository.hasEverPublished(name),
+      releasesRemoved,
+      dependents: skillId ? repository.findSkillDependents(skillId) : []
+    });
   });
 
   app.post('/api/skills/:scope/:skillName/delete', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
-    if (!(await authorizePlatformAdministrator(request, adminRepository, giteaService))) {
-      return reply.status(403).send({ error: 'Forbidden: platform administrator required' });
-    }
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    const platformAdmin = Boolean(
+      await authorizePlatformAdministrator(request, adminRepository, giteaService)
+    );
+    if (!(await canDeleteWholeSkill(skill, user.username, platformAdmin))) {
+      return reply.status(403).send({ error: 'Forbidden: delete permission required' });
     }
-    const body = (request.body ?? {}) as { confirm?: string };
+    if (skill.status !== 'archived' && skill.status !== 'delete_failed') {
+      return reply.status(409).send({ error: 'Skill must be archived before deletion' });
+    }
+    const body = (request.body ?? {}) as { confirm?: string; reason?: string };
+    const reason = body.reason?.trim() ?? '';
+    if (!reason) {
+      return reply.status(400).send({ error: 'Deletion requires a non-empty reason' });
+    }
     if (body.confirm !== name) {
       return reply.status(400).send({ error: 'Deletion requires confirm matching the skill identity' });
     }
+
+    // 两阶段删除的第二个阶段必须可重试。进入 deleting 后，任何外部资产失败都
+    // 保留技能记录并落到 delete_failed；Web 可以带着同一原因重试。
+    repository.beginSkillDeletion({ name, requestedBy: user.username, reason });
+    const repo = skillRepo(skill);
     if (typeof giteaService.deleteRepo === 'function') {
       try {
-        const repo = skillRepo(skill);
         await giteaService.deleteRepo(repo.owner, repo.name);
-      } catch {
-        // Best-effort: an orphan Git repository may remain, but the skill record
-        // and its artifacts must still be removed.
+      } catch (error) {
+        const message = `Failed to delete Git repository: ${(error as Error).message}`;
+        repository.markSkillDeletionFailed(name, message);
+        return reply.status(409).send({ error: message });
       }
     }
-    if (skill.skillId) {
-      await fs.rm(path.join(packageRoot, skill.skillId), { recursive: true, force: true });
+    try {
+      if (skill.skillId) {
+        await fs.rm(path.join(packageRoot, skill.skillId), { recursive: true, force: true });
+      }
+    } catch (error) {
+      const message = `Failed to delete published packages: ${(error as Error).message}`;
+      repository.markSkillDeletionFailed(name, message);
+      return reply.status(409).send({ error: message });
     }
-    const deleted = repository.deleteSkill(name);
+    const deleted = repository.deleteSkillWithAudit({
+      fullName: name,
+      deletedBy: user.username,
+      reason,
+      dependents: skill.skillId ? repository.findSkillDependents(skill.skillId) : []
+    });
     return reply.send({ deleted: true, name, skillId: deleted.skillId, releasesRemoved: deleted.releases });
   });
 
@@ -1199,6 +1286,7 @@ async function getPermissionMatrix(
 // Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
 function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
   const releases = repository.getReleases(skill.name);
+  const everPublished = repository.hasEverPublished(skill.name);
   const latest = newestStableRelease(releases);
   const releaseViews = releases.map((release) => ({
     version: release.version,
@@ -1212,6 +1300,8 @@ function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
     name: skill.name,
     description: skill.description,
     status: skill.status,
+    everPublished,
+    deletionError: skill.deletionError ?? null,
     createdBy: skill.createdBy,
     latestRelease: latest
       ? { version: latest.version, createdAt: latest.createdAt, notes: latest.notes }
@@ -1229,6 +1319,8 @@ async function authorizePlatformAdministrator(
   if (!authorization?.startsWith('token ')) return false;
   const token = authorization.replace('token ', '').trim();
   if (adminRepository?.getPlatformAdminForToken(token)) return true;
+  // 测试或精简 Git Backend 可能不提供管理员 token 校验；按 fail closed 处理。
+  if (typeof giteaService.validateAdminUserToken !== 'function') return false;
   return (await giteaService.validateAdminUserToken(token)) !== null;
 }
 

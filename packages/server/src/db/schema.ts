@@ -12,6 +12,10 @@ export const databaseSchema = `
     visibility TEXT NOT NULL DEFAULT 'public',
     status TEXT NOT NULL DEFAULT 'published',
     git_repo_path TEXT NOT NULL,
+    deletion_requested_by TEXT,
+    deletion_reason TEXT,
+    deletion_error TEXT,
+    deletion_requested_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -141,6 +145,20 @@ export const databaseSchema = `
   -- （以及撤销同理）在第二次终态翻转时撞唯一约束。历史行可以有任意多条。
   CREATE UNIQUE INDEX IF NOT EXISTS org_invitations_pending_unique
     ON org_invitations (org_name, username) WHERE status = 'pending';
+
+  -- Skill 删除审计独立于 skills 记录保存：技能被物理删除后，审计必须仍能
+  -- 说明是谁、为什么删除了哪个 Identity，以及删除时有哪些依赖方。
+  CREATE TABLE IF NOT EXISTS skill_deletion_audits (
+    skill_id TEXT,
+    full_name TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    deleted_by TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    releases_removed INTEGER NOT NULL,
+    dependents_json TEXT NOT NULL DEFAULT '[]',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 
   -- 用户注册申请（ADR-0032）：approval 模式下账号先建后禁用，审批激活、
   -- 拒绝删除（名字随之释放）。open 模式不写此表。

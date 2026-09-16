@@ -24,9 +24,24 @@ export interface SkillContext {
   name: string;
   description: string;
   status?: string;
+  everPublished?: boolean;
+  deletionError?: string | null;
   createdBy: string;
   latestRelease?: { version: string; createdAt?: string; notes?: string };
   releases: ReleaseView[];
+}
+
+export interface ViewerLifecycle {
+  canArchive: boolean;
+  canRestore: boolean;
+  canDelete: boolean;
+}
+
+export interface DeleteContext {
+  name: string;
+  everPublished: boolean;
+  releasesRemoved: number;
+  dependents: string[];
 }
 
 /** 查看者在该技能上的权限档,与列表 access、服务端变更守门同源。 */
@@ -35,6 +50,7 @@ export type SkillAccessLevel = 'read' | 'write' | 'manage';
 export type PermissionsResponse = PermissionMatrix & {
   skill?: SkillContext;
   viewerAccess?: SkillAccessLevel;
+  viewerLifecycle?: ViewerLifecycle;
 };
 
 export interface TeamOption {
@@ -82,7 +98,11 @@ export function accessText(access: string): string {
 }
 
 export function statusText(status?: string): string {
-  return status === 'active-published' || status === 'published' ? '已发布' : '未发布';
+  if (status === 'active-published' || status === 'published') return '已发布';
+  if (status === 'archived') return '已归档';
+  if (status === 'deleting') return '删除中';
+  if (status === 'delete_failed') return '删除失败';
+  return '未发布';
 }
 
 // 读取角色化技能清单;共享状态矩阵只对持有管理权的技能可读,其余以 access 呈现。

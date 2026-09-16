@@ -12,6 +12,10 @@ export function initDatabase(dbPath: string): Database.Database {
   ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
   ensureColumn(db, 'skill_id', 'TEXT');
   ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
+  ensureColumn(db, 'deletion_requested_by', 'TEXT');
+  ensureColumn(db, 'deletion_reason', 'TEXT');
+  ensureColumn(db, 'deletion_error', 'TEXT');
+  ensureColumn(db, 'deletion_requested_at', 'DATETIME');
   ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
   ensureColumn(db, 'deprecated_message', 'TEXT', 'skill_releases');
   ensureColumn(db, 'deleted_at', 'DATETIME', 'skill_releases');
@@ -48,6 +52,17 @@ export interface SkillRecord {
   visibility: string;
   status?: string;
   gitRepoPath: string;
+  deletionRequestedBy?: string | null;
+  deletionReason?: string | null;
+  deletionError?: string | null;
+  deletionRequestedAt?: string | null;
+}
+
+export interface SkillDeletionAuditInput {
+  fullName: string;
+  deletedBy: string;
+  reason: string;
+  dependents?: string[];
 }
 
 export interface SkillReleaseRecord {
@@ -135,8 +150,95 @@ export class SkillRepository {
     this.db.prepare(`UPDATE skills SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
   }
 
-  restoreSkill(name: string): void {
-    this.db.prepare(`UPDATE skills SET status = 'active-unreleased', updated_at = CURRENT_TIMESTAMP WHERE name = ?`).run(name);
+  // Restore 是 Archive 的逆向动作：曾发布技能必须回到可安装的 active-published，
+  // 从未发布技能回到 active-unreleased；不能用“当前是否还有 release”判断，
+  // 因为已删除 Release 的 tombstone 也代表这个版本号曾经被占用。
+  restoreSkill(name: string, everPublished = false): void {
+    const status = everPublished ? 'active-published' : 'active-unreleased';
+    this.db.prepare(`
+      UPDATE skills
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE name = ?
+    `).run(status, name);
+  }
+
+  /** 判断“曾发布”的唯一来源：skill_releases 包括单版本删除留下的 tombstone。 */
+  hasEverPublished(skillName: string): boolean {
+    const row = this.db.prepare(`
+      SELECT EXISTS (
+        SELECT 1 FROM skill_releases
+        WHERE skill_name = ? OR skill_id = (SELECT skill_id FROM skills WHERE name = ?)
+      ) AS present
+    `).get(skillName, skillName) as { present: number };
+    return row.present === 1;
+  }
+
+  /** 汇总所有仍活跃 Release 的依赖锁中引用该 Skill ID 的技能名，不阻断删除。 */
+  findSkillDependents(skillId: string): string[] {
+    const rows = this.db
+      .prepare(`
+        SELECT skill_name AS skillName, dependency_lock_json AS dependencyLockJson
+        FROM skill_releases
+        WHERE deleted_at IS NULL
+      `)
+      .all() as { skillName: string; dependencyLockJson: string }[];
+    const dependents = new Set<string>();
+    for (const row of rows) {
+      let lock: Record<string, { skillId?: string; version?: string }>;
+      try {
+        lock = JSON.parse(row.dependencyLockJson) as Record<string, { skillId?: string; version?: string }>;
+      } catch {
+        continue;
+      }
+      if (Object.values(lock).some((entry) => entry?.skillId === skillId)) dependents.add(row.skillName);
+    }
+    return [...dependents].sort();
+  }
+
+  /** 进入 Deleting Workflow；只允许从可重试的两个删除前置状态开始。 */
+  beginSkillDeletion(input: { name: string; requestedBy: string; reason: string }): void {
+    const result = this.db.prepare(`
+      UPDATE skills
+      SET status = 'deleting',
+          deletion_requested_by = ?,
+          deletion_reason = ?,
+          deletion_error = NULL,
+          deletion_requested_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE name = ? AND status IN ('archived', 'delete_failed')
+    `).run(input.requestedBy, input.reason, input.name);
+    if (result.changes === 0) {
+      throw new Error('Skill must be archived before deletion');
+    }
+  }
+
+  /** 外部资产清理失败时保留技能与请求者/原因，便于从 Web 重试。 */
+  markSkillDeletionFailed(name: string, error: string): void {
+    this.db.prepare(`
+      UPDATE skills
+      SET status = 'delete_failed',
+          deletion_error = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE name = ?
+    `).run(error, name);
+  }
+
+  getDeletionMetadata(name: string): {
+    requestedBy?: string | null;
+    reason?: string | null;
+    error?: string | null;
+    requestedAt?: string | null;
+  } | undefined {
+    const row = this.db.prepare(`
+      SELECT
+        deletion_requested_by AS requestedBy,
+        deletion_reason AS reason,
+        deletion_error AS error,
+        deletion_requested_at AS requestedAt
+      FROM skills
+      WHERE name = ?
+    `).get(name) as { requestedBy?: string | null; reason?: string | null; error?: string | null; requestedAt?: string | null } | undefined;
+    return row;
   }
 
   // 技能描述(CONTEXT:Skill Description)由 Source Upload 登记,随后续 Source
@@ -154,6 +256,49 @@ export class SkillRepository {
       .prepare(`UPDATE skills SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
       .run(description, name);
     return result.changes > 0;
+  }
+
+  /**
+   * 最终删除与审计在同一事务：如果技能记录删除成功，审计必须已经写入；audit
+   * 不设 skills 外键，因此审计生命周期独立于被删记录。
+   */
+  deleteSkillWithAudit(input: SkillDeletionAuditInput): { skillId?: string; releases: number } {
+    const skill = this.getSkill(input.fullName);
+    if (!skill) throw new Error(`Skill not found: ${input.fullName}`);
+    const skillId = skill.skillId;
+    const count = this.db.prepare(`
+      SELECT COUNT(*) AS n
+      FROM skill_releases
+      WHERE skill_name = ? OR skill_id = ?
+    `).get(skill.name, skillId ?? '') as { n: number };
+    const dependents = input.dependents ?? this.findSkillDependents(skillId ?? '');
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO skill_deletion_audits (
+          skill_id, full_name, scope, skill_name, deleted_by, reason,
+          releases_removed, dependents_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        skillId ?? null,
+        skill.name,
+        skill.scope,
+        skill.skillName,
+        input.deletedBy,
+        input.reason,
+        count.n,
+        JSON.stringify(dependents)
+      );
+      this.db.prepare(`DELETE FROM skill_releases WHERE skill_name = ? OR skill_id = ?`).run(skill.name, skillId ?? '');
+      this.db.prepare(`DELETE FROM skill_versions WHERE skill_name = ?`).run(skill.name);
+      this.db.prepare(`DELETE FROM skill_tags WHERE skill_name = ?`).run(skill.name);
+      this.db.prepare(`
+        DELETE FROM skill_identity_redirects
+        WHERE skill_id = ? OR current_name = ? OR old_name = ?
+      `).run(skillId ?? '', skill.name, skill.name);
+      this.db.prepare(`DELETE FROM skills WHERE name = ?`).run(skill.name);
+    });
+    transaction();
+    return { skillId, releases: count.n };
   }
 
   deleteSkill(name: string): { skillId?: string; releases: number } {
@@ -246,7 +391,11 @@ export class SkillRepository {
         maintainers_json AS maintainersJson,
         visibility,
         status,
-        git_repo_path AS gitRepoPath
+        git_repo_path AS gitRepoPath,
+        deletion_requested_by AS deletionRequestedBy,
+        deletion_reason AS deletionReason,
+        deletion_error AS deletionError,
+        deletion_requested_at AS deletionRequestedAt
       FROM skills
       WHERE name = ?
     `);
@@ -1242,6 +1391,10 @@ function deserializeSkill(
   };
   if (row.skillId) skill.skillId = row.skillId;
   if (row.skillId && row.status) skill.status = row.status;
+  if (row.deletionRequestedBy) skill.deletionRequestedBy = row.deletionRequestedBy;
+  if (row.deletionReason) skill.deletionReason = row.deletionReason;
+  if (row.deletionError) skill.deletionError = row.deletionError;
+  if (row.deletionRequestedAt) skill.deletionRequestedAt = row.deletionRequestedAt;
   return skill;
 }
 

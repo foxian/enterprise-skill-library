@@ -156,10 +156,13 @@ describe('skill RBAC permissions', () => {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
         status: 'active-published',
+        everPublished: false,
+        deletionError: null,
         createdBy: 'acme_alice',
         releases: []
       },
-      viewerAccess: 'manage'
+      viewerAccess: 'manage',
+      viewerLifecycle: { canArchive: true, canRestore: true, canDelete: true }
     });
   });
 
@@ -197,10 +200,13 @@ describe('skill RBAC permissions', () => {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
         status: 'active-published',
+        everPublished: false,
+        deletionError: null,
         createdBy: 'acme_alice',
         releases: []
       },
-      viewerAccess: 'manage'
+      viewerAccess: 'manage',
+      viewerLifecycle: { canArchive: true, canRestore: true, canDelete: true }
     });
   });
 
@@ -1207,3 +1213,4 @@ describe('skill RBAC permissions', () => {
     expect(get.json().skill.description).toBe('Code reviewer skill');
   });
 });
+

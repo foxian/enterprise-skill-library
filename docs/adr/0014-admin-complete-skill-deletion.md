@@ -1,6 +1,6 @@
 # 管理员完全删除技能
 
-Status: accepted
+Status: superseded by [ADR-0040](0040-tiered-skill-deletion-and-identity-release.md)
 
 系统最初（CONTEXT "Archived Skill"）规定"初期不允许物理删除"，只提供保留式的 Archive/Restore。但运营上存在需要**彻底清理**的场景（错误注册、废弃技能占用名字、测试残留），且此前只有绕过产品、手工操作 Gitea API + 数据库的删除方式。我们决定提供正式的**管理员完全删除**操作：物理、不可恢复，与 Archived 的保留式停用相对。
 
@@ -22,3 +22,4 @@ Status: accepted
 - 完全删除是**不可恢复**的；因此严格限定平台管理员 + 显式确认。
 - Gitea 仓库删除为 best-effort，失败残留孤儿仓库需运维侧处理。
 - 与 ADR-0007 的"Published Skill Package 不可删除"不再冲突——该约束针对常规生命周期，管理员删除是治理兜底路径。
+

@@ -51,7 +51,7 @@ export async function executeResetSource(options: ResetSourceOptions = {}): Prom
         throw new Error(
           `The skill identity ${identity} still exists on the configured ESL server; refusing to reset the source link. ` +
             'Verify on the server first: if you only switched accounts, log in with the maintaining account and "esl upload" to sync; ' +
-            'if the source really should be deleted, have it deleted (Archived/Deleted Skill by the platform administrator). ' +
+            'if the source really should be deleted, delete it in the Web skill lifecycle UI (unpublished skills: a manage-permission holder; published skills: the platform administrator or organization owner). ' +
             'To proceed with a reset anyway - detaching locally and registering a brand-new source with a new Skill ID later - re-run with --force.'
         );
       } catch (error) {

@@ -128,10 +128,17 @@ describe('Fastify Server API', () => {
       skill: {
         name: '@foxian/ghost-skill',
         description: 'orphan',
+        everPublished: false,
+        deletionError: null,
         createdBy: 'foxian_admin',
         releases: []
       },
-      viewerAccess: 'manage'
+      viewerAccess: 'manage',
+      viewerLifecycle: {
+        canArchive: true,
+        canRestore: true,
+        canDelete: true
+      }
     });
     db.close();
   });
@@ -314,7 +321,7 @@ describe('Fastify Server API', () => {
     expect((await app.inject({ method: 'GET', url: '/api/skills/@alice/reviewer', headers: { authorization: 'token alice-token' } })).statusCode).toBe(200);
   });
 
-  it('archives a skill and only a platform administrator can restore it', async () => {
+  it('archives and restores an unpublished skill for its creator', async () => {
     const mockGitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       validateAdminUserToken: vi.fn().mockResolvedValue(null),
@@ -341,7 +348,8 @@ describe('Fastify Server API', () => {
       url: '/api/skills/@alice/reviewer/restore',
       headers: { authorization: 'token alice-token' }
     });
-    expect(restore.statusCode).toBe(403);
+    expect(restore.statusCode).toBe(200);
+    expect(restore.json().status).toBe('active-unreleased');
   });
 
   
