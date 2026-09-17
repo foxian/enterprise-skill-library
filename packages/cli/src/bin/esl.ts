@@ -13,6 +13,8 @@ import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
+import { executeLink } from '../commands/link.js';
+import { executeUnlink } from '../commands/unlink.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
@@ -442,6 +444,42 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     });
 
   program
+    .command('link')
+    .description('Link a local skill directory into the store (symlink, like npm link)')
+    .argument('[path]', 'local skill directory (defaults to --cd or the current directory)')
+    .option('--global', 'Link to global skills directory')
+    .option('--tools <tools>', 'AI tools to link, comma-separated or all')
+    .option('--no-tools', 'Link the skill source without creating tool links')
+    .option('--identity <identity>', 'Namespace or full identity for a bare release.json name')
+    .option('-f, --force', 'Replace existing directory or stale link at the target')
+    .addHelpText('after', example('$ esl link ./my-skill --global\\n  $ esl link ../draft-skill'))
+    .action(async (skillPath: string | undefined, options: { global?: boolean; tools?: string | boolean; force?: boolean }) => {
+      const sourcePath = skillPath ?? '.';
+      const skipToolLinks = options.tools === false;
+      let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+      if (!skipToolLinks && tools.length === 0) {
+        const configured = await resolveDefaultInstallTools(process.cwd(), {
+          ...options,
+          tools: undefined,
+          global: options.global
+        });
+        if (configured.length === 0) {
+          if (!isInteractive()) {
+            throw new Error('No tools configured; pass --tools or run interactively');
+          }
+          tools = await promptToolSelection();
+        }
+      }
+
+      const targetDir = await executeLink(sourcePath, {
+        ...options,
+        tools,
+        noTools: skipToolLinks
+      });
+      console.log('Linked skill at ' + targetDir);
+    });
+
+  program
     .command('adapt')
     .description('Ensure Tool Links for installed skills')
     .argument('[path]', 'project directory (defaults to --cd or the current directory)')
@@ -576,7 +614,11 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         return;
       }
       for (const result of results) {
-        console.log(`${result.name}: ${result.from} -> ${result.to}`);
+        if (result.skipped === 'link') {
+          console.log(`${result.name}: linked (skipped)`);
+        } else {
+          console.log(`${result.name}: ${result.from} -> ${result.to}`);
+        }
       }
     });
 
@@ -588,8 +630,27 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('-f, --force', 'uninstall without confirmation')
     .addHelpText('after', example('$ esl uninstall @cnfox/code-review'))
     .action(async (skillName: string, options: { global?: boolean }) => {
-      await executeUninstall(skillName, options);
-      console.log(`Skill ${skillName} uninstalled`);
+      const result = await executeUninstall(skillName, options);
+      if (result.sourceRemoved) {
+        console.log(`Skill ${skillName} uninstalled`);
+      } else {
+        console.log(`Skill ${skillName} uninstalled; linked source was preserved at ${result.sourcePath}`);
+      }
+    });
+
+  program
+    .command('unlink')
+    .description('Unlink a local skill source and restore the previous store copy when staged')
+    .argument('<skill-name>')
+    .option('--global', 'Unlink from global skills directory')
+    .addHelpText('after', example('$ esl unlink @local/my-skill'))
+    .action(async (skillName: string, options: { global?: boolean }) => {
+      const result = await executeUnlink(skillName, options);
+      if (result.restored) {
+        console.log(`Skill ${skillName} unlinked; previous store copy restored at ${result.targetDir}`);
+      } else {
+        console.log(`Skill ${skillName} unlinked`);
+      }
     });
 
   program

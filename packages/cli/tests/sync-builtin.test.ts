@@ -70,7 +70,7 @@ describe('esl built-in global sync (npm lifecycle)', () => {
 
     const lock = await loadSkillsLock(globalRoot);
     expect(lock.skills['@builtin/esl-operator']?.version).toBe('0.2.0');
-    expect(fs.existsSync(path.join(globalRoot, 'skills', 'builtin_esl-operator', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(globalRoot, 'skills', '@builtin', 'esl-operator', 'SKILL.md'))).toBe(true);
   });
 
   it('reports failure without throwing when the built-in package is missing', async () => {

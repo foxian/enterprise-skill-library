@@ -50,7 +50,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, '.git'))).toBe(false);
@@ -67,7 +67,7 @@ describe('esl install (project-level)', () => {
   });
 
   it('links a project skill for trae-intl into .trae/skills', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -93,7 +93,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'local_unprepared-skill');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', '@local', 'unprepared-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, 'skill.json'))).toBe(true);
@@ -174,7 +174,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'alice_code-review');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, '.git'))).toBe(false);
@@ -362,7 +362,7 @@ describe('esl install (project-level)', () => {
     ]);
     expect(
       fs.existsSync(
-        path.join(projectDir, '.eslib', 'skills', 'platform-ai_style-guide', 'SKILL.md')
+        path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'style-guide', 'SKILL.md')
       )
     ).toBe(true);
     expect(
@@ -397,7 +397,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.eslib', 'skills', 'alice_code-review')));
+    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')));
     const globalSkills = await loadSkillsJson(path.join(homeDir, '.eslib'));
     expect(globalSkills.skills['@alice/code-review']).toBe('^0.1.0');
   });
@@ -410,7 +410,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(homeDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const expectedDir = path.join(homeDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(projectDir, '.eslib'))).toBe(false);

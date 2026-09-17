@@ -127,7 +127,7 @@ Pop-Location
 ```
 
 The project should now contain `.skills.json`, `.skills-lock.json`, and
-`.eslib\skills\smoke_demo`.
+`.eslib\skills\@smoke\demo`.
 
 ## 5. Author Publishes A Patch Release
 

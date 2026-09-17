@@ -59,7 +59,7 @@ describe('esl install (global mode)', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:3000/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.eslib', 'skills', 'alice_code-review')
+        path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
       ]
     );
   });
@@ -109,7 +109,9 @@ describe('esl install (global mode)', () => {
       execFileAsync: execFileAsync as any
     });
 
-    expect(target).toContain('platform-ai_reviewer');
+    expect(target).toBe(
+      path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer')
+    );
     expect(fs.existsSync(path.join(target, 'skill.json'))).toBe(true);
     expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toContain('name: platform-ai:reviewer');
     expect(execFileAsync).not.toHaveBeenCalled();
@@ -219,7 +221,9 @@ describe('esl install (global mode)', () => {
       execFileAsync: vi.fn() as any
     });
 
-    expect(target).toContain('platform-ai_reviewer');
+    expect(target).toBe(
+      path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer')
+    );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Use 1.1.0; this release ships a broken regex'));
     warnSpy.mockRestore();
   });
@@ -247,7 +251,7 @@ describe('esl install (global mode)', () => {
       server: 'http://localhost:3000',
       customFetch: fetchImpl as any
     })).rejects.toThrow('checksum does not match');
-    expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', 'platform-ai_reviewer'))).toBe(false);
+    expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer'))).toBe(false);
   });
 
   it('rejects an incompatible package unless compatibility checks are ignored', async () => {

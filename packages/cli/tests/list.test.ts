@@ -18,7 +18,7 @@ describe('esl list', () => {
             version: '1.0.0',
             source: 'registry',
             specifier: '^1.0.0',
-            sourceDir: 'skills/alice_code-review',
+            sourceDir: 'skills/@alice/code-review',
             installedAt: '2026-01-01T00:00:00.000Z'
           },
           '@local/my-helper': {
@@ -26,7 +26,7 @@ describe('esl list', () => {
             version: '0.1.0',
             source: 'local',
             specifier: 'file:/tmp/my-helper',
-            sourceDir: 'skills/local_my-helper',
+            sourceDir: 'skills/@local/my-helper',
             installedAt: '2026-01-01T00:00:00.000Z'
           },
           '@builtin/esl-operator': {
@@ -34,7 +34,7 @@ describe('esl list', () => {
             version: '0.1.0',
             source: 'builtin',
             specifier: 'builtin:esl-operator',
-            sourceDir: 'skills/builtin_esl-operator',
+            sourceDir: 'skills/@builtin/esl-operator',
             installedAt: '2026-01-01T00:00:00.000Z'
           }
         }

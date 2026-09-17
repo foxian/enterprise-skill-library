@@ -25,7 +25,7 @@ import {
   recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
-  skillDirectoryName,
+  skillSourceRelativeDir,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
@@ -437,7 +437,7 @@ async function installPublishedDependencies(
         ].join(', ')}`);
       }
     }
-    const dependencyTargetDir = path.join(storeRoot, 'skills', skillDirectoryName(dependencyName));
+    const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(dependencyName));
     const dependencyStagingDir = `${dependencyTargetDir}.staging-${process.pid}-${Date.now()}`;
     await removeDirectory(dependencyStagingDir);
     for (const [relativePath, content] of Object.entries(packageData.files ?? {})) {

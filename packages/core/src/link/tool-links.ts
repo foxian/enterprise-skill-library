@@ -3,7 +3,11 @@ import type { Dirent } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { loadInstallManifest, skillDirectoryName } from '../store/skill-store.js';
+import {
+  loadInstallManifest,
+  skillDirectoryName,
+  skillSourceRelativeDir
+} from '../store/skill-store.js';
 
 export const SUPPORTED_TOOLS = [
   'claude',
@@ -211,7 +215,7 @@ function recordKey(record: Pick<ToolLinkRecord, 'identity' | 'tool' | 'level'>):
 
 export async function createToolLink(options: CreateToolLinkOptions): Promise<ToolLinkOperationResult> {
   const { identity, tool, level, storeRoot, force = false } = options;
-  const sourceDir = path.resolve(storeRoot, 'skills', skillDirectoryName(identity));
+  const sourceDir = path.resolve(storeRoot, skillSourceRelativeDir(identity));
   const targetDir = path.resolve(toolDirectory(tool, level, options), skillDirectoryName(identity));
   const manifest = await loadToolLinkManifest(storeRoot);
   const existingRecord = manifest.links.find(

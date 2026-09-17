@@ -10,9 +10,10 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 | :--- | :--- | :--- |
 | **技能标识 (Skill Identity)** | 技能的全局唯一名称，格式为 `@namespace/skill-name`。 | `@cnfox/code-review` |
 | **本地命名空间 (`@local`)** | 专为本地草稿、测试预留的命名空间。自带发布防护，防止未审核测试代码误发布到服务器。 | `@local/my-test-skill` |
-| **Skill Store (`.eslib/`)** | 项目级使用 `<project>/.eslib/skills/`，全局级使用 `~/.eslib/skills/`；它是 ESL 安装技能的唯一本地真相。 | `.eslib/skills/cnfox_code-review/` |
+| **Skill Store (`.eslib/`)** | 项目级使用 `<project>/.eslib/skills/`，全局级使用 `~/.eslib/skills/`；技能源按 npm 风格放在 `@scope/skill-name/` 下。 | `.eslib/skills/@cnfox/code-review/` |
 | **依赖清单与锁文件** | `.skills.json` 记录声明依赖；`.skills-lock.json` 精确锁定版本与 SHA-256 完整性哈希。 | `.skills.json`<br>`.skills-lock.json` |
-| **Tool Link** | 每个 AI 工具目录中的单个技能目录 link，指向 Skill Store 源；更新源后 link 自动看到新内容。 | `.claude/skills/cnfox_code-review -> .eslib/skills/cnfox_code-review` |
+| **Tool Link** | 每个 AI 工具目录中的单个技能目录 link，指向 Skill Store 源；link 名仍使用安全目录名 `scope_skill-name`。 | `.claude/skills/cnfox_code-review -> .eslib/skills/@cnfox/code-review` |
+| **Skill Source Link** | 本地技能源码目录在 Skill Store 中的符号链接安装；开发中修改源码后，链接工具立即看到。 | `.eslib/skills/@local/my-skill -> ./my-skill` |
 
 ---
 
@@ -164,7 +165,31 @@ esl install @cnfox/code-review --no-tools
 ```
 > **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。未传 `--tools` 时，按项目 `.skills.json`、全局配置、交互选择的顺序解析默认工具。
 
-### 5. 查看已安装技能 (List)
+### 5. 本地源码开发链接 (Link)
+在持续开发本地技能时，把源码目录链入 Skill Store，避免每次修改都重新安装：
+```bash
+# 链接当前目录；裸短名默认使用 @local
+esl link ./path/to/my-skill
+
+# 显式补全 namespace；不能改 release.json 或 SKILL.md 中的短名
+esl link ./path/to/my-skill --identity acme
+
+# 链接到全局 Skill Store
+esl link ./path/to/my-skill --global
+
+# 替换同身份的普通安装副本；原副本移入 .eslib/link-staging/
+esl link ./path/to/my-skill --force
+```
+
+`link` 身份优先取 `release.json` 的完整 `@scope/name`；裸短名默认 `@local/<name>`。它不会读取、写入或生成源码里的 `skill.json`。需要退回原安装状态时：
+
+```bash
+esl unlink @local/my-skill
+```
+
+有 staging 时 `unlink` 纯本地恢复原副本、依赖、锁文件和安装记录；无 staging 时移除 link 和记录。`uninstall` 链接技能时会保留本地源码目录。
+
+### 6. 查看已安装技能 (List)
 查看当前项目或全局已安装的技能清单：
 ```bash
 # 查看当前项目安装的技能
@@ -179,7 +204,7 @@ esl list --global
 esl list --json
 ```
 
-### 6. 手动同步 Tool Link (Adapt)
+### 7. 手动同步 Tool Link (Adapt)
 按当前工具配置检查并建立已安装技能的 Tool Link：
 ```bash
 # 检查并建立当前项目的 Tool Link
@@ -189,7 +214,7 @@ esl adapt
 esl adapt --global
 ```
 
-### 7. 查看与删除 Tool Link
+### 8. 查看与删除 Tool Link
 ```bash
 # 查看当前项目所有工具、技能和 link 状态
 esl tools list
@@ -203,8 +228,8 @@ esl tools list --json
 esl tools remove @cnfox/code-review --tools claude,cursor
 ```
 
-### 8. 更新技能 (Update)
-检查并升级已安装的技能到 ESL Server 上的最新版本：
+### 9. 更新技能 (Update)
+检查并升级已安装的技能到 ESL Server 上的最新版本。Skill Source Link 会保持源码实时状态并被跳过：
 ```bash
 # 更新项目下所有技能
 esl update
@@ -219,7 +244,7 @@ esl update --global
 esl update @cnfox/code-review --tools claude,codex
 ```
 
-### 9. 卸载技能 (Uninstall)
+### 10. 卸载技能 (Uninstall)
 移除已安装的技能（清理 Skill Store 源、依赖/锁/安装记录及该技能的全部 ESL 管理 link）：
 ```bash
 # 卸载项目技能
@@ -353,7 +378,7 @@ esl source @cnfox/code-review ./custom-dir
 
 ## 六、 多 Agent 工具配置与目录映射 (Tool Link Reference)
 
-当运行 `esl adapt` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
+当运行 `esl adapt` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |

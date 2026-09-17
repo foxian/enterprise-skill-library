@@ -9,6 +9,7 @@ import {
   highestStableVersion,
   isBuiltinIdentity,
   listToolLinks,
+  loadInstallManifest,
   loadSkillsJson,
   loadSkillsLock,
   renameSkillState,
@@ -36,6 +37,7 @@ export interface UpdateOptions extends NetworkCommandOptions {
 export interface UpdateResultEntry {
   name: string;
   from: string;
+  skipped?: 'link';
   to: string;
 }
 
@@ -53,6 +55,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     ([name, specifier]) =>
       (!options.skillName || options.skillName === name) &&
       !specifier.startsWith('file:') &&
+      !specifier.startsWith('link:') &&
       !specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)
   );
   if (hasRegistrySkills) {
@@ -61,6 +64,12 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
 
   for (const [name, specifier] of Object.entries(skillsJson.skills)) {
     if (options.skillName && options.skillName !== name) {
+      continue;
+    }
+
+    const installManifest = await loadInstallManifest(storeRoot);
+    if (installManifest.skills[name]?.source === 'link' || specifier.startsWith('link:')) {
+      results.push({ name, from: 'link', to: 'linked (skipped)', skipped: 'link' });
       continue;
     }
 

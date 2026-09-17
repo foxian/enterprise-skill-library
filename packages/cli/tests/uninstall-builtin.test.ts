@@ -54,7 +54,7 @@ describe('esl built-in uninstall and adapt', () => {
       homeDir
     });
 
-    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'builtin_esl-operator'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@builtin', 'esl-operator'))).toBe(false);
     const skills = await loadSkillsJson(projectDir);
     expect(skills.skills['@builtin/esl-operator']).toBeUndefined();
     const lock = await loadSkillsLock(projectDir);

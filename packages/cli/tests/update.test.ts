@@ -40,7 +40,7 @@ describe('esl update', () => {
     await saveSkillsJson(projectDir, {
       skills: { '@myorg/local-skill': `file:${localSkillDir}` }
     });
-    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'local-skill');
     fs.mkdirSync(installedDir, { recursive: true });
     fs.writeFileSync(path.join(installedDir, 'SKILL.md'), '# Old Local Skill\n');
 
@@ -84,7 +84,7 @@ describe('esl update', () => {
       noAdapt: true
     });
 
-    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_specific-local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'specific-local-skill');
     expect(result).toEqual([{ name: '@myorg/specific-local-skill', from: 'local', to: '0.4.0' }]);
     expect(fs.readFileSync(path.join(installedDir, 'SKILL.md'), 'utf8')).toContain('# Updated Specific Local Skill');
   });
@@ -117,7 +117,7 @@ describe('esl update', () => {
       noAdapt: true
     });
 
-    const installedDir = path.join(globalRoot, 'skills', 'myorg_global-local-skill');
+    const installedDir = path.join(globalRoot, 'skills', '@myorg', 'global-local-skill');
     expect(result).toEqual([{ name: '@myorg/global-local-skill', from: 'local', to: '0.3.0' }]);
     expect(fs.readFileSync(path.join(installedDir, 'SKILL.md'), 'utf8')).toContain('# Updated Global Local Skill');
 
@@ -193,13 +193,13 @@ describe('esl update', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:3000/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.eslib', 'skills', 'alice_code-review')
+        path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
       ]
     );
 
     const globalLock = await loadSkillsLock(globalRoot);
     expect(globalLock.skills['@alice/code-review']?.version).toBe('1.1.0');
-    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'alice_code-review'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review'))).toBe(false);
   });
 
   it('does not move an installed skill backwards when a lower version was published later', async () => {
@@ -293,7 +293,7 @@ describe('esl update', () => {
         }
       }
     });
-    const oldDirectory = path.join(projectDir, '.eslib', 'skills', 'alice_code-review');
+    const oldDirectory = path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review');
     fs.mkdirSync(oldDirectory, { recursive: true });
     fs.writeFileSync(path.join(oldDirectory, 'SKILL.md'), '# Installed skill\n');
 
@@ -317,7 +317,7 @@ describe('esl update', () => {
 
     expect(result).toEqual([{ name: '@alice/code-review-renamed', from: '1.0.0', to: '1.0.0' }]);
     expect(fs.existsSync(oldDirectory)).toBe(false);
-    expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', 'alice_code-review-renamed', 'SKILL.md'), 'utf8'))
+    expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review-renamed', 'SKILL.md'), 'utf8'))
       .toContain('# Installed skill');
     const skills = await loadSkillsJson(projectDir);
     expect(skills.skills['@alice/code-review']).toBeUndefined();
@@ -438,7 +438,7 @@ describe('esl update', () => {
     });
     const expiredLoginAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
     await saveCredentials({ token: 'gitea-token', loginAt: expiredLoginAt }, { homeDir });
-    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'local-skill');
     fs.mkdirSync(installedDir, { recursive: true });
     fs.writeFileSync(path.join(installedDir, 'SKILL.md'), '# Old Local Skill\n');
 

@@ -4,6 +4,7 @@ import {
   loadInstallManifest,
   removeDirectory,
   removeInstalledSkill,
+  removeLinkedSkillDirectory,
   removeLockEntry,
   removeSkillDependency,
   removeToolLinks,
@@ -25,6 +26,20 @@ export interface UninstallOptions extends LocalStoreOptions {
 export interface UninstallResult {
   removedLinks: Array<{ identity: string; tool: ToolName; targetDir: string; status: 'removed' | 'missing' | 'conflict' }>;
   sourceRemoved: boolean;
+  sourcePath?: string;
+}
+
+function throwIfToolLinkConflicts(
+  removedLinks: UninstallResult['removedLinks']
+): void {
+  const conflicts = removedLinks.filter((result) => result.status === 'conflict');
+  if (conflicts.length > 0) {
+    throw new Error(
+      `Tool link conflict; content was not removed: ${conflicts
+        .map((result) => `${result.tool} (${result.targetDir})`)
+        .join(', ')}`
+    );
+  }
 }
 
 export async function executeUninstall(name: string, options: UninstallOptions = {}): Promise<UninstallResult> {
@@ -37,7 +52,8 @@ export async function executeUninstall(name: string, options: UninstallOptions =
     ? installTargetDir(name, options)
     : projectSkillsDir(projectRoot, name);
   const installManifest = await loadInstallManifest(storeRoot);
-  if (!installManifest.skills[name]) {
+  const entry = installManifest.skills[name];
+  if (!entry) {
     throw new Error(`Skill ${name} is not installed by ESL`);
   }
 
@@ -47,20 +63,24 @@ export async function executeUninstall(name: string, options: UninstallOptions =
     tools: [...SUPPORTED_TOOLS],
     level: options.global ? 'global' : 'project'
   });
+  throwIfToolLinkConflicts(removedLinks);
+
+  if (entry.source === 'link') {
+    await removeLinkedSkillDirectory(name, storeRoot);
+    await removeSkillDependency(dependencyRoot, name);
+    await removeLockEntry(dependencyRoot, name);
+    await removeInstalledSkill(storeRoot, name);
+    return {
+      removedLinks,
+      sourceRemoved: false,
+      sourcePath: entry.resolved
+    };
+  }
 
   await removeDirectory(targetDir);
   await removeSkillDependency(dependencyRoot, name);
   await removeLockEntry(dependencyRoot, name);
   await removeInstalledSkill(storeRoot, name);
-
-  const conflicts = removedLinks.filter((result) => result.status === 'conflict');
-  if (conflicts.length > 0) {
-    throw new Error(
-      `Tool link conflict; content was not removed: ${conflicts
-        .map((result) => `${result.tool} (${result.targetDir})`)
-        .join(', ')}`
-    );
-  }
 
   return {
     removedLinks,

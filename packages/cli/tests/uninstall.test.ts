@@ -32,7 +32,7 @@ describe('esl uninstall', () => {
   });
 
   it('removes skill directory and dependency entries', async () => {
-    const skillDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-skill');
+    const skillDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Test');
     await addSkillDependency(projectDir, '@myorg/my-skill', '^1.0.0');
@@ -101,7 +101,7 @@ describe('esl uninstall', () => {
   });
 
   it('does not delete a Store directory without an install manifest record', async () => {
-    const unrecordedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_unrecorded-skill');
+    const unrecordedDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'unrecorded-skill');
     fs.mkdirSync(unrecordedDir, { recursive: true });
     fs.writeFileSync(path.join(unrecordedDir, 'SKILL.md'), '# Unrecorded\n');
 

@@ -69,7 +69,7 @@ describe('esl tools', () => {
   });
 
   it('keeps a shared trae project link until the last tool reference is removed', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -114,7 +114,7 @@ describe('esl tools', () => {
 
     expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe('# Manual skill\n');
     expect(
-      fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill', 'SKILL.md'))
+      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill', 'SKILL.md'))
     ).toBe(true);
     expect(
       fs.lstatSync(path.join(projectDir, '.cursor', 'skills', 'myorg_my-local-skill')).isSymbolicLink()
@@ -134,12 +134,12 @@ describe('esl tools', () => {
     ).rejects.toThrow(/tool link failed/i);
 
     expect(
-      fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill', 'SKILL.md'))
+      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill', 'SKILL.md'))
     ).toBe(true);
   });
 
   it('keeps repeated installs idempotent', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -187,7 +187,7 @@ describe('esl tools', () => {
   });
 
   it('ensures requested tools are linked during update', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -340,7 +340,7 @@ describe('esl tools', () => {
   });
 
   it('replaces ESL-owned stale links with force', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -412,7 +412,7 @@ describe('esl tools', () => {
 
     expect(fs.existsSync(linkPath)).toBe(false);
     expect(
-      fs.readFileSync(path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill', 'SKILL.md'), 'utf8')
+      fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill', 'SKILL.md'), 'utf8')
     ).toContain('# Updated');
   });
 
@@ -466,7 +466,7 @@ describe('esl tools', () => {
   });
 
   it('does not adopt an unmanaged but correct symlink', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -576,7 +576,7 @@ describe('esl tools', () => {
     ['openclaw', ['skills']],
     ['hermes', ['.hermes', 'skills']]
   ] as const)('links %s to the expected project directory', async (tool, segments) => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -599,7 +599,7 @@ describe('esl tools', () => {
     ['openclaw', ['.openclaw', 'skills']],
     ['hermes', ['.hermes', 'skills']]
   ] as const)('links %s to the expected global directory', async (tool, segments) => {
-    const sourceDir = path.join(homeDir, '.eslib', 'skills', 'myorg_my-local-skill');
+    const sourceDir = path.join(homeDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,

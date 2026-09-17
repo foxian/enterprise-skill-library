@@ -5,7 +5,7 @@ import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
 import {
   loadInstallManifest,
   saveInstallManifest,
-  skillDirectoryName,
+  skillSourceRelativeDir,
   type InstallManifestSkill
 } from './skill-store.js';
 
@@ -20,7 +20,7 @@ export interface SkillsLockEntry {
   version: string;
   resolved: string;
   integrity: string;
-  source?: 'registry' | 'local' | 'builtin';
+  source?: 'registry' | 'local' | 'builtin' | 'link';
 }
 
 export interface SkillsLockJson {
@@ -59,6 +59,9 @@ function sourceFromSpecifier(specifier: string): InstallManifestSkill['source'] 
   if (specifier.startsWith('file:')) {
     return 'local';
   }
+  if (specifier.startsWith('link:')) {
+    return 'link';
+  }
   if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)) {
     return 'builtin';
   }
@@ -79,7 +82,7 @@ function manifestEntryFromLock(
     resolved: entry.resolved,
     integrity: entry.integrity,
     skillId: entry.skillId,
-    sourceDir: current?.sourceDir ?? path.join('skills', skillDirectoryName(identity)),
+    sourceDir: current?.sourceDir ?? skillSourceRelativeDir(identity),
     installedAt: current?.installedAt ?? new Date().toISOString()
   };
 }
@@ -194,7 +197,7 @@ export async function renameSkillState(
     installManifest.skills[newName] = {
       ...installed,
       identity: newName,
-      sourceDir: path.join('skills', skillDirectoryName(newName))
+      sourceDir: skillSourceRelativeDir(newName)
     };
   }
 
@@ -208,7 +211,7 @@ export async function renameSkillState(
 export interface SkillListEntry {
   name: string;
   version: string;
-  source: 'registry' | 'local' | 'builtin';
+  source: 'registry' | 'local' | 'builtin' | 'link';
 }
 
 export async function listSkills(root: string): Promise<SkillListEntry[]> {

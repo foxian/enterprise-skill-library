@@ -47,7 +47,7 @@ describe('esl install @builtin/esl-operator (offline)', () => {
       builtinDir: builtinRoot
     });
 
-    expect(targetDir).toBe(path.join(projectDir, '.eslib', 'skills', 'builtin_esl-operator'));
+    expect(targetDir).toBe(path.join(projectDir, '.eslib', 'skills', '@builtin', 'esl-operator'));
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'references', 'setup.md'))).toBe(true);
 
@@ -78,7 +78,7 @@ describe('esl install @builtin/esl-operator (offline)', () => {
       noAdapt: true
     });
 
-    expect(targetDir).toBe(path.join(homeDir, '.eslib', 'skills', 'builtin_esl-operator'));
+    expect(targetDir).toBe(path.join(homeDir, '.eslib', 'skills', '@builtin', 'esl-operator'));
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(projectDir, '.eslib'))).toBe(false);
     const globalSkills = await loadSkillsJson(path.join(homeDir, '.eslib'));

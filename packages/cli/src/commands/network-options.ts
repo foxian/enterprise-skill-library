@@ -1,9 +1,9 @@
 import {
-  parseSkillName,
   loadConfig,
   loadCredentials,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
+  skillSourceDirectoryName,
   type LocalStoreOptions
 } from '@esl/core';
 import path from 'node:path';
@@ -153,17 +153,12 @@ export function gitAuthHeaderConfig(token: string): string {
   return `http.extraHeader=Authorization: Bearer ${token}`;
 }
 
-function skillDirectoryName(skillName: string): string {
-  const { scope, skillName: shortName } = parseSkillName(skillName);
-  return `${scope}_${shortName}`;
-}
-
 export function installTargetDir(skillName: string, options: LocalStoreOptions): string {
-  return path.join(resolveLocalStorePaths(options).skillsDir, skillDirectoryName(skillName));
+  return path.join(resolveLocalStorePaths(options).skillsDir, skillSourceDirectoryName(skillName));
 }
 
 export function projectSkillsDir(projectRoot: string, skillName: string): string {
-  return path.join(resolveProjectStorePaths(projectRoot).skillsDir, skillDirectoryName(skillName));
+  return path.join(resolveProjectStorePaths(projectRoot).skillsDir, skillSourceDirectoryName(skillName));
 }
 
 export function publishedInstallTargetDir(

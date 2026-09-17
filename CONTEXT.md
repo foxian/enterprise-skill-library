@@ -182,6 +182,22 @@ copies; updating the source updates every valid link.
 
 _Avoid_: adapted output, copied skill.
 
+## Skill Source Link
+
+把本地技能源码目录以符号链接形式安装进 Skill Store 的链接，由 `esl link` 创建、
+`esl unlink` 解除。它与 Tool Link 方向相反：Tool Link 从 AI 工具目录指向 Skill Store
+中的源，Skill Source Link 让 Skill Store 中的安装位置指向本地源码目录；两者叠加后，
+工具经两层链接直接看到开发中的源码。
+
+_Avoid_: dev link, dev-mode install；指代 Skill Source Link 时不要沿用 Tool Link。
+
+## Link Staging
+
+Skill Store 内暂存被 Skill Source Link 替换的原安装副本的保留区
+（`.eslib/link-staging/`）。`esl unlink` 依据它把被替换的安装纯本地移回原位。
+
+_Avoid_: backup（当指这个暂存区时）。
+
 ## Skill Dependency Manifest
 
 The consumer project's declaration of the skills it directly uses and its

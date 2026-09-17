@@ -5,7 +5,7 @@ import { parseSkillName } from '../schema/skill-json.js';
 export interface InstallManifestSkill {
   identity: string;
   version: string;
-  source: 'registry' | 'local' | 'builtin';
+  source: 'registry' | 'local' | 'builtin' | 'link';
   specifier: string;
   resolved?: string;
   integrity?: string;
@@ -27,8 +27,13 @@ export function skillDirectoryName(identity: string): string {
   return `${scope}_${skillName}`;
 }
 
+export function skillSourceDirectoryName(identity: string): string {
+  const { scope, skillName } = parseSkillName(identity);
+  return path.join(`@${scope}`, skillName);
+}
+
 export function skillSourceRelativeDir(identity: string): string {
-  return path.join('skills', skillDirectoryName(identity));
+  return path.join('skills', skillSourceDirectoryName(identity));
 }
 
 export function installManifestPath(storeRoot: string): string {
