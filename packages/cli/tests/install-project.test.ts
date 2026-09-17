@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
 import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
@@ -42,30 +43,40 @@ describe('esl install (project-level)', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('installs a skill from a local path to project .skills/', async () => {
+  it('stores the source in .eslib and keeps project dependency files in the project root', async () => {
     const targetDir = await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.skills', '@myorg', 'my-local-skill');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, '.git'))).toBe(false);
 
+    expect(fs.existsSync(path.join(projectDir, '.skills.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, '.skills-lock.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', '.esl-install-manifest.json'))).toBe(true);
+
     const skillsJson = await loadSkillsJson(projectDir);
     expect(skillsJson.skills['@myorg/my-local-skill']).toBe(`file:${localSkillDir}`);
+
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@myorg/my-local-skill']?.version).toBe('0.2.0');
   });
 
-  it('runs adapt with namespaced runtime output by default', async () => {
+  it('links a project skill for trae-intl into .trae/skills', async () => {
+    const sourceDir = path.join(projectDir, '.eslib', 'skills', 'myorg_my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
-      homeDir
+      homeDir,
+      tools: ['trae-intl'] as any
     });
 
-    const adaptedSkillMd = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill', 'SKILL.md');
-    expect(fs.readFileSync(adaptedSkillMd, 'utf8')).toContain('name: myorg:my-local-skill');
+    const linkPath = path.join(projectDir, '.trae', 'skills', 'myorg_my-local-skill');
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(path.resolve(fs.readlinkSync(linkPath))).toBe(sourceDir);
   });
 
   it('installs a local skill missing skill.json with @local identity and leaves the source untouched', async () => {
@@ -82,7 +93,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.skills', '@local', 'unprepared-skill');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'local_unprepared-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, 'skill.json'))).toBe(true);
@@ -126,7 +137,7 @@ describe('esl install (project-level)', () => {
     expect(lock.skills['@local/versioned-local-skill']?.version).toBe('2.5.0');
   });
 
-  it('installs from server to project .skills/', async () => {
+  it('installs from server into project .eslib and records project dependencies', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -163,7 +174,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.skills', '@alice', 'code-review');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', 'alice_code-review');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, '.git'))).toBe(false);
@@ -172,6 +183,7 @@ describe('esl install (project-level)', () => {
     expect(skillsJson.skills['@alice/code-review']).toBe('^0.1.0');
     const lock = await loadSkillsLock(projectDir);
     expect(lock.skills['@alice/code-review']?.version).toBe('0.1.0');
+    expect(fs.existsSync(path.join(projectDir, '.eslib', '.esl-install-manifest.json'))).toBe(true);
   });
 
   it('fails a server-backed install with cross-account guidance on a 403', async () => {
@@ -262,6 +274,109 @@ describe('esl install (project-level)', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
+  it('keeps transitive dependencies out of .skills.json and in the lockfile', async () => {
+    const dependencyBytes = Buffer.from(JSON.stringify({
+      name: '@platform-ai/style-guide',
+      skillId: 'sk_dep',
+      version: '1.0.0',
+      sourceCommit: 'dep123',
+      releaseManifest: {
+        compatibility: {},
+        dependencies: {}
+      },
+      files: {
+        'SKILL.md': '---\nname: platform-ai:style-guide\ndescription: Style guide\n---\n',
+        'skill.json': '{"name":"@platform-ai/style-guide","version":"1.0.0"}\n'
+      }
+    }));
+    const dependencyChecksum =
+      `sha256-${crypto.createHash('sha256').update(dependencyBytes).digest('hex')}`;
+    const topBytes = Buffer.from(JSON.stringify({
+      name: '@platform-ai/reviewer',
+      skillId: 'sk_top',
+      version: '1.0.0',
+      sourceCommit: 'top123',
+      releaseManifest: {
+        compatibility: {},
+        dependencies: {
+          '@platform-ai/style-guide': '^1.0.0'
+        }
+      },
+      dependencyLock: {
+        '@platform-ai/style-guide': {
+          skillId: 'sk_dep',
+          version: '1.0.0',
+          checksum: dependencyChecksum,
+          dependencyLock: {}
+        }
+      },
+      files: {
+        'SKILL.md': '---\nname: platform-ai:reviewer\ndescription: Reviewer\n---\n',
+        'skill.json': '{"name":"@platform-ai/reviewer","version":"1.0.0"}\n'
+      }
+    }));
+    const topChecksum = `sha256-${crypto.createHash('sha256').update(topBytes).digest('hex')}`;
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/reviewer',
+          skillId: 'sk_top',
+          versions: ['1.0.0'],
+          packageUrl: `/api/packages/sk_top/1.0.0/${topChecksum}.json`
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => topBytes
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/style-guide',
+          skillId: 'sk_dep',
+          versions: ['1.0.0'],
+          packageUrl: `/api/packages/sk_dep/1.0.0/${dependencyChecksum}.json`
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => dependencyBytes
+      });
+
+    await executeInstall('@platform-ai/reviewer', {
+      projectRoot: projectDir,
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: vi.fn() as any,
+      tools: ['claude']
+    });
+
+    const skillsJson = await loadSkillsJson(projectDir);
+    expect(Object.keys(skillsJson.skills)).toEqual(['@platform-ai/reviewer']);
+    const lock = await loadSkillsLock(projectDir);
+    expect(Object.keys(lock.skills).sort()).toEqual([
+      '@platform-ai/reviewer',
+      '@platform-ai/style-guide'
+    ]);
+    expect(
+      fs.existsSync(
+        path.join(projectDir, '.eslib', 'skills', 'platform-ai_style-guide', 'SKILL.md')
+      )
+    ).toBe(true);
+    expect(
+      fs.lstatSync(
+        path.join(projectDir, '.claude', 'skills', 'platform-ai_reviewer')
+      ).isSymbolicLink()
+    ).toBe(true);
+    expect(
+      fs.lstatSync(
+        path.join(projectDir, '.claude', 'skills', 'platform-ai_style-guide')
+      ).isSymbolicLink()
+    ).toBe(true);
+  });
+
   it('installs from server to global with --global', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -282,7 +397,9 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')));
+    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.eslib', 'skills', 'alice_code-review')));
+    const globalSkills = await loadSkillsJson(path.join(homeDir, '.eslib'));
+    expect(globalSkills.skills['@alice/code-review']).toBe('^0.1.0');
   });
 
   it('installs a local path to the global store with --global', async () => {
@@ -293,15 +410,15 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(homeDir, '.skill-library', 'skills', '@myorg', 'my-local-skill');
+    const expectedDir = path.join(homeDir, '.eslib', 'skills', 'myorg_my-local-skill');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDir, '.skills', '@myorg', 'my-local-skill'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib'))).toBe(false);
 
     const projectSkillsJson = await loadSkillsJson(projectDir);
     expect(projectSkillsJson.skills['@myorg/my-local-skill']).toBeUndefined();
 
-    const globalSkillsJson = await loadSkillsJson(path.join(homeDir, '.skill-library'));
+    const globalSkillsJson = await loadSkillsJson(path.join(homeDir, '.eslib'));
     expect(globalSkillsJson.skills['@myorg/my-local-skill']).toBe(`file:${localSkillDir}`);
   });
 });

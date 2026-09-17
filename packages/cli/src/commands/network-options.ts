@@ -3,6 +3,7 @@ import {
   loadConfig,
   loadCredentials,
   resolveLocalStorePaths,
+  resolveProjectStorePaths,
   type LocalStoreOptions
 } from '@esl/core';
 import path from 'node:path';
@@ -68,7 +69,8 @@ export function resolveLoginTtlMs(): number {
 }
 
 // 登录是否仍在 TTL 有效期内（本地时间戳判断，不向服务器验证）。
-export function isLoginFresh(loginAt: string | null | undefined): boolean {  if (!loginAt) {
+export function isLoginFresh(loginAt: string | null | undefined): boolean {
+  if (!loginAt) {
     return false;
   }
   const loginAtMs = Date.parse(loginAt);
@@ -84,8 +86,7 @@ export async function requireFreshToken(options: LocalStoreOptions = {}): Promis
   return token;
 }
 
-// 匿名也可用的请求所用尽力而为的凭据：登录仍在有效期则返回 token，
-// 缺失或过期返回 null（调用方按匿名处理）。
+// 匿名也可用的请求所用尽力而为的凭据：登录仍在有效期则返回 token，缺失或过期返回 null（调用方按匿名处理）。
 export async function resolveOptionalFreshToken(options: LocalStoreOptions = {}): Promise<string | null> {
   let token: string | null;
   let loginAt: string | null;
@@ -152,25 +153,26 @@ export function gitAuthHeaderConfig(token: string): string {
   return `http.extraHeader=Authorization: Bearer ${token}`;
 }
 
-export function installTargetDir(skillName: string, options: LocalStoreOptions): string {
+function skillDirectoryName(skillName: string): string {
   const { scope, skillName: shortName } = parseSkillName(skillName);
-  return path.join(resolveLocalStorePaths(options).skillsDir, `@${scope}`, shortName);
+  return `${scope}_${shortName}`;
+}
+
+export function installTargetDir(skillName: string, options: LocalStoreOptions): string {
+  return path.join(resolveLocalStorePaths(options).skillsDir, skillDirectoryName(skillName));
 }
 
 export function projectSkillsDir(projectRoot: string, skillName: string): string {
-  const { scope, skillName: shortName } = parseSkillName(skillName);
-  return path.join(projectRoot, '.skills', `@${scope}`, shortName);
+  return path.join(resolveProjectStorePaths(projectRoot).skillsDir, skillDirectoryName(skillName));
 }
 
 export function publishedInstallTargetDir(
   skillName: string,
   options: LocalStoreOptions
 ): string {
-  const { scope, skillName: shortName } = parseSkillName(skillName);
-  return path.join(resolveLocalStorePaths(options).skillsDir, `${scope}_${shortName}`);
+  return installTargetDir(skillName, options);
 }
 
 export function publishedProjectSkillsDir(projectRoot: string, skillName: string): string {
-  const { scope, skillName: shortName } = parseSkillName(skillName);
-  return path.join(projectRoot, '.skills', `${scope}_${shortName}`);
+  return projectSkillsDir(projectRoot, skillName);
 }

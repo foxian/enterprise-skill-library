@@ -5,35 +5,43 @@ import path from 'node:path';
 import { listSkills } from '@esl/core';
 
 describe('esl list', () => {
-  it('returns entries from lockfile when present', async () => {
+  it('returns entries from the install manifest', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-list-'));
+    await fs.mkdir(path.join(tmpDir, '.eslib'), { recursive: true });
     await fs.writeFile(
-      path.join(tmpDir, '.skills-lock.json'),
+      path.join(tmpDir, '.eslib', '.esl-install-manifest.json'),
       JSON.stringify({
-        lockfileVersion: 1,
+        version: 1,
         skills: {
           '@alice/code-review': {
+            identity: '@alice/code-review',
             version: '1.0.0',
-            resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
-            integrity: 'sha256-abc123'
+            source: 'registry',
+            specifier: '^1.0.0',
+            sourceDir: 'skills/alice_code-review',
+            installedAt: '2026-01-01T00:00:00.000Z'
           },
           '@local/my-helper': {
+            identity: '@local/my-helper',
             version: '0.1.0',
-            resolved: 'file:/tmp/my-helper',
-            integrity: 'sha256-def456'
+            source: 'local',
+            specifier: 'file:/tmp/my-helper',
+            sourceDir: 'skills/local_my-helper',
+            installedAt: '2026-01-01T00:00:00.000Z'
           },
           '@builtin/esl-operator': {
             identity: '@builtin/esl-operator',
             version: '0.1.0',
-            resolved: 'builtin:esl-operator',
-            integrity: 'sha256-abc123',
-            source: 'builtin'
+            source: 'builtin',
+            specifier: 'builtin:esl-operator',
+            sourceDir: 'skills/builtin_esl-operator',
+            installedAt: '2026-01-01T00:00:00.000Z'
           }
         }
       })
     );
 
-    const results = await listSkills(tmpDir);
+    const results = await listSkills(path.join(tmpDir, '.eslib'));
 
     expect(results).toEqual([
       { name: '@alice/code-review', version: '1.0.0', source: 'registry' },
@@ -43,7 +51,7 @@ describe('esl list', () => {
     await fs.rm(tmpDir, { recursive: true });
   });
 
-  it('falls back to .skills.json when no lockfile exists', async () => {
+  it('does not treat .skills.json as an installed source', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-list-'));
     await fs.writeFile(
       path.join(tmpDir, '.skills.json'),
@@ -57,10 +65,7 @@ describe('esl list', () => {
 
     const results = await listSkills(tmpDir);
 
-    expect(results).toEqual([
-      { name: '@bob/testing', version: '^2.0.0', source: 'registry' },
-      { name: '@local/draft', version: 'file:./draft', source: 'local' }
-    ]);
+    expect(results).toEqual([]);
     await fs.rm(tmpDir, { recursive: true });
   });
 

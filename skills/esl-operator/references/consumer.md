@@ -1,7 +1,7 @@
-# 消费者工作流：找 / 装 / 用 / 更 / 卸 / 同步
+# 消费者工作流：找 / 装 / 链 / 看 / 更 / 卸
 
-只读命令（直接跑）：`search` `info` `use` `list`。
-写命令（先回显、确认再跑）：`install` `update` `uninstall` `adapt`。
+只读命令（直接跑）：`search` `info` `use` `list` `tools list`。
+写命令（先回显、确认再跑）：`install` `update` `uninstall` `adapt` `tools remove`。
 
 ## 搜索
 `esl search <query> [--json]` —— 在 ESL Server 搜可用技能。要取字段或比对时加 `--json`，你直接解析结构化数据。
@@ -13,31 +13,67 @@
 `esl use @scope/skill-name|./path [--version V]` —— 把技能 Prompt 文本打到 stdout，不安装、不改项目。可管道：`esl use @scope/skill-name | <agent>`。
 
 ## 安装
-`esl install @scope/skill-name|./path [--version V] [--global] [--no-adapt]`
-- 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径——三者身份都确定，无需额外参数。
-- 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 `.skills/` 里的**副本**补 `skill.json`，源目录不动。
-- 默认装到当前项目 `.skills/`；`--global` 装到 `~/.skill-library/skills/`。
-- 安装后会**自动跑 adapt** 把技能同步到 AI 工具目录。若用户只想要 `.skills/` 里的文件、不想刷到工具，用 `--no-adapt`。
-- 跑完报告：装了什么、版本、adapt 到了哪些工具目录。
-- 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护——各组织账号相互独立，当前登录看不到它。提议用户切回维护该技能的组织账号再装（`esl logout` 后用对应组织 `esl login`），不要盲目重试。
+`esl install @scope/skill-name|./path [--version V] [--global] [--tools all|工具列表] [--no-tools] [--force]`
+
+- 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径。
+- 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 Store 副本里补 `skill.json`，源目录不动。
+- 项目级技能源写入 `<project>/.eslib/skills/<scope>_<skill>/`；全局级写入 `~/.eslib/skills/<scope>_<skill>/`。
+- 项目根 `.skills.json` 是直接依赖声明；`.skills-lock.json` 是完整依赖图和精确版本锁。`.eslib/` 是本机状态，应保持 gitignore。
+- 每个被选工具得到单技能目录 link，指向 `.eslib` 源；不复制技能，也不链接整个工具 skills 根目录。
+- `--tools all` 选择全部九个工具；`--tools claude,codex` 选择指定工具；`--no-tools` 只装源、不建 link；`--force` 只能替换 ESL 记录的异常 link，不能覆盖非 ESL 内容。
+- 未传 `--tools` 时优先级是：项目 `.skills.json` 的 `tools` > 全局配置的 `tools` > 交互选择。非交互环境没有可用选择时，命令必须报错而不要等待输入。
+- 重复安装是幂等的：正确 link 保持；缺少的补齐；冲突报告且不覆盖；未列出的已有工具 link 不删除。
+- 部分工具发生冲突或 link 创建失败时，已经写入的源和其他成功 link 保留，但命令以失败状态结束并给出冲突详情。
+- 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护。让用户切换到维护账号后重登，不要盲目重试。
 
 ## 列出已装
-`esl list` / `esl ls [--global] [--json]` —— 当前项目或全局已装清单。
+`esl list` / `esl ls [--global] [--json]` —— 当前项目或全局 Skill Store 中已安装的技能。
 
-## 手动同步到 AI 工具
-`esl adapt [--global]` —— 把 `.skills/` 里的技能全量复制（零 symlink）到已配置工具目录。工具表：
+## 查看工具 link
+`esl tools list [--tool <列表>] [--skill <列表>] [--global|--project] [--managed|--unmanaged] [--status <状态列表>] [--json]`
+
+- `linked`：link 存在且正确指向 Skill Store 源。
+- `broken`：manifest 有记录，但 link 缺失或目标源不存在。
+- `conflict`：目标存在，但不是预期的正确 ESL link。
+- `source-only`：技能只在 Skill Store 中，没有工具 link。
+- `unmanaged`：工具目录中存在，但不由 ESL manifest 管理。
+- `--tool` 和 `--skill` 支持逗号分隔列表；`--status` 支持 `linked,broken,conflict,source-only,unmanaged`。
+- 这个命令只读，直接运行；删除未管理内容仍必须由用户手工处理，ESL 不提供对应删除命令。
+
+## 手动建立或检查 link
+`esl adapt [--global]` —— 根据工具配置检查并建立已安装技能的 link。它只处理 Skill Store 中已安装的技能，遇到非 ESL 内容报告冲突。
+
+工具标识与目录：
 
 | 工具 | 项目级 | 全局 |
 |---|---|---|
-| claude | `.claude/skills/` | `~/.claude/skills/` |
-| trae | `.trae/skills/` | `~/.trae/skills/` |
-| trae-cn | `.trae/skills/` | `~/.trae-cn/skills/` |
-| codex | `.agents/skills/` | `~/.agents/skills/` |
+| `claude` | `.claude/skills/` | `~/.claude/skills/` |
+| `codex` | `.codex/skills/` | `~/.codex/skills/` |
+| `cursor` | `.cursor/skills/` | `~/.cursor/skills/` |
+| `trae-intl` | `.trae/skills/` | `~/.trae/skills/` |
+| `trae-cn` | `.trae/skills/` | `~/.trae-cn/skills/` |
+| `workbuddy` | `.workbuddy/skills/` | `~/.workbuddy/skills/` |
+| `opencode` | `.opencode/skills/` | `~/.config/opencode/skills/` |
+| `openclaw` | `skills/` | `~/.openclaw/skills/` |
+| `hermes` | `.hermes/skills/` | `~/.hermes/skills/` |
 
-当前项目要适配哪些工具，改 `.skills.json` 的 `tools` 数组（如 `["claude","trae","codex"]`）。
+`trae` 是旧标识，不要在新命令中使用；规范标识是 `trae-intl`。
 
 ## 更新
-`esl update [@scope/skill-name] [--global]` —— 升级到 Server 上的最新版本。不指定名字则更新全部。目标未装时先 `esl list` 确认。某项报 403 时（该技能可能由其他账号/组织维护），update 会跳过它继续更新其余技能并逐项报告失败原因——看到这种失败，提议用户切回维护它的组织账号再更新该项；已安装技能的本地副本与 adapt 产物不受影响，照常可用。
+`esl update [@scope/skill-name] [--global] [--tools <工具列表>] [--force]`
+
+- 默认更新 Skill Store 中的源和锁文件；已有正确 link 自动看到新内容，不复制、不重建。
+- 默认不新增工具 link。传 `--tools` 时才确保指定工具存在正确 link。
+- `--force` 只能替换 ESL 记录的旧 link；断链、错误链接或非 ESL 目录默认只报告。
+- 不指定技能名则更新当前作用域全部已装技能。
+- 某项报 403 时，update 会跳过它继续更新其余技能并逐项报告失败原因；已安装源和其他工具 link 不受影响。
 
 ## 卸载
-`esl uninstall @scope/skill-name [--global]` —— 移除技能，并清理 `.skills/`、依赖清单、各工具目录里的副本。
+`esl uninstall @scope/skill-name [--global]` —— 删除该作用域的技能源、依赖/锁/安装记录，以及该技能的全部 ESL 管理 link。未管理内容不会被删除。
+
+## 只解除部分工具 link
+`esl tools remove @scope/skill-name --tools claude,cursor [--global]`
+
+- 只删除 manifest 记录的指定工具 link，保留 Skill Store 源。
+- 目标已被替换成普通目录、文件或错误链接时报告冲突并保留记录。
+- Trae 国际版与国内版在项目级共享同一物理 link；只移除其中一个工具时 link 保留给另一个工具，移除最后一个引用时才删除物理 link。

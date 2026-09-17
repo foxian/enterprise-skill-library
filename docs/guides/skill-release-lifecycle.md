@@ -121,13 +121,13 @@ npm exec -- esl info @smoke/demo
 
 New-Item -ItemType Directory -Force .scratch\smoke-workspace\consumer-project | Out-Null
 Push-Location .scratch\smoke-workspace\consumer-project
-npm exec -- esl install @smoke/demo --no-adapt
+npm exec -- esl install @smoke/demo --no-tools
 npm exec -- esl list
 Pop-Location
 ```
 
 The project should now contain `.skills.json`, `.skills-lock.json`, and
-`.skills\@smoke\demo`.
+`.eslib\skills\smoke_demo`.
 
 ## 5. Author Publishes A Patch Release
 

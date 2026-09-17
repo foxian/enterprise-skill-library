@@ -23,14 +23,14 @@ describe('local store', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('resolves paths under ~/.skill-library', () => {
+  it('resolves paths under ~/.eslib', () => {
     const paths = resolveLocalStorePaths({ homeDir });
 
-    expect(paths.root).toBe(path.join(homeDir, '.skill-library'));
-    expect(paths.configJson).toBe(path.join(homeDir, '.skill-library', 'config.json'));
-    expect(paths.credentialsJson).toBe(path.join(homeDir, '.skill-library', 'credentials.json'));
-    expect(paths.cacheDir).toBe(path.join(homeDir, '.skill-library', 'cache'));
-    expect(paths.skillsDir).toBe(path.join(homeDir, '.skill-library', 'skills'));
+    expect(paths.root).toBe(path.join(homeDir, '.eslib'));
+    expect(paths.configJson).toBe(path.join(homeDir, '.eslib', 'config.json'));
+    expect(paths.credentialsJson).toBe(path.join(homeDir, '.eslib', 'credentials.json'));
+    expect(paths.cacheDir).toBe(path.join(homeDir, '.eslib', 'cache'));
+    expect(paths.skillsDir).toBe(path.join(homeDir, '.eslib', 'skills'));
   });
 
   it('initializes directories and default JSON files', async () => {

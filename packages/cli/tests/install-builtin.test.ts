@@ -40,19 +40,20 @@ describe('esl install @builtin/esl-operator (offline)', () => {
     fs.rmSync(sourceDir, { recursive: true, force: true });
   });
 
-  it('installs the built-in skill offline into the project and adapts it', async () => {
+  it('installs the built-in skill offline into .eslib and links it', async () => {
     const targetDir = await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
       builtinDir: builtinRoot
     });
 
-    expect(targetDir).toBe(path.join(projectDir, '.skills', '@builtin', 'esl-operator'));
+    expect(targetDir).toBe(path.join(projectDir, '.eslib', 'skills', 'builtin_esl-operator'));
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(targetDir, 'references', 'setup.md'))).toBe(true);
 
-    const adaptedMd = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator', 'SKILL.md');
-    expect(fs.readFileSync(adaptedMd, 'utf8')).toContain('name: builtin:esl-operator');
+    const linkPath = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(path.resolve(fs.readlinkSync(linkPath))).toBe(targetDir);
 
     const skillsJson = await loadSkillsJson(projectDir);
     expect(skillsJson.skills['@builtin/esl-operator']).toBe('builtin:esl-operator');
@@ -65,6 +66,7 @@ describe('esl install @builtin/esl-operator (offline)', () => {
       source: 'builtin',
       integrity: expect.stringMatching(/^sha256-/)
     });
+    expect(fs.existsSync(path.join(projectDir, '.eslib', '.esl-install-manifest.json'))).toBe(true);
   });
 
   it('installs the built-in skill to the global store with --global', async () => {
@@ -76,21 +78,24 @@ describe('esl install @builtin/esl-operator (offline)', () => {
       noAdapt: true
     });
 
-    expect(targetDir).toBe(path.join(homeDir, '.skill-library', 'skills', '@builtin', 'esl-operator'));
+    expect(targetDir).toBe(path.join(homeDir, '.eslib', 'skills', 'builtin_esl-operator'));
     expect(fs.existsSync(path.join(targetDir, 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDir, '.skills', '@builtin', 'esl-operator'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib'))).toBe(false);
+    const globalSkills = await loadSkillsJson(path.join(homeDir, '.eslib'));
+    expect(globalSkills.skills['@builtin/esl-operator']).toBe('builtin:esl-operator');
   });
 
-  it('adapts a global built-in install into tool directories by default', async () => {
-    await executeInstall('@builtin/esl-operator', {
+  it('links a global built-in install into tool directories by default', async () => {
+    const targetDir = await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
       builtinDir: builtinRoot,
       global: true
     });
 
-    const adaptedMd = path.join(homeDir, '.claude', 'skills', 'builtin_esl-operator', 'SKILL.md');
-    expect(fs.readFileSync(adaptedMd, 'utf8')).toContain('name: builtin:esl-operator');
+    const linkPath = path.join(homeDir, '.claude', 'skills', 'builtin_esl-operator');
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    expect(path.resolve(fs.readlinkSync(linkPath))).toBe(targetDir);
   });
 
   it('installs without requiring a token or server', async () => {

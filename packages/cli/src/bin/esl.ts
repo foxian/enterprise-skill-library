@@ -3,7 +3,8 @@ import { Command } from 'commander';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readHidden, readStdinText } from '../prompt.js';
+import { readHidden, readStdinText, readText, isInteractive } from '../prompt.js';
+import { SUPPORTED_TOOLS, type ToolName } from '@esl/core';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
@@ -11,7 +12,7 @@ import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
-import { executeInstall } from '../commands/install.js';
+import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
@@ -29,6 +30,7 @@ import { executeSearch } from '../commands/search.js';
 import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
+import { executeToolsList, executeToolsRemove, formatToolsList, parseToolsOption } from '../commands/tools.js';
 import { executeValidate } from '../commands/validate.js';
 import { executeVersion } from '../commands/version.js';
 import { readCliVersion } from '../version.js';
@@ -36,6 +38,30 @@ import { retryPendingGlobalSync } from '../commands/sync-builtin.js';
 
 function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
+}
+
+async function promptToolSelection(): Promise<ToolName[]> {
+  console.log('Select AI tools:');
+  SUPPORTED_TOOLS.forEach((tool, index) => {
+    console.log(`  ${index + 1}. ${tool}`);
+  });
+  const answer = await readText('Enter numbers separated by commas, or all: ');
+  const normalized = answer.trim().toLowerCase();
+  if (normalized === 'all' || normalized === '*') {
+    return [...SUPPORTED_TOOLS];
+  }
+
+  const selected = normalized
+    .split(',')
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isInteger(value))
+    .map((value) => SUPPORTED_TOOLS[value - 1])
+    .filter((tool): tool is ToolName => Boolean(tool));
+
+  if (selected.length === 0) {
+    throw new Error('No tools selected');
+  }
+  return selected;
 }
 
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
@@ -378,27 +404,50 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
     .option('--version <version>', 'version to install')
     .option('--global', 'Install to global skills directory')
+    .option('--tools <tools>', 'AI tools to link, comma-separated or all')
+    .option('--no-tools', 'Install the skill source without creating tool links')
+    .option('-f, --force', 'Replace ESL-owned stale links')
     .option('--ignore-compatibility', 'Install incompatible published packages')
-    .option('--no-adapt', 'Skip automatic adapt after install')
+    .option('--no-adapt', 'Skip automatic tool links after install')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl install @cnfox/code-review'))
-    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
+    .addHelpText('after', example('$ esl install @cnfox/code-review --tools claude,codex'))
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; tools?: string | boolean; force?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
       if (!nameOrPath) {
-        console.log('Restoring skills from .skills.json...');
+        console.log('Restoring skills from the ESL install manifest...');
         return;
       }
-      const targetDir = await executeInstall(nameOrPath, { ...options, noAdapt: options.adapt === false });
+
+      const skipToolLinks = options.tools === false || options.adapt === false;
+      let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+      if (!skipToolLinks && tools.length === 0) {
+        const configured = await resolveDefaultInstallTools(process.cwd(), {
+          ...options,
+          tools: undefined,
+          global: options.global
+        });
+        if (configured.length === 0) {
+          if (!isInteractive()) {
+            throw new Error('No tools configured; pass --tools or run interactively');
+          }
+          tools = await promptToolSelection();
+        }
+      }
+
+      const targetDir = await executeInstall(nameOrPath, {
+        ...options,
+        tools,
+        noAdapt: skipToolLinks
+      });
       console.log(`Skill installed at ${targetDir}`);
     });
 
   program
     .command('adapt')
-    .description('Sync installed skills to AI tool directories')
+    .description('Ensure Tool Links for installed skills')
     .argument('[path]', 'project directory (defaults to --cd or the current directory)')
-    .option('--global', 'Adapt global skills instead of project skills')
-    .option('--prune', 'Remove manifest-owned stale adapted outputs')
+    .option('--global', 'Ensure global Tool Links instead of project links')
     .addHelpText('after', example('$ esl adapt'))
-    .action(async (skillPath: string | undefined, options: { global?: boolean; prune?: boolean }) => {
+    .action(async (skillPath: string | undefined, options: { global?: boolean }) => {
       const results = await executeAdapt({ ...options, directory: skillPath });
       for (const line of formatAdaptResults(results)) {
         console.log(line);
@@ -427,6 +476,59 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       for (const skill of skills) {
         const name = skill.name.padEnd(30);
         console.log(`  ${name} v${skill.version}   (${skill.source})`);
+      }
+    });
+
+  const toolsCommand = program
+    .command('tools')
+    .description('Manage AI tool skill links')
+    .addHelpText('after', example('$ esl tools list --tool claude,codex --managed'));
+  toolsCommand
+    .command('list')
+    .description('List skills linked into AI tools')
+    .option('--tool <tools>', 'filter by tool, comma-separated')
+    .option('--skill <skills>', 'filter by skill identity, comma-separated')
+    .option('--global', 'list global links instead of project links')
+    .option('--project', 'list project links (the default)')
+    .option('--managed', 'only ESL-managed links')
+    .option('--unmanaged', 'only links ESL does not manage')
+    .option('--status <statuses>', 'filter by status: linked,broken,conflict,source-only,unmanaged')
+    .option('--json', 'output as JSON')
+    .addHelpText('after', example('$ esl tools list --tool claude,codex --managed'))
+    .action(async (options: { tool?: string; skill?: string; global?: boolean; project?: boolean; managed?: boolean; unmanaged?: boolean; status?: string; json?: boolean }) => {
+      const entries = await executeToolsList(options);
+      if (options.json) {
+        console.log(JSON.stringify(entries, null, 2));
+        return;
+      }
+      for (const line of formatToolsList(entries)) {
+        console.log(line);
+      }
+    });
+
+  toolsCommand
+    .command('remove')
+    .description('Remove ESL-managed links for a skill')
+    .argument('<skill-name>', 'skill identity, e.g. @acme/review')
+    .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')
+    .option('--global', 'remove global links instead of project links')
+    .addHelpText('after', example('$ esl tools remove @acme/review --tools claude,cursor'))
+    .action(async (skillName: string, options: { tools?: string; global?: boolean }) => {
+      let tools = parseToolsOption(options.tools);
+      if (tools.length === 0) {
+        if (!isInteractive()) {
+          throw new Error('No tools selected; pass --tools or run interactively');
+        }
+        tools = await promptToolSelection();
+      }
+
+      const results = await executeToolsRemove(skillName, { ...options, tools });
+      if (results.length === 0) {
+        console.log(`No ESL-managed links found for ${skillName}`);
+        return;
+      }
+      for (const result of results) {
+        console.log(`${result.tool}: ${result.status} ${result.targetDir}`);
       }
     });
 
@@ -459,10 +561,16 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Update installed skills to latest versions')
     .argument('[skill-name]', 'specific skill to update')
     .option('--global', 'Update global skills')
+    .option('--tools <tools>', 'Ensure links for these AI tools after updating')
+    .option('-f, --force', 'Replace ESL-owned stale links')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl update'))
-    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
-      const results = await executeUpdate({ ...options, skillName });
+    .action(async (skillName: string | undefined, options: { global?: boolean; tools?: string; force?: boolean; server?: string }) => {
+      const results = await executeUpdate({
+        ...options,
+        skillName,
+        tools: parseToolsOption(options.tools)
+      });
       if (results.length === 0) {
         console.log('All skills are up to date');
         return;

@@ -19,7 +19,7 @@ describe('network option paths', () => {
     });
 
     expect(result).toBe(
-      path.join('C:\\temp\\esl-home', '.skill-library', 'skills', '@alice', 'code-review')
+      path.join('C:\\temp\\esl-home', '.eslib', 'skills', 'alice_code-review')
     );
   });
 });

@@ -40,29 +40,29 @@ describe('esl built-in uninstall and adapt', () => {
     fs.rmSync(sourceDir, { recursive: true, force: true });
   });
 
-  it('removes the built-in skill, its lock entry, and its adapted output on uninstall', async () => {
+  it('removes the built-in skill, its state, and its tool link on uninstall', async () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
       builtinDir: builtinRoot
     });
-    const adaptedDir = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
-    expect(fs.existsSync(adaptedDir)).toBe(true);
+    const linkPath = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
 
     await executeUninstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir
     });
 
-    expect(fs.existsSync(path.join(projectDir, '.skills', '@builtin', 'esl-operator'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'builtin_esl-operator'))).toBe(false);
     const skills = await loadSkillsJson(projectDir);
     expect(skills.skills['@builtin/esl-operator']).toBeUndefined();
     const lock = await loadSkillsLock(projectDir);
     expect(lock.skills['@builtin/esl-operator']).toBeUndefined();
-    expect(fs.existsSync(adaptedDir)).toBe(false);
+    expect(fs.existsSync(linkPath)).toBe(false);
   });
 
-  it('includes an installed built-in skill in esl adapt', async () => {
+  it('links an installed built-in skill during esl adapt', async () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
@@ -70,30 +70,30 @@ describe('esl built-in uninstall and adapt', () => {
       noAdapt: true
     });
 
-    const results = await executeAdapt({ directory: projectDir });
+    const results = await executeAdapt({ directory: projectDir, homeDir });
 
-    expect(results.some((r) =>
-      r.skills.some((s) => s.identity === '@builtin/esl-operator' && s.directoryName === 'builtin_esl-operator')
-    )).toBe(true);
+    expect(
+      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator')).isSymbolicLink()
+    ).toBe(true);
+    expect(results.some((result) => result.tool === 'claude')).toBe(true);
   });
 
-  it('esl adapt --prune removes a stale adapted built-in output', async () => {
+  it('does not delete an unmanaged tool target during uninstall', async () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
-      builtinDir: builtinRoot
+      builtinDir: builtinRoot,
+      noAdapt: true
     });
-    const adaptedDir = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
-    expect(fs.existsSync(adaptedDir)).toBe(true);
+    const manualDir = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
+    fs.mkdirSync(manualDir, { recursive: true });
+    fs.writeFileSync(path.join(manualDir, 'SKILL.md'), '# Manual\n');
 
     await executeUninstall('@builtin/esl-operator', {
       projectRoot: projectDir,
-      homeDir,
-      noAdapt: true
+      homeDir
     });
 
-    const results = await executeAdapt({ directory: projectDir, prune: true });
-    expect(fs.existsSync(adaptedDir)).toBe(false);
-    expect(results.some((r) => r.pruned.some((p) => p.identity === '@builtin/esl-operator'))).toBe(true);
+    expect(fs.readFileSync(path.join(manualDir, 'SKILL.md'), 'utf8')).toBe('# Manual\n');
   });
 });

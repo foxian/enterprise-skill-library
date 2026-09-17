@@ -43,14 +43,14 @@ describe('esl built-in global sync (npm lifecycle)', () => {
     const result = await syncGlobalBuiltinSkill({ homeDir, builtinDir: builtinRoot });
 
     expect(result).toEqual({ synced: false, failed: false });
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     const skills = await loadSkillsJson(globalRoot);
     expect(skills.skills['@builtin/esl-operator']).toBeUndefined();
   });
 
   it('syncs the global built-in copy and adapt output when explicitly installed', async () => {
     await buildPackages('0.1.0');
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     const fsPromises = await import('node:fs/promises');
     const { addSkillDependency, addLockEntry } = await import('@esl/core');
     await addSkillDependency(globalRoot, '@builtin/esl-operator', 'builtin:esl-operator');
@@ -70,11 +70,11 @@ describe('esl built-in global sync (npm lifecycle)', () => {
 
     const lock = await loadSkillsLock(globalRoot);
     expect(lock.skills['@builtin/esl-operator']?.version).toBe('0.2.0');
-    expect(fs.existsSync(path.join(globalRoot, 'skills', '@builtin', 'esl-operator', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(globalRoot, 'skills', 'builtin_esl-operator', 'SKILL.md'))).toBe(true);
   });
 
   it('reports failure without throwing when the built-in package is missing', async () => {
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     const { addSkillDependency } = await import('@esl/core');
     await addSkillDependency(globalRoot, '@builtin/esl-operator', 'builtin:esl-operator');
 
@@ -86,7 +86,7 @@ describe('esl built-in global sync (npm lifecycle)', () => {
 
   it('retries a pending sync on the next CLI execution and clears the marker on success', async () => {
     await buildPackages('0.1.0');
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     const { addSkillDependency, addLockEntry } = await import('@esl/core');
     await addSkillDependency(globalRoot, '@builtin/esl-operator', 'builtin:esl-operator');
     await addLockEntry(globalRoot, '@builtin/esl-operator', {

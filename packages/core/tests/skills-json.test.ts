@@ -7,6 +7,7 @@ import {
   addSkillDependency,
   loadSkillsJson,
   loadSkillsLock,
+  removeLockEntry,
   removeSkillDependency,
   saveSkillsJson
 } from '../src/store/skills-json.js';
@@ -34,6 +35,7 @@ describe('skills-json', () => {
     const data = { skills: { '@scope/skill-a': '^1.0.0' }, tools: ['claude'] };
     await saveSkillsJson(tmpDir, data);
 
+    expect(fs.existsSync(path.join(tmpDir, '.skills.json'))).toBe(true);
     const loaded = await loadSkillsJson(tmpDir);
     expect(loaded).toEqual(data);
   });
@@ -49,7 +51,7 @@ describe('skills-json', () => {
     });
   });
 
-  it('removes a skill dependency from both files', async () => {
+  it('removes a skill dependency and lock entry independently', async () => {
     await addSkillDependency(tmpDir, '@scope/skill-a', '^1.0.0');
     await addLockEntry(tmpDir, '@scope/skill-a', {
       version: '1.0.0',
@@ -58,6 +60,7 @@ describe('skills-json', () => {
     });
 
     await removeSkillDependency(tmpDir, '@scope/skill-a');
+    await removeLockEntry(tmpDir, '@scope/skill-a');
 
     const skills = await loadSkillsJson(tmpDir);
     expect(skills.skills['@scope/skill-a']).toBeUndefined();
@@ -75,9 +78,11 @@ describe('skills-json', () => {
 
     const lock = await loadSkillsLock(tmpDir);
     expect(lock.skills['@scope/skill-a']).toEqual({
+      identity: '@scope/skill-a',
       version: '1.2.3',
       resolved: 'esl-skills/scope_skill-a',
-      integrity: 'sha256-xyz'
+      integrity: 'sha256-xyz',
+      source: 'registry'
     });
   });
 });

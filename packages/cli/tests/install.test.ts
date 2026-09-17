@@ -59,7 +59,7 @@ describe('esl install (global mode)', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:3000/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')
+        path.join(homeDir, '.eslib', 'skills', 'alice_code-review')
       ]
     );
   });
@@ -247,7 +247,7 @@ describe('esl install (global mode)', () => {
       server: 'http://localhost:3000',
       customFetch: fetchImpl as any
     })).rejects.toThrow('checksum does not match');
-    expect(fs.existsSync(path.join(homeDir, '.skill-library', 'skills', 'platform-ai_reviewer'))).toBe(false);
+    expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', 'platform-ai_reviewer'))).toBe(false);
   });
 
   it('rejects an incompatible package unless compatibility checks are ignored', async () => {

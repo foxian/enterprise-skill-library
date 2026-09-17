@@ -10,19 +10,9 @@ export interface LocalStorePaths {
   skillsDir: string;
 }
 
-// 组织隶属关系（ADR-0032 / ADR-0036）：登录时由服务端按 Gitea 成员关系派生并随
-// 登录响应下发，CLI 侧只做展示（whoami/status）。组织内没有角色——`identity` 是
-// 由常设团队成员身份推导出的三档身份。
-export interface OrganizationMembership {
-  org: string;
-  identity: 'ordinary' | 'managing' | 'owner';
-  /** 便捷判据：是否所有者成员。 */
-  isOwnerMember: boolean;
-}
-
-export interface EslCredentials {
-  token: string | null;
-  loginAt: string | null;
+export interface ProjectStorePaths {
+  root: string;
+  skillsDir: string;
 }
 
 export interface LocalStoreOptions {
@@ -31,7 +21,7 @@ export interface LocalStoreOptions {
 
 export function resolveLocalStorePaths(options: LocalStoreOptions = {}): LocalStorePaths {
   const homeDir = options.homeDir ?? os.homedir();
-  const root = path.join(homeDir, '.skill-library');
+  const root = path.join(homeDir, '.eslib');
   return {
     root,
     configJson: path.join(root, 'config.json'),
@@ -41,10 +31,19 @@ export function resolveLocalStorePaths(options: LocalStoreOptions = {}): LocalSt
   };
 }
 
+export function resolveProjectStorePaths(projectRoot: string): ProjectStorePaths {
+  const root = path.join(projectRoot, '.eslib');
+  return {
+    root,
+    skillsDir: path.join(root, 'skills')
+  };
+}
+
 async function writeJsonIfMissing(filePath: string, value: unknown): Promise<void> {
   try {
     await fs.access(filePath);
   } catch {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
   }
 }
@@ -68,9 +67,21 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   return paths;
 }
 
-// 旧版配置标记：config.json 含 org/role 键（<org>_<username> 时代，ADR-0032 已废除），
-// 或组织列表仍是旧形状——带 role（ADR-0033 前）或带 isOrgManager（ADR-0036 前的
-// 两档身份）——时为 true，调用方据此提示重新登录；重新登录成功后由 login 清除。
+// 组织隶属关系（ADR-0032 / ADR-0036）：登录时由服务端按 Gitea 成员关系派生并随
+// 登录响应下发，CLI 侧只做展示（whoami/status）。组织内没有角色——`identity` 是
+// 由常设团队成员身份推导出的三档身份。
+export interface OrganizationMembership {
+  org: string;
+  identity: 'ordinary' | 'managing' | 'owner';
+  /** 便捷判据：是否所有者成员。 */
+  isOwnerMember: boolean;
+}
+
+export interface EslCredentials {
+  token: string | null;
+  loginAt: string | null;
+}
+
 export interface ConfigIdentity {
   legacyIdentity?: boolean;
 }
@@ -110,15 +121,20 @@ export async function saveConfig(
 ): Promise<EslConfig> {
   const paths = resolveLocalStorePaths(options);
   const current = await loadConfig(options);
-  const updated: EslConfig = { ...current, ...config };
+  const updated: EslConfig = {
+    ...current,
+    ...config,
+    organizations: config.organizations ?? current.organizations,
+    tools: config.tools ?? current.tools
+  };
+  await fs.mkdir(paths.root, { recursive: true });
   await fs.writeFile(paths.configJson, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
   return updated;
 }
 
 export async function loadCredentials(options: LocalStoreOptions = {}): Promise<EslCredentials> {
   const paths = resolveLocalStorePaths(options);
-  const raw = await fs.readFile(paths.credentialsJson, 'utf8');
-  return JSON.parse(raw) as EslCredentials;
+  return JSON.parse(await fs.readFile(paths.credentialsJson, 'utf8')) as EslCredentials;
 }
 
 export async function saveCredentials(
@@ -127,7 +143,11 @@ export async function saveCredentials(
 ): Promise<EslCredentials> {
   const paths = resolveLocalStorePaths(options);
   const current = await loadCredentials(options);
-  const updated: EslCredentials = { ...current, ...credentials };
+  const updated: EslCredentials = {
+    token: credentials.token === undefined ? current.token : credentials.token,
+    loginAt: credentials.loginAt === undefined ? current.loginAt : credentials.loginAt
+  };
+  await fs.mkdir(paths.root, { recursive: true });
   await fs.writeFile(paths.credentialsJson, `${JSON.stringify(updated, null, 2)}\n`, {
     encoding: 'utf8',
     mode: 0o600

@@ -165,6 +165,40 @@ owner / 创建者删除。删除前必须展示依赖方、填写原因并输入
 尚未产生任何 Skill Release 的 Server-hosted Skill Source。经授权的 Skill User
 可以下载和修改其源码，但不能将它作为技能安装。
 
+## Skill Store
+
+A scope-local collection of installed skill sources owned by ESL. A project
+store lives under the project's `.eslib`; a global store lives under the user's
+`~/.eslib`. It is generated local state, not the project's dependency
+declaration.
+
+_Avoid_: `.skills`, `.skill-library`, when referring to the new scoped store.
+
+## Tool Link
+
+A single tool-specific directory link from an AI tool's skills directory to one
+skill source in a Skill Store. Multiple tools can expose the same source without
+copies; updating the source updates every valid link.
+
+_Avoid_: adapted output, copied skill.
+
+## Skill Dependency Manifest
+
+The consumer project's declaration of the skills it directly uses and its
+default tool selection, stored as `.skills.json`. It is project-side state and
+is separate from a skill's own Release Manifest.
+
+_Avoid_: release.json, when referring to project dependencies.
+
+## Skill Dependency Lock
+
+The consumer project's exact resolved skill graph, stored as
+`.skills-lock.json`, including versions, sources, and integrity values. It is
+distinct from the server-side Release Dependency Lock frozen into a Skill
+Release.
+
+_Avoid_: Release Dependency Lock.
+
 ## Published Skill Package
 
 发布 Skill Release 时生成的、不可变且带 Namespace 的安装产物。远程安装消费
@@ -476,11 +510,13 @@ The scope-qualified name written into an adapted skill's `SKILL.md`
 frontmatter for AI tools to display or identify the skill. It uses
 `scope:skill-name`, such as `cnfox:code-review`.
 
-## Adapt Manifest
+## Tool Link Manifest
 
-The source-store manifest that records which adapted skill outputs ESL last
-generated for AI tools. Project skills use `.skills/.esl-adapt-manifest.json`;
-global skills use `.skill-library/.esl-adapt-manifest.json`.
+The per-Skill-Store record of Tool Links created by ESL. It is the boundary for
+ESL-managed removal; tool-directory content absent from this record is
+unmanaged and must not be overwritten or deleted.
+
+_Avoid_: Adapt Manifest, `.esl-adapt-manifest.json`.
 
 ## Created By
 

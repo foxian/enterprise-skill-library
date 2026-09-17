@@ -2,6 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
+import {
+  loadInstallManifest,
+  saveInstallManifest,
+  skillDirectoryName,
+  type InstallManifestSkill
+} from './skill-store.js';
 
 export interface SkillsJson {
   skills: Record<string, string>;
@@ -22,8 +28,8 @@ export interface SkillsLockJson {
   skills: Record<string, SkillsLockEntry>;
 }
 
-const SKILLS_JSON = '.skills.json';
-const SKILLS_LOCK_JSON = '.skills-lock.json';
+const SKILLS_JSON_FILE = '.skills.json';
+const SKILLS_LOCK_FILE = '.skills-lock.json';
 
 function defaultSkillsJson(): SkillsJson {
   return { skills: {} };
@@ -33,83 +39,170 @@ function defaultSkillsLock(): SkillsLockJson {
   return { lockfileVersion: 1, skills: {} };
 }
 
-async function readJsonFile<T>(filePath: string, defaultValue: T): Promise<T> {
+async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    return JSON.parse(raw) as T;
-  } catch {
-    return defaultValue;
+    return JSON.parse(await fs.readFile(filePath, 'utf8')) as T;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return fallback;
+    }
+    throw error;
   }
 }
 
-async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-export async function loadSkillsJson(projectRoot: string): Promise<SkillsJson> {
-  return readJsonFile(path.join(projectRoot, SKILLS_JSON), defaultSkillsJson());
+function sourceFromSpecifier(specifier: string): InstallManifestSkill['source'] {
+  if (specifier.startsWith('file:')) {
+    return 'local';
+  }
+  if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)) {
+    return 'builtin';
+  }
+  return 'registry';
 }
 
-export async function saveSkillsJson(projectRoot: string, data: SkillsJson): Promise<void> {
-  await writeJsonFile(path.join(projectRoot, SKILLS_JSON), data);
+function manifestEntryFromLock(
+  identity: string,
+  entry: SkillsLockEntry,
+  specifier: string,
+  current?: InstallManifestSkill
+): InstallManifestSkill {
+  return {
+    identity: entry.identity ?? identity,
+    version: entry.version,
+    source: entry.source ?? current?.source ?? sourceFromSpecifier(specifier),
+    specifier: current?.specifier ?? specifier,
+    resolved: entry.resolved,
+    integrity: entry.integrity,
+    skillId: entry.skillId,
+    sourceDir: current?.sourceDir ?? path.join('skills', skillDirectoryName(identity)),
+    installedAt: current?.installedAt ?? new Date().toISOString()
+  };
 }
 
-export async function loadSkillsLock(projectRoot: string): Promise<SkillsLockJson> {
-  return readJsonFile(path.join(projectRoot, SKILLS_LOCK_JSON), defaultSkillsLock());
+export async function loadSkillsJson(root: string): Promise<SkillsJson> {
+  return readJsonFile(path.join(root, SKILLS_JSON_FILE), defaultSkillsJson());
 }
 
-export async function saveSkillsLock(projectRoot: string, data: SkillsLockJson): Promise<void> {
-  await writeJsonFile(path.join(projectRoot, SKILLS_LOCK_JSON), data);
+export async function saveSkillsJson(root: string, data: SkillsJson): Promise<void> {
+  await writeJsonFile(path.join(root, SKILLS_JSON_FILE), {
+    ...(data.tools === undefined ? {} : { tools: data.tools }),
+    skills: { ...data.skills }
+  });
+}
+
+export async function loadSkillsLock(root: string): Promise<SkillsLockJson> {
+  return readJsonFile(path.join(root, SKILLS_LOCK_FILE), defaultSkillsLock());
+}
+
+export async function saveSkillsLock(root: string, data: SkillsLockJson): Promise<void> {
+  await writeJsonFile(path.join(root, SKILLS_LOCK_FILE), {
+    lockfileVersion: data.lockfileVersion ?? 1,
+    skills: { ...data.skills }
+  });
 }
 
 export async function addSkillDependency(
-  projectRoot: string,
+  root: string,
   name: string,
   specifier: string
 ): Promise<void> {
-  const data = await loadSkillsJson(projectRoot);
-  data.skills[name] = specifier;
-  await saveSkillsJson(projectRoot, data);
+  const current = await loadSkillsJson(root);
+  await saveSkillsJson(root, {
+    ...current,
+    skills: { ...current.skills, [name]: specifier }
+  });
 }
 
-export async function removeSkillDependency(projectRoot: string, name: string): Promise<void> {
-  const skillsData = await loadSkillsJson(projectRoot);
-  delete skillsData.skills[name];
-  await saveSkillsJson(projectRoot, skillsData);
-
-  const lockData = await loadSkillsLock(projectRoot);
-  delete lockData.skills[name];
-  await saveSkillsLock(projectRoot, lockData);
+export async function removeSkillDependency(root: string, name: string): Promise<void> {
+  const skillsJson = await loadSkillsJson(root);
+  delete skillsJson.skills[name];
+  await saveSkillsJson(root, skillsJson);
 }
 
 export async function addLockEntry(
-  projectRoot: string,
+  root: string,
   name: string,
   entry: SkillsLockEntry
 ): Promise<void> {
-  const data = await loadSkillsLock(projectRoot);
-  data.skills[name] = entry;
-  await saveSkillsLock(projectRoot, data);
+  const lockJson = await loadSkillsLock(root);
+  lockJson.skills[name] = {
+    ...entry,
+    identity: entry.identity ?? name,
+    source: entry.source ?? sourceFromSpecifier(entry.resolved)
+  };
+  await saveSkillsLock(root, lockJson);
+}
+
+export async function removeLockEntry(root: string, name: string): Promise<void> {
+  const lockJson = await loadSkillsLock(root);
+  delete lockJson.skills[name];
+  await saveSkillsLock(root, lockJson);
+}
+
+export async function recordInstalledSkill(
+  storeRoot: string,
+  name: string,
+  entry: SkillsLockEntry,
+  specifier?: string
+): Promise<void> {
+  const installManifest = await loadInstallManifest(storeRoot);
+  installManifest.skills[name] = manifestEntryFromLock(
+    name,
+    entry,
+    specifier ?? installManifest.skills[name]?.specifier ?? entry.resolved,
+    installManifest.skills[name]
+  );
+  await saveInstallManifest(storeRoot, installManifest);
+}
+
+export async function removeInstalledSkill(storeRoot: string, name: string): Promise<void> {
+  const installManifest = await loadInstallManifest(storeRoot);
+  delete installManifest.skills[name];
+  await saveInstallManifest(storeRoot, installManifest);
 }
 
 export async function renameSkillState(
-  projectRoot: string,
+  dependencyRoot: string,
+  storeRoot: string,
   oldName: string,
   newName: string
 ): Promise<void> {
-  const skills = await loadSkillsJson(projectRoot);
-  if (skills.skills[oldName] !== undefined) {
-    skills.skills[newName] = skills.skills[oldName];
-    delete skills.skills[oldName];
-    await saveSkillsJson(projectRoot, skills);
+  const [skillsJson, lockJson, installManifest] = await Promise.all([
+    loadSkillsJson(dependencyRoot),
+    loadSkillsLock(dependencyRoot),
+    loadInstallManifest(storeRoot)
+  ]);
+  const dependency = skillsJson.skills[oldName];
+  const lockEntry = lockJson.skills[oldName];
+  const installed = installManifest.skills[oldName];
+
+  if (dependency !== undefined) {
+    delete skillsJson.skills[oldName];
+    skillsJson.skills[newName] = dependency;
   }
-  const lock = await loadSkillsLock(projectRoot);
-  if (lock.skills[oldName]) {
-    lock.skills[newName] = { ...lock.skills[oldName], identity: newName };
-    delete lock.skills[oldName];
-    await saveSkillsLock(projectRoot, lock);
+  if (lockEntry !== undefined) {
+    delete lockJson.skills[oldName];
+    lockJson.skills[newName] = { ...lockEntry, identity: newName };
   }
+  if (installed !== undefined) {
+    delete installManifest.skills[oldName];
+    installManifest.skills[newName] = {
+      ...installed,
+      identity: newName,
+      sourceDir: path.join('skills', skillDirectoryName(newName))
+    };
+  }
+
+  await Promise.all([
+    saveSkillsJson(dependencyRoot, skillsJson),
+    saveSkillsLock(dependencyRoot, lockJson),
+    saveInstallManifest(storeRoot, installManifest)
+  ]);
 }
 
 export interface SkillListEntry {
@@ -118,30 +211,13 @@ export interface SkillListEntry {
   source: 'registry' | 'local' | 'builtin';
 }
 
-export async function listSkills(projectRoot: string): Promise<SkillListEntry[]> {
-  const lock = await loadSkillsLock(projectRoot);
-  const entries = Object.entries(lock.skills);
-
-  if (entries.length > 0) {
-    return entries.map(([name, entry]) => ({
-      name,
-      version: entry.version,
-      source: entry.source === 'builtin'
-        ? 'builtin' as const
-        : entry.resolved.startsWith('file:')
-          ? 'local' as const
-          : 'registry' as const
-    }));
-  }
-
-  const skillsJson = await loadSkillsJson(projectRoot);
-  return Object.entries(skillsJson.skills).map(([name, specifier]) => ({
+export async function listSkills(root: string): Promise<SkillListEntry[]> {
+  const manifest = await loadInstallManifest(root);
+  return Object.entries(manifest.skills).map(([name, entry]) => ({
     name,
-    version: specifier,
-    source: specifier.startsWith('file:')
-      ? 'local' as const
-      : specifier.startsWith(BUILTIN_SPECIFIER_PREFIX)
-        ? 'builtin' as const
-        : 'registry' as const
+    version: entry.version,
+    source: entry.source
   }));
 }
+
+export { defaultInstallManifest, loadInstallManifest, saveInstallManifest } from './skill-store.js';

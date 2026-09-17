@@ -65,12 +65,12 @@ export async function validateSkillDirectory(directory: string): Promise<Validat
   }
 
   if (skillJson && skillMd) {
-    const { skillName } = parseSkillName(skillJson.name);
+    const { scope, skillName } = parseSkillName(skillJson.name);
     if (skillMd.name !== skillName) {
       errors.push(`SKILL.md name must match skill.json name suffix "${skillName}"`);
     }
     const directoryName = path.basename(path.resolve(directory));
-    if (skillMd.name !== directoryName) {
+    if (skillMd.name !== directoryName && `${scope}_${skillName}` !== directoryName) {
       errors.push(`SKILL.md name must match directory name "${directoryName}"`);
     }
   }

@@ -40,7 +40,7 @@ describe('esl update', () => {
     await saveSkillsJson(projectDir, {
       skills: { '@myorg/local-skill': `file:${localSkillDir}` }
     });
-    const installedDir = path.join(projectDir, '.skills', '@myorg', 'local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_local-skill');
     fs.mkdirSync(installedDir, { recursive: true });
     fs.writeFileSync(path.join(installedDir, 'SKILL.md'), '# Old Local Skill\n');
 
@@ -84,7 +84,7 @@ describe('esl update', () => {
       noAdapt: true
     });
 
-    const installedDir = path.join(projectDir, '.skills', '@myorg', 'specific-local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_specific-local-skill');
     expect(result).toEqual([{ name: '@myorg/specific-local-skill', from: 'local', to: '0.4.0' }]);
     expect(fs.readFileSync(path.join(installedDir, 'SKILL.md'), 'utf8')).toContain('# Updated Specific Local Skill');
   });
@@ -105,7 +105,7 @@ describe('esl update', () => {
       path.join(localSkillDir, 'SKILL.md'),
       '---\nname: global-local-skill\ndescription: Global local test skill.\n---\n\n# Updated Global Local Skill\n'
     );
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, {
       skills: { '@myorg/global-local-skill': `file:${localSkillDir}` }
     });
@@ -117,13 +117,13 @@ describe('esl update', () => {
       noAdapt: true
     });
 
-    const installedDir = path.join(globalRoot, 'skills', '@myorg', 'global-local-skill');
+    const installedDir = path.join(globalRoot, 'skills', 'myorg_global-local-skill');
     expect(result).toEqual([{ name: '@myorg/global-local-skill', from: 'local', to: '0.3.0' }]);
     expect(fs.readFileSync(path.join(installedDir, 'SKILL.md'), 'utf8')).toContain('# Updated Global Local Skill');
 
     const projectSkillsJson = await loadSkillsJson(projectDir);
     expect(projectSkillsJson.skills['@myorg/global-local-skill']).toBeUndefined();
-    expect(fs.existsSync(path.join(projectDir, '.skills', '@myorg', 'global-local-skill'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib'))).toBe(false);
   });
 
   it('fails clearly when a file: dependency local skill source is missing', async () => {
@@ -143,7 +143,7 @@ describe('esl update', () => {
   });
 
   it('updates registry-backed skills from the global manifest', async () => {
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, {
       skills: { '@alice/code-review': '^1.0.0' }
     });
@@ -193,17 +193,17 @@ describe('esl update', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:3000/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.skill-library', 'skills', '@alice', 'code-review')
+        path.join(homeDir, '.eslib', 'skills', 'alice_code-review')
       ]
     );
 
     const globalLock = await loadSkillsLock(globalRoot);
     expect(globalLock.skills['@alice/code-review']?.version).toBe('1.1.0');
-    expect(fs.existsSync(path.join(projectDir, '.skills', '@alice', 'code-review'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', 'alice_code-review'))).toBe(false);
   });
 
   it('does not move an installed skill backwards when a lower version was published later', async () => {
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
     await saveSkillsLock(globalRoot, {
       lockfileVersion: 1,
@@ -241,7 +241,7 @@ describe('esl update', () => {
   });
 
   it('does not upgrade to a prerelease without an explicit version', async () => {
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
     await saveSkillsLock(globalRoot, {
       lockfileVersion: 1,
@@ -293,7 +293,7 @@ describe('esl update', () => {
         }
       }
     });
-    const oldDirectory = path.join(projectDir, '.skills', 'alice_code-review');
+    const oldDirectory = path.join(projectDir, '.eslib', 'skills', 'alice_code-review');
     fs.mkdirSync(oldDirectory, { recursive: true });
     fs.writeFileSync(path.join(oldDirectory, 'SKILL.md'), '# Installed skill\n');
 
@@ -317,7 +317,7 @@ describe('esl update', () => {
 
     expect(result).toEqual([{ name: '@alice/code-review-renamed', from: '1.0.0', to: '1.0.0' }]);
     expect(fs.existsSync(oldDirectory)).toBe(false);
-    expect(fs.readFileSync(path.join(projectDir, '.skills', 'alice_code-review-renamed', 'SKILL.md'), 'utf8'))
+    expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', 'alice_code-review-renamed', 'SKILL.md'), 'utf8'))
       .toContain('# Installed skill');
     const skills = await loadSkillsJson(projectDir);
     expect(skills.skills['@alice/code-review']).toBeUndefined();
@@ -438,7 +438,7 @@ describe('esl update', () => {
     });
     const expiredLoginAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString();
     await saveCredentials({ token: 'gitea-token', loginAt: expiredLoginAt }, { homeDir });
-    const installedDir = path.join(projectDir, '.skills', '@myorg', 'local-skill');
+    const installedDir = path.join(projectDir, '.eslib', 'skills', 'myorg_local-skill');
     fs.mkdirSync(installedDir, { recursive: true });
     fs.writeFileSync(path.join(installedDir, 'SKILL.md'), '# Old Local Skill\n');
 

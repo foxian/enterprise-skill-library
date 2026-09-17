@@ -7,8 +7,13 @@ import { promisify } from 'node:util';
 import {
   addLockEntry,
   addSkillDependency,
-  adaptGlobal,
-  adaptProject,
+  loadConfig,
+  loadInstallManifest,
+  loadSkillsJson,
+  resolveProjectStorePaths,
+  syncToolLinks,
+  SUPPORTED_TOOLS,
+  type ToolName,
   copySkillDirectory,
   createMinimalSkillManifest,
   evaluateCompatibility,
@@ -17,8 +22,10 @@ import {
   isBuiltinIdentity,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
+  recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
+  skillDirectoryName,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
@@ -54,6 +61,8 @@ export interface InstallOptions extends NetworkCommandOptions {
   version?: string;
   global?: boolean;
   noAdapt?: boolean;
+  tools?: ToolName[];
+  force?: boolean;
   ignoreCompatibility?: boolean;
   projectRoot?: string;
   execFileAsync?: typeof defaultExecFileAsync;
@@ -126,7 +135,10 @@ async function installFromLocalPath(
     generatedDescription = skillMdValidation.data.description;
   }
 
-  const installRoot = options.global ? resolveLocalStorePaths(options).root : projectRoot;
+  const storeRoot = options.global
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const dependencyRoot = options.global ? storeRoot : projectRoot;
   const targetDir = options.global ? installTargetDir(identity, options) : projectSkillsDir(projectRoot, identity);
   await copySkillDirectory(resolved, targetDir);
   if (needsGeneratedSkillJson) {
@@ -141,12 +153,16 @@ async function installFromLocalPath(
     };
     await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
   }
-  await addSkillDependency(installRoot, identity, `file:${resolved}`);
-  await addLockEntry(installRoot, identity, {
+  const specifier = `file:${resolved}`;
+  const lockEntry = {
     version,
-    resolved: `file:${resolved}`,
-    integrity: ''
-  });
+    resolved: specifier,
+    integrity: '',
+    source: 'local' as const
+  };
+  await addSkillDependency(dependencyRoot, identity, specifier);
+  await addLockEntry(dependencyRoot, identity, lockEntry);
+  await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
 
   return targetDir;
 }
@@ -159,24 +175,26 @@ async function installFromBuiltin(
   const builtinDir = options.builtinDir ?? resolveBuiltinDir();
   const builtin = await loadBuiltinPackageOrThrow(builtinDir, name);
 
-  const installRoot = options.global ? resolveLocalStorePaths(options).root : projectRoot;
+  const storeRoot = options.global
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const dependencyRoot = options.global ? storeRoot : projectRoot;
   const targetDir = options.global
     ? installTargetDir(name, options)
     : projectSkillsDir(projectRoot, name);
 
   await copySkillDirectory(builtin.directory, targetDir);
-  await addSkillDependency(installRoot, name, `${BUILTIN_SPECIFIER_PREFIX}${builtin.shortName}`);
-  await addLockEntry(installRoot, name, {
+  const specifier = `${BUILTIN_SPECIFIER_PREFIX}${builtin.shortName}`;
+  const lockEntry = {
     identity: name,
     version: builtin.version,
-    resolved: `${BUILTIN_SPECIFIER_PREFIX}${builtin.shortName}`,
+    resolved: specifier,
     integrity: builtin.checksum,
-    source: 'builtin'
-  });
-
-  if (options.global && !options.noAdapt) {
-    await adaptGlobal({ homeDir: options.homeDir });
-  }
+    source: 'builtin' as const
+  };
+  await addSkillDependency(dependencyRoot, name, specifier);
+  await addLockEntry(dependencyRoot, name, lockEntry);
+  await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
 
   return targetDir;
 }
@@ -214,12 +232,16 @@ async function installFromServer(
     if (info.publishedPackage) {
       await preparePublishedSkillPackage(targetDir, name);
     }
-    await addSkillDependency(globalRoot, name, `^${version}`);
-    await addLockEntry(globalRoot, name, {
+    const specifier = `^${version}`;
+    const lockEntry = {
       version,
       resolved: remoteUrl,
-      integrity: ''
-    });
+      integrity: '',
+      source: 'registry' as const
+    };
+    await addSkillDependency(globalRoot, name, specifier);
+    await addLockEntry(globalRoot, name, lockEntry);
+    await recordInstalledSkill(globalRoot, name, lockEntry, specifier);
     return targetDir;
   }
 
@@ -237,12 +259,17 @@ async function installFromServer(
     if (info.publishedPackage) {
       await preparePublishedSkillPackage(targetDir, name);
     }
-    await addSkillDependency(projectRoot, name, `^${version}`);
-    await addLockEntry(projectRoot, name, {
+    const specifier = `^${version}`;
+    const lockEntry = {
       version,
       resolved: remoteUrl,
-      integrity: ''
-    });
+      integrity: '',
+      source: 'registry' as const
+    };
+    const storeRoot = resolveProjectStorePaths(projectRoot).root;
+    await addSkillDependency(projectRoot, name, specifier);
+    await addLockEntry(projectRoot, name, lockEntry);
+    await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
 
     return targetDir;
   } finally {
@@ -329,18 +356,26 @@ async function installPublishedPackage(
     throw error;
   }
   await removeDirectory(previousDir);
-  const root = options.global || !projectRoot ? resolveLocalStorePaths(options).root : projectRoot;
-  await addSkillDependency(root, name, `^${version}`);
-  await addLockEntry(root, name, {
+  const storeRoot = options.global || !projectRoot
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const dependencyRoot = options.global || !projectRoot ? storeRoot : projectRoot;
+  const specifier = `^${version}`;
+  const lockEntry = {
     skillId: packageData.skillId,
     identity: name,
     version,
     resolved: resolvedPackageUrl,
-    integrity
-  });
+    integrity,
+    source: 'registry' as const
+  };
+  await addSkillDependency(dependencyRoot, name, specifier);
+  await addLockEntry(dependencyRoot, name, lockEntry);
+  await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
   await installPublishedDependencies(
     packageData.dependencyLock ?? {},
-    root,
+    dependencyRoot,
+    storeRoot,
     options,
     authToken,
     new Set([name])
@@ -350,7 +385,8 @@ async function installPublishedPackage(
 
 async function installPublishedDependencies(
   dependencyLock: Record<string, LockedDependency>,
-  projectRoot: string,
+  dependencyRoot: string,
+  storeRoot: string,
   options: InstallOptions,
   authToken: string,
   seen: Set<string>
@@ -401,7 +437,7 @@ async function installPublishedDependencies(
         ].join(', ')}`);
       }
     }
-    const dependencyTargetDir = publishedProjectSkillsDir(projectRoot, dependencyName);
+    const dependencyTargetDir = path.join(storeRoot, 'skills', skillDirectoryName(dependencyName));
     const dependencyStagingDir = `${dependencyTargetDir}.staging-${process.pid}-${Date.now()}`;
     await removeDirectory(dependencyStagingDir);
     for (const [relativePath, content] of Object.entries(packageData.files ?? {})) {
@@ -426,20 +462,61 @@ async function installPublishedDependencies(
       throw error;
     }
     await removeDirectory(dependencyPreviousDir);
-    await addSkillDependency(projectRoot, dependencyName, `^${dependency.version}`);
-    await addLockEntry(projectRoot, dependencyName, {
+    const dependencySpecifier = `^${dependency.version}`;
+    const dependencyLockEntry = {
       skillId: dependency.skillId,
       identity: dependencyName,
       version: dependency.version,
       resolved: resolvedPackageUrl,
-      integrity
-    });
-    await installPublishedDependencies(dependency.dependencyLock ?? {}, projectRoot, options, authToken, seen);
+      integrity,
+      source: 'registry' as const
+    };
+    await addLockEntry(dependencyRoot, dependencyName, dependencyLockEntry);
+    await recordInstalledSkill(storeRoot, dependencyName, dependencyLockEntry, dependencySpecifier);
+    await installPublishedDependencies(
+      dependency.dependencyLock ?? {},
+      dependencyRoot,
+      storeRoot,
+      options,
+      authToken,
+      seen
+    );
   }
+}
+
+export async function resolveDefaultInstallTools(
+  projectRoot: string,
+  options: InstallOptions
+): Promise<ToolName[]> {
+  const dependencyRoot = options.global
+    ? resolveLocalStorePaths(options).root
+    : projectRoot;
+  const skillsJson = await loadSkillsJson(dependencyRoot);
+  if (skillsJson.tools && skillsJson.tools.length > 0) {
+    return skillsJson.tools.map((tool) => {
+      if (!(SUPPORTED_TOOLS as readonly string[]).includes(tool)) {
+        throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
+      }
+      return tool as ToolName;
+    });
+  }
+
+  const config = await loadConfig(options);
+  return config.tools.map((tool) => {
+    if (!(SUPPORTED_TOOLS as readonly string[]).includes(tool)) {
+      throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
+    }
+    return tool as ToolName;
+  });
 }
 
 export async function executeInstall(nameOrPath: string, options: InstallOptions = {}): Promise<string> {
   const projectRoot = options.projectRoot ?? process.cwd();
+  const failedLinks: string[] = [];
+  const storeRoot = options.global
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const beforeManifest = await loadInstallManifest(storeRoot);
 
   const targetDir = isBuiltinIdentity(nameOrPath)
     ? await installFromBuiltin(nameOrPath, projectRoot, options)
@@ -447,13 +524,54 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
       ? await installFromLocalPath(nameOrPath, projectRoot, options)
       : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
 
-  if (!options.noAdapt && !options.global) {
-    await adaptProject(projectRoot, { homeDir: options.homeDir });
+  if (!options.noAdapt) {
+    const tools = options.tools ?? await resolveDefaultInstallTools(projectRoot, options);
+    if (tools.length > 0) {
+      const installManifest = await loadInstallManifest(storeRoot);
+      const targetPath = path.resolve(targetDir);
+      const installedIdentities = new Set<string>();
+      for (const [identity, entry] of Object.entries(installManifest.skills)) {
+        const previouslyInstalled = beforeManifest.skills[identity];
+        if (
+          path.resolve(storeRoot, entry.sourceDir) === targetPath ||
+          !previouslyInstalled ||
+          JSON.stringify(previouslyInstalled) !== JSON.stringify(entry)
+        ) {
+          installedIdentities.add(identity);
+        }
+      }
+      const results = await syncToolLinks({
+        storeRoot,
+        level: options.global ? 'global' : 'project',
+        tools,
+        identities: [...installedIdentities],
+        projectRoot,
+        homeDir: options.homeDir,
+        force: options.force
+      });
+      failedLinks.push(
+        ...results
+          .filter((result) => result.status === 'conflict' || result.status === 'failed')
+          .map((result) => {
+            const detail =
+              result.status === 'conflict'
+                ? `: ${result.error ?? 'conflict'}`
+                : result.error
+                  ? `: ${result.error}`
+                  : '';
+            return `${result.tool} (${result.targetDir})${detail}`;
+          })
+      );
+    }
   }
 
   if (!options.global) {
     const { ensureGitignore } = await import('./uninstall.js');
     await ensureGitignore(projectRoot);
+  }
+
+  if (failedLinks.length > 0) {
+    throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);
   }
 
   return targetDir;

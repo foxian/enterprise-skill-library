@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram, formatErrorMessage, isDirectCliEntry } from '../src/bin/esl.js';
+import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
+import { SUPPORTED_TOOLS } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
 import { readCliVersion } from '../src/version.js';
@@ -10,6 +12,10 @@ import { pathToFileURL } from 'node:url';
 
 vi.mock('../src/commands/upload.js', () => ({ executeUpload: vi.fn() }));
 vi.mock('../src/commands/publish.js', () => ({ executePublish: vi.fn() }));
+vi.mock('../src/commands/install.js', () => ({
+  executeInstall: vi.fn(),
+  resolveDefaultInstallTools: vi.fn()
+}));
 
 describe('esl program', () => {
   it('registers Phase 1 commands', () => {
@@ -55,13 +61,6 @@ describe('esl program', () => {
     expect(usernameOption?.mandatory).toBe(false);
   });
 
-  it('registers the adapt prune option', () => {
-    const program = createProgram();
-    const adaptCommand = program.commands.find((command) => command.name() === 'adapt');
-
-    expect(adaptCommand?.options.map((option) => option.long)).toEqual(expect.arrayContaining(['--prune']));
-  });
-
   it('registers the top-level account command surface', () => {
     const program = createProgram();
     const account = program.commands.find((command) => command.name() === 'account');
@@ -104,6 +103,73 @@ describe('esl program', () => {
     expect(publish?.options.map((option) => option.long)).toContain('--force');
     expect(uninstall?.options.map((option) => option.long)).toContain('--force');
     expect(program.options.map((option) => option.long)).toContain('--no-input');
+  });
+
+  it('registers --tools and --no-tools on install', () => {
+    const program = createProgram();
+    const install = program.commands.find((command) => command.name() === 'install');
+    const options = install?.options.map((option) => option.long) ?? [];
+
+    expect(options).toContain('--tools');
+    expect(options).toContain('--no-tools');
+  });
+
+  it('maps install --no-tools to a source-only install', async () => {
+    vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/skill');
+    const program = createProgram();
+
+    await program.parseAsync(['install', '@acme/review', '--no-tools'], { from: 'user' });
+
+    expect(executeInstall).toHaveBeenCalledWith(
+      '@acme/review',
+      expect.objectContaining({ tools: [], noAdapt: true })
+    );
+  });
+
+  it('maps install --tools all to all supported tools', async () => {
+    vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/skill');
+    const program = createProgram();
+
+    await program.parseAsync(['install', '@acme/review', '--tools', 'all'], { from: 'user' });
+
+    expect(executeInstall).toHaveBeenCalledWith(
+      '@acme/review',
+      expect.objectContaining({ tools: [...SUPPORTED_TOOLS], noAdapt: false })
+    );
+  });
+
+  it('fails non-interactively when no tools are configured', async () => {
+    vi.mocked(executeInstall).mockClear();
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
+    const program = createProgram();
+
+    await expect(
+      program.parseAsync(['install', '@acme/review'], { from: 'user' })
+    ).rejects.toThrow('No tools configured');
+
+    expect(executeInstall).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve tools when install uses --no-adapt', async () => {
+    vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/skill');
+    vi.mocked(resolveDefaultInstallTools).mockClear();
+    const program = createProgram();
+
+    await program.parseAsync(['install', '@acme/review', '--no-adapt'], { from: 'user' });
+
+    expect(resolveDefaultInstallTools).not.toHaveBeenCalled();
+    expect(executeInstall).toHaveBeenCalledWith(
+      '@acme/review',
+      expect.objectContaining({ tools: [], noAdapt: true })
+    );
+  });
+
+  it('registers --project on tools list', () => {
+    const program = createProgram();
+    const tools = program.commands.find((command) => command.name() === 'tools');
+    const list = tools?.commands.find((command) => command.name() === 'list');
+
+    expect(list?.options.map((option) => option.long)).toContain('--project');
   });
 
   it('registers the release tag repair command', () => {

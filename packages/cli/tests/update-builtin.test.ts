@@ -108,7 +108,7 @@ describe('esl update built-in skill', () => {
       { name: '@builtin/esl-operator', from: '0.1.0', to: '0.4.0' }
     ]);
 
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     const lock = await loadSkillsLock(globalRoot);
     expect(lock.skills['@builtin/esl-operator']?.version).toBe('0.4.0');
   });

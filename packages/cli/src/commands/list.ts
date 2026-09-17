@@ -1,5 +1,4 @@
-import { listSkills, type SkillListEntry } from '@esl/core';
-import { resolveLocalStorePaths, type LocalStoreOptions } from '@esl/core';
+import { listSkills, resolveLocalStorePaths, resolveProjectStorePaths, type LocalStoreOptions, type SkillListEntry } from '@esl/core';
 
 export interface ListOptions extends LocalStoreOptions {
   global?: boolean;
@@ -7,9 +6,9 @@ export interface ListOptions extends LocalStoreOptions {
 }
 
 export async function executeList(options: ListOptions = {}): Promise<SkillListEntry[]> {
-  const projectRoot = options.global
-    ? resolveLocalStorePaths(options).skillsDir.replace(/[/\\]skills$/, '')
-    : process.cwd();
+  const storeRoot = options.global
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(process.cwd()).root;
 
-  return listSkills(projectRoot);
+  return listSkills(storeRoot);
 }

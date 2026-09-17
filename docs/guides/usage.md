@@ -10,9 +10,9 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 | :--- | :--- | :--- |
 | **技能标识 (Skill Identity)** | 技能的全局唯一名称，格式为 `@namespace/skill-name`。 | `@cnfox/code-review` |
 | **本地命名空间 (`@local`)** | 专为本地草稿、测试预留的命名空间。自带发布防护，防止未审核测试代码误发布到服务器。 | `@local/my-test-skill` |
-| **真实源存储 (`.skills/`)** | 项目根目录下统一存储技能文件的目录（真相源），不受各 AI 工具特殊目录结构影响。 | `.skills/@cnfox/code-review/` |
+| **Skill Store (`.eslib/`)** | 项目级使用 `<project>/.eslib/skills/`，全局级使用 `~/.eslib/skills/`；它是 ESL 安装技能的唯一本地真相。 | `.eslib/skills/cnfox_code-review/` |
 | **依赖清单与锁文件** | `.skills.json` 记录声明依赖；`.skills-lock.json` 精确锁定版本与 SHA-256 完整性哈希。 | `.skills.json`<br>`.skills-lock.json` |
-| **适配引擎 (Adapt Engine)** | 将 `.skills/` 中的标准技能全量同步映射到各种 AI 工具配置目录的机制（零 Symlink 复制）。 | `.claude/skills/`<br>`.trae/skills/` |
+| **Tool Link** | 每个 AI 工具目录中的单个技能目录 link，指向 Skill Store 源；更新源后 link 自动看到新内容。 | `.claude/skills/cnfox_code-review -> .eslib/skills/cnfox_code-review` |
 
 ---
 
@@ -152,13 +152,17 @@ esl install @cnfox/code-review --version 1.0.0
 # 从本地相对路径安装（身份固定为 @local/<name>；在安装副本里补 skill.json，源目录不动）
 esl install ./path/to/my-skill
 
-# 安装到个人全局环境 (~/.skill-library/skills/)
+# 安装到个人全局环境 (~/.eslib/skills/)
 esl install @cnfox/code-review --global
 
-# 安装但跳过自动 adapt 同步
-esl install @cnfox/code-review --no-adapt
+# 链接到全部或指定 AI 工具
+esl install @cnfox/code-review --tools all
+esl install @cnfox/code-review --tools claude,codex,trae-intl
+
+# 只安装源，不创建 Tool Link
+esl install @cnfox/code-review --no-tools
 ```
-> **提示**：安装完成后，`esl install` 会自动运行 `adapt` 引擎将技能同步分发到所有已配置的 AI Agent 目录中。
+> **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。未传 `--tools` 时，按项目 `.skills.json`、全局配置、交互选择的顺序解析默认工具。
 
 ### 5. 查看已安装技能 (List)
 查看当前项目或全局已安装的技能清单：
@@ -175,17 +179,31 @@ esl list --global
 esl list --json
 ```
 
-### 6. 手动同步适配 (Adapt)
-将已安装的技能同步刷入项目配置的各个 AI 工具中（如 Claude Code, Trae 等）：
+### 6. 手动同步 Tool Link (Adapt)
+按当前工具配置检查并建立已安装技能的 Tool Link：
 ```bash
-# 刷入当前项目
+# 检查并建立当前项目的 Tool Link
 esl adapt
 
-# 刷入全局 AI 工具目录
+# 检查并建立全局 Tool Link
 esl adapt --global
 ```
 
-### 7. 更新技能 (Update)
+### 7. 查看与删除 Tool Link
+```bash
+# 查看当前项目所有工具、技能和 link 状态
+esl tools list
+
+# 筛选工具、技能、作用域和状态
+esl tools list --tool claude,codex --status broken,conflict
+esl tools list --global --unmanaged
+esl tools list --json
+
+# 只解除指定工具的 link，保留 Skill Store 源
+esl tools remove @cnfox/code-review --tools claude,cursor
+```
+
+### 8. 更新技能 (Update)
 检查并升级已安装的技能到 ESL Server 上的最新版本：
 ```bash
 # 更新项目下所有技能
@@ -196,10 +214,13 @@ esl update @cnfox/code-review
 
 # 更新全局技能
 esl update --global
+
+# 更新后确保指定工具存在正确 link
+esl update @cnfox/code-review --tools claude,codex
 ```
 
-### 8. 卸载技能 (Uninstall)
-移除已安装的技能（自动清理 `.skills/` 目录、依赖清单及各 AI 工具中的副本）：
+### 9. 卸载技能 (Uninstall)
+移除已安装的技能（清理 Skill Store 源、依赖/锁/安装记录及该技能的全部 ESL 管理 link）：
 ```bash
 # 卸载项目技能
 esl uninstall @cnfox/code-review
@@ -330,16 +351,21 @@ esl source @cnfox/code-review ./custom-dir
 
 ---
 
-## 六、 多 Agent 工具配置与目录映射 (Multi-Agent Adaptation Reference)
+## 六、 多 Agent 工具配置与目录映射 (Tool Link Reference)
 
-当运行 `esl adapt` 或 `esl install` 时，系统根据配置自动将技能全量复制（零 Symlink）到对应的 AI Agent 工作区中。
+当运行 `esl adapt` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |
 | `claude` | `<project>/.claude/skills/<skill-name>/` | `~/.claude/skills/<skill-name>/` |
-| `trae` | `<project>/.trae/skills/<skill-name>/` | `~/.trae/skills/<skill-name>/` |
+| `codex` | `<project>/.codex/skills/<skill-name>/` | `~/.codex/skills/<skill-name>/` |
+| `cursor` | `<project>/.cursor/skills/<skill-name>/` | `~/.cursor/skills/<skill-name>/` |
+| `trae-intl` | `<project>/.trae/skills/<skill-name>/` | `~/.trae/skills/<skill-name>/` |
 | `trae-cn` | `<project>/.trae/skills/<skill-name>/` | `~/.trae-cn/skills/<skill-name>/` |
-| `codex` | `<project>/.agents/skills/<skill-name>/` | `~/.agents/skills/<skill-name>/` |
+| `workbuddy` | `<project>/.workbuddy/skills/<skill-name>/` | `~/.workbuddy/skills/<skill-name>/` |
+| `opencode` | `<project>/.opencode/skills/<skill-name>/` | `~/.config/opencode/skills/<skill-name>/` |
+| `openclaw` | `<project>/skills/<skill-name>/` | `~/.openclaw/skills/<skill-name>/` |
+| `hermes` | `<project>/.hermes/skills/<skill-name>/` | `~/.hermes/skills/<skill-name>/` |
 
 你可以通过修改项目下的 `.skills.json` 文件来自定义当前项目需要适配的工具列表：
 ```json
@@ -347,6 +373,6 @@ esl source @cnfox/code-review ./custom-dir
   "skills": {
     "@cnfox/code-review": "^1.0.0"
   },
-  "tools": ["claude", "trae", "codex"]
+  "tools": ["claude", "trae-intl", "codex"]
 }
 ```

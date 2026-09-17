@@ -65,7 +65,7 @@ describe('esl logout', () => {
 
   it('makes token-requiring commands fail with a login hint afterwards', async () => {
     await initializeLocalStore({ homeDir });
-    const globalRoot = path.join(homeDir, '.skill-library');
+    const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, { skills: { '@acme/code-review': '^1.0.0' } });
     await saveCredentials({ token: 'mock_token', loginAt: new Date().toISOString() }, { homeDir });
 

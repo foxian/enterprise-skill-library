@@ -3,16 +3,16 @@ import { adaptGlobal, adaptProject, type AdaptResult } from '@esl/core';
 export interface AdaptCommandOptions {
   global?: boolean;
   directory?: string;
-  prune?: boolean;
+  homeDir?: string;
 }
 
 export async function executeAdapt(options: AdaptCommandOptions = {}): Promise<AdaptResult[]> {
   if (options.global) {
-    return adaptGlobal({ prune: options.prune });
+    return adaptGlobal({ homeDir: options.homeDir });
   }
 
   const projectRoot = options.directory ?? process.cwd();
-  return adaptProject(projectRoot, { prune: options.prune });
+  return adaptProject(projectRoot, { homeDir: options.homeDir });
 }
 
 export function formatAdaptResults(results: AdaptResult[]): string[] {
@@ -21,9 +21,9 @@ export function formatAdaptResults(results: AdaptResult[]): string[] {
     const details = [
       mappings,
       formatOutcome('adopted', result.adopted),
-      formatOutcome('pruned', result.pruned),
       formatOutcome('skipped', result.skipped),
-      formatOutcome('conflicts', result.conflicts)
+      formatOutcome('conflicts', result.conflicts),
+      formatOutcome('failed', result.failed)
     ].filter(Boolean).join('; ');
     return `${result.tool}: ${result.skills.length} skill(s) synced${details ? ` (${details})` : ''}`;
   });

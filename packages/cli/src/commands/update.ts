@@ -1,12 +1,14 @@
-﻿import fs from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import semver from 'semver';
 import {
-  adaptGlobal,
-  adaptProject,
+  resolveProjectStorePaths,
+  syncToolLinks,
+  type ToolName,
   BUILTIN_SPECIFIER_PREFIX,
   highestStableVersion,
   isBuiltinIdentity,
+  listToolLinks,
   loadSkillsJson,
   loadSkillsLock,
   renameSkillState,
@@ -27,6 +29,8 @@ export interface UpdateOptions extends NetworkCommandOptions {
   skillName?: string;
   global?: boolean;
   noAdapt?: boolean;
+  tools?: ToolName[];
+  force?: boolean;
 }
 
 export interface UpdateResultEntry {
@@ -38,10 +42,12 @@ export interface UpdateResultEntry {
 export type UpdateResult = UpdateResultEntry[];
 
 export async function executeUpdate(options: UpdateOptions = {}): Promise<UpdateResult> {
-  const manifestRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? process.cwd();
-  const skillsJson = await loadSkillsJson(manifestRoot);
-  const lockJson = await loadSkillsLock(manifestRoot);
+  const dependencyRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? process.cwd();
+  const storeRoot = options.global ? dependencyRoot : resolveProjectStorePaths(dependencyRoot).root;
+  const skillsJson = await loadSkillsJson(dependencyRoot);
+  const lockJson = await loadSkillsLock(dependencyRoot);
   const results: UpdateResultEntry[] = [];
+  const targetIdentities = new Set<string>();
 
   const hasRegistrySkills = Object.entries(skillsJson.skills).some(
     ([name, specifier]) =>
@@ -59,10 +65,11 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     }
 
     if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX) || isBuiltinIdentity(name)) {
+      targetIdentities.add(name);
       const currentVersion = lockJson.skills[name]?.version;
       const targetDir = await executeInstall(name, {
         ...options,
-        projectRoot: manifestRoot,
+        projectRoot: dependencyRoot,
         noAdapt: true
       });
       const validation = await validateSkillDirectory(targetDir);
@@ -74,9 +81,10 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     }
 
     if (specifier.startsWith('file:')) {
+      targetIdentities.add(name);
       const targetDir = await executeInstall(specifier.slice('file:'.length), {
         ...options,
-        projectRoot: manifestRoot,
+        projectRoot: dependencyRoot,
         noAdapt: true
       });
       const validation = await validateSkillDirectory(targetDir);
@@ -91,6 +99,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     try {
       const info = await executeInfo(name, options);
       const resolvedName = info.currentName ?? name;
+      targetIdentities.add(resolvedName);
       const latestVersion = highestStableVersion(info.versions ?? []);
       if (!latestVersion) {
         continue;
@@ -104,7 +113,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
       if (needsUpdate) {
         await executeInstall(resolvedName, {
           ...options,
-          projectRoot: manifestRoot,
+          projectRoot: dependencyRoot,
           version: latestVersion,
           noAdapt: true
         });
@@ -113,17 +122,17 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
       if (resolvedName !== name) {
         const oldDirectory = options.global
           ? publishedInstallTargetDir(name, options)
-          : publishedProjectSkillsDir(manifestRoot, name);
+          : publishedProjectSkillsDir(dependencyRoot, name);
         const newDirectory = options.global
           ? publishedInstallTargetDir(resolvedName, options)
-          : publishedProjectSkillsDir(manifestRoot, resolvedName);
+          : publishedProjectSkillsDir(dependencyRoot, resolvedName);
         if (!needsUpdate && await directoryExists(oldDirectory)) {
           await fs.mkdir(path.dirname(newDirectory), { recursive: true });
           await fs.rename(oldDirectory, newDirectory);
         } else {
           await fs.rm(oldDirectory, { recursive: true, force: true });
         }
-        await renameSkillState(manifestRoot, name, resolvedName);
+        await renameSkillState(dependencyRoot, storeRoot, name, resolvedName);
         results.push({
           name: resolvedName,
           from: currentVersion ?? 'unknown',
@@ -149,11 +158,52 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     }
   }
 
-  if (!options.noAdapt && results.length > 0) {
-    if (options.global) {
-      await adaptGlobal({ homeDir: options.homeDir });
-    } else {
-      await adaptProject(manifestRoot, { homeDir: options.homeDir });
+  if (targetIdentities.size === 0) {
+    return results;
+  }
+
+  if (options.tools && options.tools.length > 0) {
+    const linkResults = await syncToolLinks({
+      storeRoot,
+      level: options.global ? 'global' : 'project',
+      tools: options.tools,
+      identities: [...targetIdentities],
+      projectRoot: dependencyRoot,
+      homeDir: options.homeDir,
+      force: options.force
+    });
+    const failedLinks = linkResults
+      .filter((result) => result.status === 'conflict' || result.status === 'failed')
+      .map((result) => {
+        const detail =
+          result.status === 'conflict'
+            ? `: ${result.error ?? 'conflict'}`
+            : result.error
+              ? `: ${result.error}`
+              : '';
+        return `${result.tool} (${result.targetDir})${detail}`;
+      });
+    if (failedLinks.length > 0) {
+      throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);
+    }
+  } else {
+    const linkEntries = await listToolLinks({
+      storeRoot,
+      level: options.global ? 'global' : 'project',
+      projectRoot: dependencyRoot,
+      homeDir: options.homeDir
+    });
+    const issues = linkEntries.filter(
+      (entry) =>
+        targetIdentities.has(entry.identity) &&
+        (entry.status === 'broken' || entry.status === 'conflict')
+    );
+    if (issues.length > 0) {
+      throw new Error(
+        `Tool link issue: ${issues
+          .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status})`)
+          .join(', ')}`
+      );
     }
   }
 
