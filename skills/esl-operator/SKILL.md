@@ -17,7 +17,12 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装 / 更新、升级 / 卸载 / unlink 源码 / 看哪些工具装了哪些技能 / 解除部分工具 link / 同步到工具 | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验 / 上传源码 / 发布 / 改版本号 / 拉别人源码、二次开发 | `references/author.md` |
+| 执行已接入协议的写命令 / 看到 `esl.interaction.request` | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
+
+**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init` 时，命令一律追加
+`--agent-interaction`，并同时读取 `references/agent-interaction.md`。不要等用户
+明确要求选择框或输入框。
 
 ## 三条不可妥协的规则
 
@@ -36,6 +41,17 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 - 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`search`/`info`/`list`/`tools list` 支持），你直接解析结构化数据。
 - 给用户看时用人类可读的默认输出。
 - `esl use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl use @ns/name | <agent>`。
+
+## Agent 交互
+
+本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`，
+并先读 `references/agent-interaction.md`。当前 `init` 已接入；其他命令按其
+reference 或 `--help` 确认。不要让 CLI 在该模式下等待 stdin，也不要根据普通
+错误文本猜测是否需要弹窗。
+
+如果命令返回退出码 `2` 且 stdout 是 `esl.interaction.request`，按 request 的
+fields 向用户收集输入；收集后优先使用命令已有的专用 flag，复杂或动态参数使用
+`--params-json` 重新执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。
 
 ## 命令找不到 / 服务不通
 

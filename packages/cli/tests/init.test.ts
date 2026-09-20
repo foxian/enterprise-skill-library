@@ -231,8 +231,7 @@ describe('esl init', () => {
   it('fills only release.json and warns when SKILL.md exists but is not valid', async () => {
     const targetDir = skillPath();
     fs.mkdirSync(targetDir, { recursive: true });
-    // Claude 系生态常见形态：frontmatter 带 ESL 之外的键。
-    const original = '---\nname: my-skill\ndescription: External skill.\nallowed-tools: Read\n---\n# Content\n';
+    const original = '---\nname: my-skill\n---\n# Content\n';
     fs.writeFileSync(path.join(targetDir, 'SKILL.md'), original);
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
@@ -250,6 +249,39 @@ describe('esl init', () => {
       version: '0.1.0'
     });
     expect(warnedInvalid).toBe(true);
+  });
+
+  it('accepts extra frontmatter fields without warning or rewriting SKILL.md', async () => {
+    const targetDir = skillPath();
+    fs.mkdirSync(targetDir, { recursive: true });
+    const original = [
+      '---',
+      'name: my-skill',
+      'description: External skill.',
+      'metadata:',
+      '  short-description: External metadata',
+      'allowed-tools: Read',
+      '---',
+      '# Content',
+      ''
+    ].join('\n');
+    fs.writeFileSync(path.join(targetDir, 'SKILL.md'), original);
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    let warnedInvalid = false;
+    try {
+      await executeInit({ directory: targetDir, runGitInit: false });
+      warnedInvalid = stderrSpy.mock.calls.some((args) => String(args[0]).includes('not a valid ESL skill source'));
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    expect(warnedInvalid).toBe(false);
+    expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe(original);
+    expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
+      schemaVersion: 3,
+      version: '0.1.0'
+    });
   });
 
   it('uses the provided --license override when writing release.json', async () => {

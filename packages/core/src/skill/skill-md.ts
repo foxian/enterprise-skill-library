@@ -2,14 +2,12 @@ import YAML from 'yaml';
 import { z } from 'zod';
 import type { ValidationResult } from '../schema/validation-result.js';
 
-const SkillMdMetadataSchema = z
-  .object({
-    name: z.string().regex(/^[a-z0-9-]{1,64}$/, {
-      message: 'SKILL.md name must use lowercase letters, digits, and hyphens'
-    }),
-    description: z.string().min(1).max(1024)
-  })
-  .strict();
+const SkillMdMetadataSchema = z.object({
+  name: z.string().regex(/^[a-z0-9-]{1,64}$/, {
+    message: 'SKILL.md name must use lowercase letters, digits, and hyphens'
+  }),
+  description: z.string().min(1).max(1024)
+});
 
 export type SkillMdMetadata = z.infer<typeof SkillMdMetadataSchema>;
 

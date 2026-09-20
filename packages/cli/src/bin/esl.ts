@@ -4,7 +4,15 @@ import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readHidden, readStdinText, readText, isInteractive } from '../prompt.js';
-import { SUPPORTED_TOOLS, type ToolName } from '@esl/core';
+import {
+  AgentInteractionRequiredError,
+  SUPPORTED_TOOLS,
+  assertNoDuplicateCommandParams,
+  parseCommandParams,
+  readOptionalStringArrayParam,
+  readOptionalStringParam,
+  type ToolName
+} from '@esl/core';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
@@ -68,6 +76,7 @@ async function promptToolSelection(): Promise<ToolName[]> {
 
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const AGENT_INTERACTION_COMMANDS = new Set(['init']);
 
 export function createProgram(): Command {
   const program = new Command();
@@ -75,9 +84,25 @@ export function createProgram(): Command {
   program.name('esl').description('Enterprise Skill Library CLI').version(readCliVersion());
   program.option('-d, --debug', 'print stack traces on error');
   program.option('--no-input', 'disable all prompts');
+  program.option('--agent-interaction', 'return structured interaction requests instead of prompting');
+  program.option('--params-json <json>', 'pass command parameters as a JSON object');
   program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
-  program.hook('preAction', () => {
-    const cd = program.opts<{ cd?: string }>().cd;
+  program.hook('preAction', (_thisCommand, actionCommand) => {
+    const options = program.opts<{ cd?: string; paramsJson?: string; agentInteraction?: boolean }>();
+    if (
+      options.paramsJson !== undefined &&
+      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
+    ) {
+      throw new Error(`--params-json is not supported for ${actionCommand.name()}`);
+    }
+    if (
+      options.agentInteraction === true &&
+      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
+    ) {
+      throw new Error(`--agent-interaction is not supported for ${actionCommand.name()}`);
+    }
+
+    const cd = options.cd;
     if (typeof cd === 'string' && cd.length > 0) {
       try {
         process.chdir(cd);
@@ -101,17 +126,40 @@ export function createProgram(): Command {
         skillPath: string | undefined,
         options: { name?: string; namespace?: string; license?: string; description?: string; keywords?: string }
       ) => {
-        const targetDir = await executeInit({
-          directory: skillPath,
-          name: options.name,
-          namespace: options.namespace,
-          license: options.license,
-          description: options.description,
-          keywords: options.keywords
+        const rawParamsJson = program.opts().paramsJson as string | undefined;
+        const params = rawParamsJson
+          ? parseCommandParams(rawParamsJson, 'init', ['name', 'namespace', 'license', 'description', 'keywords'])
+          : {};
+        assertNoDuplicateCommandParams(
+          params,
+          {
+            name: options.name,
+            namespace: options.namespace,
+            license: options.license,
+            description: options.description,
+            keywords: options.keywords
+          },
+          'init'
+        );
+        const name = readOptionalStringParam(params, 'name', 'init') ?? options.name;
+        const namespace = readOptionalStringParam(params, 'namespace', 'init') ?? options.namespace;
+        const license = readOptionalStringParam(params, 'license', 'init') ?? options.license;
+        const description = readOptionalStringParam(params, 'description', 'init') ?? options.description;
+        const keywords =
+          readOptionalStringArrayParam(params, 'keywords', 'init') ??
+          options.keywords
             ?.split(',')
             .map((keyword: string) => keyword.trim())
-            .filter((keyword: string) => keyword.length > 0),
-          noInput: program.opts().input === false
+            .filter((keyword: string) => keyword.length > 0);
+        const targetDir = await executeInit({
+          directory: skillPath,
+          name,
+          namespace,
+          license,
+          description,
+          keywords,
+          noInput: program.opts().input === false,
+          agentInteraction: program.opts().agentInteraction === true
         });
         console.log(`Skill initialized at ${targetDir}`);
       }
@@ -686,7 +734,7 @@ export function formatErrorMessage(error: unknown): string {
   return `Error: ${message}\nRun with --debug for more detail.`;
 }
 
-async function run(argv: string[]): Promise<void> {
+export async function run(argv: string[]): Promise<void> {
   const debug = argv.includes('-d') || argv.includes('--debug');
 
   process.on('SIGINT', () => {
@@ -698,6 +746,11 @@ async function run(argv: string[]): Promise<void> {
     await retryPendingGlobalSync({});
     await createProgram().parseAsync(argv);
   } catch (error) {
+    if (error instanceof AgentInteractionRequiredError) {
+      process.stdout.write(`${JSON.stringify(error.request)}\n`);
+      process.exitCode = 2;
+      return;
+    }
     console.error(debug ? error : formatErrorMessage(error));
     process.exitCode = 1;
   }

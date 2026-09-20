@@ -28,30 +28,26 @@ name: debugging-helper
     expect(result.success).toBe(false);
   });
 
-  it('rejects package metadata in frontmatter', () => {
+  it('accepts additional frontmatter fields while exposing only ESL metadata', () => {
     const result = validateSkillMd(`---
 name: debugging-helper
 description: Use when debugging failures, test regressions, stack traces, or unexplained behavior.
-author: zhangsan
----
-
-# Debugging Helper
-`);
-
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects a version in frontmatter', () => {
-    const result = validateSkillMd(`---
-name: debugging-helper
-description: Use when debugging failures, test regressions, stack traces, or unexplained behavior.
+metadata:
+  short-description: Debugging helper
+allowed-tools: Read
 version: 1.0.0
 ---
 
 # Debugging Helper
 `);
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        name: 'debugging-helper',
+        description: 'Use when debugging failures, test regressions, stack traces, or unexplained behavior.'
+      });
+    }
   });
 });
 

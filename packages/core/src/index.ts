@@ -1,5 +1,7 @@
 export const VERSION = '0.1.0';
 
+export * from './agent-interaction.js';
+export * from './command-params.js';
 export * from './adapt/index.js';
 export * from './org/org-name.js';
 export * from './org/standing-teams.js';

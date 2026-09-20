@@ -645,6 +645,18 @@ service topology from normal Skill Users.
 
 _Avoid_: registry when referring to the full user-facing service endpoint
 
+## Agent Interaction Request
+
+ESL CLI 在被 AI Agent 驱动且缺少用户决策时发出的结构化请求。它描述待用户选择
+或输入的字段，由 Agent 展示交互控件并把结果交回同一 CLI 命令；它不是命令结果、
+错误消息或凭据载体。该请求只在显式 Agent Interaction 模式下出现。
+
+## Agent Interaction Mode
+
+ESL CLI 面向 AI Agent 的显式运行模式。命令不阻塞等待终端输入，而是在需要用户
+决策时返回 Agent Interaction Request；Agent 完成收集后再次执行命令。普通 TTY
+交互不属于该模式。
+
 ## Registry API
 
 The ESL Server API surface for skill metadata, search, publishing, install

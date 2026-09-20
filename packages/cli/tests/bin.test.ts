@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createProgram, formatErrorMessage, isDirectCliEntry } from '../src/bin/esl.js';
+import { createProgram, formatErrorMessage, isDirectCliEntry, run } from '../src/bin/esl.js';
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
+import { executeInit } from '../src/commands/init.js';
 import { SUPPORTED_TOOLS } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
@@ -240,6 +241,216 @@ describe('esl program', () => {
       ).toBe(true);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('agent interaction', () => {
+  it('returns a structured init request with exit code 2 when input is missing', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const targetDir = path.join(tmpDir, 'my-skill');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run(['node', 'esl', 'init', targetDir, '--agent-interaction']);
+
+      expect(process.exitCode).toBe(2);
+      expect(stderr.join('')).toBe('');
+      expect(JSON.parse(stdout.join(''))).toEqual({
+        type: 'esl.interaction.request',
+        schemaVersion: 1,
+        requestId: expect.stringMatching(/^ir_/),
+        command: 'init',
+        fields: [
+          {
+            id: 'description',
+            kind: 'text',
+            label: 'Skill description',
+            required: true,
+            default: expect.stringContaining('Use when')
+          },
+          {
+            id: 'license',
+            kind: 'text',
+            label: 'License',
+            required: true,
+            default: 'MIT'
+          },
+          {
+            id: 'keywords',
+            kind: 'multiselect',
+            label: 'Keywords',
+            required: false,
+            default: []
+          },
+          {
+            id: 'namespace',
+            kind: 'text',
+            label: 'Namespace',
+            required: true,
+            default: 'personal'
+          }
+        ]
+      });
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('completes init from --params-json without prompting', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const targetDir = path.join(tmpDir, 'my-skill');
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run([
+        'node',
+        'esl',
+        'init',
+        targetDir,
+        '--params-json',
+        JSON.stringify({
+          description: 'Review code changes carefully.',
+          license: 'Apache-2.0',
+          keywords: ['review', 'code'],
+          namespace: 'personal'
+        })
+      ]);
+
+      expect(process.exitCode).toBeFalsy();
+      expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
+        name: 'my-skill',
+        license: 'Apache-2.0',
+        keywords: ['review', 'code']
+      });
+      expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain(
+        'description: Review code changes carefully.'
+      );
+    } finally {
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a parameter supplied both as a flag and in --params-json', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    process.exitCode = undefined;
+
+    try {
+      await run([
+        'node',
+        'esl',
+        'init',
+        path.join(tmpDir, 'my-skill'),
+        '--license',
+        'MIT',
+        '--params-json',
+        '{"license":"Apache-2.0"}'
+      ]);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('license cannot be passed both as a flag and in --params-json');
+      expect(fs.existsSync(path.join(tmpDir, 'my-skill'))).toBe(false);
+    } finally {
+      stderrSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects unknown --params-json fields as an ordinary failure', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    process.exitCode = undefined;
+
+    try {
+      await run([
+        'node',
+        'esl',
+        'init',
+        path.join(tmpDir, 'my-skill'),
+        '--params-json',
+        '{"unknown":true}'
+      ]);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('unknown parameter unknown');
+    } finally {
+      stderrSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects malformed --params-json as an ordinary failure', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    process.exitCode = undefined;
+
+    try {
+      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--params-json', '{']);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('expected valid JSON');
+    } finally {
+      stderrSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects --params-json on commands that have not adopted the protocol', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const targetDir = path.join(tmpDir, 'my-skill');
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    process.exitCode = undefined;
+
+    try {
+      await executeInit({ directory: targetDir, runGitInit: false, homeDir });
+      await run(['node', 'esl', 'validate', targetDir, '--params-json', '{}']);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('--params-json is not supported for validate');
+    } finally {
+      stderrSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
     }
   });
 });

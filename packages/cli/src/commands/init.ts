@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
+  AgentInteractionRequiredError,
+  createAgentInteractionRequest,
   createMinimalReleaseManifest,
   loadConfig,
   validateSkillMd,
@@ -33,6 +35,10 @@ export interface InitOptions extends LocalStoreOptions {
   promptText?: (question: string, fallback: string) => Promise<string>;
   /** Injected by tests in place of the real fetch for the namespace menu. */
   customFetch?: typeof fetch;
+  /** Emits a structured interaction request instead of reading from the terminal. */
+  agentInteraction?: boolean;
+  /** Injected by tests that need a stable interaction request identifier. */
+  interactionRequestId?: string;
 }
 
 /**
@@ -146,6 +152,57 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
   let license = options.license ?? 'MIT';
   let keywords = options.keywords ?? [];
   let namespace: string | null | undefined;
+
+  if (options.agentInteraction && !options.noInput) {
+    const fields = [];
+    if (generateSkillMd && options.description === undefined) {
+      fields.push({
+        id: 'description',
+        kind: 'text' as const,
+        label: 'Skill description',
+        required: true,
+        default: defaultDescription
+      });
+    }
+    if (generateReleaseJson && options.license === undefined) {
+      fields.push({
+        id: 'license',
+        kind: 'text' as const,
+        label: 'License',
+        required: true,
+        default: 'MIT'
+      });
+    }
+    if (generateReleaseJson && options.keywords === undefined) {
+      fields.push({
+        id: 'keywords',
+        kind: 'multiselect' as const,
+        label: 'Keywords',
+        required: false,
+        default: []
+      });
+    }
+    if (generateReleaseJson && options.namespace === undefined) {
+      const choices = await resolveNamespaceChoices(options);
+      fields.push({
+        id: 'namespace',
+        kind: choices ? ('select' as const) : ('text' as const),
+        label: 'Namespace',
+        required: true,
+        default: 'personal',
+        options: choices ? ['personal', ...choices] : undefined
+      });
+    }
+    if (fields.length > 0) {
+      throw new AgentInteractionRequiredError(
+        createAgentInteractionRequest({
+          command: 'init',
+          fields,
+          requestId: options.interactionRequestId
+        })
+      );
+    }
+  }
 
   // Interactive terminals get asked; scripts and --no-input keep the template.
   const ask = options.promptText ?? (isInteractive() ? readText : undefined);
