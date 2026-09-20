@@ -10,8 +10,9 @@ stdin。为此，ESL 定义一个显式的 Agent Interaction Protocol：命令�
 ## 决策
 
 - 只有显式传入 `--agent-interaction` 时，CLI 才启用该协议。
-- `--agent-interaction` 必须与 `--agent-tool <tool>` 成对出现；`--agent-tool`
-  只能取 `SUPPORTED_TOOLS` 中的值。
+- `--agent-interaction` 可单独使用；不带 `--agent-tool` 时输出通用交互请求
+  信封（无 `agentTool`/`uiHint`）。`--agent-tool <tool>` 可选，用于标记调用方，
+  只能取 `SUPPORTED_TOOLS` 中的值，且必须在 `--agent-interaction` 模式下使用。
 - 交互请求 JSON 输出到 `stdout`；人类可读日志和诊断输出到 `stderr`。
 - 命令需要用户输入时，以退出码 `2` 结束，表示 `interaction_required`。
 - 退出码 `0` 表示成功；退出码 `1` 表示普通失败。

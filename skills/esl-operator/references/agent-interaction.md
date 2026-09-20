@@ -12,11 +12,12 @@
 esl <command> --agent-interaction --agent-tool <tool>
 ```
 
-`--agent-tool` 必须与 `--agent-interaction` 成对出现，取值来自
-`SUPPORTED_TOOLS`（Claude Code 用 `claude`、Codex 用 `codex`，其余见
-`--help`）。只在该模式下处理结构化交互请求，不要等用户明确说“需要选择框”才
-添加。普通终端保持现有交互方式。当前 `init` 已接入该协议；其他命令先查看其
-reference 或 `--help`。
+`--agent-tool` 可选，用于标记调用方，取值来自 `SUPPORTED_TOOLS`（Claude Code
+用 `claude`、Codex 用 `codex`，其余见 `--help`）。不带 `--agent-tool` 时，
+stdout 输出通用交互请求信封（无 `agentTool`/`uiHint`）；带 `--agent-tool claude`
+时输出 AskUserQuestion 风格 JSON。只在该模式下处理结构化交互请求，不要等用户
+明确说“需要选择框”才添加。普通终端保持现有交互方式。当前 `init` 已接入该协议；
+其他命令先查看其 reference 或 `--help`。
 
 ## 判断结果
 

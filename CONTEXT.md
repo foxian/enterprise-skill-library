@@ -658,8 +658,8 @@ Interaction 模式下出现。
 
 ESL CLI 面向 AI Agent 的显式运行模式。命令不阻塞等待终端输入，而是在需要用户
 决策时返回 Agent Interaction Request；Agent 完成收集后再次执行命令。该模式由
-`--agent-interaction` 与 `--agent-tool <tool>` 成对开启，`--agent-tool` 标明
-是哪个 AI 工具在调用。普通 TTY 交互不属于该模式。
+`--agent-interaction` 开启；`--agent-tool <tool>` 可选，标明是哪个 AI 工具在
+调用。普通 TTY 交互不属于该模式。
 
 ## Registry API
 

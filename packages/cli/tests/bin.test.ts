@@ -457,10 +457,15 @@ describe('agent interaction', () => {
     }
   });
 
-  it('rejects --agent-interaction without --agent-tool', async () => {
+  it('returns the generic envelope when --agent-interaction has no --agent-tool', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const stdout: string[] = [];
     const stderr: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
     const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       stderr.push(args.map(String).join(' '));
     });
@@ -470,10 +475,21 @@ describe('agent interaction', () => {
     try {
       await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--agent-interaction']);
 
-      expect(process.exitCode).toBe(1);
-      expect(stderr.join('')).toContain('--agent-interaction requires --agent-tool');
-      expect(fs.existsSync(path.join(tmpDir, 'my-skill'))).toBe(false);
+      expect(process.exitCode).toBe(2);
+      expect(stderr.join('')).toBe('');
+      const request = JSON.parse(stdout.join('')) as Record<string, unknown>;
+      expect(request.type).toBe('esl.interaction.request');
+      expect(request.command).toBe('init');
+      expect('agentTool' in request).toBe(false);
+      expect('uiHint' in request).toBe(false);
+      expect((request.fields as Array<{ id: string }>).map((field) => field.id)).toEqual([
+        'description',
+        'license',
+        'keywords',
+        'namespace'
+      ]);
     } finally {
+      stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
       homedirSpy.mockRestore();
       process.exitCode = undefined;

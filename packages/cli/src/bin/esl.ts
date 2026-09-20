@@ -96,9 +96,6 @@ export function createProgram(): Command {
     if (options.agentTool !== undefined && options.agentInteraction !== true) {
       throw new Error('--agent-tool requires --agent-interaction');
     }
-    if (options.agentInteraction === true && options.agentTool === undefined) {
-      throw new Error('--agent-interaction requires --agent-tool <tool>');
-    }
     if (
       options.paramsJson !== undefined &&
       !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
