@@ -2,6 +2,7 @@ import {
   listToolLinks,
   parseToolSelection,
   removeToolLinks,
+  resolveToolName,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   SUPPORTED_TOOLS,
@@ -53,7 +54,9 @@ export async function executeToolsList(options: ToolsListOptions = {}): Promise<
     homeDir: options.homeDir
   });
 
-  const tools = parseCommaList(options.tool).map((tool) => tool.toLowerCase());
+  const tools = parseCommaList(options.tool).map(
+    (tool) => resolveToolName(tool) ?? tool.toLowerCase()
+  );
   const skills = parseCommaList(options.skill).map((skill) => skill.toLowerCase());
   const statuses = parseCommaList(options.status).map((status) => status.toLowerCase());
 

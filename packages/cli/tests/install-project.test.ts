@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { executeInstall } from '../src/commands/install.js';
+import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
 
 describe('esl install (project-level)', () => {
@@ -41,6 +41,15 @@ describe('esl install (project-level)', () => {
   afterEach(() => {
     fs.rmSync(projectDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('normalizes claude-code in project tool config', async () => {
+    fs.writeFileSync(
+      path.join(projectDir, '.skills.json'),
+      JSON.stringify({ skills: {}, tools: ['claude-code'] })
+    );
+
+    await expect(resolveDefaultInstallTools(projectDir, { homeDir })).resolves.toEqual(['claude']);
   });
 
   it('stores the source in .eslib and keeps project dependency files in the project root', async () => {

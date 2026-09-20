@@ -25,6 +25,7 @@ import {
   recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
+  resolveToolName,
   skillSourceRelativeDir,
   validateReleaseManifest,
   validateSkillDirectory,
@@ -494,19 +495,21 @@ export async function resolveDefaultInstallTools(
   const skillsJson = await loadSkillsJson(dependencyRoot);
   if (skillsJson.tools && skillsJson.tools.length > 0) {
     return skillsJson.tools.map((tool) => {
-      if (!(SUPPORTED_TOOLS as readonly string[]).includes(tool)) {
+      const resolved = resolveToolName(tool);
+      if (resolved === undefined) {
         throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
       }
-      return tool as ToolName;
+      return resolved;
     });
   }
 
   const config = await loadConfig(options);
   return config.tools.map((tool) => {
-    if (!(SUPPORTED_TOOLS as readonly string[]).includes(tool)) {
+    const resolved = resolveToolName(tool);
+    if (resolved === undefined) {
       throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
     }
-    return tool as ToolName;
+    return resolved;
   });
 }
 

@@ -158,7 +158,7 @@ esl install @cnfox/code-review --global
 
 # 链接到全部或指定 AI 工具
 esl install @cnfox/code-review --tools all
-esl install @cnfox/code-review --tools claude,codex,trae-intl
+esl install @cnfox/code-review --tools claude-code,codex,trae-intl
 
 # 只安装源，不创建 Tool Link
 esl install @cnfox/code-review --no-tools
@@ -220,12 +220,12 @@ esl adapt --global
 esl tools list
 
 # 筛选工具、技能、作用域和状态
-esl tools list --tool claude,codex --status broken,conflict
+esl tools list --tool claude-code,codex --status broken,conflict
 esl tools list --global --unmanaged
 esl tools list --json
 
 # 只解除指定工具的 link，保留 Skill Store 源
-esl tools remove @cnfox/code-review --tools claude,cursor
+esl tools remove @cnfox/code-review --tools claude-code,cursor
 ```
 
 ### 9. 更新技能 (Update)
@@ -241,7 +241,7 @@ esl update @cnfox/code-review
 esl update --global
 
 # 更新后确保指定工具存在正确 link
-esl update @cnfox/code-review --tools claude,codex
+esl update @cnfox/code-review --tools claude-code,codex
 ```
 
 ### 10. 卸载技能 (Uninstall)
@@ -352,6 +352,9 @@ Delete 前页面会展示将被移除的 Release 数和完整依赖方列表。�
 ### 5. 升级版本号 (Version)
 源码形态（`SKILL.md` + `release.json`）的版本号存在 `release.json` 的 `version` 字段里，随源码走 Git 历史：
 ```bash
+# 交互式选择：当前版本会算出 patch / minor / major 的目标值
+esl version
+
 # 递增：改写 release.json + 自动 commit + 打 annotated tag v<SemVer>（不 push）
 esl version patch   # 0.1.0 -> 0.1.1
 esl version minor   # 0.1.1 -> 0.2.0
@@ -360,9 +363,10 @@ esl version major   # 0.2.0 -> 1.0.0
 # 显式设值（旧 schemaVersion: 1 清单的迁移入口）
 esl version 1.4.2
 ```
+> 裸 `esl version` 仅在交互式终端中显示选择器；非 TTY 或 `--no-input` 下必须显式传版本，避免脚本意外创建 commit 和 tag。AI Agent 可加 `--agent-interaction`，通过返回的版本选择问题收集答案后，用 `--params-json '{"release":"patch"}'` 重执行。
 > `esl version` 不 push：推送归 `esl upload` 或下一次 `esl publish`（`publish` 会自动同步）。
 > 工作树有未提交改动时 `version` 会拒绝执行，避免把无关改动卷进版本提交。
-> 旧清单（`schemaVersion: 1`，无 `version` 字段）用递增关键字会报错指路，用显式设值完成迁移；已有的历史 Skill Release 不受影响。
+> 旧清单（`schemaVersion: 1`，无 `version` 字段）只提供自定义 SemVer 入口；显式设值完成迁移后，后续才能使用递增关键字。已有的历史 Skill Release 不受影响。
 
 ### 6. 克隆远端源码进行二次开发 (Source)
 若需要对别人发布的技能进行二次开发或修复 Bug，可直接获取其完整 Git 源码：
@@ -382,7 +386,7 @@ esl source @cnfox/code-review ./custom-dir
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |
-| `claude` | `<project>/.claude/skills/<skill-name>/` | `~/.claude/skills/<skill-name>/` |
+| `claude`（输入别名 `claude-code`） | `<project>/.claude/skills/<skill-name>/` | `~/.claude/skills/<skill-name>/` |
 | `codex` | `<project>/.codex/skills/<skill-name>/` | `~/.codex/skills/<skill-name>/` |
 | `cursor` | `<project>/.cursor/skills/<skill-name>/` | `~/.cursor/skills/<skill-name>/` |
 | `trae-intl` | `<project>/.trae/skills/<skill-name>/` | `~/.trae/skills/<skill-name>/` |
@@ -392,12 +396,15 @@ esl source @cnfox/code-review ./custom-dir
 | `openclaw` | `<project>/skills/<skill-name>/` | `~/.openclaw/skills/<skill-name>/` |
 | `hermes` | `<project>/.hermes/skills/<skill-name>/` | `~/.hermes/skills/<skill-name>/` |
 
+`claude-code` 是 Claude Code 的推荐输入别名，解析时会归一化为兼容标识
+`claude`；已有配置和工具 link 不需要迁移。
+
 你可以通过修改项目下的 `.skills.json` 文件来自定义当前项目需要适配的工具列表：
 ```json
 {
   "skills": {
     "@cnfox/code-review": "^1.0.0"
   },
-  "tools": ["claude", "trae-intl", "codex"]
+  "tools": ["claude-code", "trae-intl", "codex"]
 }
 ```

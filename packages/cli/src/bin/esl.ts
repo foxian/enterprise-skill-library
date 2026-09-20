@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { checkbox } from '@inquirer/prompts';
+import { checkbox, select } from '@inquirer/prompts';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,11 +9,13 @@ import {
   AgentInteractionRequiredError,
   SUPPORTED_TOOLS,
   assertNoDuplicateCommandParams,
-  isSupportedTool,
+  createAgentInteractionRequest,
   parseCommandParams,
   readOptionalStringArrayParam,
   readOptionalStringParam,
+  resolveToolName,
   toAskUserQuestionPayload,
+  type AgentInteractionField,
   type ToolName
 } from '@esl/core';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
@@ -45,13 +47,24 @@ import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
 import { executeToolsList, executeToolsRemove, formatToolsList, parseToolsOption } from '../commands/tools.js';
 import { executeValidate } from '../commands/validate.js';
-import { executeVersion } from '../commands/version.js';
+import {
+  executeVersion,
+  inspectVersion,
+  isValidExplicitVersion,
+  nextVersion,
+  type VersionInspection
+} from '../commands/version.js';
 import { readCliVersion } from '../version.js';
 import { retryPendingGlobalSync } from '../commands/sync-builtin.js';
 
 function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
 }
+
+const SUPPORTED_AGENT_TOOL_NAMES = [
+  'claude-code (alias: claude)',
+  ...SUPPORTED_TOOLS.filter((tool) => tool !== 'claude')
+].join(', ');
 
 export async function promptToolSelection(
   selectTools: typeof checkbox = checkbox
@@ -67,9 +80,97 @@ export async function promptToolSelection(
   return selected;
 }
 
+export async function promptVersionSelection(
+  inspection: VersionInspection,
+  selectVersion: typeof select = select
+): Promise<string> {
+  const choices = inspection.currentVersion
+    ? [
+        {
+          name: 'patch',
+          value: 'patch',
+          description: `${nextVersion(inspection.currentVersion, 'patch')} — 修复缺陷`
+        },
+        {
+          name: 'minor',
+          value: 'minor',
+          description: `${nextVersion(inspection.currentVersion, 'minor')} — 兼容的新能力`
+        },
+        {
+          name: 'major',
+          value: 'major',
+          description: `${nextVersion(inspection.currentVersion, 'major')} — 破坏性变更`
+        },
+        {
+          name: 'custom',
+          value: 'custom',
+          description: '输入明确的 SemVer（例如 1.4.2）'
+        }
+      ]
+    : [
+        {
+          name: 'custom',
+          value: 'custom',
+          description: '输入明确的 SemVer（例如 1.4.2）'
+        }
+      ];
+  return selectVersion({
+    message: 'Select release type',
+    choices,
+    default: inspection.currentVersion ? 'patch' : 'custom'
+  });
+}
+
+async function promptCustomVersion(): Promise<string> {
+  while (true) {
+    const version = await readText('Version (SemVer)');
+    if (isValidExplicitVersion(version)) {
+      return version;
+    }
+    console.error('Version must be valid SemVer (e.g. 1.2.3).');
+  }
+}
+
+function versionAgentFields(inspection: VersionInspection): AgentInteractionField[] {
+  if (!inspection.currentVersion) {
+    return [
+      {
+        id: 'release',
+        kind: 'text',
+        label: 'Version',
+        required: true
+      }
+    ];
+  }
+
+  return [
+    {
+      id: 'release',
+      kind: 'select',
+      label: 'Release type',
+      required: true,
+      default: 'patch',
+      options: [
+        {
+          label: 'patch',
+          description: `${nextVersion(inspection.currentVersion, 'patch')} — 修复缺陷`
+        },
+        {
+          label: 'minor',
+          description: `${nextVersion(inspection.currentVersion, 'minor')} — 兼容的新能力`
+        },
+        {
+          label: 'major',
+          description: `${nextVersion(inspection.currentVersion, 'major')} — 破坏性变更`
+        }
+      ]
+    }
+  ];
+}
+
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const AGENT_INTERACTION_COMMANDS = new Set(['init']);
+const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version']);
 
 export function createProgram(): Command {
   const program = new Command();
@@ -78,7 +179,10 @@ export function createProgram(): Command {
   program.option('-d, --debug', 'print stack traces on error');
   program.option('--no-input', 'disable all prompts');
   program.option('--agent-interaction', 'return structured interaction requests instead of prompting');
-  program.option('--agent-tool <tool>', 'AI tool invoking the command (requires --agent-interaction)');
+  program.option(
+    '--agent-tool <tool>',
+    'AI tool invoking the command, e.g. claude-code or codex (requires --agent-interaction)'
+  );
   program.option('--params-json <json>', 'pass command parameters as a JSON object');
   program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
   program.hook('preAction', (_thisCommand, actionCommand) => {
@@ -88,9 +192,9 @@ export function createProgram(): Command {
       agentInteraction?: boolean;
       agentTool?: string;
     }>();
-    if (options.agentTool !== undefined && !isSupportedTool(options.agentTool)) {
+    if (options.agentTool !== undefined && resolveToolName(options.agentTool) === undefined) {
       throw new Error(
-        `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`
+        `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_AGENT_TOOL_NAMES}`
       );
     }
     if (options.agentTool !== undefined && options.agentInteraction !== true) {
@@ -167,7 +271,10 @@ export function createProgram(): Command {
           keywords,
           noInput: program.opts().input === false,
           agentInteraction: program.opts().agentInteraction === true,
-          agentTool: program.opts().agentTool as ToolName | undefined
+          agentTool:
+            program.opts().agentTool === undefined
+              ? undefined
+              : resolveToolName(program.opts().agentTool as string)
         });
         console.log(`Skill initialized at ${targetDir}`);
       }
@@ -468,7 +575,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--ignore-compatibility', 'Install incompatible published packages')
     .option('--no-adapt', 'Skip automatic tool links after install')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl install @cnfox/code-review --tools claude,codex'))
+    .addHelpText('after', example('$ esl install @cnfox/code-review --tools claude-code,codex'))
     .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; tools?: string | boolean; force?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
       if (!nameOrPath) {
         console.log('Restoring skills from the ESL install manifest...');
@@ -576,7 +683,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   const toolsCommand = program
     .command('tools')
     .description('Manage AI tool skill links')
-    .addHelpText('after', example('$ esl tools list --tool claude,codex --managed'));
+    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'));
   toolsCommand
     .command('list')
     .description('List skills linked into AI tools')
@@ -588,7 +695,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--unmanaged', 'only links ESL does not manage')
     .option('--status <statuses>', 'filter by status: linked,broken,conflict,source-only,unmanaged')
     .option('--json', 'output as JSON')
-    .addHelpText('after', example('$ esl tools list --tool claude,codex --managed'))
+    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'))
     .action(async (options: { tool?: string; skill?: string; global?: boolean; project?: boolean; managed?: boolean; unmanaged?: boolean; status?: string; json?: boolean }) => {
       const entries = await executeToolsList(options);
       if (options.json) {
@@ -606,7 +713,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .argument('<skill-name>', 'skill identity, e.g. @acme/review')
     .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')
     .option('--global', 'remove global links instead of project links')
-    .addHelpText('after', example('$ esl tools remove @acme/review --tools claude,cursor'))
+    .addHelpText('after', example('$ esl tools remove @acme/review --tools claude-code,cursor'))
     .action(async (skillName: string, options: { tools?: string; global?: boolean }) => {
       let tools = parseToolsOption(options.tools);
       if (tools.length === 0) {
@@ -727,9 +834,40 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
   program
     .command('version')
-    .argument('<release>', 'major, minor, patch, or an explicit SemVer (e.g. 1.2.3)')
+    .argument('[release]', 'major, minor, patch, or an explicit SemVer (e.g. 1.2.3)')
     .addHelpText('after', example('$ esl version minor\n$ esl version 1.2.3'))
-    .action(async (release: string) => {
+    .action(async (release?: string) => {
+      const rawParamsJson = program.opts().paramsJson as string | undefined;
+      const params = rawParamsJson
+        ? parseCommandParams(rawParamsJson, 'version', ['release'])
+        : {};
+      assertNoDuplicateCommandParams(params, { release }, 'version');
+      release ??= readOptionalStringParam(params, 'release', 'version');
+
+      if (!release) {
+        if (program.opts().input === false) {
+          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
+        }
+        if (program.opts().agentInteraction === true) {
+          const inspection = await inspectVersion(process.cwd());
+          throw new AgentInteractionRequiredError(
+            createAgentInteractionRequest({
+              command: 'version',
+              fields: versionAgentFields(inspection),
+              agentTool:
+                program.opts().agentTool === undefined
+                  ? undefined
+                  : resolveToolName(program.opts().agentTool as string)
+            })
+          );
+        }
+        if (!isInteractive()) {
+          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
+        }
+        const inspection = await inspectVersion(process.cwd());
+        const selected = await promptVersionSelection(inspection);
+        release = selected === 'custom' ? await promptCustomVersion() : selected;
+      }
       const version = await executeVersion(release);
       console.log(version);
     });
@@ -742,29 +880,35 @@ export function formatErrorMessage(error: unknown): string {
   return `Error: ${message}\nRun with --debug for more detail.`;
 }
 
+function isPromptCancellation(error: unknown): boolean {
+  return error instanceof Error && error.name === 'ExitPromptError';
+}
+
 export async function run(argv: string[]): Promise<void> {
   const debug = argv.includes('-d') || argv.includes('--debug');
-
-  process.on('SIGINT', () => {
+  const onSigint = () => {
     console.error('\nInterrupted');
     process.exit(130);
-  });
+  };
+  process.on('SIGINT', onSigint);
 
   try {
     await retryPendingGlobalSync({});
     await createProgram().parseAsync(argv);
   } catch (error) {
     if (error instanceof AgentInteractionRequiredError) {
-      const output =
-        error.request.uiHint === 'AskUserQuestion'
-          ? toAskUserQuestionPayload(error.request)
-          : error.request;
-      process.stdout.write(`${JSON.stringify(output)}\n`);
+      process.stdout.write(`${JSON.stringify(toAskUserQuestionPayload(error.request))}\n`);
       process.exitCode = 2;
+      return;
+    }
+    if (isPromptCancellation(error)) {
+      process.exitCode = 130;
       return;
     }
     console.error(debug ? error : formatErrorMessage(error));
     process.exitCode = 1;
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 }
 

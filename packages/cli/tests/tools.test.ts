@@ -8,7 +8,7 @@ import {
   saveConfig
 } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
-import { executeToolsList, executeToolsRemove } from '../src/commands/tools.js';
+import { executeToolsList, executeToolsRemove, parseToolsOption } from '../src/commands/tools.js';
 import { executeUpdate } from '../src/commands/update.js';
 
 describe('esl tools', () => {
@@ -42,6 +42,27 @@ describe('esl tools', () => {
   afterEach(() => {
     fs.rmSync(homeDir, { recursive: true, force: true });
     fs.rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  it('normalizes claude-code to the claude tool link', () => {
+    expect(parseToolsOption('claude-code')).toEqual(['claude']);
+  });
+
+  it('filters tool links by the claude-code alias', async () => {
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude']
+    });
+
+    const entries = await executeToolsList({
+      projectRoot: projectDir,
+      homeDir,
+      tool: 'claude-code'
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.tool).toBe('claude');
   });
 
   it('reports a missing manifest-owned link as broken', async () => {

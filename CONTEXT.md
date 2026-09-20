@@ -649,10 +649,9 @@ _Avoid_: registry when referring to the full user-facing service endpoint
 
 ESL CLI 在被 AI Agent 驱动且缺少用户决策时发出的结构化请求。它描述待用户选择
 或输入的字段，由 Agent 展示交互控件并把结果交回同一 CLI 命令；它不是命令结果、
-错误消息或凭据载体。请求携带 `agentTool` 记录调用方；当调用方是 Claude Code
-时，CLI 直接输出与 `AskUserQuestion` 工具输入一致的 JSON（`questions` 数组），
-其他工具收到通用交互请求信封（可能带 `uiHint` 提示）。该请求只在显式 Agent
-Interaction 模式下出现。
+错误消息或凭据载体。CLI 统一输出与 Claude Code `AskUserQuestion` 工具输入一致
+的 JSON（`questions` 数组）；`agentTool` 仅作为可选的调用方标记，不改变输出
+协议。该请求只在显式 Agent Interaction 模式下出现。
 
 ## Agent Interaction Mode
 

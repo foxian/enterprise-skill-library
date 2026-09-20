@@ -7,7 +7,7 @@ ESL 此前的模型是「源码无版本」：SemVer 只作为 `esl publish` 的
 具体决策如下：
 
 - **`release.json` 增加 `version` 必填字段**，schema 升到 `schemaVersion: 2`；`SKILL.md` 仍不携带版本（身份/内容描述与发布属性分置两个清单，延续 ADR-0010 的职责二分）。SemVer 校验统一拒绝 build metadata（收掉 `skill-json.ts` 的 `SemVerSchema` 与 CLI 位置参数正则的不一致）。旧 `schemaVersion: 1` 清单通过 `esl version <显式 SemVer>` 一次性迁移，不做双轨兼容。
-- **`esl version` 重定义为源码格式专用的 bump 命令**（npm 式）：接受 `major|minor|patch` 或显式 SemVer，改写 `release.json` + git commit + 本地 annotated tag `v<SemVer>`，不 push（push 归 upload/publish）。`version` 字段缺失时 bump 关键字报错并指路显式设值完成迁移初始化。旧 skill.json bump 路径删除——`skill.json` 按 ADR-0010 只存在于安装副本与 Published Skill Package，在生成物上做 bump 语义本就不成立。
+- **`esl version` 重定义为源码格式专用的 bump 命令**（npm 式）：接受 `major|minor|patch` 或显式 SemVer，改写 `release.json` + git commit + 本地 annotated tag `v<SemVer>`，不 push（push 归 upload/publish）。裸命令在交互式终端提供带目标版本说明的选择器；非 TTY 和 `--no-input` 仍要求显式版本，避免自动化意外打 tag。`version` 字段缺失时 bump 关键字报错并指路显式设值完成迁移初始化。旧 skill.json bump 路径删除——`skill.json` 按 ADR-0010 只存在于安装副本与 Published Skill Package，在生成物上做 bump 语义本就不成立。
 - **`esl publish` 移除版本位置参数**（传了报错指路 `esl version`），版本从发布 commit 的 `release.json` 读取；且**对已托管源自动完成源码同步**（复用 upload 的 fetch/rebase/push 机器）后再发布，upload 保留为纯源码协作入口。**首次登记仍由 `esl upload` 承担**：缺 `esl` remote 时 publish 不隐式建仓、不注册 Skill ID、不推断身份，而是报错指路先执行 `esl upload`（延续 ADR-0010 与 ADR-0021 对隐式创建与接管的拒绝）。服务端校验 `v<SemVer>` tag 存在且指向 HEAD，现有 `tagPending` / `repair-tag` 机制降级为兜底。重复版本仍 409 拒绝。
 - **版本解析从插入序改为「最高稳定 SemVer、排除 prerelease」**，覆盖 CLI `install` / `update` / `use`（原 `info.versions[0]`）、服务端 `packageUrl` 与管理后台 `latestRelease`（原 `releases[0]`）、依赖锁定（改为满足 range 的最高版）。prerelease 版本仅显式 `--version` 可装。本地路径安装读 `release.json.version`（原硬编码 `0.1.0`）。
 - **单调性不做服务端校验**（保留 1.x 补丁回迁的正当场景），CLI 在 publish 时发现版本低于服务器最高已发布版则警告并要求确认（`--force` 跳过），拦截手滑烧号。

@@ -17,12 +17,13 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装 / 更新、升级 / 卸载 / unlink 源码 / 看哪些工具装了哪些技能 / 解除部分工具 link / 同步到工具 | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验 / 上传源码 / 发布 / 改版本号 / 拉别人源码、二次开发 | `references/author.md` |
-| 执行已接入协议的写命令 / 看到 `esl.interaction.request` | `references/agent-interaction.md` |
+| 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
-**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init` 时，命令一律追加
+**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init`，或执行不带版本参数的 `esl version` 时，命令一律追加
 `--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
-Claude Code 传 `claude`、Codex 传 `codex`），并同时读取
+Claude Code 传 `claude-code`、Codex 传 `codex`、Trae 国际版传 `trae-intl`、
+Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 `references/agent-interaction.md`。不要等用户明确要求选择框或输入框。
 
 ## 三条不可妥协的规则
@@ -47,16 +48,11 @@ Claude Code 传 `claude`、Codex 传 `codex`），并同时读取
 
 本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`
 与 `--agent-tool <tool>`，并先读 `references/agent-interaction.md`。当前
-`init` 已接入；其他命令按其 reference 或 `--help` 确认。不要让 CLI 在该模式
+`init` 与裸 `esl version` 已接入；其他命令按其 reference 或 `--help` 确认。不要让 CLI 在该模式
 下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。
 
-如果命令返回退出码 `2` 且 stdout 是 JSON，分两种情况解析：
-
-- stdout 含 `questions` 数组：这是 `--agent-tool claude` 输出的 Claude Code
-  `AskUserQuestion` 风格负载，原样交给宿主 `AskUserQuestion` 弹选择模板；
-  `metadata.source` 标记来源为 `esl-cli`。
-- stdout 的 `type` 是 `esl.interaction.request`：按 request 的 `fields` 向用户
-  收集输入；request 里的 `agentTool`/`uiHint` 提示用哪种宿主控件。
+如果命令返回退出码 `2` 且 stdout 是 JSON，读取 `questions` 数组，按宿主
+自己的交互界面消费；`metadata.source` 标记来源为 `esl-cli`。
 
 收集后优先使用命令已有的专用 flag，复杂或动态参数使用 `--params-json` 重新
 执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。

@@ -4,22 +4,22 @@
 写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
 
 ## 初始化新技能（就地补缺）
-`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 3`、`name`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude`）。
+`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 3`、`name`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
 
 短名权威顺序：已有 `SKILL.md.name` > `--name` > 目录 basename。已有 `SKILL.md` 时整个文件不动；frontmatter 只要包含合法的 `name` 和 `description` 即可，`metadata`、`allowed-tools` 等额外键会被接受并忽略。缺少必填字段或类型非法时，`init` 只补缺并打一行警告，严格校验交给 `esl validate`。目录已是 git 仓库（含父级）时跳过 `git init`。
 
 在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把四个字段都用旗标给全**，避免依赖问答。
 
 AI Agent 必须运行 `esl init ./my-skill --agent-interaction --agent-tool <tool>`，
-让缺失输入以 JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。在 Claude Code
-里 `<tool>` 填 `claude`，stdout 直接给出 `AskUserQuestion` 风格 JSON（含
-`questions` 数组，`metadata.source` 为 `esl-cli`），原样交给宿主的
-`AskUserQuestion` 弹选择模板；其他工具收到 `esl.interaction.request` 信封，按
-字段 `kind` 渲染控件。简单字段优先用专用旗标，多个结构化字段可用一次
-`--params-json`：
+让缺失输入以 JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。Claude Code、
+Codex、Trae 国际版和 Trae 国内版分别传 `claude-code`、`codex`、`trae-intl`、
+`trae-cn`；旧值 `claude` 仍兼容。stdout 直接给出 `AskUserQuestion` 风格 JSON（含 `questions` 数组，
+`metadata.source` 为 `esl-cli`），按宿主的交互界面消费。不带
+`--agent-tool` 时输出同一格式。简单字段优先用专用旗标，多个结构化字段可用
+一次 `--params-json`：
 
 ```bash
-esl init ./my-skill --agent-interaction --agent-tool claude --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
+esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
 ```
 
 `--params-json` 只接受顶层 JSON object，未知字段、错误类型，或同一字段同时由
@@ -62,8 +62,10 @@ esl init ./my-skill --agent-interaction --agent-tool claude --params-json '{"des
 ## 升级版本号
 源码形态（`SKILL.md` + `release.json`）的版本号**存在 `release.json` 的 `version` 字段里**，随源码走 Git 历史。升版一律走 `esl version`：
 
+- 裸 `esl version` —— 仅在交互式终端中显示选择器，列出 `patch`、`minor`、`major` 的实际目标版本和用途，也可输入自定义 SemVer。
 - `esl version patch|minor|major` —— 按 SemVer 递增，改写 `release.json`、自动 commit、并创建 annotated tag `v<SemVer>`。
 - `esl version <显式 SemVer>`（如 `esl version 1.4.2`）—— 直接设值；这也是旧 `schemaVersion: 1` 清单的迁移入口（用递增关键字会报错指路）。
+- 非 TTY 或 `--no-input` 下不能省略版本参数；AI Agent 执行裸命令时使用 `--agent-interaction`，按返回的 `Release type` 问题收集答案，再用 `--params-json '{"release":"patch"}'` 重执行。
 - **`esl version` 不 push**：推送归 `esl upload` 或下一次 `esl publish`（`publish` 会自动同步）。
 - 工作树有未提交改动时拒绝执行——先提交或 stash，避免无关改动被卷进版本提交。
 - 内置技能（`@builtin/*`）不可升版，其版本锁定在 ESL CLI 版本上。

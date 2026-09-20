@@ -51,6 +51,16 @@ describe('esl version', () => {
     expect(readReleaseJson(skillDir).version).toBe('1.0.0');
   });
 
+  it('bumps a prerelease to the corresponding stable version', async () => {
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
+    initGit(skillDir);
+
+    await executeVersion('1.2.3-beta.1', { cwd: skillDir });
+
+    expect(await executeVersion('patch', { cwd: skillDir })).toBe('1.2.3');
+  });
+
   it('sets an explicit version', async () => {
     const skillDir = path.join(tmpDir, 'my-skill');
     await executeInit({ directory: skillDir, runGitInit: false });
@@ -60,6 +70,14 @@ describe('esl version', () => {
 
     expect(result).toBe('1.4.2');
     expect(readReleaseJson(skillDir).version).toBe('1.4.2');
+  });
+
+  it.each(['v1.4.2', '1.4.2+build.1'])('rejects unsupported explicit version %s', async (version) => {
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
+    initGit(skillDir);
+
+    await expect(executeVersion(version, { cwd: skillDir })).rejects.toThrow(/Invalid version/);
   });
 
   it('commits the manifest change and creates an annotated v<version> tag', async () => {
@@ -97,6 +115,15 @@ describe('esl version', () => {
     fs.writeFileSync(path.join(skillDir, 'scratch.txt'), 'dirty');
 
     await expect(executeVersion('patch', { cwd: skillDir })).rejects.toThrow(/not clean/);
+  });
+
+  it('validates an explicit version before checking working tree cleanliness', async () => {
+    const skillDir = path.join(tmpDir, 'my-skill');
+    await executeInit({ directory: skillDir, runGitInit: false });
+    initGit(skillDir);
+    fs.writeFileSync(path.join(skillDir, 'scratch.txt'), 'dirty');
+
+    await expect(executeVersion('not-semver', { cwd: skillDir })).rejects.toThrow(/Invalid version/);
   });
 
   it('rejects a directory without git and points the way', async () => {

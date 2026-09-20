@@ -73,6 +73,15 @@ export function isSupportedTool(value: string): value is ToolName {
   return (SUPPORTED_TOOLS as readonly string[]).includes(value);
 }
 
+const TOOL_NAME_ALIASES: Record<string, ToolName> = {
+  'claude-code': 'claude'
+};
+
+export function resolveToolName(value: string): ToolName | undefined {
+  const normalized = value.trim().toLowerCase();
+  return isSupportedTool(normalized) ? normalized : TOOL_NAME_ALIASES[normalized];
+}
+
 export function parseToolSelection(value: string): ToolName[] {
   const raw = value.trim().toLowerCase();
   if (raw === 'all') {
@@ -82,12 +91,15 @@ export function parseToolSelection(value: string): ToolName[] {
     .split(',')
     .map((tool) => tool.trim().toLowerCase())
     .filter((tool) => tool.length > 0);
-  for (const tool of tools) {
-    if (!isSupportedTool(tool)) {
-      throw new Error(`Unknown tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
+  const resolved = tools.map((tool) => resolveToolName(tool));
+  for (const [index, tool] of resolved.entries()) {
+    if (tool === undefined) {
+      throw new Error(
+        `Unknown tool: ${tools[index]}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`
+      );
     }
   }
-  return tools as ToolName[];
+  return resolved as ToolName[];
 }
 
 export function toolDirectory(

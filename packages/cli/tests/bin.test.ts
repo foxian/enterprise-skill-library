@@ -12,15 +12,21 @@ import { readCliVersion } from '../src/version.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const { checkboxMock } = vi.hoisted(() => ({ checkboxMock: vi.fn() }));
+const { checkboxMock, inputMock, selectMock } = vi.hoisted(() => ({
+  checkboxMock: vi.fn(),
+  inputMock: vi.fn(),
+  selectMock: vi.fn()
+}));
 
 vi.mock('@inquirer/prompts', () => ({
   checkbox: checkboxMock,
   confirm: vi.fn(),
-  input: vi.fn(),
-  password: vi.fn()
+  input: inputMock,
+  password: vi.fn(),
+  select: selectMock
 }));
 vi.mock('../src/prompt.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/prompt.js')>();
@@ -42,6 +48,8 @@ describe('esl program', () => {
   beforeEach(() => {
     vi.mocked(isInteractive).mockReturnValue(false);
     checkboxMock.mockReset();
+    inputMock.mockReset();
+    selectMock.mockReset();
   });
 
   it('returns the tools selected from the checkbox prompt', async () => {
@@ -331,7 +339,145 @@ describe('esl program', () => {
 });
 
 describe('agent interaction', () => {
-  it('returns a structured init request with exit code 2 when input is missing', async () => {
+  beforeEach(() => {
+    vi.mocked(isInteractive).mockReturnValue(false);
+    checkboxMock.mockReset();
+    inputMock.mockReset();
+    selectMock.mockReset();
+  });
+
+  it('emits version choices through the Agent Interaction protocol', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-version-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-version-home-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+      try {
+        await run([
+          'node',
+          'esl',
+          'version',
+          '-C',
+          skillDir,
+          '--agent-interaction',
+          '--agent-tool',
+          'codex'
+        ]);
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(2);
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{
+          question: string;
+          header: string;
+          options: Array<{ label: string; description?: string }>;
+          multiSelect: boolean;
+        }>;
+      };
+      expect(payload.questions).toEqual([
+        {
+          question: 'Release type',
+          header: 'Release type',
+          options: [
+            { label: 'patch', description: '0.1.1 — 修复缺陷' },
+            { label: 'minor', description: '0.2.0 — 兼容的新能力' },
+            { label: 'major', description: '1.0.0 — 破坏性变更' }
+          ],
+          multiSelect: false
+        }
+      ]);
+      expect(selectMock).not.toHaveBeenCalled();
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '0.1.0'
+      );
+    } finally {
+      stdoutSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('asks for an explicit version through Agent Interaction for a pre-version manifest', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-version-v1-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-version-v1-home-'));
+    const skillDir = path.join(tmpDir, 'old-skill');
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      fs.mkdirSync(skillDir);
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        '---\nname: old-skill\ndescription: Legacy skill.\n---\n'
+      );
+      fs.writeFileSync(
+        path.join(skillDir, 'release.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        })
+      );
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+      try {
+        await run(['node', 'esl', 'version', '-C', skillDir, '--agent-interaction']);
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(2);
+      expect(JSON.parse(stdout.join('')).questions).toEqual([
+        {
+          question: 'Version',
+          header: 'Version',
+          options: [],
+          multiSelect: false
+        }
+      ]);
+    } finally {
+      stdoutSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('emits AskUserQuestion-style JSON for Codex', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
     const targetDir = path.join(tmpDir, 'my-skill');
@@ -353,43 +499,28 @@ describe('agent interaction', () => {
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
-      expect(JSON.parse(stdout.join(''))).toEqual({
-        type: 'esl.interaction.request',
-        schemaVersion: 1,
-        requestId: expect.stringMatching(/^ir_/),
-        command: 'init',
-        agentTool: 'codex',
-        fields: [
-          {
-            id: 'description',
-            kind: 'text',
-            label: 'Skill description',
-            required: true,
-            default: expect.stringContaining('Use when')
-          },
-          {
-            id: 'license',
-            kind: 'text',
-            label: 'License',
-            required: true,
-            default: 'MIT'
-          },
-          {
-            id: 'keywords',
-            kind: 'multiselect',
-            label: 'Keywords',
-            required: false,
-            default: []
-          },
-          {
-            id: 'namespace',
-            kind: 'text',
-            label: 'Namespace',
-            required: true,
-            default: 'personal'
-          }
-        ]
-      });
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{
+          question: string;
+          header: string;
+          options: Array<{ label: string; description?: string }>;
+          multiSelect: boolean;
+        }>;
+        metadata?: { source?: string };
+      };
+      expect(payload.metadata).toEqual({ source: 'esl-cli' });
+      expect(payload.questions.map((question) => question.question)).toEqual([
+        'Skill description',
+        'License',
+        'Keywords',
+        'Namespace'
+      ]);
+      expect(payload.questions[0].options).toEqual([
+        { label: expect.stringContaining('Use when'), description: '默认值' }
+      ]);
+      expect(payload.questions[1].options).toEqual([{ label: 'MIT', description: '默认值' }]);
+      expect(payload.questions[2].multiSelect).toBe(true);
+      expect(payload.questions[3].options).toEqual([{ label: 'personal', description: '默认值' }]);
     } finally {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
@@ -400,7 +531,346 @@ describe('agent interaction', () => {
     }
   });
 
-  it('emits AskUserQuestion-style JSON for Claude Code', async () => {
+  it('prompts for a version and applies the selected patch bump', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-interactive-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('patch');
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await createProgram().parseAsync(['version', '-C', skillDir], { from: 'user' });
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(selectMock).toHaveBeenCalledOnce();
+      expect(selectMock).toHaveBeenCalledWith({
+        message: 'Select release type',
+        default: 'patch',
+        choices: [
+          { name: 'patch', value: 'patch', description: '0.1.1 — 修复缺陷' },
+          { name: 'minor', value: 'minor', description: '0.2.0 — 兼容的新能力' },
+          { name: 'major', value: 'major', description: '1.0.0 — 破坏性变更' },
+          { name: 'custom', value: 'custom', description: '输入明确的 SemVer（例如 1.4.2）' }
+        ]
+      });
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '0.1.1'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('applies a custom SemVer entered through the version prompt', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-custom-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('custom');
+      inputMock.mockResolvedValueOnce('1.4.2');
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await createProgram().parseAsync(['version', '-C', skillDir], { from: 'user' });
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(inputMock).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Version (SemVer)' }),
+        {}
+      );
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '1.4.2'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-prompts until a custom SemVer is valid', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-custom-retry-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('custom');
+      inputMock.mockResolvedValueOnce('not-semver').mockResolvedValueOnce('1.4.2');
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await createProgram().parseAsync(['version', '-C', skillDir], { from: 'user' });
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(inputMock).toHaveBeenCalledTimes(2);
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '1.4.2'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('treats version prompt cancellation as an interrupt without modifying the skill', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-cancel-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-cancel-home-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      const cancellation = new Error('Prompt was canceled');
+      cancellation.name = 'ExitPromptError';
+      selectMock.mockRejectedValueOnce(cancellation);
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await run(['node', 'esl', 'version', '-C', skillDir]);
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(process.exitCode).toBe(130);
+      expect(stderr.join('')).toBe('');
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '0.1.0'
+      );
+    } finally {
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preflights the skill before showing the version prompt', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-preflight-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+      fs.writeFileSync(path.join(skillDir, 'scratch.txt'), 'dirty');
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await expect(
+          createProgram().parseAsync(['version', '-C', skillDir], { from: 'user' })
+        ).rejects.toThrow(/not clean/);
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(selectMock).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails a bare version command outside a TTY before inspecting the repository', async () => {
+    vi.mocked(isInteractive).mockReturnValue(false);
+
+    await expect(createProgram().parseAsync(['version'], { from: 'user' })).rejects.toThrow(
+      /Missing release/
+    );
+
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('lets --no-input override Agent Interaction for a bare version command', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+
+    await expect(
+      createProgram().parseAsync(['version', '--agent-interaction', '--no-input'], { from: 'user' })
+    ).rejects.toThrow(/Missing release/);
+
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit version argument non-interactive', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-explicit-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await createProgram().parseAsync(['version', 'patch', '-C', skillDir], { from: 'user' });
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(selectMock).not.toHaveBeenCalled();
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '0.1.1'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('offers only a custom SemVer when the release manifest predates versioning', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-v1-'));
+    const skillDir = path.join(tmpDir, 'old-skill');
+
+    try {
+      fs.mkdirSync(skillDir);
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        '---\nname: old-skill\ndescription: Legacy skill.\n---\n'
+      );
+      fs.writeFileSync(
+        path.join(skillDir, 'release.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        })
+      );
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('custom');
+      inputMock.mockResolvedValueOnce('2.0.0');
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+
+      try {
+        await createProgram().parseAsync(['version', '-C', skillDir], { from: 'user' });
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(selectMock).toHaveBeenCalledWith({
+        message: 'Select release type',
+        default: 'custom',
+        choices: [
+          {
+            name: 'custom',
+            value: 'custom',
+            description: '输入明确的 SemVer（例如 1.4.2）'
+          }
+        ]
+      });
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'))).toMatchObject({
+        schemaVersion: 3,
+        version: '2.0.0'
+      });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a release version supplied through --params-json', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-version-params-'));
+    const skillDir = path.join(tmpDir, 'my-skill');
+
+    try {
+      await executeInit({ directory: skillDir, runGitInit: false });
+      execSync('git init -b main', { cwd: skillDir, stdio: 'ignore' });
+      execSync('git config user.email tester@example.com', { cwd: skillDir });
+      execSync('git config user.name "Tester"', { cwd: skillDir });
+      execSync('git add -A && git commit -m "init"', { cwd: skillDir, stdio: 'ignore' });
+
+      const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(skillDir);
+      try {
+        await createProgram().parseAsync(
+          ['version', '-C', skillDir, '--params-json', '{"release":"patch"}'],
+          { from: 'user' }
+        );
+      } finally {
+        chdirSpy.mockRestore();
+        cwdSpy.mockRestore();
+      }
+
+      expect(selectMock).not.toHaveBeenCalled();
+      expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8')).version).toBe(
+        '0.1.1'
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a release supplied both positionally and through --params-json', async () => {
+    await expect(
+      createProgram().parseAsync(
+        ['version', 'patch', '--params-json', '{"release":"minor"}'],
+        { from: 'user' }
+      )
+    ).rejects.toThrow(/release cannot be passed both as a flag and in --params-json/);
+  });
+
+  it('emits AskUserQuestion-style JSON for claude-code', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
     const targetDir = path.join(tmpDir, 'my-skill');
@@ -418,7 +888,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'claude']);
+      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'claude-code']);
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
@@ -457,7 +927,7 @@ describe('agent interaction', () => {
     }
   });
 
-  it('returns the generic envelope when --agent-interaction has no --agent-tool', async () => {
+  it('emits AskUserQuestion-style JSON without --agent-tool', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
     const stdout: string[] = [];
@@ -477,16 +947,16 @@ describe('agent interaction', () => {
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
-      const request = JSON.parse(stdout.join('')) as Record<string, unknown>;
-      expect(request.type).toBe('esl.interaction.request');
-      expect(request.command).toBe('init');
-      expect('agentTool' in request).toBe(false);
-      expect('uiHint' in request).toBe(false);
-      expect((request.fields as Array<{ id: string }>).map((field) => field.id)).toEqual([
-        'description',
-        'license',
-        'keywords',
-        'namespace'
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{ question: string }>;
+        metadata?: { source?: string };
+      };
+      expect(payload.metadata).toEqual({ source: 'esl-cli' });
+      expect(payload.questions.map((question) => question.question)).toEqual([
+        'Skill description',
+        'License',
+        'Keywords',
+        'Namespace'
       ]);
     } finally {
       stdoutSpy.mockRestore();

@@ -3,21 +3,28 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import semver from 'semver';
 
 const execFileAsync = promisify(execFile);
 
 type BumpType = 'major' | 'minor' | 'patch';
 type VersionInput = BumpType | string; // explicit SemVer
+const EXPLICIT_SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function isBump(input: string): input is BumpType {
   return input === 'major' || input === 'minor' || input === 'patch';
 }
 
-function nextVersion(current: string, bump: BumpType): string {
-  const [major, minor, patch] = current.split('.').map(Number);
-  if (bump === 'major') return `${major + 1}.0.0`;
-  if (bump === 'minor') return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
+export function isValidExplicitVersion(input: string): boolean {
+  return EXPLICIT_SEMVER_PATTERN.test(input);
+}
+
+export function nextVersion(current: string, bump: BumpType): string {
+  const next = semver.inc(current, bump);
+  if (!next) {
+    throw new Error(`Cannot bump invalid version: ${current}`);
+  }
+  return next;
 }
 
 async function isInsideGitRepo(dir: string): Promise<boolean> {
@@ -38,6 +45,11 @@ type RawManifestResult =
   | { valid: true; data: ReleaseManifest }
   | { valid: false; isPreVersion: boolean; errors: string[] }
   | null;
+
+export interface VersionInspection {
+  currentVersion: string | null;
+  isPreVersion: boolean;
+}
 
 async function readManifest(dir: string): Promise<RawManifestResult> {
   const manifestPath = path.join(dir, 'release.json');
@@ -93,12 +105,7 @@ async function commitAndTag(dir: string, version: string): Promise<void> {
   await execFileAsync('git', ['tag', '-a', tag, '-m', `Release ${version}`], { cwd: dir });
 }
 
-export async function executeVersion(
-  input: VersionInput,
-  options: { cwd?: string; execFile?: typeof execFileAsync } = {}
-): Promise<string> {
-  const directory = options.cwd ?? process.cwd();
-
+async function readVersionInspection(directory: string): Promise<VersionInspection> {
   // Built-in identity check first — highest-priority rejection, regardless of directory shape
   const skillName = await readSkillJsonName(directory);
   if (skillName && isBuiltinIdentity(skillName)) {
@@ -123,43 +130,59 @@ export async function executeVersion(
     );
   }
 
-  // Pre-version (schemaVersion 1) manifest — explicit version migrates, bump rejects
   if (!manifestResult.valid && manifestResult.isPreVersion) {
-    if (isBump(input)) {
-      throw new Error(
-        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 3.'
-      );
-    }
-    // explicit version → upgrade to v2 and set value (falls through)
-  } else if (!manifestResult.valid) {
+    return { currentVersion: null, isPreVersion: true };
+  }
+
+  if (!manifestResult.valid) {
     throw new Error(`Invalid release.json: ${manifestResult.errors.join(', ')}`);
   }
 
-  let newVersion: string;
-  const currentVersion =
-    manifestResult.valid ? manifestResult.data.version : null;
+  return { currentVersion: manifestResult.data.version, isPreVersion: false };
+}
 
-  if (isBump(input)) {
-    if (!currentVersion) {
-      // unreachable: bump is rejected above for pre-version; other invalid forms error above
-      throw new Error('Cannot bump: no current version found in release.json.');
-    }
-    newVersion = nextVersion(currentVersion, input);
-  } else {
-    // explicit SemVer — validate syntax
-    const semverRegex = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-    if (!semverRegex.test(input)) {
-      throw new Error(`Invalid version: ${input}. Version must be valid SemVer (e.g. 1.2.3).`);
-    }
-    newVersion = input;
-  }
-
+async function assertCleanWorkingTree(directory: string): Promise<void> {
   if (!(await hasCleanWorkingTree(directory))) {
     throw new Error(
       'Working tree is not clean. Commit or stash your changes before bumping the version so the version commit contains only the manifest change.'
     );
   }
+}
 
+export async function inspectVersion(directory: string): Promise<VersionInspection> {
+  const inspection = await readVersionInspection(directory);
+  await assertCleanWorkingTree(directory);
+  return inspection;
+}
+
+export async function executeVersion(
+  input: VersionInput,
+  options: { cwd?: string; execFile?: typeof execFileAsync } = {}
+): Promise<string> {
+  const directory = options.cwd ?? process.cwd();
+  const inspection = await readVersionInspection(directory);
+
+  let newVersion: string;
+
+  if (isBump(input)) {
+    if (inspection.isPreVersion) {
+      throw new Error(
+        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 3.'
+      );
+    }
+    if (!inspection.currentVersion) {
+      throw new Error('Cannot bump: no current version found in release.json.');
+    }
+    newVersion = nextVersion(inspection.currentVersion, input);
+  } else {
+    // explicit SemVer — validate syntax
+    if (!isValidExplicitVersion(input)) {
+      throw new Error(`Invalid version: ${input}. Version must be valid SemVer (e.g. 1.2.3).`);
+    }
+    newVersion = input;
+  }
+
+  await assertCleanWorkingTree(directory);
   await writeVersion(directory, newVersion);
   await commitAndTag(directory, newVersion);
 

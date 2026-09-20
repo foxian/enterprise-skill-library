@@ -5,7 +5,7 @@ import {
 } from '../src/agent-interaction.js';
 
 describe('agent interaction request', () => {
-  it('omits agentTool and uiHint when no agent tool is given', () => {
+  it('omits agentTool when no agent tool is given', () => {
     const request = createAgentInteractionRequest({ command: 'init', fields: [] });
 
     expect(request).toEqual({
@@ -16,21 +16,9 @@ describe('agent interaction request', () => {
       fields: []
     });
     expect('agentTool' in request).toBe(false);
-    expect('uiHint' in request).toBe(false);
   });
 
-  it('records the agent tool and adds the AskUserQuestion hint for claude', () => {
-    const request = createAgentInteractionRequest({
-      command: 'init',
-      fields: [],
-      agentTool: 'claude'
-    });
-
-    expect(request.agentTool).toBe('claude');
-    expect(request.uiHint).toBe('AskUserQuestion');
-  });
-
-  it('records other agent tools without a host-specific hint', () => {
+  it('records the agent tool when provided', () => {
     const request = createAgentInteractionRequest({
       command: 'init',
       fields: [],
@@ -38,8 +26,6 @@ describe('agent interaction request', () => {
     });
 
     expect(request.agentTool).toBe('codex');
-    expect(request.uiHint).toBeUndefined();
-    expect('uiHint' in request).toBe(false);
   });
 });
 
@@ -94,6 +80,31 @@ describe('toAskUserQuestionPayload', () => {
     expect(keywords.options).toEqual([]);
     expect(namespace.multiSelect).toBe(false);
     expect(namespace.options).toEqual([{ label: 'personal' }, { label: 'acme' }]);
+  });
+
+  it('preserves descriptions on structured select options', () => {
+    const payload = toAskUserQuestionPayload(
+      createAgentInteractionRequest({
+        command: 'version',
+        fields: [
+          {
+            id: 'release',
+            kind: 'select',
+            label: 'Release type',
+            required: true,
+            options: [
+              { label: 'patch', description: '0.1.1 — 修复缺陷' },
+              { label: 'minor', description: '0.2.0 — 兼容的新能力' }
+            ]
+          }
+        ]
+      })
+    );
+
+    expect(payload.questions[0].options).toEqual([
+      { label: 'patch', description: '0.1.1 — 修复缺陷' },
+      { label: 'minor', description: '0.2.0 — 兼容的新能力' }
+    ]);
   });
 
   it('maps confirm to yes/no options', () => {
