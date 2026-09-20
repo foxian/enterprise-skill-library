@@ -68,7 +68,7 @@ export async function executeResetSource(options: ResetSourceOptions = {}): Prom
         'Resetting the source link requires confirmation; pass --force to skip the confirmation in non-interactive runs'
       );
     }
-    const confirmed = await confirm(`Remove the esl remote (${remoteUrl}) and reset this directory to a local skill source? [y/N] `);
+    const confirmed = await confirm(`Remove the esl remote (${remoteUrl}) and reset this directory to a local skill source? `);
     if (!confirmed) {
       throw new Error('Reset cancelled');
     }

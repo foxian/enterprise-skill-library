@@ -21,7 +21,7 @@
 - 项目根 `.skills.json` 是直接依赖声明；`.skills-lock.json` 是完整依赖图和精确版本锁。`.eslib/` 是本机状态，应保持 gitignore。
 - 每个被选工具得到单技能目录 link，link 名使用 `<scope>_<skill>`，指向 `.eslib` 中的 `@<scope>/<skill>` 源；不复制技能，也不链接整个工具 skills 根目录。
 - `--tools all` 选择全部九个工具；`--tools claude,codex` 选择指定工具；`--no-tools` 只装源、不建 link；`--force` 只能替换 ESL 记录的异常 link，不能覆盖非 ESL 内容。
-- 未传 `--tools` 时优先级是：项目 `.skills.json` 的 `tools` > 全局配置的 `tools` > 交互选择。非交互环境没有可用选择时，命令必须报错而不要等待输入。
+- 未传 `--tools` 时优先级是：项目 `.skills.json` 的 `tools` > 全局配置的 `tools` > 交互 checkbox（至少选择一个工具）。非交互环境或 `--no-input` 没有可用选择时，命令必须报错而不要等待输入。
 - 重复安装是幂等的：正确 link 保持；缺少的补齐；冲突报告且不覆盖；未列出的已有工具 link 不删除。
 - 部分工具发生冲突或 link 创建失败时，已经写入的源和其他成功 link 保留，但命令以失败状态结束并给出冲突详情。
 - 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护。让用户切换到维护账号后重登，不要盲目重试。
@@ -35,6 +35,7 @@
 - `link` 不读取、不写入、不生成源码目录里的 `skill.json`；link 元数据记录在安装状态中。
 - Store 中已有普通安装副本时默认拒绝；`--force` 把原副本移入 `.eslib/link-staging/` 再指向源码。源码修改后，所有已链接工具立即看到。
 - 同一源重复 link 是幂等的；换成另一个源必须 `--force`。
+- 未传 `--tools` 时按默认配置或交互 checkbox 选择；非交互环境或 `--no-input` 必须显式传 `--tools` 或 `--no-tools`。
 
 `esl unlink @scope/skill-name [--global]`
 
@@ -92,3 +93,4 @@
 - 只删除 manifest 记录的指定工具 link，保留 Skill Store 源。
 - 目标已被替换成普通目录、文件或错误链接时报告冲突并保留记录。
 - Trae 国际版与国内版在项目级共享同一物理 link；只移除其中一个工具时 link 保留给另一个工具，移除最后一个引用时才删除物理 link。
+- 未传 `--tools` 时按交互 checkbox 选择；非交互环境或 `--no-input` 必须显式传 `--tools`。

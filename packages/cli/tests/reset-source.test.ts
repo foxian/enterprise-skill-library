@@ -5,6 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeLocalStore } from '@esl/core';
 import { executeResetSource } from '../src/commands/reset-source.js';
 
+const { confirmMock, isInteractiveMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
+  isInteractiveMock: vi.fn()
+}));
+
+vi.mock('../src/prompt.js', () => ({
+  confirm: confirmMock,
+  isInteractive: isInteractiveMock
+}));
+
 describe('esl reset-source', () => {
   let tmpRoot: string;
   let skillDir: string;
@@ -21,6 +31,8 @@ describe('esl reset-source', () => {
     fs.mkdirSync(path.join(skillDir, '.git'));
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-reset-home-'));
     await initializeLocalStore({ homeDir });
+    confirmMock.mockReset();
+    isInteractiveMock.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -109,6 +121,23 @@ describe('esl reset-source', () => {
       })
     ).rejects.toThrow(/--force/);
     expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
+  });
+
+  it('does not duplicate the confirmation default hint', async () => {
+    confirmMock.mockResolvedValue(false);
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('Skill not found'));
+    const execFileAsync = gitMock();
+
+    await expect(
+      executeResetSource({
+        directory: skillDir,
+        homeDir,
+        customFetch: fetchImpl as any,
+        execFileAsync: execFileAsync as any
+      })
+    ).rejects.toThrow('Reset cancelled');
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.not.stringContaining('[y/N]'));
   });
 
   it('refuses to run when there is no esl remote', async () => {

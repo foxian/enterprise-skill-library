@@ -335,7 +335,7 @@ async function confirmPublish(
     throw new Error('Publishing requires confirmation; pass --force to skip it');
   }
 
-  const question = `Publish ${name} v${version} to the ESL Server? [y/N] `;
+  const question = `Publish ${name} v${version} to the ESL Server? `;
   const confirmFn =
     options.confirmInput ??
     (async () => {

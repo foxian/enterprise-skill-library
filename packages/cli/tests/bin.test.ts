@@ -1,24 +1,68 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createProgram, formatErrorMessage, isDirectCliEntry, run } from '../src/bin/esl.js';
+import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelection, run } from '../src/bin/esl.js';
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
+import { executeLink } from '../src/commands/link.js';
 import { SUPPORTED_TOOLS } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
+import { executeToolsRemove } from '../src/commands/tools.js';
+import { isInteractive } from '../src/prompt.js';
 import { readCliVersion } from '../src/version.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const { checkboxMock } = vi.hoisted(() => ({ checkboxMock: vi.fn() }));
+
+vi.mock('@inquirer/prompts', () => ({
+  checkbox: checkboxMock,
+  confirm: vi.fn(),
+  input: vi.fn(),
+  password: vi.fn()
+}));
+vi.mock('../src/prompt.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/prompt.js')>();
+  return { ...actual, isInteractive: vi.fn() };
+});
 vi.mock('../src/commands/upload.js', () => ({ executeUpload: vi.fn() }));
 vi.mock('../src/commands/publish.js', () => ({ executePublish: vi.fn() }));
+vi.mock('../src/commands/link.js', () => ({ executeLink: vi.fn() }));
+vi.mock('../src/commands/tools.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/commands/tools.js')>();
+  return { ...actual, executeToolsRemove: vi.fn() };
+});
 vi.mock('../src/commands/install.js', () => ({
   executeInstall: vi.fn(),
   resolveDefaultInstallTools: vi.fn()
 }));
 
 describe('esl program', () => {
+  beforeEach(() => {
+    vi.mocked(isInteractive).mockReturnValue(false);
+    checkboxMock.mockReset();
+  });
+
+  it('returns the tools selected from the checkbox prompt', async () => {
+    const selectTools = vi.fn().mockResolvedValue(['claude', 'codex']);
+
+    await expect(promptToolSelection(selectTools)).resolves.toEqual(['claude', 'codex']);
+  });
+
+  it('rejects an empty checkbox selection', async () => {
+    const selectTools = vi.fn().mockResolvedValue([]);
+
+    await expect(promptToolSelection(selectTools)).rejects.toThrow('No tools selected');
+  });
+
+  it('propagates checkbox cancellation', async () => {
+    const cancellation = new Error('canceled');
+    const selectTools = vi.fn().mockRejectedValue(cancellation);
+
+    await expect(promptToolSelection(selectTools)).rejects.toBe(cancellation);
+  });
+
   it('registers Phase 1 commands', () => {
     const program = createProgram();
     const commandNames = program.commands.map((command) => command.name());
@@ -149,6 +193,47 @@ describe('esl program', () => {
     ).rejects.toThrow('No tools configured');
 
     expect(executeInstall).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt for install under --no-input', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
+    vi.mocked(executeInstall).mockClear();
+    const program = createProgram();
+
+    await expect(
+      program.parseAsync(['install', '@acme/review', '--no-input'], { from: 'user' })
+    ).rejects.toThrow('No tools configured');
+
+    expect(checkboxMock).not.toHaveBeenCalled();
+    expect(executeInstall).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt for link under --no-input', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
+    vi.mocked(executeLink).mockClear();
+    const program = createProgram();
+
+    await expect(
+      program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' })
+    ).rejects.toThrow('No tools configured');
+
+    expect(checkboxMock).not.toHaveBeenCalled();
+    expect(executeLink).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt for tools remove under --no-input', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    vi.mocked(executeToolsRemove).mockClear();
+    const program = createProgram();
+
+    await expect(
+      program.parseAsync(['tools', 'remove', '@acme/review', '--no-input'], { from: 'user' })
+    ).rejects.toThrow('No tools selected');
+
+    expect(checkboxMock).not.toHaveBeenCalled();
+    expect(executeToolsRemove).not.toHaveBeenCalled();
   });
 
   it('does not resolve tools when install uses --no-adapt', async () => {

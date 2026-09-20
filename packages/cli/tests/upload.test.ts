@@ -170,6 +170,7 @@ describe('esl upload', () => {
     expect(confirmPrompt).toHaveBeenCalledWith(
       expect.stringContaining('About to create a server-hosted skill source as reviewer')
     );
+    expect(confirmPrompt.mock.calls[0]?.[0]).not.toContain('[y/N]');
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/upload',

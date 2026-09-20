@@ -5,6 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeLocalStore, saveCredentials } from '@esl/core';
 import { executePublish } from '../src/commands/publish.js';
 
+const { confirmMock, isInteractiveMock } = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
+  isInteractiveMock: vi.fn()
+}));
+
+vi.mock('../src/prompt.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/prompt.js')>();
+  return { ...actual, confirm: confirmMock, isInteractive: isInteractiveMock };
+});
+
 const SKILL_NAME = '@platform-ai/code-review';
 const REMOTE_URL = 'http://localhost:3000/git/platform-ai/code-review.git';
 const HEAD = 'abc123';
@@ -120,6 +130,8 @@ describe('esl publish', () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-publish-home-'));
     await initializeLocalStore({ homeDir });
     await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+    confirmMock.mockReset();
+    isInteractiveMock.mockReturnValue(false);
     skillDir = path.join(tmpRoot, 'code-review');
     fs.mkdirSync(skillDir);
     fs.writeFileSync(
@@ -510,18 +522,19 @@ description: Use when reviewing code changes.
 
   it('prompts for confirmation before publishing', async () => {
     const fetchImpl = createFetchMock();
-    const confirmInput = vi.fn().mockResolvedValue(true);
+    confirmMock.mockResolvedValue(true);
+    isInteractiveMock.mockReturnValue(true);
 
     await executePublish({
       directory: skillDir,
       server: 'http://localhost:3000',
       homeDir,
-      confirmInput,
+      noteInput: async () => '',
       customFetch: fetchImpl as any,
       execFileAsync: createGitMock() as any
     });
 
-    expect(confirmInput).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledWith(expect.not.stringContaining('[y/N]'));
     expect(releasePosts(fetchImpl)).toHaveLength(1);
   });
 

@@ -91,7 +91,7 @@ async function confirmFirstUpload(options: UploadOptions, identity: string): Pro
     );
   }
   const approved = await prompt(
-    `About to create a server-hosted skill source as ${identity}. This identity is fixed after upload. Continue? [y/N] `
+    `About to create a server-hosted skill source as ${identity}. This identity is fixed after upload. Continue? `
   );
   if (!approved) {
     throw new Error('Upload cancelled');

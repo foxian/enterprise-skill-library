@@ -1,65 +1,20 @@
-import readline from 'node:readline';
+import { confirm as confirmPrompt, input, password } from '@inquirer/prompts';
 
 export interface PromptStreams {
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
 }
 
-interface MutableReadline extends readline.Interface {
-  _writeToOutput: (text: string) => void;
-}
-
 export function readHidden(prompt: string, streams: PromptStreams = {}): Promise<string> {
-  const input = streams.input ?? process.stdin;
-  const output = streams.output ?? process.stdout;
-
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input, output, terminal: true }) as MutableReadline;
-    const originalWriteToOutput = rl._writeToOutput.bind(rl);
-
-    rl._writeToOutput = (text: string) => {
-      if (text === prompt) {
-        originalWriteToOutput(prompt);
-      }
-      // Suppress echoing of the typed input.
-    };
-
-    rl.question(prompt, (answer) => {
-      rl._writeToOutput = originalWriteToOutput;
-      rl.close();
-      output.write('\n');
-      resolve(answer);
-    });
-    rl.on('error', reject);
-  });
+  return password({ message: prompt, mask: false, toggleMask: false }, streams);
 }
 
 export function readText(prompt: string, streams: PromptStreams = {}): Promise<string> {
-  const input = streams.input ?? process.stdin;
-  const output = streams.output ?? process.stdout;
-
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input, output, terminal: true });
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-    rl.on('error', reject);
-  });
+  return input({ message: prompt }, streams);
 }
 
 export function confirm(question: string, streams: PromptStreams = {}): Promise<boolean> {
-  const input = streams.input ?? process.stdin;
-  const output = streams.output ?? process.stdout;
-
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({ input, output });
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(/^(y|yes)$/i.test(answer.trim()));
-    });
-    rl.on('error', reject);
-  });
+  return confirmPrompt({ message: question, default: false }, streams);
 }
 
 export function isInteractive(): boolean {

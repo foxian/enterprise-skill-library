@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { checkbox } from '@inquirer/prompts';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,8 +13,8 @@ import {
   parseCommandParams,
   readOptionalStringArrayParam,
   readOptionalStringParam,
-  type ToolName
   toAskUserQuestionPayload,
+  type ToolName
 } from '@esl/core';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
@@ -52,24 +53,14 @@ function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
 }
 
-async function promptToolSelection(): Promise<ToolName[]> {
-  console.log('Select AI tools:');
-  SUPPORTED_TOOLS.forEach((tool, index) => {
-    console.log(`  ${index + 1}. ${tool}`);
+export async function promptToolSelection(
+  selectTools: typeof checkbox = checkbox
+): Promise<ToolName[]> {
+  const selected = await selectTools<ToolName>({
+    message: 'Select AI tools',
+    choices: SUPPORTED_TOOLS.map((tool) => ({ name: tool, value: tool })),
+    required: true
   });
-  const answer = await readText('Enter numbers separated by commas, or all: ');
-  const normalized = answer.trim().toLowerCase();
-  if (normalized === 'all' || normalized === '*') {
-    return [...SUPPORTED_TOOLS];
-  }
-
-  const selected = normalized
-    .split(',')
-    .map((value) => Number.parseInt(value.trim(), 10))
-    .filter((value) => Number.isInteger(value))
-    .map((value) => SUPPORTED_TOOLS[value - 1])
-    .filter((tool): tool is ToolName => Boolean(tool));
-
   if (selected.length === 0) {
     throw new Error('No tools selected');
   }
@@ -496,7 +487,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
           global: options.global
         });
         if (configured.length === 0) {
-          if (!isInteractive()) {
+          if (program.opts().input === false || !isInteractive()) {
             throw new Error('No tools configured; pass --tools or run interactively');
           }
           tools = await promptToolSelection();
@@ -532,7 +523,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
           global: options.global
         });
         if (configured.length === 0) {
-          if (!isInteractive()) {
+          if (program.opts().input === false || !isInteractive()) {
             throw new Error('No tools configured; pass --tools or run interactively');
           }
           tools = await promptToolSelection();
@@ -622,7 +613,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .action(async (skillName: string, options: { tools?: string; global?: boolean }) => {
       let tools = parseToolsOption(options.tools);
       if (tools.length === 0) {
-        if (!isInteractive()) {
+        if (program.opts().input === false || !isInteractive()) {
           throw new Error('No tools selected; pass --tools or run interactively');
         }
         tools = await promptToolSelection();
