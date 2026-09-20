@@ -21,24 +21,49 @@ reference 或 `--help`。
 ## 判断结果
 
 - 退出码 `0`：命令成功，继续处理 stdout。
-- 退出码 `2` 且 stdout JSON 的 `type` 是 `esl.interaction.request`：读取
-  `agentTool`/`uiHint` 与 `fields`，向用户展示控件，收集答案后重新执行同一
-  命令。
+- 退出码 `2` 且 stdout 是 JSON：
+  - 含 `questions` 数组：这是 Claude Code `AskUserQuestion` 风格的输入负载
+    （`--agent-tool claude`）。把 `questions` 原样交给宿主 `AskUserQuestion`
+    弹选择模板，`metadata.source` 标记来源为 `esl-cli`。
+  - `type` 是 `esl.interaction.request`：按 `agentTool`/`uiHint` 与 `fields`
+    渲染控件。
+  - 收集答案后重新执行同一命令。
 - 退出码 `1` 或其他不符合协议的输出：按普通错误处理，不自动弹出控件。
 
 stdout 只按 JSON 协议解析；stderr 只作为人类可读日志或诊断信息，不当作字段值。
 
-## 宿主 UI 提示
+## AskUserQuestion 风格输出（claude）
 
-`agentTool` 记录本次调用来自哪个 AI 工具；`uiHint` 是宿主专属控件建议。
-当 `agentTool` 为 `claude` 时请求带 `uiHint: "AskUserQuestion"`：
+`--agent-tool claude` 时，stdout 直接输出与 Claude Code `AskUserQuestion` 工具
+输入一致的 JSON，宿主可原样透传弹出选择模板：
 
-- `select` / `confirm`：直接映射为 `AskUserQuestion` 的选项（单选）。
-- `multiselect`：映射为 `AskUserQuestion` 的多选（宿主不支持时逐项确认）。
-- `text` / `textarea` / `path`：`AskUserQuestion` 只做选择题，自由文本用
-  普通对话输入，不要臆造选项。
+```json
+{
+  "questions": [
+    {
+      "question": "License",
+      "header": "License",
+      "options": [{ "label": "MIT", "description": "默认值" }],
+      "multiSelect": false
+    }
+  ],
+  "metadata": { "source": "esl-cli" }
+}
+```
 
-其他工具没有 `uiHint` 时，按字段 `kind` 用各自宿主常规控件渲染。
+字段映射规则：
+
+- `select` / `multiselect`：`options` 取自字段 `options`；`multiSelect` 按字段
+  `kind` 设置。
+- `confirm`：`options` 固定为 `yes` / `no`。
+- `text` / `textarea` / `path`：把默认值作为唯一快捷选项（`description` 标记
+  “默认值”），自定义文本由用户走 Other 输入；没有默认值时不臆造选项。
+
+答案以 `question` 文本为键返回。对 `init`，问题按顺序对应参数
+`description`、`license`、`keywords`、`namespace`：单选取所选 `label`；多选
+（`keywords`）的多个 label 用逗号拼接；自由文本取用户输入。映射后重新执行同一
+命令。其他工具没有 AskUserQuestion 输出时，按 `esl.interaction.request` 信封的
+字段 `kind` 用各自宿主常规控件渲染。
 
 ## 传回参数
 
@@ -54,8 +79,8 @@ esl init ./my-skill --description "代码审查技能" --license MIT
 esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
 ```
 
-在 Claude Code 里运行 `init` 时命令要带 `--agent-tool claude`，并按
-`AskUserQuestion` 提示渲染可选字段。
+在 Claude Code 里运行 `init` 时命令要带 `--agent-tool claude`，并按上面的
+`AskUserQuestion` 风格输出弹选择模板。
 
 `--params-json` 的值必须是顶层 JSON object。只传命令支持的字段；不要把同一字段
 同时放进专用 flag 和 JSON。未知字段、重复字段或类型错误都应让 CLI 返回普通失败。

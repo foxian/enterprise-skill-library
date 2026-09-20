@@ -50,11 +50,16 @@ Claude Code 传 `claude`、Codex 传 `codex`），并同时读取
 `init` 已接入；其他命令按其 reference 或 `--help` 确认。不要让 CLI 在该模式
 下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。
 
-如果命令返回退出码 `2` 且 stdout 是 `esl.interaction.request`，按 request 的
-fields 向用户收集输入；request 里的 `agentTool`/`uiHint` 提示用哪种宿主控件
-（Claude Code 且 `uiHint` 为 `AskUserQuestion` 时，用 `AskUserQuestion` 展示
-可选字段）。收集后优先使用命令已有的专用 flag，复杂或动态参数使用
-`--params-json` 重新执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。
+如果命令返回退出码 `2` 且 stdout 是 JSON，分两种情况解析：
+
+- stdout 含 `questions` 数组：这是 `--agent-tool claude` 输出的 Claude Code
+  `AskUserQuestion` 风格负载，原样交给宿主 `AskUserQuestion` 弹选择模板；
+  `metadata.source` 标记来源为 `esl-cli`。
+- stdout 的 `type` 是 `esl.interaction.request`：按 request 的 `fields` 向用户
+  收集输入；request 里的 `agentTool`/`uiHint` 提示用哪种宿主控件。
+
+收集后优先使用命令已有的专用 flag，复杂或动态参数使用 `--params-json` 重新
+执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。
 
 ## 命令找不到 / 服务不通
 

@@ -63,6 +63,68 @@ export function createAgentInteractionRequest(
   };
 }
 
+/** Claude Code AskUserQuestion 输入中单个选项。 */
+export interface AskUserQuestionOption {
+  label: string;
+  description?: string;
+}
+
+/** Claude Code AskUserQuestion 输入中的单个问题。 */
+export interface AskUserQuestionQuestion {
+  question: string;
+  header: string;
+  options: AskUserQuestionOption[];
+  multiSelect: boolean;
+}
+
+/** 与 Claude Code AskUserQuestion 工具输入一致的请求负载。 */
+export interface AskUserQuestionPayload {
+  questions: AskUserQuestionQuestion[];
+  metadata?: { source?: string };
+}
+
+const ASK_USER_QUESTION_SOURCE = 'esl-cli';
+
+/** 把字段映射为 AskUserQuestion 的一个问题；question/header 复用字段 label。 */
+function fieldToAskUserQuestionQuestion(field: AgentInteractionField): AskUserQuestionQuestion {
+  const question = field.label;
+  let options: AskUserQuestionOption[];
+  switch (field.kind) {
+    case 'select':
+    case 'multiselect':
+      options = (field.options ?? []).map((label) => ({ label }));
+      break;
+    case 'confirm':
+      options = [
+        { label: 'yes', description: '确认' },
+        { label: 'no', description: '取消' }
+      ];
+      break;
+    default:
+      // text / textarea / path：AskUserQuestion 只做选择题，把默认值作为快捷选项，
+      // 自定义文本由用户走 Other 输入；没有默认值时不臆造选项。
+      options =
+        field.default !== undefined ? [{ label: String(field.default), description: '默认值' }] : [];
+      break;
+  }
+  return {
+    question,
+    header: question,
+    options,
+    multiSelect: field.kind === 'multiselect'
+  };
+}
+
+/** 把通用交互请求转换为 Claude Code AskUserQuestion 风格的 JSON 负载。 */
+export function toAskUserQuestionPayload(
+  request: AgentInteractionRequest
+): AskUserQuestionPayload {
+  return {
+    questions: request.fields.map(fieldToAskUserQuestionQuestion),
+    metadata: { source: ASK_USER_QUESTION_SOURCE }
+  };
+}
+
 export class AgentInteractionRequiredError extends Error {
   readonly request: AgentInteractionRequest;
 

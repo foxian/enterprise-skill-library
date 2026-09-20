@@ -315,7 +315,7 @@ describe('agent interaction', () => {
     }
   });
 
-  it('hints Claude Code to present fields with AskUserQuestion', async () => {
+  it('emits AskUserQuestion-style JSON for Claude Code', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
     const targetDir = path.join(tmpDir, 'my-skill');
@@ -337,15 +337,31 @@ describe('agent interaction', () => {
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
-      const request = JSON.parse(stdout.join('')) as Record<string, unknown>;
-      expect(request.agentTool).toBe('claude');
-      expect(request.uiHint).toBe('AskUserQuestion');
-      expect((request.fields as Array<{ id: string }>).map((field) => field.id)).toEqual([
-        'description',
-        'license',
-        'keywords',
-        'namespace'
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{
+          question: string;
+          header: string;
+          options: Array<{ label: string; description?: string }>;
+          multiSelect: boolean;
+        }>;
+        metadata?: { source?: string };
+      };
+      expect(payload.metadata).toEqual({ source: 'esl-cli' });
+      expect(payload.questions.map((question) => question.question)).toEqual([
+        'Skill description',
+        'License',
+        'Keywords',
+        'Namespace'
       ]);
+      expect(payload.questions[0].multiSelect).toBe(false);
+      expect(payload.questions[0].options).toEqual([
+        { label: expect.stringContaining('Use when'), description: '默认值' }
+      ]);
+      expect(payload.questions[1].options).toEqual([{ label: 'MIT', description: '默认值' }]);
+      expect(payload.questions[2].multiSelect).toBe(true);
+      expect(payload.questions[2].options).toEqual([]);
+      expect(payload.questions[3].multiSelect).toBe(false);
+      expect(payload.questions[3].options).toEqual([{ label: 'personal', description: '默认值' }]);
     } finally {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();

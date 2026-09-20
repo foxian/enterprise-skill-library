@@ -13,6 +13,7 @@ import {
   readOptionalStringArrayParam,
   readOptionalStringParam,
   type ToolName
+  toAskUserQuestionPayload,
 } from '@esl/core';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
@@ -766,7 +767,11 @@ export async function run(argv: string[]): Promise<void> {
     await createProgram().parseAsync(argv);
   } catch (error) {
     if (error instanceof AgentInteractionRequiredError) {
-      process.stdout.write(`${JSON.stringify(error.request)}\n`);
+      const output =
+        error.request.uiHint === 'AskUserQuestion'
+          ? toAskUserQuestionPayload(error.request)
+          : error.request;
+      process.stdout.write(`${JSON.stringify(output)}\n`);
       process.exitCode = 2;
       return;
     }

@@ -11,10 +11,12 @@
 在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把四个字段都用旗标给全**，避免依赖问答。
 
 AI Agent 必须运行 `esl init ./my-skill --agent-interaction --agent-tool <tool>`，
-让缺失输入以 `esl.interaction.request` JSON 返回（退出码 `2`）；向用户收集后
-重跑同一命令。在 Claude Code 里 `<tool>` 填 `claude`，并按请求里的
-`uiHint: "AskUserQuestion"` 用 `AskUserQuestion` 展示可选字段。简单字段优先用
-专用旗标，多个结构化字段可用一次 `--params-json`：
+让缺失输入以 JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。在 Claude Code
+里 `<tool>` 填 `claude`，stdout 直接给出 `AskUserQuestion` 风格 JSON（含
+`questions` 数组，`metadata.source` 为 `esl-cli`），原样交给宿主的
+`AskUserQuestion` 弹选择模板；其他工具收到 `esl.interaction.request` 信封，按
+字段 `kind` 渲染控件。简单字段优先用专用旗标，多个结构化字段可用一次
+`--params-json`：
 
 ```bash
 esl init ./my-skill --agent-interaction --agent-tool claude --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'

@@ -23,13 +23,37 @@ stdin。为此，ESL 定义一个显式的 Agent Interaction Protocol：命令�
   CLI 在本地生成中间 JSON 文件。
 - 密码、token 和其他秘密凭据不进入 Agent Interaction Request；认证命令继续使用
   本机隐藏输入、`--password-file` 或 `--token-file` 等既有安全路径。
-- 请求携带 `agentTool` 记录调用方；当 `agentTool` 为 `claude` 时附带
-  `uiHint: "AskUserQuestion"`，提示 Claude Code 宿主优先用 `AskUserQuestion`
-  展示控件。`AskUserQuestion` 是宿主能力，CLI 只表达建议、不直接实现它。
+- 请求携带 `agentTool` 记录调用方。当 `agentTool` 为 `claude` 时，CLI 直接
+  输出与 Claude Code `AskUserQuestion` 工具输入一致的 JSON（`questions`
+  数组），宿主可原样透传弹选择模板；其他工具输出通用交互请求信封，可能带
+  `uiHint` 作为宿主专属控件建议。
 
 ## 交互请求
 
-`stdout` 输出一个 JSON object，至少包含：
+`--agent-tool claude` 时，`stdout` 直接输出与 Claude Code `AskUserQuestion`
+工具输入一致的 JSON：
+
+```json
+{
+  "questions": [
+    {
+      "question": "License",
+      "header": "License",
+      "options": [{ "label": "MIT", "description": "默认值" }],
+      "multiSelect": false
+    }
+  ],
+  "metadata": { "source": "esl-cli" }
+}
+```
+
+`questions` 由请求字段按顺序映射：`select`/`multiselect` 的 `options` 取自
+字段 `options`，`multiSelect` 按字段 `kind` 设置；`confirm` 固定为 `yes`/`no`
+两个选项；`text`/`textarea`/`path` 把默认值作为唯一快捷选项（`description`
+标记“默认值”），无默认值时为空数组，不臆造选项。答案以 `question` 文本为键
+返回；多选取 label 并用逗号拼接。
+
+其他工具输出通用交互请求信封：
 
 ```json
 {
@@ -37,8 +61,7 @@ stdin。为此，ESL 定义一个显式的 Agent Interaction Protocol：命令�
   "schemaVersion": 1,
   "requestId": "ir_example",
   "command": "init",
-  "agentTool": "claude",
-  "uiHint": "AskUserQuestion",
+  "agentTool": "codex",
   "fields": [
     {
       "id": "license",
@@ -71,10 +94,9 @@ stdin。为此，ESL 定义一个显式的 Agent Interaction Protocol：命令�
 `options`。`id` 是参数名或参数名映射的稳定键；Agent 提交时应保持类型，不应把
 数组或布尔值降级成展示文本。
 
-请求可包含可选的 `agentTool` 与 `uiHint`。`agentTool` 来自 `--agent-tool`；当
-值为 `claude` 时，`uiHint` 为 `"AskUserQuestion"`，表示宿主应优先用
-`AskUserQuestion` 渲染可选字段（`select`/`multiselect`/`confirm`），自由文本
-字段（`text`/`textarea`/`path`）用宿主常规输入，不要臆造选项。
+请求可包含可选的 `agentTool` 与 `uiHint`。`agentTool` 来自 `--agent-tool`；
+`uiHint` 是宿主专属控件建议。当前只有 `claude` 映射到 `AskUserQuestion`，且
+该工具在 CLI 侧已被原生输出替换，通用信封主要供其他工具使用。
 
 交互请求只描述本次命令缺少的输入，不改变命令语义，也不让 Agent 重实现命令逻辑。
 Agent 应将用户填写的值映射为专用 flag 或 `--params-json`，并重新执行同一命令。
@@ -101,9 +123,12 @@ JSON 参数必须经过命令自身的 schema、类型和业务校验。未知�
 Agent 通过以下状态判断下一步：
 
 1. 退出码 `0`：命令已完成，正常处理结果。
-2. 退出码 `2` 且 JSON 的 `type` 为 `esl.interaction.request`：读取
-   `agentTool`/`uiHint` 决定宿主展示方式，根据 `fields` 向用户展示选择或输入
-   控件，收集答案后重新执行命令。
+2. 退出码 `2` 且 stdout 是 JSON：
+   - 含 `questions` 数组：这是 Claude Code `AskUserQuestion` 风格输入负载，
+     宿主原样透传给 `AskUserQuestion` 弹选择模板。
+   - `type` 为 `esl.interaction.request`：读取 `agentTool`/`uiHint` 与
+     `fields`，按字段渲染选择或输入控件。
+   收集答案后重新执行命令。
 3. 其他退出码或不符合协议的输出：按普通 CLI 错误处理，不自动弹出交互控件。
 
 ## 兼容性边界
