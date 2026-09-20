@@ -21,8 +21,9 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
 **Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init` 时，命令一律追加
-`--agent-interaction`，并同时读取 `references/agent-interaction.md`。不要等用户
-明确要求选择框或输入框。
+`--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
+Claude Code 传 `claude`、Codex 传 `codex`），并同时读取
+`references/agent-interaction.md`。不要等用户明确要求选择框或输入框。
 
 ## 三条不可妥协的规则
 
@@ -44,13 +45,15 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 ## Agent 交互
 
-本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`，
-并先读 `references/agent-interaction.md`。当前 `init` 已接入；其他命令按其
-reference 或 `--help` 确认。不要让 CLI 在该模式下等待 stdin，也不要根据普通
-错误文本猜测是否需要弹窗。
+本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`
+与 `--agent-tool <tool>`，并先读 `references/agent-interaction.md`。当前
+`init` 已接入；其他命令按其 reference 或 `--help` 确认。不要让 CLI 在该模式
+下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。
 
 如果命令返回退出码 `2` 且 stdout 是 `esl.interaction.request`，按 request 的
-fields 向用户收集输入；收集后优先使用命令已有的专用 flag，复杂或动态参数使用
+fields 向用户收集输入；request 里的 `agentTool`/`uiHint` 提示用哪种宿主控件
+（Claude Code 且 `uiHint` 为 `AskUserQuestion` 时，用 `AskUserQuestion` 展示
+可选字段）。收集后优先使用命令已有的专用 flag，复杂或动态参数使用
 `--params-json` 重新执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。
 
 ## 命令找不到 / 服务不通

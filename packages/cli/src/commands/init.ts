@@ -10,7 +10,8 @@ import {
   validateSkillMd,
   validateSkillSourceDirectory,
   type LocalStoreOptions,
-  type OrganizationMembership
+  type OrganizationMembership,
+  type ToolName
 } from '@esl/core';
 import { notify } from '../output.js';
 import { isInteractive, readText } from '../prompt.js';
@@ -37,6 +38,8 @@ export interface InitOptions extends LocalStoreOptions {
   customFetch?: typeof fetch;
   /** Emits a structured interaction request instead of reading from the terminal. */
   agentInteraction?: boolean;
+  /** AI 工具标识（来自 --agent-tool），用于在交互请求中给出宿主专属提示。 */
+  agentTool?: ToolName;
   /** Injected by tests that need a stable interaction request identifier. */
   interactionRequestId?: string;
 }
@@ -198,7 +201,8 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
         createAgentInteractionRequest({
           command: 'init',
           fields,
-          requestId: options.interactionRequestId
+          requestId: options.interactionRequestId,
+          agentTool: options.agentTool
         })
       );
     }

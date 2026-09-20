@@ -8,6 +8,7 @@ import {
   AgentInteractionRequiredError,
   SUPPORTED_TOOLS,
   assertNoDuplicateCommandParams,
+  isSupportedTool,
   parseCommandParams,
   readOptionalStringArrayParam,
   readOptionalStringParam,
@@ -85,10 +86,27 @@ export function createProgram(): Command {
   program.option('-d, --debug', 'print stack traces on error');
   program.option('--no-input', 'disable all prompts');
   program.option('--agent-interaction', 'return structured interaction requests instead of prompting');
+  program.option('--agent-tool <tool>', 'AI tool invoking the command (requires --agent-interaction)');
   program.option('--params-json <json>', 'pass command parameters as a JSON object');
   program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
   program.hook('preAction', (_thisCommand, actionCommand) => {
-    const options = program.opts<{ cd?: string; paramsJson?: string; agentInteraction?: boolean }>();
+    const options = program.opts<{
+      cd?: string;
+      paramsJson?: string;
+      agentInteraction?: boolean;
+      agentTool?: string;
+    }>();
+    if (options.agentTool !== undefined && !isSupportedTool(options.agentTool)) {
+      throw new Error(
+        `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`
+      );
+    }
+    if (options.agentTool !== undefined && options.agentInteraction !== true) {
+      throw new Error('--agent-tool requires --agent-interaction');
+    }
+    if (options.agentInteraction === true && options.agentTool === undefined) {
+      throw new Error('--agent-interaction requires --agent-tool <tool>');
+    }
     if (
       options.paramsJson !== undefined &&
       !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
@@ -159,7 +177,8 @@ export function createProgram(): Command {
           description,
           keywords,
           noInput: program.opts().input === false,
-          agentInteraction: program.opts().agentInteraction === true
+          agentInteraction: program.opts().agentInteraction === true,
+          agentTool: program.opts().agentTool as ToolName | undefined
         });
         console.log(`Skill initialized at ${targetDir}`);
       }

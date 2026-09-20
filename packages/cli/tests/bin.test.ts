@@ -264,7 +264,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', targetDir, '--agent-interaction']);
+      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'codex']);
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
@@ -273,6 +273,7 @@ describe('agent interaction', () => {
         schemaVersion: 1,
         requestId: expect.stringMatching(/^ir_/),
         command: 'init',
+        agentTool: 'codex',
         fields: [
           {
             id: 'description',
@@ -306,6 +307,130 @@ describe('agent interaction', () => {
       });
     } finally {
       stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('hints Claude Code to present fields with AskUserQuestion', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const targetDir = path.join(tmpDir, 'my-skill');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'claude']);
+
+      expect(process.exitCode).toBe(2);
+      expect(stderr.join('')).toBe('');
+      const request = JSON.parse(stdout.join('')) as Record<string, unknown>;
+      expect(request.agentTool).toBe('claude');
+      expect(request.uiHint).toBe('AskUserQuestion');
+      expect((request.fields as Array<{ id: string }>).map((field) => field.id)).toEqual([
+        'description',
+        'license',
+        'keywords',
+        'namespace'
+      ]);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects --agent-interaction without --agent-tool', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--agent-interaction']);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('--agent-interaction requires --agent-tool');
+      expect(fs.existsSync(path.join(tmpDir, 'my-skill'))).toBe(false);
+    } finally {
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects --agent-tool without --agent-interaction', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--agent-tool', 'claude']);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('--agent-tool requires --agent-interaction');
+      expect(fs.existsSync(path.join(tmpDir, 'my-skill'))).toBe(false);
+    } finally {
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an unknown --agent-tool value', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-init-'));
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    process.exitCode = undefined;
+
+    try {
+      await run([
+        'node',
+        'esl',
+        'init',
+        path.join(tmpDir, 'my-skill'),
+        '--agent-interaction',
+        '--agent-tool',
+        'unknown'
+      ]);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('Unknown agent tool: unknown');
+      expect(fs.existsSync(path.join(tmpDir, 'my-skill'))).toBe(false);
+    } finally {
       stderrSpy.mockRestore();
       homedirSpy.mockRestore();
       process.exitCode = undefined;

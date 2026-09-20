@@ -4,18 +4,20 @@
 写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
 
 ## 初始化新技能（就地补缺）
-`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] --agent-interaction` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 3`、`name`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction` 是固定组成，不等待终端输入。
+`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 3`、`name`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude`）。
 
 短名权威顺序：已有 `SKILL.md.name` > `--name` > 目录 basename。已有 `SKILL.md` 时整个文件不动；frontmatter 只要包含合法的 `name` 和 `description` 即可，`metadata`、`allowed-tools` 等额外键会被接受并忽略。缺少必填字段或类型非法时，`init` 只补缺并打一行警告，严格校验交给 `esl validate`。目录已是 git 仓库（含父级）时跳过 `git init`。
 
 在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把四个字段都用旗标给全**，避免依赖问答。
 
-AI Agent 必须运行 `esl init ./my-skill --agent-interaction`，让缺失输入以
-`esl.interaction.request` JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。
-简单字段优先用专用旗标，多个结构化字段可用一次 `--params-json`：
+AI Agent 必须运行 `esl init ./my-skill --agent-interaction --agent-tool <tool>`，
+让缺失输入以 `esl.interaction.request` JSON 返回（退出码 `2`）；向用户收集后
+重跑同一命令。在 Claude Code 里 `<tool>` 填 `claude`，并按请求里的
+`uiHint: "AskUserQuestion"` 用 `AskUserQuestion` 展示可选字段。简单字段优先用
+专用旗标，多个结构化字段可用一次 `--params-json`：
 
 ```bash
-esl init ./my-skill --agent-interaction --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
+esl init ./my-skill --agent-interaction --agent-tool claude --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
 ```
 
 `--params-json` 只接受顶层 JSON object，未知字段、错误类型，或同一字段同时由
