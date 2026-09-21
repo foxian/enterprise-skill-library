@@ -35,4 +35,16 @@ describe('生产 compose override', () => {
     expect(config.services.gitea.environment.GITEA__server__ROOT_URL)
       .toBe('http://esl.example.com/git/');
   });
+
+  it('ESL Server 前端烤入镜像：构建 web 生产镜像且不再 bind-mount dist 与 nginx.conf', () => {
+    const result = mergedProdConfig();
+    expect(result.status, result.stderr).toBe(0);
+
+    const server = JSON.parse(result.stdout).services.server;
+    expect(server.build.dockerfile).toBe('docker/web.Dockerfile');
+    const bindMounts = (server.volumes ?? [])
+      .filter((volume) => volume.type === 'bind')
+      .map((volume) => volume.source);
+    expect(bindMounts).toEqual([]);
+  });
 });

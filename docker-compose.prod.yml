@@ -9,3 +9,13 @@ services:
   gitea:
     # 替换而非追加：compose 对多文件 ports 默认取并集，必须显式覆盖为空
     ports: !override []
+
+  server:
+    # 前端产物与 nginx 配置烤入镜像（docker/web.Dockerfile），
+    # 替换开发期的 dist/nginx.conf bind-mount
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      args:
+        NPM_PROXY: ${NPM_PROXY:-}
+    volumes: !override []
