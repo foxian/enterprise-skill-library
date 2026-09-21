@@ -4,10 +4,6 @@ packages/*/dist/
 .worktrees/
 .env
 
-# docs 下只把面向用户的 guides 纳入版本控制,其余内容仅本地保留
-docs/*
-!docs/guides/
-
 # Local data directory (default ESL bind-mount location)
 data/
 
