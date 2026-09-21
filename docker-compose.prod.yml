@@ -1,0 +1,11 @@
+# 生产环境 override：与 docker-compose.yml 叠加使用
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml <cmd>
+#
+# 只表达生产与开发的差异（ADR-0047）：
+# - Git Backend 直连端口不发布（仅开发/E2E 经宿主 3001 访问）
+# - 对外地址、TLS、镜像化前端等差异随后续条目补充
+
+services:
+  gitea:
+    # 替换而非追加：compose 对多文件 ports 默认取并集，必须显式覆盖为空
+    ports: !override []
