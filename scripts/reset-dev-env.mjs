@@ -11,6 +11,8 @@
 //
 // This is a destructive, host-level operation: it never runs inside the
 // server or the CLI, and it must not be wired into any automatic trigger.
+// It refuses to run at all when ESL_ENVIRONMENT=production (ADR-0047):
+// production "going back in time" is backup/restore, never a reset.
 
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -73,7 +75,9 @@ Options:
   --help, -h     show this help
 
 Environment:
-  ESL_DATA_DIR   persistent data root, same variable used by docker-compose.yml`);
+  ESL_DATA_DIR     persistent data root, same variable used by docker-compose.yml
+  ESL_ENVIRONMENT  set to "production" on production hosts; the script refuses
+                   to run there (development/test only, see ADR-0047)`);
 }
 
 function collectTargets(dataDir) {
@@ -137,6 +141,18 @@ async function waitForHealth(timeoutMs) {
 }
 
 export async function resetDevEnvironment(options = {}) {
+  // 生产护栏（ADR-0018/0047）：Bootstrap Reset 仅开发/测试环境可用。
+  // 判定必须发生在任何 docker 调用与数据删除之前。
+  if ((process.env.ESL_ENVIRONMENT ?? 'development').trim().toLowerCase() === 'production') {
+    console.error('Refusing to reset: ESL_ENVIRONMENT=production.');
+    console.error(
+      'Bootstrap Reset is development-only and would destroy production data. ' +
+      'Use the production backup/restore scripts (scripts/prod/) instead — ' +
+      '备份/恢复是生产环境唯一的"回到过去"手段。'
+    );
+    return { ok: false };
+  }
+
   const dataDir = resolve(options.dataDir ?? process.env.ESL_DATA_DIR ?? DEFAULT_DATA_DIR);
   const { targets, refusals } = collectTargets(dataDir);
 
