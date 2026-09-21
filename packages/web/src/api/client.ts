@@ -9,11 +9,20 @@ export function setFetchImpl(impl: typeof fetch): void {
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
+  readonly params: Record<string, string>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    const structured = body && typeof body === 'object' ? body as { code?: unknown; params?: unknown } : null;
+    this.code = typeof structured?.code === 'string' ? structured.code : undefined;
+    this.params = structured?.params && typeof structured.params === 'object'
+      ? Object.fromEntries(
+          Object.entries(structured.params as Record<string, unknown>).map(([key, value]) => [key, String(value)])
+        )
+      : {};
   }
 }
 
@@ -44,13 +53,19 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
   }
   if (!response.ok) {
     const text = await response.text();
-    let message = text;
+    let body: unknown = text;
     try {
-      message = (JSON.parse(text) as { error?: string }).error ?? text;
+      body = JSON.parse(text);
     } catch {
       // 非 JSON 错误体，直接展示原文
     }
-    throw new ApiError(response.status, message || `请求失败（HTTP ${response.status}）`);
+    const payload = body && typeof body === 'object' ? body as { error?: unknown; message?: unknown } : null;
+    const message = typeof payload?.message === 'string'
+      ? payload.message
+      : typeof payload?.error === 'string'
+        ? payload.error
+        : text;
+    throw new ApiError(response.status, message || `Request failed (HTTP ${response.status})`, body);
   }
   return (await response.json()) as T;
 }

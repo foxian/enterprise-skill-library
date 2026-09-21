@@ -1,4 +1,5 @@
 import { isBuiltinIdentity, parseSkillName } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 
 export interface ReleaseDeleteOptions extends NetworkCommandOptions {
@@ -55,7 +56,7 @@ export async function executeReleaseDelete(
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to delete the release: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to delete the release');
   }
   return response.json() as Promise<DeletedRelease>;
 }

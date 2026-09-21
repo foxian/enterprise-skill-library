@@ -3,27 +3,28 @@
     <el-card class="auth-card">
       <div class="auth-brand">
         <span class="auth-brand-mark" aria-hidden="true"></span>
-        <h2 class="auth-title">ESL 技能库</h2>
+        <h2 class="auth-title">{{ t('auth.brand') }}</h2>
       </div>
-      <p class="auth-subtitle">管理后台登录</p>
+      <p class="auth-subtitle">{{ t('auth.adminSignIn') }}</p>
+      <LocaleSwitch class="auth-locale-switch" />
       <el-form label-position="top" @submit.prevent="submit">
-        <el-form-item label="用户名" required>
-          <el-input v-model="username" data-test="username" placeholder="用户名" />
+        <el-form-item :label="t('auth.username')" required>
+          <el-input v-model="username" data-test="username" :placeholder="t('auth.username')" />
         </el-form-item>
         <!-- 全局身份登录（ADR-0032）：不再输入组织，所属组织由服务端派生 -->
-        <el-form-item label="密码" required>
+        <el-form-item :label="t('auth.password')" required>
           <el-input v-model="password" data-test="password" type="password" show-password />
         </el-form-item>
         <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" data-test="login-error" />
         <el-button type="primary" class="auth-submit" native-type="submit" :loading="loading" data-test="login-submit">
-          登录
+          {{ t('auth.login') }}
         </el-button>
       </el-form>
       <!-- 登录页只留账号注册：组织不属于登录前的上下文。组织申请是已登录
            Skill User 在个人控制台「我的组织」里做的事（ADR-0032/0035）——
           `POST /api/orgs/applications` 需要 token，匿名访客点进来必然 401。 -->
       <router-link to="/admin/register-user" class="auth-link" data-test="user-register-link">
-        没有账号？注册个人账号
+        {{ t('auth.registerLink') }}
       </router-link>
     </el-card>
   </div>
@@ -33,6 +34,8 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../api/client';
+import { formatRequestError, useLocaleState } from '../i18n/locale';
+import LocaleSwitch from '../components/LocaleSwitch.vue';
 import { useAuthStore, type SessionOrganization } from '../stores/auth';
 
 const username = ref('');
@@ -42,11 +45,12 @@ const errorMessage = ref('');
 
 const router = useRouter();
 const auth = useAuthStore();
+const { t } = useLocaleState();
 
 async function submit(): Promise<void> {
   errorMessage.value = '';
   if (!username.value.trim() || !password.value) {
-    errorMessage.value = '请输入用户名与密码';
+    errorMessage.value = t('auth.credentialsRequired');
     return;
   }
   const trimmedUsername = username.value.trim();
@@ -60,6 +64,7 @@ async function submit(): Promise<void> {
       username: string;
       isPlatformAdmin: boolean;
       organizations?: SessionOrganization[];
+      locale?: string | null;
     }>('/api/console/login', {
       method: 'POST',
       body: { username: trimmedUsername, password: password.value }
@@ -68,11 +73,12 @@ async function submit(): Promise<void> {
       token: result.token,
       username: result.username,
       isPlatformAdmin: result.isPlatformAdmin,
-      organizations: result.organizations ?? []
+      organizations: result.organizations ?? [],
+      locale: result.locale ?? null
     });
     await router.push(auth.homePath);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }

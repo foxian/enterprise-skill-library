@@ -1,4 +1,5 @@
 import { parseSkillName, isBuiltinIdentity } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 
 export interface NotesOptions extends NetworkCommandOptions {
@@ -35,7 +36,7 @@ export async function executeNotes(identity: string, version: string, options: N
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to update release notes: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to update release notes');
   }
   return response.json() as Promise<UpdatedNotes>;
 }

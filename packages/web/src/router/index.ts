@@ -48,14 +48,14 @@ export const router = createRouter({
       meta: { view: 'platform' },
       children: [
         { path: '', redirect: { name: 'super-dashboard' } },
-        { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard, meta: { title: '平台概览', description: '组织、审批与技能资源的实时汇总' } },
-        { path: 'orgs', name: 'super-orgs', component: SuperOrgs, meta: { title: '组织管理', description: '查看平台内全部组织的生命周期与资源概况' } },
-        { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: '组织详情' } },
-        { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: '组织申请审批', description: '处理组织注册申请，批准即同步开通组织资源' } },
-        { path: 'registrations', name: 'super-registrations', component: SuperRegistrations, meta: { title: '用户注册审批', description: '审批待激活的平台账号（approval 注册模式）' } },
-        { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: '技能总览', description: '跨组织查看全部技能（含未发布）并代管权限' } },
-        { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: '技能管理' } },
-        { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: '平台设置', description: '配置组织注册的审批模式与平台级策略' } }
+        { path: 'dashboard', name: 'super-dashboard', component: SuperDashboard, meta: { title: 'routes.platformOverview', description: 'routes.platformOverviewDescription' } },
+        { path: 'orgs', name: 'super-orgs', component: SuperOrgs, meta: { title: 'routes.orgManagement', description: 'routes.orgManagementDescription' } },
+        { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: 'routes.orgDetail' } },
+        { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: 'routes.orgApplications', description: 'routes.orgApplicationsDescription' } },
+        { path: 'registrations', name: 'super-registrations', component: SuperRegistrations, meta: { title: 'routes.userRegistrations', description: 'routes.userRegistrationsDescription' } },
+        { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: 'routes.skillOverview', description: 'routes.skillOverviewDescription' } },
+        { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: 'routes.skillManagement' } },
+        { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: 'routes.platformSettings', description: 'routes.platformSettingsDescription' } }
       ]
     },
     {
@@ -66,29 +66,29 @@ export const router = createRouter({
       meta: { view: 'personal' },
       children: [
         { path: '', redirect: { name: 'me-overview' } },
-        { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: '概览', description: '待办、我的组织与我管理的技能' } },
-        { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: '我的组织', description: '创建组织、查看我在每个组织中的身份' } },
+        { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: 'routes.overview', description: 'routes.overviewDescription' } },
+        { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: 'routes.myOrganizations', description: 'routes.myOrganizationsDescription' } },
         {
           path: 'orgs/:org',
           component: OrgDetailLayout,
           meta: { requiresOrgOperator: true },
           children: [
             { path: '', redirect: { name: 'me-org-members' } },
-            { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: '成员管理', description: '管理本组织成员，移出即自动离开全部技能授权团队' } },
-            { path: 'teams', name: 'me-org-teams', component: OrgTeamsView, meta: { title: '团队管理', description: '自定义团队按技能授权；常设团队由平台维护' } },
+            { path: 'members', name: 'me-org-members', component: OrgMembersView, meta: { title: 'routes.orgMembers', description: 'routes.orgMembersDescription' } },
+            { path: 'teams', name: 'me-org-teams', component: OrgTeamsView, meta: { title: 'routes.orgTeams', description: 'routes.orgTeamsDescription' } },
             {
               path: 'skills',
               name: 'me-org-skills',
               component: MeSkillsView,
               // 与个人控制台的「技能」同一个页面，锁定到本组织命名空间（ADR-0035）
               props: (route) => ({ lockedNamespace: String(route.params.org ?? '') }),
-              meta: { title: '技能管理', description: '本组织命名空间下的技能与它们的共享范围' }
+              meta: { title: 'routes.skillManagement', description: 'routes.skillManagementDescription' }
             }
           ]
         },
-        { path: 'skills', name: 'me-skills', component: MeSkillsView, meta: { title: '技能', description: '跨命名空间聚合：个人与所有所在组织的技能' } },
-        { path: 'skills/:scope/:skillName/manage', name: 'me-skill-manage', component: MeSkillManageView, meta: { title: '技能管理' } },
-        { path: 'invitations', name: 'me-invitations', component: InvitationsView, meta: { title: '邀请', description: '待你回应的组织邀请' } }
+        { path: 'skills', name: 'me-skills', component: MeSkillsView, meta: { title: 'routes.skills', description: 'routes.skillsDescription' } },
+        { path: 'skills/:scope/:skillName/manage', name: 'me-skill-manage', component: MeSkillManageView, meta: { title: 'routes.skillManagement' } },
+        { path: 'invitations', name: 'me-invitations', component: InvitationsView, meta: { title: 'routes.invitations', description: 'routes.invitationsDescription' } }
       ]
     },
     { path: '/admin', redirect: '/admin/login' },

@@ -19,8 +19,44 @@ describe('server config', () => {
       giteaAdminPassword: undefined,
       repoOwner: 'esl-skills',
       passwordMinLength: 8,
-      autoSeed: false
+      autoSeed: false,
+      logLevel: 'info'
     });
+  });
+
+  it('defaults LOG_LEVEL to info', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.logLevel).toBe('info');
+  });
+
+  it.each(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])(
+    'accepts LOG_LEVEL %s',
+    (level) => {
+      const config = loadServerConfig({
+        DATABASE_PATH: '/tmp/esl.db',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        LOG_LEVEL: level
+      } as NodeJS.ProcessEnv);
+
+      expect(config.logLevel).toBe(level);
+    }
+  );
+
+  it('rejects an unknown LOG_LEVEL instead of silently falling back', () => {
+    expect(() =>
+      loadServerConfig({
+        DATABASE_PATH: '/tmp/esl.db',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token',
+        LOG_LEVEL: 'verbose'
+      } as NodeJS.ProcessEnv)
+    ).toThrow('Invalid LOG_LEVEL: verbose');
   });
 
   it('defaults autoSeed to false and enables it via ESL_AUTO_SEED', () => {

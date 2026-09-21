@@ -2,13 +2,13 @@
   <div>
     <el-card class="data-card" shadow="never">
       <el-table :data="rows" data-test="super-skills-table" v-loading="loading">
-        <el-table-column prop="name" label="技能名" />
-        <el-table-column prop="scope" label="组织" width="140" />
-        <el-table-column prop="createdBy" label="创建者" width="160" />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">{{ statusText(row.status) }}</template>
+        <el-table-column prop="name" :label="t('skill.name')" />
+        <el-table-column prop="scope" :label="t('columns.organization')" width="140" />
+        <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+        <el-table-column :label="t('columns.status')" width="100">
+          <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="140">
+        <el-table-column :label="t('columns.actions')" width="140">
           <template #default="{ row }">
             <el-button
               link
@@ -16,7 +16,7 @@
               :data-test="`configure-${row.skillName}`"
               @click="openPermissions(row.scope, row.skillName)"
             >
-              管理
+              {{ t('actions.manage') }}
             </el-button>
           </template>
         </el-table-column>
@@ -28,8 +28,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { loadSkillInventorySummaries, statusText, type SkillInventoryItem } from '../../skills/skill-list';
+
+const { t } = useLocaleState();
 
 const router = useRouter();
 
@@ -51,7 +54,7 @@ onMounted(async () => {
     // 超级管理员视角:服务端返回跨组织全部技能(含未发布与冻结组织,ADR-0025)
     rows.value = await loadSkillInventorySummaries();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }

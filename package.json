@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
+    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
     "deploy:web": "npm run build --workspace @esl/web && docker compose up -d server",
     "smoke:git-backend-maintenance-entry": "node scripts/check-git-backend-maintenance-entry.mjs",
     "initialize:permissions": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run initialize:permissions --workspace @esl/server",
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^20.11.0",
+    "pino-pretty": "^11.3.0",
     "toad-cache": "3.3.0",
     "typescript": "^5.3.3",
     "vitest": "^1.2.0"

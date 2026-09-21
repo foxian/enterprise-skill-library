@@ -1,35 +1,116 @@
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import { databaseSchema } from './schema.js';
+import { logEvent, type DiagnosticLogger } from '../logging.js';
 
-export function initDatabase(dbPath: string): Database.Database {
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.exec(databaseSchema);
-  ensureColumn(db, 'created_by', "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, 'owner', "TEXT NOT NULL DEFAULT 'platform'");
-  ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
-  ensureColumn(db, 'skill_id', 'TEXT');
-  ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
-  ensureColumn(db, 'deletion_requested_by', 'TEXT');
-  ensureColumn(db, 'deletion_reason', 'TEXT');
-  ensureColumn(db, 'deletion_error', 'TEXT');
-  ensureColumn(db, 'deletion_requested_at', 'DATETIME');
-  ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
-  ensureColumn(db, 'deprecated_message', 'TEXT', 'skill_releases');
-  ensureColumn(db, 'deleted_at', 'DATETIME', 'skill_releases');
-  ensureColumn(db, 'deleted_by', 'TEXT', 'skill_releases');
-  ensureColumn(db, "applicant_username", "TEXT NOT NULL DEFAULT ''", 'org_applications');
-  db.exec(`
-    UPDATE skills
-    SET created_by = author
-    WHERE created_by = ''
-  `);
-  db.exec(`
-    INSERT OR IGNORE INTO platform_settings (key, value)
-    VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open'), ('member_add_mode', 'direct')
-  `);
+// 慢操作阈值（ADR-0045）：本期用代码内常量，不引入额外的配置面。
+export const SQLITE_SLOW_OP_MS = 250;
+
+// better-sqlite3 抛出的错误带稳定 code（SQLITE_BUSY / SQLITE_LOCKED /
+// SQLITE_CORRUPT / SQLITE_NOTADB…）。这里映射成机器可读的基础设施错误标识，
+// 让锁冲突与数据文件损坏在日志里可检索——不记录 SQL 文本或绑定参数（US35）。
+export function classifySqliteError(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code !== 'string') {
+    return 'sqliteError';
+  }
+  if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED') {
+    return 'sqliteLocked';
+  }
+  if (code.startsWith('SQLITE_CORRUPT')) {
+    return 'sqliteCorrupt';
+  }
+  if (code === 'SQLITE_NOTADB') {
+    return 'sqliteNotADatabase';
+  }
+  return 'sqliteError';
+}
+
+function slowFields(startedAt: number): { durationMs: number; slow?: boolean } {
+  const durationMs = Date.now() - startedAt;
+  return durationMs > SQLITE_SLOW_OP_MS ? { durationMs, slow: true } : { durationMs };
+}
+
+// 数据访问层只记录打开、schema、锁与损坏这类异常或慢操作；SQL 文本与参数一律
+// 不进日志，避免把业务数据带进日志（ADR-0045）。logger 可选，未提供时静默。
+export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Database.Database {
+  const openStartedAt = Date.now();
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    logEvent(
+      logger,
+      'error',
+      {
+        event: 'sqlite.open',
+        outcome: 'failed',
+        errorCode: classifySqliteError(error),
+        err: error
+      },
+      'SQLite database open failed'
+    );
+    throw error;
+  }
+  logEvent(
+    logger,
+    'debug',
+    { event: 'sqlite.open', outcome: 'succeeded', ...slowFields(openStartedAt) },
+    'SQLite database opened'
+  );
+
+  const schemaStartedAt = Date.now();
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.exec(databaseSchema);
+    ensureColumn(db, 'created_by', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, 'owner', "TEXT NOT NULL DEFAULT 'platform'");
+    ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
+    ensureColumn(db, 'skill_id', 'TEXT');
+    ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
+    ensureColumn(db, 'deletion_requested_by', 'TEXT');
+    ensureColumn(db, 'deletion_reason', 'TEXT');
+    ensureColumn(db, 'deletion_error', 'TEXT');
+    ensureColumn(db, 'deletion_requested_at', 'DATETIME');
+    ensureColumn(db, 'notes', "TEXT NOT NULL DEFAULT ''", 'skill_releases');
+    ensureColumn(db, 'deprecated_message', 'TEXT', 'skill_releases');
+    ensureColumn(db, 'deleted_at', 'DATETIME', 'skill_releases');
+    ensureColumn(db, 'deleted_by', 'TEXT', 'skill_releases');
+    ensureColumn(db, "applicant_username", "TEXT NOT NULL DEFAULT ''", 'org_applications');
+    ensureColumn(db, 'locale', 'TEXT', 'admin_users');
+    db.exec(`
+      UPDATE skills
+      SET created_by = author
+      WHERE created_by = ''
+    `);
+    db.exec(`
+      INSERT OR IGNORE INTO platform_settings (key, value)
+      VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open'), ('member_add_mode', 'direct')
+    `);
+  } catch (error) {
+    logEvent(
+      logger,
+      'error',
+      {
+        event: 'sqlite.schema',
+        outcome: 'failed',
+        errorCode: classifySqliteError(error),
+        err: error
+      },
+      'SQLite schema initialization failed'
+    );
+    // 半初始化的句柄不该继续持有文件锁：打开成功但 schema 失败时显式关闭。
+    db.close();
+    throw error;
+  }
+  logEvent(
+    logger,
+    'debug',
+    { event: 'sqlite.schema', outcome: 'succeeded', ...slowFields(schemaStartedAt) },
+    'SQLite schema initialized'
+  );
+
   return db;
 }
 
@@ -801,6 +882,19 @@ export class AdminRepository {
       return null;
     }
     return { username: row.username };
+  }
+
+  getLocale(username: string): string | null {
+    const row = this.db
+      .prepare('SELECT locale FROM admin_users WHERE username = ?')
+      .get(username) as { locale: string | null } | undefined;
+    return row?.locale ?? null;
+  }
+
+  setLocale(username: string, locale: string | null): void {
+    this.db
+      .prepare('UPDATE admin_users SET locale = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?')
+      .run(locale, username);
   }
 
   hasIssuedToken(token: string): boolean {

@@ -1,21 +1,21 @@
 // Tenant Organization 生命周期状态的统一文案与标签配色,
 // 供 Web Console 各视图复用,保证状态展示一致。
 
-export const ORG_STATUS_TEXT: Record<string, string> = {
-  pending: '待审批',
-  active: '已激活',
-  failed: '开通失败',
-  rejected: '已拒绝',
-  cancelled: '已取消',
-  expired: '已过期',
-  deleting: '删除中',
-  delete_failed: '删除失败',
-  deleted: '已删除'
+const ORG_STATUS_KEYS: Record<string, string> = {
+  pending: 'status.pending',
+  active: 'status.active',
+  failed: 'status.failed',
+  rejected: 'status.rejected',
+  cancelled: 'status.cancelled',
+  expired: 'status.expired',
+  deleting: 'status.deleting',
+  delete_failed: 'status.deleteFailed',
+  deleted: 'status.deleted'
 };
 
 export function orgStatusText(status?: string | null): string {
-  if (!status) return '未纳管';
-  return ORG_STATUS_TEXT[status] ?? status;
+  if (!status) return 'status.notManaged';
+  return ORG_STATUS_KEYS[status] ?? status;
 }
 
 export function orgStatusTagType(status?: string | null): 'success' | 'warning' | 'danger' | 'info' {

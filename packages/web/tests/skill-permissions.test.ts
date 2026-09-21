@@ -560,14 +560,14 @@ describe('deriveShareState 状态推导', () => {
   };
 
   it('读写共享优先于只读共享', () => {
-    expect(deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true }).text).toBe('全员读写');
-    expect(deriveShareState({ ...baseMatrix, sharedAllRead: true }).text).toBe('全员只读');
+    expect(deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true }).key).toBe('all-write');
+    expect(deriveShareState({ ...baseMatrix, sharedAllRead: true }).key).toBe('all-read');
   });
 
   it('全员管理档位优先于读写与只读', () => {
     expect(
-      deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true, sharedAllManage: true }).text
-    ).toBe('全员管理');
+      deriveShareState({ ...baseMatrix, sharedAllRead: true, sharedAllWrite: true, sharedAllManage: true }).key
+    ).toBe('all-manage');
     expect(deriveShareState({ ...baseMatrix, sharedAllManage: true }).key).toBe('all-manage');
   });
 

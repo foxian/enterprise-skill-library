@@ -645,6 +645,36 @@ service topology from normal Skill Users.
 
 _Avoid_: registry when referring to the full user-facing service endpoint
 
+## Locale
+
+ESL 对用户可见语言的标准标识。第一阶段支持 `zh-CN` 与 `en-US`；它是语言偏好的
+存储值和客户端翻译运行时的选择值，不用于翻译用户创建的内容。
+
+## Locale Preference
+
+Skill User 或 ESL Administrator Account 主动选择的 Locale，可为空。为空表示账户
+没有主动选择语言，系统继续按临时覆盖、浏览器语言和默认语言解析。
+
+## Locale Resolution
+
+把当前临时覆盖、账户 Locale、浏览器语言和默认语言依次解析为最终 Locale 的规则。
+ESL 的优先级是临时覆盖 > 账户 Locale > 浏览器语言 > `en-US`；`zh-*` 解析为
+`zh-CN`，`en-*` 解析为 `en-US`，其他语言和无语言信息也解析为 `en-US`。
+
+## API Error Code
+
+API 用于表达业务错误的稳定机器标识，独立于用户可见文案。错误响应同时可携带插值
+参数和固定英文兜底消息，Web 与 CLI 根据 Error Code 和当前 Locale 展示本地化文案。
+
+_Avoid_: 用 API 错误消息文本作为客户端分支条件
+
+## Diagnostic Log
+
+ESL Server 输出的机器可读运行诊断记录，使用稳定事件名、结构化字段与 UTC 时间戳；
+它不是 Audit Log，也不是用户可见文案。
+
+_Avoid_: Audit Log、用户输出
+
 ## Agent Interaction Request
 
 ESL CLI 在被 AI Agent 驱动且缺少用户决策时发出的结构化请求。它描述待用户选择

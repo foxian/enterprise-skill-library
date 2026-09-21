@@ -14,6 +14,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError } from '../../i18n/locale';
 import { useRoute } from 'vue-router';
 import SkillManagePanel from '../../components/SkillManagePanel.vue';
 import { apiRequest } from '../../api/client';
@@ -49,7 +50,7 @@ onMounted(async () => {
     teams.value = teamList.filter((team) => !STANDING_TEAMS.has(team.name));
     memberOptions.value = memberList;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 });
 </script>

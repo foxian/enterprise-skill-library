@@ -1,5 +1,6 @@
 import { apiUrl, fetchWithTimeout, type NetworkCommandOptions, resolveNetworkConfig } from './network-options.js';
 import { isBuiltinIdentity } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 
 export interface SkillSearchResult {
   name: string;
@@ -15,8 +16,7 @@ export async function executeSearch(
   const res = await fetchWithTimeout(fetchImpl, apiUrl(server, `/api/skills/search?q=${encodeURIComponent(query)}`));
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Failed to search skills: ${err}`);
+    await requireOkResponse(res, 'Failed to search skills');
   }
 
   const results = (await res.json()) as SkillSearchResult[];

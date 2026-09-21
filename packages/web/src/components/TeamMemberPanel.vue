@@ -1,17 +1,17 @@
 <template>
   <div class="team-member-panel">
     <div class="console-toolbar">
-      <span>团队成员</span>
+      <span>{{ t('team.title') }}</span>
       <div class="add-member">
-        <el-input v-model="username" data-test="team-add-username" placeholder="成员用户名" style="width: 200px" />
-        <el-button type="primary" data-test="team-add-submit" @click="addMember">添加成员</el-button>
+        <el-input v-model="username" data-test="team-add-username" :placeholder="t('skill.memberUsernamePlaceholder')" style="width: 200px" />
+        <el-button type="primary" data-test="team-add-submit" @click="addMember">{{ t('actions.addMember') }}</el-button>
       </div>
     </div>
     <el-table :data="members" size="small" :data-test="`team-members-${team.name}`">
-      <el-table-column label="成员">
+      <el-table-column :label="t('columns.member')">
         <template #default="{ row }">{{ row.username }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="100">
+      <el-table-column :label="t('columns.actions')" width="100">
         <template #default="{ row }">
           <el-button
             link
@@ -19,7 +19,7 @@
             :data-test="`team-remove-${row.username}`"
             @click="removeMember(row)"
           >
-            移除
+            {{ t('actions.remove') }}
           </el-button>
         </template>
       </el-table-column>
@@ -30,8 +30,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../i18n/locale';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
+
+const { t } = useLocaleState();
 
 interface TeamView {
   id: number;
@@ -57,7 +60,7 @@ async function loadMembers(): Promise<void> {
   try {
     members.value = await apiRequest<GiteaUserView[]>(`/api/orgs/${props.org}/teams/${props.team.id}/members`);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -69,11 +72,11 @@ async function addMember(): Promise<void> {
       body: { username: username.value }
     });
     username.value = '';
-    ElMessage.success('成员已加入团队');
+    ElMessage.success(t('team.memberJoined'));
     await loadMembers();
     emit('changed');
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -84,11 +87,11 @@ async function removeMember(member: GiteaUserView): Promise<void> {
     await apiRequest(`/api/orgs/${props.org}/teams/${props.team.id}/members/${encodeURIComponent(member.username)}`, {
       method: 'DELETE'
     });
-    ElMessage.success(`已移除 ${member.username}`);
+    ElMessage.success(t('team.memberRemoved', { member: member.username }));
     await loadMembers();
     emit('changed');
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

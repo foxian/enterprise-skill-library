@@ -1,5 +1,6 @@
 import { apiUrl, fetchWithTimeout, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
 import { isBuiltinIdentity } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 
 export interface RenameOptions extends NetworkCommandOptions {
   newName: string;
@@ -26,7 +27,7 @@ export async function executeRename(identity: string, options: RenameOptions): P
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to rename skill: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to rename skill');
   }
   return response.json();
 }

@@ -1,4 +1,5 @@
 import { apiUrl, fetchWithTimeout, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
+import { requireOkResponse } from '../api-error.js';
 
 export interface RepairTagOptions extends NetworkCommandOptions {
   version: string;
@@ -18,7 +19,7 @@ export async function executeRepairTag(identity: string, options: RepairTagOptio
     { method: 'POST', headers: { Authorization: `token ${token}` } }
   );
   if (!response.ok) {
-    throw new Error(`Failed to repair release tag: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to repair release tag');
   }
   return response.json();
 }

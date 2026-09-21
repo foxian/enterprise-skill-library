@@ -31,7 +31,8 @@ import {
   validateSkillDirectory,
   validateSkillMd,
   preparePublishedSkillPackage
-} from '@esl/core';
+  } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 import {
   installTargetDir,
   gitAuthHeaderConfig,
@@ -294,8 +295,7 @@ async function installPublishedPackage(
     headers: { Authorization: `token ${authToken}` }
   });
   if (!response.ok) {
-    const message = `Failed to download Published Skill Package: ${await response.text()}`;
-    throw new Error(withAuthGuidanceIfForbidden(response.status, message));
+    await requireOkResponse(response, 'Failed to download Published Skill Package');
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
@@ -409,8 +409,7 @@ async function installPublishedDependencies(
       headers: { Authorization: `token ${authToken}` }
     });
     if (!response.ok) {
-      const message = `Failed to download dependency Published Skill Package: ${await response.text()}`;
-      throw new Error(withAuthGuidanceIfForbidden(response.status, message));
+      await requireOkResponse(response, 'Failed to download dependency Published Skill Package');
     }
     const packageBytes = Buffer.from(await response.arrayBuffer());
     const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;

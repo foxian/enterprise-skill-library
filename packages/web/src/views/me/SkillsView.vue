@@ -3,14 +3,14 @@
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
         <span class="toolbar-caption">
-          {{ lockedNamespace ? `@${lockedNamespace} 的技能` : '我的技能（跨命名空间聚合）' }}
+          {{ lockedNamespace ? t('skill.namespaceSkills', { namespace: lockedNamespace }) : t('skill.mySkills') }}
         </span>
         <!-- 锁定视图（组织详情页的「技能」页签）不再提供筛选器：范围由路由决定 -->
         <el-select
           v-if="!lockedNamespace"
           v-model="namespaceFilter"
           data-test="namespace-filter"
-          placeholder="全部命名空间"
+          :placeholder="t('skill.namespacePlaceholder')"
           clearable
           style="width: 220px"
         >
@@ -18,27 +18,27 @@
         </el-select>
       </div>
       <el-tabs v-model="activeTab">
-        <el-tab-pane label="我管理的" name="managed">
+        <el-tab-pane :label="t('skill.managedTab')" name="managed">
           <el-table :data="visibleManagedRows" data-test="skill-list-managed" v-loading="loading">
-            <el-table-column prop="name" label="技能名" />
-            <el-table-column label="命名空间" width="140">
+            <el-table-column prop="name" :label="t('skill.name')" />
+            <el-table-column :label="t('columns.namespace')" width="140">
               <template #default="{ row }">@{{ row.scope }}</template>
             </el-table-column>
-            <el-table-column label="归属关系" width="120">
+            <el-table-column :label="t('columns.ownerRelation')" width="120">
               <template #default>
-                <el-tag type="primary" data-test="relation-managed">我管理</el-tag>
+                <el-tag type="primary" data-test="relation-managed">{{ t('skill.managedTab') }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="createdBy" label="创建者" width="160" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">{{ statusText(row.status) }}</template>
+            <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+            <el-table-column :label="t('columns.status')" width="100">
+              <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
             </el-table-column>
-            <el-table-column label="共享状态" width="140">
+            <el-table-column :label="t('columns.shareStatus')" width="140">
               <template #default="{ row }">
-                <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ row.state.text }}</el-tag>
+                <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ t(row.state.text) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140">
+            <el-table-column :label="t('columns.actions')" width="140">
               <template #default="{ row }">
                 <el-button
                   link
@@ -46,31 +46,31 @@
                   :data-test="`configure-${row.skillName}`"
                   @click="openPermissions(row.scope, row.skillName)"
                 >
-                  管理
+                  {{ t('actions.manage') }}
                 </el-button>
               </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="共享给我的" name="shared">
+        <el-tab-pane :label="t('skill.sharedTab')" name="shared">
           <el-table :data="visibleSharedRows" data-test="skill-list-shared" v-loading="loading">
-            <el-table-column prop="name" label="技能名" />
-            <el-table-column label="命名空间" width="140">
+            <el-table-column prop="name" :label="t('skill.name')" />
+            <el-table-column :label="t('columns.namespace')" width="140">
               <template #default="{ row }">@{{ row.scope }}</template>
             </el-table-column>
-            <el-table-column label="归属关系" width="120">
+            <el-table-column :label="t('columns.ownerRelation')" width="120">
               <template #default>
-                <el-tag type="info" data-test="relation-shared">共享给我</el-tag>
+                <el-tag type="info" data-test="relation-shared">{{ t('skill.sharedTab') }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="createdBy" label="创建者" width="160" />
-            <el-table-column label="我的权限" width="120">
+            <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+            <el-table-column :label="t('columns.myPermission')" width="120">
               <template #default="{ row }">
-                <el-tag type="info">{{ accessText(row.access) }}</el-tag>
+                <el-tag type="info">{{ t(accessText(row.access)) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">{{ statusText(row.status) }}</template>
+            <el-table-column :label="t('columns.status')" width="100">
+              <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
 import {
   accessText,
@@ -91,6 +92,8 @@ import {
   type PermissionMatrix,
   type SkillInventoryItem
 } from '../../skills/skill-list';
+
+const { t } = useLocaleState();
 
 // 技能列表页（ADR-0035）：一处实现，两处入口——个人控制台的「技能」是跨命名
 // 空间聚合，组织详情页的「技能」页签是同一列表锁定到该组织命名空间。服务端
@@ -165,7 +168,7 @@ onMounted(async () => {
       .map((item) => ({ ...item, state: deriveShareState(item.matrix ?? fallbackMatrix(item)) }));
     sharedRows.value = items.filter((item) => item.relation === 'shared');
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }

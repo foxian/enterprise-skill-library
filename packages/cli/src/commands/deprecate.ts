@@ -1,4 +1,5 @@
 import { isBuiltinIdentity, parseSkillName } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 
 export interface DeprecateOptions extends NetworkCommandOptions {
@@ -45,7 +46,7 @@ export async function executeDeprecate(
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to update the release deprecation: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to update the release deprecation');
   }
   return response.json() as Promise<DeprecatedRelease>;
 }

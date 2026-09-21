@@ -6,6 +6,7 @@ import type { Component } from 'vue';
 import { router } from '../src/router';
 import UserRegisterView from '../src/views/UserRegisterView.vue';
 import { setFetchImpl } from '../src/api/client';
+import { initializeLocale } from '../src/i18n/locale';
 
 // 用户自助注册页（ADR-0032 / #52）：open 注册即用，approval 展示待审批状态。
 function mockFetch(platformInfo: { registrationMode: 'open' | 'approval' }, registerStatus: number, registerBody: unknown): {
@@ -33,6 +34,7 @@ function mockFetch(platformInfo: { registrationMode: 'open' | 'approval' }, regi
 async function mountUserRegister(): Promise<VueWrapper> {
   const pinia = createPinia();
   setActivePinia(pinia);
+  await initializeLocale({ browserLanguages: ['zh-CN'] });
   return mount(UserRegisterView as unknown as Component, {
     global: {
       plugins: [pinia, ElementPlus, router]

@@ -76,7 +76,7 @@ describe('Skill Delete API', () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('archived');
+    expect(response.json().message).toContain('archived');
   });
 
   it('rejects deletion without a reason', async () => {
@@ -91,7 +91,7 @@ describe('Skill Delete API', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json().error).toContain('reason');
+    expect(response.json().message).toContain('reason');
   });
 
   it('completely deletes an archived personal skill for its creator and writes an audit', async () => {
@@ -172,7 +172,7 @@ describe('Skill Delete API', () => {
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json().error).toContain('confirm');
+    expect(response.json().message).toContain('confirm');
     const stillThere = await app.inject({
       method: 'GET',
       url: '/api/skills/@alice/reviewer',

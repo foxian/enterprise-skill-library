@@ -4,6 +4,7 @@ import ElementPlus from 'element-plus';
 import type { Component } from 'vue';
 import { router } from '../src/router';
 import { setFetchImpl } from '../src/api/client';
+import { initializeLocale } from '../src/i18n/locale';
 import { useAuthStore, type AuthSession } from '../src/stores/auth';
 
 // 记录请求并按路由表返回响应的 fetch mock（测试接缝）
@@ -72,6 +73,7 @@ export async function mountConsoleView(
   options: { account: AccountKind; route: string; props?: Record<string, unknown> }
 ): Promise<VueWrapper> {
   localStorage.clear();
+  await initializeLocale({ browserLanguages: ['zh-CN'] });
   const pinia = createPinia();
   setActivePinia(pinia);
   useAuthStore().establish(ACCOUNTS[options.account]);
@@ -90,6 +92,7 @@ export async function mountConsoleView(
 
 export async function resetConsole(): Promise<void> {
   localStorage.clear();
+  await initializeLocale({ browserLanguages: ['zh-CN'] });
   const pinia = createPinia();
   setActivePinia(pinia);
   useAuthStore().logout();

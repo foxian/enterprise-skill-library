@@ -346,7 +346,7 @@ describe('organization creation', () => {
     });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error).toContain('already exists');
+    expect(res.json().message).toContain('already exists');
   });
 
   it('reports an unreachable Git Backend as 502 rather than 500', async () => {
@@ -379,7 +379,7 @@ describe('organization creation', () => {
 
     expect(res.statusCode).toBe(409);
     expect(gitea.createOrg).not.toHaveBeenCalled();
-    expect(res.json().error).toContain('already taken');
+    expect(res.json().message).toContain('already taken');
   });
 
   it('deduplicates a pending application with the same name at submission time', async () => {
@@ -397,6 +397,6 @@ describe('organization creation', () => {
       payload: { orgName: 'beta' }
     });
     expect(duplicate.statusCode).toBe(409);
-    expect(duplicate.json().error).toContain('pending');
+    expect(duplicate.json().message).toContain('pending');
   });
 });

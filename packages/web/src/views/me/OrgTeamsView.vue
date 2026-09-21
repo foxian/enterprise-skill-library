@@ -2,22 +2,22 @@
   <div>
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
-        <span class="toolbar-caption">团队 {{ teams.length }} 个</span>
+        <span class="toolbar-caption">{{ t('team.count', { count: teams.length }) }}</span>
         <el-button type="primary" data-test="open-create-team" @click="createDialogVisible = true">
-          新建团队
+          {{ t('team.createTitle') }}
         </el-button>
       </div>
 
       <el-table :data="teams" data-test="teams-table" v-loading="loading">
-      <el-table-column label="标识名" min-width="140">
+      <el-table-column :label="t('columns.identifier')" min-width="140">
         <template #default="{ row }">{{ row.name }}</template>
       </el-table-column>
-      <el-table-column label="显示名" min-width="150">
+      <el-table-column :label="t('columns.displayName')" min-width="150">
         <template #default="{ row }">{{ row.display_name || '—' }}</template>
       </el-table-column>
-      <el-table-column label="类型" width="100">
+      <el-table-column :label="t('columns.type')" width="100">
         <template #default>
-          <el-tag>自定义</el-tag>
+          <el-tag>{{ t('team.custom') }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column type="expand">
@@ -25,13 +25,13 @@
           <TeamMemberPanel :team="row" :org="org" @changed="loadTeams" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="140">
+      <el-table-column :label="t('columns.actions')" width="140">
         <template #default="{ row }">
           <el-button link type="primary" :data-test="`edit-team-${row.name}`" @click="confirmEditTeam(row)">
-            编辑
+            {{ t('actions.edit') }}
           </el-button>
           <el-button link type="danger" :data-test="`delete-team-${row.name}`" @click="confirmDeleteTeam(row)">
-            删除
+            {{ t('actions.delete') }}
           </el-button>
         </template>
       </el-table-column>
@@ -39,51 +39,51 @@
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" title="新建团队" width="460px">
+    <el-dialog v-model="createDialogVisible" :title="t('team.createTitle')" width="460px">
       <el-form label-width="100px">
-        <el-form-item label="标识名" required>
-          <el-input v-model="newTeamName" data-test="new-team-name" placeholder="小写字母、数字与连字符" />
+        <el-form-item :label="t('columns.identifier')" required>
+          <el-input v-model="newTeamName" data-test="new-team-name" :placeholder="t('organization.orgNamePlaceholder')" />
         </el-form-item>
-        <el-form-item label="显示名">
+        <el-form-item :label="t('columns.displayName')">
           <el-input
             v-model="newTeamDisplayName"
             data-test="new-team-display-name"
             maxlength="64"
-            placeholder="中文显示名，可留空"
+            :placeholder="t('team.displayNamePlaceholder')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
-        <el-button type="primary" data-test="create-team-submit" @click="createTeam">创建</el-button>
+        <el-button @click="createDialogVisible = false">{{ t('actions.cancel') }}</el-button>
+        <el-button type="primary" data-test="create-team-submit" @click="createTeam">{{ t('actions.create') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="deleteDialogVisible" title="删除团队" width="420px">
-      <p>确认删除团队 <strong>{{ deleteTargetName }}</strong>？成员将失去该团队的权限。</p>
+    <el-dialog v-model="deleteDialogVisible" :title="t('team.deleteTitle')" width="420px">
+      <p>{{ t('team.deleteWarning', { team: deleteTargetName }) }}</p>
       <template #footer>
-        <el-button @click="deleteDialogVisible = false">取消</el-button>
-        <el-button type="danger" data-test="delete-team-confirm" @click="deleteTeam">确认删除</el-button>
+        <el-button @click="deleteDialogVisible = false">{{ t('actions.cancel') }}</el-button>
+        <el-button type="danger" data-test="delete-team-confirm" @click="deleteTeam">{{ t('actions.confirmDelete') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="editDialogVisible" title="编辑团队" width="460px">
+    <el-dialog v-model="editDialogVisible" :title="t('team.editTitle')" width="460px">
       <el-form label-width="100px">
-        <el-form-item label="标识名" required>
-          <el-input v-model="editName" data-test="edit-team-name" placeholder="小写字母、数字与连字符" />
+        <el-form-item :label="t('columns.identifier')" required>
+          <el-input v-model="editName" data-test="edit-team-name" :placeholder="t('organization.orgNamePlaceholder')" />
         </el-form-item>
-        <el-form-item label="显示名">
+        <el-form-item :label="t('columns.displayName')">
           <el-input
             v-model="editDisplayName"
             data-test="edit-team-display-name"
             maxlength="64"
-            placeholder="中文显示名，留空则清除"
+            :placeholder="t('team.displayNameClearPlaceholder')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" data-test="edit-team-confirm" @click="editTeam">保存</el-button>
+        <el-button @click="editDialogVisible = false">{{ t('actions.cancel') }}</el-button>
+        <el-button type="primary" data-test="edit-team-confirm" @click="editTeam">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -91,10 +91,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import TeamMemberPanel from '../../components/TeamMemberPanel.vue';
+
+const { t } = useLocaleState();
 
 // 组织由路由显式指名（ADR-0035），不再是会话里的隐式"当前组织"。
 const route = useRoute();
@@ -131,7 +134,7 @@ async function loadTeams(): Promise<void> {
   try {
     teams.value = await apiRequest<TeamView[]>(`/api/orgs/${org.value}/teams`);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
@@ -150,10 +153,10 @@ async function createTeam(): Promise<void> {
     createDialogVisible.value = false;
     newTeamName.value = '';
     newTeamDisplayName.value = '';
-    ElMessage.success('团队已创建');
+    ElMessage.success(t('team.created'));
     await loadTeams();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -168,10 +171,10 @@ async function deleteTeam(): Promise<void> {
   try {
     await apiRequest(`/api/orgs/${org.value}/teams/${deleteTargetId.value}`, { method: 'DELETE' });
     deleteDialogVisible.value = false;
-    ElMessage.success(`团队 ${deleteTargetName.value} 已删除`);
+    ElMessage.success(t('team.deleted', { team: deleteTargetName.value }));
     await loadTeams();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -195,10 +198,10 @@ async function editTeam(): Promise<void> {
       }
     });
     editDialogVisible.value = false;
-    ElMessage.success('团队已更新');
+    ElMessage.success(t('team.updated'));
     await loadTeams();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

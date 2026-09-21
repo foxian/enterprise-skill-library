@@ -103,8 +103,8 @@ describe('organization namespace publish', () => {
     const res = await upload('mallory-token', '@acme/jacked');
 
     expect(res.statusCode).toBe(403);
-    expect(res.json().error).toContain('member');
-    expect(res.json().error).toContain('acme');
+    expect(res.json().message).toContain('member');
+    expect(res.json().message).toContain('acme');
     expect(gitea.createRepo).not.toHaveBeenCalledWith('acme', 'jacked', true);
   });
 
@@ -164,7 +164,7 @@ describe('organization namespace publish', () => {
     });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error).toContain('@acme/tool');
+    expect(res.json().message).toContain('@acme/tool');
   });
 
   it('keeps the resume path for an interrupted first upload by the same creator', async () => {

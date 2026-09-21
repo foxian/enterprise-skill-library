@@ -1,5 +1,6 @@
 import { parseSkillName, isBuiltinIdentity } from '@esl/core';
 import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
+import { requireOkResponse } from '../api-error.js';
 
 export interface ShareOptions extends NetworkCommandOptions {
   all?: boolean;
@@ -71,7 +72,7 @@ export async function executeShare(identity: string, options: ShareOptions): Pro
     }
   );
   if (!response.ok) {
-    throw new Error(`Failed to update skill permissions: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to update skill permissions');
   }
   return response.json();
 }

@@ -88,7 +88,7 @@ describe('personal namespace publish', () => {
     });
 
     expect(res.statusCode).toBe(403);
-    expect(res.json().error).toContain('alice');
+    expect(res.json().message).toContain('alice');
   });
 
   it('publishes when the manifest name matches the established identity (bare form included)', async () => {
@@ -138,8 +138,8 @@ describe('personal namespace publish', () => {
     });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json().error).toContain('name');
-    expect(res.json().error).toContain('@alice/reviewer');
+    expect(res.json().message).toContain('name');
+    expect(res.json().message).toContain('@alice/reviewer');
   });
 
   it('rejects a v2 manifest at publish time with the upgrade hint', async () => {
@@ -161,6 +161,6 @@ describe('personal namespace publish', () => {
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json().error).toContain('schemaVersion to 3');
+    expect(res.json().message).toContain('schemaVersion to 3');
   });
 });

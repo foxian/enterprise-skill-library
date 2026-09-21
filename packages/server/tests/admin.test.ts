@@ -118,7 +118,9 @@ describe('Admin API', () => {
 
     expect(response.statusCode).toBe(403);
     expect(response.json()).toEqual({
-      error: 'Administrator account login required to change its password'
+      code: 'administratorAccountLoginRequiredToChangeItsPassword',
+      params: {},
+      message: 'Administrator account login required to change its password'
     });
     expect(changeAdminPassword).not.toHaveBeenCalled();
   });

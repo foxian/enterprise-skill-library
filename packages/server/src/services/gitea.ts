@@ -1,4 +1,5 @@
 import { giteaUserEmail } from '@esl/core';
+import { logEvent, type DiagnosticLogger } from '../logging.js';
 
 export interface GiteaUser {
   id: number;
@@ -74,14 +75,81 @@ export class GiteaRequestError extends Error {
   }
 }
 
+// 慢调用阈值（ADR-0045）：本期用代码内常量，不引入额外的配置面。
+export const GITEA_SLOW_CALL_MS = 1000;
+
 export class GiteaService {
   constructor(
     private baseUrl: string,
     private adminToken: string,
     private customFetch: typeof fetch = fetch,
     readonly adminUsername?: string,
-    private adminPassword?: string
+    private adminPassword?: string,
+    private logger?: DiagnosticLogger
   ) {}
+
+  // Git Backend 调用的唯一出口（ADR-0045）：所有 HTTP 都经过这里，保证每次调用
+  // 都带 dependency/operation/method/statusCode/durationMs/outcome，不会因为
+  // 漏改某个方法而丢失依赖调用路径。凭据只出现在 headers 里，绝不进日志。
+  private async request(
+    operation: string,
+    url: string,
+    init?: Parameters<typeof fetch>[1]
+  ): Promise<Response> {
+    const startedAt = Date.now();
+    const method = init?.method ?? 'GET';
+    try {
+      // 保持出站调用的形状不变：没有 init 时仍然只传 url，不让日志改造改变
+      // 依赖的调用约定。
+      const response = init === undefined
+        ? await this.customFetch(url)
+        : await this.customFetch(url, init);
+      this.logBackendCall(operation, method, response.status, Date.now() - startedAt);
+      return response;
+    } catch (error) {
+      this.logBackendCall(operation, method, undefined, Date.now() - startedAt, error);
+      throw error;
+    }
+  }
+
+  // 成功调用记 debug；上游故障（网络异常或 5xx）记 error；慢调用提升到 warn，
+  // 这样默认 info 级别也能看见性能退化。4xx 保持 debug——探活式的 404（组织是否
+  // 存在、用户是否存在）是正常路径，不该把日志刷成错误。
+  private logBackendCall(
+    operation: string,
+    method: string,
+    statusCode: number | undefined,
+    durationMs: number,
+    error?: unknown
+  ): void {
+    if (!this.logger) {
+      return;
+    }
+    const slow = durationMs > GITEA_SLOW_CALL_MS;
+    const unavailable = error !== undefined || (statusCode !== undefined && statusCode >= 500);
+    const rejected = !unavailable && statusCode !== undefined && statusCode >= 400;
+    logEvent(
+      this.logger,
+      unavailable ? 'error' : slow ? 'warn' : 'debug',
+      {
+        event: 'dependency.call',
+        outcome: unavailable || rejected ? 'failed' : 'succeeded',
+        dependency: 'gitea',
+        operation,
+        method,
+        statusCode,
+        durationMs,
+        ...(slow ? { slow: true } : {}),
+        ...(unavailable
+          ? { errorCode: 'gitBackendUnavailable' }
+          : rejected
+            ? { errorCode: 'gitBackendRejected' }
+            : {}),
+        ...(error !== undefined ? { err: error } : {})
+      },
+      unavailable ? 'Git backend call failed' : slow ? 'Git backend call is slow' : 'Git backend call'
+    );
+  }
 
   async listUsers(search?: string): Promise<GiteaAdminUser[]> {
     const url = new URL(`${this.baseUrl}/api/v1/admin/users`);
@@ -89,7 +157,7 @@ export class GiteaService {
     if (search) {
       url.searchParams.set('search', search);
     }
-    const res = await this.customFetch(url.toString(), {
+    const res = await this.request('listUsers', url.toString(), {
       headers: { Authorization: `token ${this.adminToken}` }
     });
     if (!res.ok) {
@@ -100,7 +168,7 @@ export class GiteaService {
   }
 
   async validateToken(token: string): Promise<GiteaUser | null> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/user`, {
+    const res = await this.request('validateToken', `${this.baseUrl}/api/v1/user`, {
       headers: { Authorization: `token ${token}` }
     });
 
@@ -111,7 +179,7 @@ export class GiteaService {
   // 按用户名查账号（ADR-0032 扁平命名池查重）：Gitea 中组织与用户共享同一
   // 命名空间（org 即 users 表的 organization 类型），一个查询同时覆盖两类占用。
   async getUser(username: string): Promise<GiteaUser | null> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}`, {
+    const res = await this.request('getUser', `${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -135,7 +203,7 @@ export class GiteaService {
   }
 
   async isReady(): Promise<boolean> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/version`);
+    const res = await this.request('isReady', `${this.baseUrl}/api/v1/version`);
     return res.ok;
   }
 
@@ -161,7 +229,7 @@ export class GiteaService {
     password: string,
     options: { tolerateExisting?: boolean } = {}
   ): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users`, {
+    const res = await this.request('createUser', `${this.baseUrl}/api/v1/admin/users`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -185,7 +253,7 @@ export class GiteaService {
 
   async validateUserPassword(username: string, password: string): Promise<boolean> {
     const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/user`, {
+    const res = await this.request('validateUserPassword', `${this.baseUrl}/api/v1/user`, {
       headers: { Authorization: basicAuth }
     });
     return res.ok;
@@ -196,7 +264,7 @@ export class GiteaService {
       throw new Error('Gitea admin username/password required to issue user tokens');
     }
     const basicAuth = `Basic ${Buffer.from(`${this.adminUsername}:${this.adminPassword}`).toString('base64')}`;
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${username}/tokens`, {
+    const res = await this.request('issueUserToken', `${this.baseUrl}/api/v1/users/${username}/tokens`, {
       method: 'POST',
       headers: {
         Authorization: basicAuth,
@@ -216,7 +284,7 @@ export class GiteaService {
 
   async loginUser(username: string, password: string): Promise<string | null> {
     const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/users/${username}/tokens`, {
+    const res = await this.request('loginUser', `${this.baseUrl}/api/v1/users/${username}/tokens`, {
       method: 'POST',
       headers: {
         Authorization: basicAuth,
@@ -238,7 +306,7 @@ export class GiteaService {
   }
 
   async disableUser(username: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
+    const res = await this.request('disableUser', `${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -254,7 +322,7 @@ export class GiteaService {
   }
 
   async enableUser(username: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
+    const res = await this.request('enableUser', `${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -270,7 +338,7 @@ export class GiteaService {
   }
 
   async changeUserPassword(username: string, password: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}`, {
+    const res = await this.request('changeUserPassword', `${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -293,7 +361,7 @@ export class GiteaService {
   }
 
   async ensureAdminUser(username: string, password: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users`, {
+    const res = await this.request('ensureAdminUser', `${this.baseUrl}/api/v1/admin/users`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -314,7 +382,7 @@ export class GiteaService {
   }
 
   async createAdminToken(username: string, tokenName: string): Promise<string> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/users/${username}/tokens`, {
+    const res = await this.request('createAdminToken', `${this.baseUrl}/api/v1/admin/users/${username}/tokens`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -334,7 +402,7 @@ export class GiteaService {
 
   async createRepo(owner: string, name: string, isPrivate = false): Promise<GiteaRepo> {
     let url = `${this.baseUrl}/api/v1/admin/users/${owner}/repos`;
-    let res = await this.customFetch(url, {
+    let res = await this.request('createRepo', url, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -345,7 +413,7 @@ export class GiteaService {
 
     if (!res.ok && res.status === 404) {
       url = `${this.baseUrl}/api/v1/orgs/${owner}/repos`;
-      res = await this.customFetch(url, {
+      res = await this.request('createRepo', url, {
         method: 'POST',
         headers: {
           Authorization: `token ${this.adminToken}`,
@@ -364,7 +432,7 @@ export class GiteaService {
   }
 
   async createOrganizationRepo(owner: string, name: string, isPrivate = false): Promise<GiteaRepo> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${owner}/repos`, {
+    const res = await this.request('createOrganizationRepo', `${this.baseUrl}/api/v1/orgs/${owner}/repos`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -382,7 +450,7 @@ export class GiteaService {
   }
 
   async getRepo(owner: string, name: string): Promise<GiteaRepo | null> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
+    const res = await this.request('getRepo', `${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -394,7 +462,7 @@ export class GiteaService {
   }
 
   async renameRepo(owner: string, name: string, nextName: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
+    const res = await this.request('renameRepo', `${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -409,7 +477,7 @@ export class GiteaService {
   }
 
   async deleteRepo(owner: string, name: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
+    const res = await this.request('deleteRepo', `${this.baseUrl}/api/v1/repos/${owner}/${name}`, {
       method: 'DELETE',
       headers: { Authorization: `token ${this.adminToken}` }
     });
@@ -421,7 +489,7 @@ export class GiteaService {
   }
 
   async createOrg(name: string, options: { tolerateExisting?: boolean } = {}): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs`, {
+    const res = await this.request('createOrg', `${this.baseUrl}/api/v1/orgs`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -439,7 +507,7 @@ export class GiteaService {
   }
 
   async listOrgRepos(org: string): Promise<GiteaRepo[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/repos`, {
+    const res = await this.request('listOrgRepos', `${this.baseUrl}/api/v1/orgs/${org}/repos`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -452,7 +520,7 @@ export class GiteaService {
   }
 
   async deleteOrg(name: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${name}`, {
+    const res = await this.request('deleteOrg', `${this.baseUrl}/api/v1/orgs/${name}`, {
       method: 'DELETE',
       headers: { Authorization: `token ${this.adminToken}` }
     });
@@ -464,7 +532,7 @@ export class GiteaService {
   }
 
   async listOrgs(): Promise<GiteaOrg[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/admin/orgs`, {
+    const res = await this.request('listOrgs', `${this.baseUrl}/api/v1/admin/orgs`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -482,7 +550,7 @@ export class GiteaService {
     const orgs: GiteaOrg[] = [];
     const pageSize = 50;
     for (let page = 1; page <= 200; page++) {
-      const res = await this.customFetch(
+      const res = await this.request('listUserOrgs', 
         `${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}/orgs?limit=${pageSize}&page=${page}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
@@ -526,7 +594,7 @@ export class GiteaService {
     const unitsMap: Record<string, 'read' | 'write'> = Object.fromEntries(
       TEAM_REPO_UNITS.map((unit) => [unit, unitPermission])
     );
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
+    const res = await this.request('createTeam', `${this.baseUrl}/api/v1/orgs/${org}/teams`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -551,7 +619,7 @@ export class GiteaService {
   }
 
   async deleteTeam(teamId: number): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}`, {
+    const res = await this.request('deleteTeam', `${this.baseUrl}/api/v1/teams/${teamId}`, {
       method: 'DELETE',
       headers: { Authorization: `token ${this.adminToken}` }
     });
@@ -578,7 +646,7 @@ export class GiteaService {
         TEAM_REPO_UNITS.map((unit) => [unit, unitPermission])
       );
     }
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}`, {
+    const res = await this.request('updateTeam', `${this.baseUrl}/api/v1/teams/${teamId}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -597,7 +665,7 @@ export class GiteaService {
   }
 
   async listTeams(org: string): Promise<GiteaTeam[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${org}/teams`, {
+    const res = await this.request('listTeams', `${this.baseUrl}/api/v1/orgs/${org}/teams`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -611,7 +679,7 @@ export class GiteaService {
   }
 
   async addTeamMember(teamId: number, username: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('addTeamMember', 
       `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
       {
         method: 'PUT',
@@ -626,7 +694,7 @@ export class GiteaService {
   }
 
   async removeTeamMember(teamId: number, username: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('removeTeamMember', 
       `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
       {
         method: 'DELETE',
@@ -641,7 +709,7 @@ export class GiteaService {
   }
 
   async addTeamRepo(teamId: number, owner: string, repo: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
+    const res = await this.request('addTeamRepo', `${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
       method: 'PUT',
       headers: { Authorization: `token ${this.adminToken}` }
     });
@@ -653,7 +721,7 @@ export class GiteaService {
   }
 
   async removeTeamRepo(teamId: number, owner: string, repo: string): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
+    const res = await this.request('removeTeamRepo', `${this.baseUrl}/api/v1/teams/${teamId}/repos/${owner}/${repo}`, {
       method: 'DELETE',
       headers: { Authorization: `token ${this.adminToken}` }
     });
@@ -670,7 +738,7 @@ export class GiteaService {
     username: string,
     permission: 'read' | 'write' | 'admin' = 'write'
   ): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('addCollaborator', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
       {
         method: 'PUT',
@@ -688,7 +756,7 @@ export class GiteaService {
   }
 
   async removeCollaborator(owner: string, repository: string, username: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('removeCollaborator', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
       {
         method: 'DELETE',
@@ -709,7 +777,7 @@ export class GiteaService {
     const members: GiteaUser[] = [];
     const pageSize = 50;
     for (let page = 1; page <= 200; page++) {
-      const res = await this.customFetch(
+      const res = await this.request('listOrgMembers', 
         `${this.baseUrl}/api/v1/orgs/${org}/members?limit=${pageSize}&page=${page}`,
         {
           headers: { Authorization: `token ${this.adminToken}` }
@@ -736,7 +804,7 @@ export class GiteaService {
     const members: GiteaUser[] = [];
     const pageSize = 50;
     for (let page = 1; page <= 200; page++) {
-      const res = await this.customFetch(
+      const res = await this.request('listTeamMembers', 
         `${this.baseUrl}/api/v1/teams/${teamId}/members?limit=${pageSize}&page=${page}`,
         {
           headers: { Authorization: `token ${this.adminToken}` }
@@ -758,7 +826,7 @@ export class GiteaService {
   }
 
   async removeOrgMember(org: string, username: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('removeOrgMember', 
       `${this.baseUrl}/api/v1/orgs/${org}/members/${encodeURIComponent(username)}`,
       {
         method: 'DELETE',
@@ -773,7 +841,7 @@ export class GiteaService {
   }
 
   async deleteUser(username: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('deleteUser', 
       `${this.baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`,
       {
         method: 'DELETE',
@@ -789,7 +857,7 @@ export class GiteaService {
   }
 
   async listCollaborators(owner: string, repository: string): Promise<GiteaUser[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators`, {
+    const res = await this.request('listCollaborators', `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -806,7 +874,7 @@ export class GiteaService {
   }
 
   async listRepoTeams(owner: string, repository: string): Promise<GiteaTeam[]> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/teams`, {
+    const res = await this.request('listRepoTeams', `${this.baseUrl}/api/v1/repos/${owner}/${repository}/teams`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -830,7 +898,7 @@ export class GiteaService {
 
   // 团队挂载的全部仓库(ADR-0029 用于统计该团队已授权的技能数)。
   async listTeamRepos(teamId: number): Promise<Array<{ id: number; name: string; full_name: string }>> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/teams/${teamId}/repos`, {
+    const res = await this.request('listTeamRepos', `${this.baseUrl}/api/v1/teams/${teamId}/repos`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 
@@ -843,7 +911,7 @@ export class GiteaService {
   }
 
   async isTeamMember(teamId: number, username: string): Promise<boolean> {
-    const res = await this.customFetch(
+    const res = await this.request('isTeamMember', 
       `${this.baseUrl}/api/v1/teams/${teamId}/members/${encodeURIComponent(username)}`,
       { headers: { Authorization: `token ${this.adminToken}` } }
     );
@@ -856,7 +924,7 @@ export class GiteaService {
   }
 
   async isCollaborator(owner: string, repository: string, username: string): Promise<boolean> {
-    const res = await this.customFetch(
+    const res = await this.request('isCollaborator', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}`,
       { headers: { Authorization: `token ${this.adminToken}` } }
     );
@@ -869,7 +937,7 @@ export class GiteaService {
   }
 
   async getCollaboratorPermission(owner: string, repository: string, username: string): Promise<string> {
-    const res = await this.customFetch(
+    const res = await this.request('getCollaboratorPermission', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/collaborators/${encodeURIComponent(username)}/permission`,
       { headers: { Authorization: `token ${this.adminToken}` } }
     );
@@ -888,7 +956,7 @@ export class GiteaService {
   }
 
   async setRepositoryArchived(owner: string, repository: string, archived: boolean): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}`, {
+    const res = await this.request('setRepositoryArchived', `${this.baseUrl}/api/v1/repos/${owner}/${repository}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -909,7 +977,7 @@ export class GiteaService {
     target: string,
     message: string
   ): Promise<void> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/repos/${owner}/${repository}/tags`, {
+    const res = await this.request('createReleaseTag', `${this.baseUrl}/api/v1/repos/${owner}/${repository}/tags`, {
       method: 'POST',
       headers: {
         Authorization: `token ${this.adminToken}`,
@@ -924,7 +992,7 @@ export class GiteaService {
   }
 
   async deleteReleaseTag(owner: string, repository: string, tag: string): Promise<void> {
-    const res = await this.customFetch(
+    const res = await this.request('deleteReleaseTag', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/refs/tags/${encodeURIComponent(tag)}`,
       {
         method: 'DELETE',
@@ -939,7 +1007,7 @@ export class GiteaService {
   }
 
   async getReleaseTag(owner: string, repository: string, tag: string): Promise<GiteaTag | null> {
-    const res = await this.customFetch(
+    const res = await this.request('getReleaseTag', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/refs/tags/${encodeURIComponent(tag)}`,
       { headers: { Authorization: `token ${this.adminToken}` } }
     );
@@ -955,7 +1023,7 @@ export class GiteaService {
       name?: string;
     };
     if (body.object?.type === 'tag' && body.object.sha) {
-      const tagObject = await this.customFetch(
+      const tagObject = await this.request('getReleaseTag', 
         `${this.baseUrl}/api/v1/repos/${owner}/${repository}/git/tags/${encodeURIComponent(body.object.sha)}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
@@ -985,7 +1053,7 @@ export class GiteaService {
       }
       // The contents directory listing omits file contents; fetch each file
       // individually to get its content.
-      const res = await this.customFetch(
+      const res = await this.request('readSourceTree', 
         `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/${entry.path}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
@@ -1000,7 +1068,7 @@ export class GiteaService {
     };
     const visit = async (directory: string): Promise<void> => {
       const suffix = directory ? `/${directory}` : '';
-      const response = await this.customFetch(
+      const response = await this.request('readSourceTree', 
         `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents${suffix}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
@@ -1023,7 +1091,7 @@ export class GiteaService {
 
   async updateSkillName(owner: string, repository: string, shortName: string): Promise<void> {
     const url = `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/SKILL.md?ref=main`;
-    const read = await this.customFetch(url, {
+    const read = await this.request('updateSkillName', url, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
     if (!read.ok) {
@@ -1039,7 +1107,7 @@ export class GiteaService {
       (_match, open: string, frontmatter: string, close: string) =>
         `${open}${frontmatter.replace(/(^name:\s*)[^\r\n]+/m, `$1${shortName}`)}${close}`
     );
-    const write = await this.customFetch(
+    const write = await this.request('updateSkillName', 
       `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/SKILL.md`,
       {
         method: 'PUT',
@@ -1062,7 +1130,7 @@ export class GiteaService {
   }
 
   async organizationExists(owner: string): Promise<boolean> {
-    const res = await this.customFetch(`${this.baseUrl}/api/v1/orgs/${owner}`, {
+    const res = await this.request('organizationExists', `${this.baseUrl}/api/v1/orgs/${owner}`, {
       headers: { Authorization: `token ${this.adminToken}` }
     });
 

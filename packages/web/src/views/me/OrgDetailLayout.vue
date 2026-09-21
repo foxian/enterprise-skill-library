@@ -2,26 +2,26 @@
   <div>
     <div class="org-identity">
       <span class="org-name" data-test="org-identity">@{{ org }}</span>
-      <el-tag :type="identityTagType(identity ?? '')" size="small">{{ identityLabel(identity ?? '') }}</el-tag>
+      <el-tag :type="identityTagType(identity ?? '')" size="small">{{ t(identityLabel(identity ?? '')) }}</el-tag>
     </div>
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
-      <el-tab-pane label="成员" name="members" />
-      <el-tab-pane label="团队" name="teams" />
-      <el-tab-pane label="技能" name="skills" />
+      <el-tab-pane :label="t('columns.member')" name="members" />
+      <el-tab-pane :label="t('nav.orgTeams')" name="teams" />
+      <el-tab-pane :label="t('nav.skills')" name="skills" />
     </el-tabs>
     <router-view />
 
     <!-- 组织删除（ADR-0034）：所有者成员即可发起，手打组织名确认 -->
     <el-card v-if="isOwnerMember" class="danger-zone" data-test="org-danger-zone">
-      <template #header>危险操作</template>
+      <template #header>{{ t('organization.dangerTitle') }}</template>
       <p class="danger-hint">
-        删除组织将移除其全部技能仓库与关联数据（成员是全局账号，不受影响），操作不可恢复。
-        组织名会在删除完成后回到名字池，可被重新占用。
+        {{ t('organization.deleteWarning') }}
+        {{ t('organization.deleteReleasedNameHint') }}
       </p>
       <el-input
         v-model="confirmInput"
         data-test="org-delete-confirm-input"
-        placeholder="请输入组织名以确认删除"
+        :placeholder="t('organization.enterOrgNameToConfirm')"
         class="danger-input"
       />
       <el-button
@@ -31,7 +31,7 @@
         :loading="deleting"
         @click="deleteOrg"
       >
-        彻底删除组织
+        {{ t('organization.permanentlyDelete') }}
       </el-button>
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
@@ -40,11 +40,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { useAuthStore } from '../../stores/auth';
+
+const { t } = useLocaleState();
 
 // 组织详情：成员 / 团队 / 技能三个页签（ADR-0035）。没有"设置"页签——组织名
 // 不可改名（ADR-0032）是既定事实，不是被藏起来的功能。
@@ -82,12 +85,12 @@ async function deleteOrg(): Promise<void> {
       method: 'DELETE',
       body: { confirm: confirmInput.value }
     });
-    ElMessage.success(`组织 ${org.value} 已删除`);
+    ElMessage.success(t('organization.orgDeleted', { org: org.value }));
     await router.push({ name: 'me-orgs' });
   } catch (error) {
     // 删除失败（如 Git Backend 有外部资源）不是死局：状态会落成 delete_failed，
     // 组织列表页带着失败原因再做重试。
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     deleting.value = false;
   }

@@ -122,6 +122,6 @@ describe('skill visibility', () => {
       headers: { authorization: 'token zoe-token' }
     });
     expect(info.statusCode).toBe(403);
-    expect(info.json().error).toContain('private');
+    expect(info.json().message).toContain('private');
   });
 });

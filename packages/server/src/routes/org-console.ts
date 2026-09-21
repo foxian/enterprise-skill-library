@@ -1,3 +1,4 @@
+import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isStandingTeam, validateMemberUsername, type OrgIdentity } from '@esl/core';
 import type {
@@ -8,7 +9,9 @@ import type {
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
-import { performOrganizationDeletion } from '../services/org-delete.js';
+import { ORG_DELETION_TASK_ID, performOrganizationDeletion } from '../services/org-delete.js';
+import { logEvent, taskLogger } from '../logging.js';
+import type { ApiErrorCode } from '@esl/i18n';
 import {
   addMemberToAutoJoinTeams,
   applyOrgIdentity,
@@ -83,6 +86,35 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   });
 
   // 身份变更（ADR-0038）：提升 / 收回，是成员列表上的一等动作，只有所有者成员能做。
+
+// 组织成员治理事件（ADR-0045）：成员身份、隶属关系与邀请的**状态变化**才记录，
+// 成员列表这类读请求不记。resourceType=member，resourceId=被治理的用户名，这样
+// 按组织过滤后能直接看到"谁对谁做了什么"。
+function logMemberEvent(
+  request: FastifyRequest,
+  actorUsername: string,
+  organization: string,
+  username: string,
+  outcome: 'succeeded' | 'failed',
+  message: string,
+  errorCode?: ApiErrorCode
+): void {
+  logEvent(
+    request.log,
+    outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event: 'organization.membership',
+      outcome,
+      actorUsername,
+      organization,
+      resourceType: 'member',
+      resourceId: username,
+      ...(errorCode ? { errorCode } : {})
+    },
+    message
+  );
+}
+
   // 三档嵌套由 applyOrgIdentity 落实；"不能让组织失去全部所有者成员"是唯一不变量。
   app.put('/api/orgs/:orgName/members/:username/identity', async (request, reply) => {
     const org = await requireOrgAdministrator(request, reply, giteaService, tenantOrganizationRepository);
@@ -90,18 +122,26 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const username = decodeURIComponent((request.params as { username: string }).username);
     const { identity } = (request.body ?? {}) as { identity?: string };
     if (identity !== 'ordinary' && identity !== 'managing' && identity !== 'owner') {
-      return reply.status(400).send({ error: 'Identity must be ordinary, managing, or owner' });
+      return reply.status(400).send(apiError('identityMustBeOrdinaryManagingOrOwner'));
     }
     // 身份变更只作用于**已在组织里**的人；把组织外的人拉进来是「添加成员」或
     // 平台超管的空降路径（/api/admin/...），不走这里。
     if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
-      return reply.status(404).send({ error: `User is not a member of ${org}` });
+      return reply.status(404).send(apiError('userIsNotMemberOf', { org }));
     }
     const blocked = await checkOwnerMemberInvariant(giteaService, org, username, identity);
     if (blocked) {
-      return reply.status(400).send({ error: blocked });
+      return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
     await applyOrgIdentity(giteaService, org, username, identity);
+    logMemberEvent(
+      request,
+      (await currentUsername(giteaService, request)) ?? '',
+      org,
+      username,
+      'succeeded',
+      'Organization member identity changed'
+    );
     return { username, identity };
   });
 
@@ -114,21 +154,29 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const { username = '' } = request.body as { username?: string };
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
     }
     // 全局账号必须已存在：所有者成员只授予组织身份，不创建账号。
     const user = await giteaService.getUser(username);
     if (!user) {
-      return reply.status(404).send({ error: `User does not exist: ${username}` });
+      return reply.status(404).send(apiError('userDoesNotExist', { username }));
     }
     if ((await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
-      return reply.status(409).send({ error: `User is already a member of ${org}` });
+      return reply.status(409).send(apiError('userIsAlreadyMemberOf', { org }));
     }
 
     const mode = platformSettingsRepository.getSetting('member_add_mode') ?? 'direct';
     if (mode === 'invite') {
       const inviter = await currentUsername(giteaService, request);
       const invitation = orgInvitationRepository.create(org, username, inviter ?? user.username);
+      logMemberEvent(
+        request,
+        inviter ?? '',
+        org,
+        username,
+        'succeeded',
+        'Organization member invited'
+      );
       return reply.status(202).send({
         status: 'invited',
         username,
@@ -137,6 +185,14 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     }
 
     await addMemberToAutoJoinTeams(giteaService, org, username);
+    logMemberEvent(
+      request,
+      (await currentUsername(giteaService, request)) ?? '',
+      org,
+      username,
+      'succeeded',
+      'Organization member added'
+    );
     return reply.status(201).send({ status: 'added', username });
   });
 
@@ -151,19 +207,20 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const username = decodeURIComponent((request.params as { username: string }).username);
     const actor = await currentUsername(giteaService, request);
     if (!actor) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     if (actor !== username && !(await isOwnerMemberOf(giteaService, org, actor))) {
-      return reply.status(403).send({ error: 'Forbidden: managing members can only remove themselves' });
+      return reply.status(403).send(apiError('forbiddenManagingMembersCanOnlyRemoveThemselves'));
     }
     if (!(await giteaService.listOrgMembers(org)).some((member) => member.username === username)) {
-      return reply.status(404).send({ error: `User is not a member of ${org}` });
+      return reply.status(404).send(apiError('userIsNotMemberOf', { org }));
     }
     const blocked = await checkOwnerMemberInvariant(giteaService, org, username, null);
     if (blocked) {
-      return reply.status(400).send({ error: blocked });
+      return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
     await removeMemberFromOrganization(giteaService, org, username);
+    logMemberEvent(request, actor, org, username, 'succeeded', 'Organization member removed');
     return { removed: true, username };
   });
 
@@ -171,7 +228,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   app.get('/api/orgs/invitations', async (request, reply) => {
     const username = await currentUsername(giteaService, request);
     if (!username) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     return orgInvitationRepository.listForUser(username);
   });
@@ -180,35 +237,51 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
   app.post('/api/orgs/invitations/:id/accept', async (request, reply) => {
     const username = await currentUsername(giteaService, request);
     if (!username) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const id = Number((request.params as { id: string }).id);
     const invitation = orgInvitationRepository.getById(id);
     if (!invitation || invitation.username !== username) {
-      return reply.status(404).send({ error: 'Invitation not found' });
+      return reply.status(404).send(apiError('invitationNotFound'));
     }
     if (invitation.status !== 'pending') {
-      return reply.status(409).send({ error: 'Invitation has already been processed' });
+      return reply.status(409).send(apiError('invitationHasAlreadyBeenProcessed'));
     }
     await addMemberToAutoJoinTeams(giteaService, invitation.orgName, username);
     orgInvitationRepository.updateStatusById(id, 'accepted');
+    logMemberEvent(
+      request,
+      username,
+      invitation.orgName,
+      username,
+      'succeeded',
+      'Organization invitation accepted'
+    );
     return { status: 'accepted', orgName: invitation.orgName };
   });
 
   app.post('/api/orgs/invitations/:id/decline', async (request, reply) => {
     const username = await currentUsername(giteaService, request);
     if (!username) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const id = Number((request.params as { id: string }).id);
     const invitation = orgInvitationRepository.getById(id);
     if (!invitation || invitation.username !== username) {
-      return reply.status(404).send({ error: 'Invitation not found' });
+      return reply.status(404).send(apiError('invitationNotFound'));
     }
     if (invitation.status !== 'pending') {
-      return reply.status(409).send({ error: 'Invitation has already been processed' });
+      return reply.status(409).send(apiError('invitationHasAlreadyBeenProcessed'));
     }
     orgInvitationRepository.updateStatusById(id, 'declined');
+    logMemberEvent(
+      request,
+      username,
+      invitation.orgName,
+      username,
+      'succeeded',
+      'Organization invitation declined'
+    );
     return { status: 'declined', orgName: invitation.orgName };
   });
 
@@ -227,10 +300,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const id = Number((request.params as { id: string }).id);
     const invitation = orgInvitationRepository.getById(id);
     if (!invitation || invitation.orgName !== org) {
-      return reply.status(404).send({ error: 'Invitation not found' });
+      return reply.status(404).send(apiError('invitationNotFound'));
     }
     if (invitation.status !== 'pending') {
-      return reply.status(409).send({ error: 'Invitation has already been processed' });
+      return reply.status(409).send(apiError('invitationHasAlreadyBeenProcessed'));
     }
     orgInvitationRepository.updateStatusById(id, 'revoked');
     return { status: 'revoked', orgName: org, username: invitation.username, invitationId: id };
@@ -269,17 +342,17 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const body = request.body as { name?: string; display_name?: unknown; permission?: unknown };
     const { name = '' } = body;
     if (!/^[a-z0-9-]{1,64}$/.test(name)) {
-      return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
+      return reply.status(400).send(apiError('teamNameMustUseLowercaseLettersDigitsAndHyphens'));
     }
     if (isStandingTeam(name) || name === 'Owners') {
-      return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
+      return reply.status(400).send(apiError('teamNameIsReservedForStandingTeams'));
     }
     if (body.permission !== undefined) {
-      return reply.status(400).send({ error: 'Custom teams do not have a fixed permission' });
+      return reply.status(400).send(apiError('customTeamsDoNotHaveAFixedPermission'));
     }
     const displayName = normalizeTeamDisplayName(body.display_name);
     if (displayName !== null && displayName !== undefined && displayName.length > TEAM_DISPLAY_NAME_MAX) {
-      return reply.status(400).send({ error: 'Team display name must be at most 64 characters' });
+      return reply.status(400).send(apiError('teamDisplayNameMustBeAtMost64Characters'));
     }
     const projection = await ensureLogicalTeamProjection(giteaService, org, name, []);
     // ADR-0029:显示名是 ESL 侧数据,创建成功后落库;空显示名视为未设置。
@@ -301,11 +374,11 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const teamId = Number((request.params as { teamId: string }).teamId);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     const projection = await logicalProjectionForTeam(org, teamId);
     if (!projection) {
-      return reply.status(400).send({ error: 'Standing teams cannot be deleted' });
+      return reply.status(400).send(apiError('standingTeamsCannotBeDeleted'));
     }
     for (const grant of skillTeamGrantRepository.listByTeam(teamId)) {
       const skill = repository.getSkill(grant.skillName);
@@ -330,28 +403,28 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const teamId = Number((request.params as { teamId: string }).teamId);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     const projection = await logicalProjectionForTeam(org, teamId);
     if (!projection) {
-      return reply.status(400).send({ error: 'Standing teams cannot be edited' });
+      return reply.status(400).send(apiError('standingTeamsCannotBeEdited'));
     }
     const body = request.body as { name?: string; permission?: unknown; display_name?: unknown };
     if (body.name !== undefined && !/^[a-z0-9-]{1,64}$/.test(body.name)) {
-      return reply.status(400).send({ error: 'Team name must use lowercase letters, digits, and hyphens' });
+      return reply.status(400).send(apiError('teamNameMustUseLowercaseLettersDigitsAndHyphens'));
     }
     if (body.name !== undefined && (isStandingTeam(body.name) || body.name === 'Owners')) {
-      return reply.status(400).send({ error: 'Team name is reserved for standing teams' });
+      return reply.status(400).send(apiError('teamNameIsReservedForStandingTeams'));
     }
     if (body.permission !== undefined) {
-      return reply.status(400).send({ error: 'Custom teams do not have a fixed permission' });
+      return reply.status(400).send(apiError('customTeamsDoNotHaveAFixedPermission'));
     }
     // 显示名:字段存在即覆盖(空串/空 → 清空),不存在则保持。
     let displayNameChange: string | null | undefined;
     if (body.display_name !== undefined) {
       displayNameChange = normalizeTeamDisplayName(body.display_name);
       if (displayNameChange != null && displayNameChange.length > TEAM_DISPLAY_NAME_MAX) {
-        return reply.status(400).send({ error: 'Team display name must be at most 64 characters' });
+        return reply.status(400).send(apiError('teamDisplayNameMustBeAtMost64Characters'));
       }
     }
     const currentKey = team.name.slice(0, -'-read'.length);
@@ -381,10 +454,10 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     if (!(await orgHasTeam(giteaService, org, teamId))) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     const projection = await logicalProjectionForTeam(org, teamId);
-    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    if (!projection) return reply.status(400).send(apiError('standingTeamsCannotBeUsedHere'));
     return giteaService.listTeamMembers(projection.read.id);
   });
 
@@ -398,7 +471,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!org) return;
     const teamId = Number((request.params as { teamId: string }).teamId);
     if (!(await orgHasTeam(giteaService, org, teamId))) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     const skillRepoKeys = new Set(
       repository
@@ -407,7 +480,7 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
         .map((skill) => skill.gitRepoPath)
     );
     const projection = await logicalProjectionForTeam(org, teamId);
-    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    if (!projection) return reply.status(400).send(apiError('standingTeamsCannotBeUsedHere'));
     const mountedRepos = new Set<string>();
     for (const team of Object.values(projection)) {
       for (const repo of await giteaService.listTeamRepos(team.id)) {
@@ -431,21 +504,21 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const { username = '' } = request.body as { username?: string };
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
     }
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     if (isProtectedTeam(team)) {
-      return reply.status(400).send({ error: IDENTITY_NOT_A_TEAM_GRANT });
+      return reply.status(400).send(apiError('identityNotATeamGrant'));
     }
     // 授权对象必须是已注册的全局账号（与拉人路径同一前置校验）
     if (!(await giteaService.getUser(username))) {
-      return reply.status(404).send({ error: `User does not exist: ${username}` });
+      return reply.status(404).send(apiError('userDoesNotExist', { username }));
     }
     const projection = await logicalProjectionForTeam(org, teamId);
-    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    if (!projection) return reply.status(400).send(apiError('standingTeamsCannotBeUsedHere'));
     await syncLogicalTeamMembers(giteaService, projection, [
       ...new Set([
         ...(await giteaService.listTeamMembers(projection.read.id)).map((member) => member.username),
@@ -464,13 +537,13 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     const username = decodeURIComponent((request.params as { username: string }).username);
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {
-      return reply.status(403).send({ error: 'Team does not belong to your organization' });
+      return reply.status(403).send(apiError('teamDoesNotBelongToYourOrganization'));
     }
     if (isProtectedTeam(team)) {
-      return reply.status(400).send({ error: IDENTITY_NOT_A_TEAM_GRANT });
+      return reply.status(400).send(apiError('identityNotATeamGrant'));
     }
     const projection = await logicalProjectionForTeam(org, teamId);
-    if (!projection) return reply.status(400).send({ error: 'Standing teams cannot be used here' });
+    if (!projection) return reply.status(400).send(apiError('standingTeamsCannotBeUsedHere'));
     const members = (await giteaService.listTeamMembers(projection.read.id))
       .map((member) => member.username)
       .filter((member) => member !== username);
@@ -489,23 +562,25 @@ export function registerOrgConsoleRoutes(app: FastifyInstance, options: OrgConso
     if (!org) return;
     const { confirm } = (request.body ?? {}) as { confirm?: string };
     if (confirm !== org) {
-      return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
+      return reply.status(400).send(apiError('deletionRequiresConfirmMatchingTheOrganizationName'));
     }
     // 只有 ESL 开通的组织才允许自动删除（与超管路径同一守门），防止误删
     // 直接在 Git Backend 建出来的外部组织。
     if (!tenantOrganizationRepository.get(org)) {
-      return reply.status(404).send({ error: 'Organization not found or not managed by ESL' });
+      return reply.status(404).send(apiError('organizationNotFoundOrNotManagedByEsl'));
     }
     try {
       await performOrganizationDeletion(
         { giteaService, skillRepository: repository, tenantOrganizationRepository },
-        org
+        org,
+        // 请求内后台任务：只用子 logger 绑定 taskId 与触发请求 id（US37/US38）。
+        taskLogger(request.log, ORG_DELETION_TASK_ID, request.id)
       );
     } catch (error) {
       // 失败原因已由删除流程写入租户状态（delete_failed + lastError）
       return reply
         .status(409)
-        .send({ error: `Organization deletion failed: ${(error as Error).message}`, retryable: true });
+        .send({ ...apiError('organizationDeletionFailed', { detail: (error as Error).message }), retryable: true });
     }
     return { status: 'deleted', orgName: org };
   });
@@ -537,29 +612,29 @@ async function requireOrgAdministrator(
   const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
-    reply.status(401).send({ error: 'Unauthorized: missing token' });
+    reply.status(401).send(apiError('unauthorizedMissingToken'));
     return null;
   }
   const token = authorization.replace('token ', '').trim();
   const user = await giteaService.validateToken(token);
   if (!user) {
-    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
+    reply.status(403).send(apiError('forbiddenOrganizationManagementTeamMembershipRequired'));
     return null;
   }
   if (!(await giteaService.organizationExists(orgName))) {
-    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
+    reply.status(403).send(apiError('forbiddenOrganizationManagementTeamMembershipRequired'));
     return null;
   }
   const isOwner = await isOwnerMemberOf(giteaService, orgName, user.username);
   const isOperator = options.allowManaging && (await isManagingMemberOf(giteaService, orgName, user.username));
   if (!isOwner && !isOperator) {
-    reply.status(403).send({ error: 'Forbidden: organization management team membership required' });
+    reply.status(403).send(apiError('forbiddenOrganizationManagementTeamMembershipRequired'));
     return null;
   }
   // 处理中的组织(删除中、删除失败)禁止一切组织管理操作。
   const tenant = tenantOrganizationRepository.get(orgName);
   if (!options.allowNonActive && tenant && tenant.status !== 'active') {
-    reply.status(409).send({ error: `Organization is not active: ${orgName}`, status: tenant.status });
+    reply.status(409).send({ ...apiError('organizationIsNotActive', { org: orgName }), status: tenant.status });
     return null;
   }
   return orgName;

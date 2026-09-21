@@ -81,17 +81,22 @@ describe('esl release-delete', () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,
       status: 409,
-      text: async () => 'Release 1.0.0 is required by @alice/other; deleting it would break their installs.'
+      text: async () =>
+        JSON.stringify({
+          code: 'releaseRequiredByDependents',
+          params: { version: '1.0.0', dependents: '@alice/other' },
+          message: 'Release 1.0.0 is required by @alice/other; deleting it would break their installs.'
+        })
     });
 
-    await expect(
-      executeReleaseDelete('@alice/code-review', '1.0.0', {
-        homeDir,
-        server: 'http://localhost:3000',
-        confirm: '1.0.0',
-        customFetch: fetchImpl as any
-      })
-    ).rejects.toThrow(/@alice\/other/);
+    const error = await executeReleaseDelete('@alice/code-review', '1.0.0', {
+      homeDir,
+      server: 'http://localhost:3000',
+      confirm: '1.0.0',
+      customFetch: fetchImpl as any
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ code: 'releaseRequiredByDependents' });
   });
 
   it('rejects a built-in identity', async () => {

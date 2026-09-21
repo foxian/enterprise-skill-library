@@ -2,75 +2,77 @@
   <div data-test="skill-manage-panel">
     <div class="console-toolbar">
       <h2 class="panel-title">
-        技能管理：<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        {{ t('skill.manageTitlePrefix') }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
       </h2>
       <el-tag :type="stateTagType" data-test="share-state">{{ stateText }}</el-tag>
     </div>
 
     <el-card class="section-card" data-test="skill-context-card">
-      <template #header>技能信息</template>
+      <template #header>{{ t('skill.info') }}</template>
       <div class="skill-context">
         <div class="skill-desc-row">
           <span v-if="context?.description" data-test="skill-description">{{ context.description }}</span>
-          <span v-else class="context-empty" data-test="skill-description">暂无描述</span>
+          <span v-else class="context-empty" data-test="skill-description">{{ t('skill.noDescription') }}</span>
         </div>
         <el-space wrap class="skill-meta-row">
           <el-tag :type="contextStatusType" size="small" data-test="skill-context-status">{{ contextStatusText }}</el-tag>
           <span v-if="context?.latestRelease" class="skill-meta" data-test="skill-latest-release">
-            最新发布
+            {{ t('skill.latestRelease') }}
             <code class="skill-version">v{{ context.latestRelease.version }}</code>
             <template v-if="context.latestRelease.createdAt">（{{ formatDate(context.latestRelease.createdAt) }}）</template>
           </span>
-          <span v-else class="skill-meta" data-test="skill-latest-release">尚未发布任何 Skill Release</span>
-          <span v-if="context?.createdBy" class="skill-meta">创建者：{{ shortUsername(props.scope, context.createdBy) }}</span>
+          <span v-else class="skill-meta" data-test="skill-latest-release">{{ t('skill.noReleases') }}</span>
+          <span v-if="context?.createdBy" class="skill-meta">
+            {{ t('skill.createdByUser', { name: shortUsername(props.scope, context.createdBy) }) }}
+          </span>
         </el-space>
       </div>
     </el-card>
 
     <el-card class="section-card">
-      <template #header>当前共享状态</template>
+      <template #header>{{ t('skill.currentShare') }}</template>
       <el-space wrap>
-        <el-tag v-if="matrix.sharedAllManage" type="danger">技能管理团队可管理</el-tag>
-        <el-tag v-if="matrix.sharedAllWrite" type="warning">读写团队可读写</el-tag>
-        <el-tag v-if="matrix.sharedAllRead" type="success">只读团队可读</el-tag>
+        <el-tag v-if="matrix.sharedAllManage" type="danger">{{ t('skill.allManage') }}</el-tag>
+        <el-tag v-if="matrix.sharedAllWrite" type="warning">{{ t('skill.allWrite') }}</el-tag>
+        <el-tag v-if="matrix.sharedAllRead" type="success">{{ t('skill.allRead') }}</el-tag>
         <el-tag v-for="team in matrix.teams" :key="team.id" data-test="granted-team">
-          团队 {{ teamDisplayName(team) }}（{{ permissionText(team.permission) }}）
+          {{ t('skill.teamWithPermission', { team: teamDisplayName(team), permission: t(permissionText(team.permission)) }) }}
         </el-tag>
         <el-tag v-for="member in matrix.members" :key="member.username" type="info" data-test="granted-member">
-          {{ shortUsername(props.scope, member.username) }}（{{ permissionText(member.permission) }}）
+          {{ t('skill.memberWithPermission', { member: shortUsername(props.scope, member.username), permission: t(permissionText(member.permission)) }) }}
         </el-tag>
       </el-space>
     </el-card>
 
     <el-card v-if="(context?.releases?.length ?? 0) > 0" class="section-card" data-test="release-history-card">
-      <template #header>发布历史（{{ context!.releases.length }}）</template>
+      <template #header>{{ t('skill.releaseHistory', { count: formatNumber(context!.releases.length) }) }}</template>
       <el-collapse>
-        <el-collapse-item title="展开全部 Skill Release">
+        <el-collapse-item :title="t('actions.expandReleases')">
           <el-table :data="context!.releases" size="small" data-test="release-history-table">
-            <el-table-column label="版本" width="90">
+            <el-table-column :label="t('columns.version')" width="90">
               <template #default="{ row }">
                 <code class="skill-version">v{{ row.version }}</code>
               </template>
             </el-table-column>
-            <el-table-column label="发布时间" width="170">
+            <el-table-column :label="t('columns.releasedAt')" width="170">
               <template #default="{ row }">{{ row.createdAt ? formatDate(row.createdAt) : '—' }}</template>
             </el-table-column>
-            <el-table-column label="发布说明">
+            <el-table-column :label="t('columns.notes')">
               <template #default="{ row }">{{ row.notes || '—' }}</template>
             </el-table-column>
-            <el-table-column label="来源 commit" width="120">
+            <el-table-column :label="t('columns.sourceCommit')" width="120">
               <template #default="{ row }">
                 <code class="skill-version">{{ shortCommit(row.sourceCommit) }}</code>
               </template>
             </el-table-column>
-            <el-table-column label="发布人" width="120">
+            <el-table-column :label="t('columns.publisher')" width="120">
               <template #default="{ row }">{{ shortUsername(props.scope, row.createdBy) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="80">
+            <el-table-column :label="t('columns.actions')" width="80">
               <template #default="{ row }">
                 <el-tooltip
                   :disabled="canManage"
-                  content="需要该技能的管理权"
+                  :content="t('skill.manageRequired')"
                   placement="top"
                 >
                   <span>
@@ -81,7 +83,7 @@
                       :data-test="`delete-release-${row.version}`"
                       @click="deleteRelease(row.version)"
                     >
-                      删除
+                      {{ t('actions.delete') }}
                     </el-button>
                   </span>
                 </el-tooltip>
@@ -93,14 +95,14 @@
     </el-card>
 
     <el-card class="section-card" data-test="lifecycle-card">
-      <template #header>生命周期</template>
+      <template #header>{{ t('skill.lifecycle') }}</template>
       <el-space wrap>
         <el-button
           v-if="canArchive && context?.status !== 'archived' && context?.status !== 'deleting'"
           data-test="archive-skill"
           @click="archiveSkill"
         >
-          Archive
+          {{ t('skill.archive') }}
         </el-button>
         <el-button
           v-if="lifecycle?.canRestore && context?.status === 'archived'"
@@ -108,7 +110,7 @@
           data-test="restore-skill"
           @click="restoreSkill"
         >
-          Restore
+          {{ t('skill.restore') }}
         </el-button>
         <el-button
           v-if="lifecycle?.canDelete && (context?.status === 'archived' || context?.status === 'delete_failed')"
@@ -116,13 +118,13 @@
           data-test="delete-skill"
           @click="openDeleteDialog"
         >
-          彻底删除
+          {{ t('skill.deleteSkill') }}
         </el-button>
       </el-space>
       <el-alert
         v-if="context?.status === 'delete_failed'"
         type="error"
-        :title="context.deletionError || '上次删除失败，可以重试'"
+        :title="context.deletionError || t('organization.lastDeleteFailedRetry')"
         :closable="false"
         class="lifecycle-alert"
       />
@@ -131,19 +133,19 @@
       <div v-if="deleteDialogVisible" class="delete-dialog">
         <el-alert
           type="warning"
-          title="彻底删除不可恢复"
+          :title="t('skill.deleteDisabled')"
           :closable="false"
           class="lifecycle-alert"
         />
         <div class="delete-context" data-test="delete-context">
-          <p>将被删除的 Skill Release 数量：{{ deleteContext?.releasesRemoved ?? '—' }}</p>
-          <p>曾经发布：{{ deleteContext?.everPublished ? '是' : '否' }}</p>
+          <p>{{ t('skill.releasesToRemove', { count: deleteContext?.releasesRemoved ?? '—' }) }}</p>
+          <p>{{ t('skill.everPublished', { value: deleteContext?.everPublished ? t('status.yes') : t('status.no') }) }}</p>
           <p>
-            依赖方：
+            {{ t('skill.dependents') }}
             <span v-if="deleteContext?.dependents?.length">
               {{ deleteContext.dependents.join('、') }}
             </span>
-            <span v-else>无</span>
+            <span v-else>{{ t('status.none') }}</span>
           </p>
         </div>
         <el-input
@@ -151,25 +153,25 @@
           data-test="delete-reason-input"
           type="textarea"
           :rows="2"
-          placeholder="删除原因（必填，将写入审计）"
+          :placeholder="t('skill.deleteReasonPlaceholder')"
         />
         <el-input
           v-model="deleteConfirm"
           data-test="delete-confirm-input"
-          :placeholder="`输入 ${props.scope}/${props.skillName} 确认`"
+          :placeholder="t('skill.deleteConfirmPlaceholder', { identity: `${props.scope}/${props.skillName}` })"
         />
         <div class="delete-actions">
-          <el-button @click="deleteDialogVisible = false">取消</el-button>
-          <el-button type="danger" data-test="confirm-delete-skill" @click="deleteWholeSkill">确认删除</el-button>
+          <el-button @click="deleteDialogVisible = false">{{ t('actions.cancel') }}</el-button>
+          <el-button type="danger" data-test="confirm-delete-skill" @click="deleteWholeSkill">{{ t('actions.confirmDelete') }}</el-button>
         </div>
       </div>
     </el-card>
 
     <el-card class="section-card">
-      <template #header>可见性</template>
+      <template #header>{{ t('columns.shareStatus') }}</template>
       <el-space wrap>
         <el-tag :type="visibility === 'public' ? 'success' : 'info'" data-test="visibility-tag">
-          {{ visibility === 'public' ? 'public（平台全员可搜可装）' : 'private（仅被授权者）' }}
+          {{ visibility === 'public' ? t('skill.visibilityPublic') : t('skill.visibilityPrivate') }}
         </el-tag>
         <el-switch
           :model-value="visibility === 'public'"
@@ -181,31 +183,31 @@
     </el-card>
 
     <el-card class="section-card">
-      <template #header>常设团队授权</template>
+      <template #header>{{ t('skill.currentShare') }}</template>
       <el-radio-group
         :model-value="shareLevel"
         :disabled="!canManage"
         data-test="share-level"
         @change="onShareLevelChange"
       >
-        <el-radio value="none">不共享（私有）</el-radio>
-        <el-radio value="read">只读团队可读</el-radio>
-        <el-radio value="write">读写团队可读写</el-radio>
-        <el-radio value="manage">技能管理团队可管理</el-radio>
+        <el-radio value="none">{{ t('skill.private') }}</el-radio>
+        <el-radio value="read">{{ t('skill.allRead') }}</el-radio>
+        <el-radio value="write">{{ t('skill.allWrite') }}</el-radio>
+        <el-radio value="manage">{{ t('skill.allManage') }}</el-radio>
       </el-radio-group>
     </el-card>
 
     <el-row :gutter="16">
       <el-col :span="12">
         <el-card class="section-card">
-          <template #header>团队授权</template>
+          <template #header>{{ t('skill.teamAuthorizationTitle') }}</template>
           <div class="grant-row">
             <el-select
               v-if="teamOptions.length"
               v-model="selectedTeam"
               :disabled="!canManage"
               data-test="team-select"
-              placeholder="选择团队"
+              :placeholder="t('skill.teamSelectPlaceholder')"
               style="width: 220px"
             >
               <el-option v-for="team in teamOptions" :key="team.name" :label="teamLabel(team)" :value="team.name" />
@@ -215,21 +217,21 @@
               v-model="selectedTeam"
               :disabled="!canManage"
               data-test="team-input"
-              placeholder="团队名"
+              :placeholder="t('skill.teamNamePlaceholder')"
               style="width: 220px"
             />
             <el-select v-model="teamPermission" :disabled="!canManage" data-test="team-permission" style="width: 110px">
-              <el-option label="只读" value="read" />
-              <el-option label="读写" value="write" />
-              <el-option label="管理" value="manage" />
+              <el-option :label="t('skill.access.read')" value="read" />
+              <el-option :label="t('skill.access.write')" value="write" />
+              <el-option :label="t('skill.access.manage')" value="manage" />
             </el-select>
-            <el-button type="primary" :disabled="!canManage" data-test="grant-team" @click="grantTeam">添加授权</el-button>
+            <el-button type="primary" :disabled="!canManage" data-test="grant-team" @click="grantTeam">{{ t('actions.addAuthorization') }}</el-button>
           </div>
           <el-table v-if="matrix.teams.length" :data="matrix.teams" size="small">
-            <el-table-column label="团队">
+            <el-table-column :label="t('nav.orgTeams')">
               <template #default="{ row }">{{ teamDisplayName(row) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="80">
+            <el-table-column :label="t('columns.actions')" width="80">
               <template #default="{ row }">
                 <el-button
                   link
@@ -238,7 +240,7 @@
                   :data-test="`revoke-team-${row.name}`"
                   @click="applyAction('remove_team', { team_id: row.id })"
                 >
-                  移除
+                  {{ t('actions.remove') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -247,7 +249,7 @@
       </el-col>
       <el-col :span="12">
         <el-card class="section-card">
-          <template #header>成员授权</template>
+          <template #header>{{ t('skill.memberAuthorizationTitle') }}</template>
           <div class="grant-row">
             <el-select
               v-if="memberOptions.length"
@@ -256,7 +258,7 @@
               filterable
               allow-create
               data-test="member-select"
-              placeholder="成员用户名"
+              :placeholder="t('skill.memberUsernamePlaceholder')"
               style="width: 220px"
             >
               <el-option
@@ -271,24 +273,24 @@
               v-model="selectedMember"
               :disabled="!canManage"
               data-test="member-input"
-              placeholder="成员用户名（含组织前缀）"
+              :placeholder="t('skill.memberUsernameWithOrgPlaceholder')"
               style="width: 220px"
             />
             <el-select v-model="memberPermission" :disabled="!canManage" data-test="member-permission" style="width: 110px">
-              <el-option label="只读" value="read" />
-              <el-option label="读写" value="write" />
-              <el-option label="管理" value="manage" />
+              <el-option :label="t('skill.access.read')" value="read" />
+              <el-option :label="t('skill.access.write')" value="write" />
+              <el-option :label="t('skill.access.manage')" value="manage" />
             </el-select>
-            <el-button type="primary" :disabled="!canManage" data-test="grant-member" @click="grantMember">添加授权</el-button>
+            <el-button type="primary" :disabled="!canManage" data-test="grant-member" @click="grantMember">{{ t('actions.addAuthorization') }}</el-button>
           </div>
           <el-table v-if="matrix.members.length" :data="matrix.members" size="small">
-            <el-table-column label="成员">
+            <el-table-column :label="t('columns.member')">
               <template #default="{ row }">{{ shortUsername(props.scope, row.username) }}</template>
             </el-table-column>
-            <el-table-column label="权限" width="80">
-              <template #default="{ row }">{{ permissionText(row.permission) }}</template>
+            <el-table-column :label="t('columns.permission')" width="80">
+              <template #default="{ row }">{{ t(permissionText(row.permission)) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="80">
+            <el-table-column :label="t('columns.actions')" width="80">
               <template #default="{ row }">
                 <el-button
                   link
@@ -297,7 +299,7 @@
                   :data-test="`revoke-member-${row.username}`"
                   @click="applyAction('remove_member', { username: row.username })"
                 >
-                  移除
+                  {{ t('actions.remove') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -312,6 +314,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { apiRequest } from '../api/client';
@@ -326,6 +329,8 @@ import {
   type SkillContext,
   type TeamOption
 } from '../skills/skill-list';
+
+const { t, formatDate, formatNumber } = useLocaleState();
 
 const route = useRoute();
 const router = useRouter();
@@ -369,7 +374,7 @@ const memberOptions = computed(() => props.memberOptions ?? []);
 
 const shareState = computed(() => deriveShareState(matrix.value));
 
-const stateText = computed(() => shareState.value.text);
+const stateText = computed(() => t(shareState.value.text));
 
 const stateTagType = computed(() => shareState.value.tagType);
 
@@ -384,9 +389,9 @@ async function onVisibilityChange(next: boolean | string | number): Promise<void
       { method: 'POST', body: { visibility: target } }
     );
     visibility.value = result.visibility;
-    ElMessage.success(result.visibility === 'public' ? '技能已设为 public' : '技能已设为 private');
+    ElMessage.success(result.visibility === 'public' ? t('skill.publicVisibilityOn') : t('skill.privateVisibilityOn'));
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : String(error));
+    ElMessage.error(formatRequestError(error));
   }
 }
 
@@ -412,13 +417,13 @@ async function onShareLevelChange(level: string | number | boolean | undefined):
 
 // ADR-0025 三档:manage 档(Gitea admin 级)呈现为「管理」
 function permissionText(permission: string): string {
-  if (permission === 'manage' || permission === 'admin' || permission === 'owner') return '管理';
-  return permission === 'write' ? '读写' : '只读';
+  if (permission === 'manage' || permission === 'admin' || permission === 'owner') return 'skill.access.manage';
+  return permission === 'write' ? 'skill.access.write' : 'skill.access.read';
 }
 
 function teamLabel(team: TeamOption): string {
   return team.permission
-    ? `${teamDisplayName(team)}（${permissionText(team.permission)}）`
+    ? t('skill.teamWithPermission', { team: teamDisplayName(team), permission: t(permissionText(team.permission)) })
     : teamDisplayName(team);
 }
 
@@ -431,8 +436,8 @@ function teamDisplayName(team: { name: string; display_name?: string }): string 
 // 上下文状态与列表页 statusText 一致,但已归档是明确的终态,如实单列
 const contextStatusText = computed(() => {
   const status = context.value?.status;
-  if (status === 'archived') return '已归档';
-  return statusText(status);
+  if (status === 'archived') return t('skill.state.archived');
+  return t(statusText(status));
 });
 
 const contextStatusType = computed<'success' | 'warning' | 'danger'>(() => {
@@ -441,11 +446,6 @@ const contextStatusType = computed<'success' | 'warning' | 'danger'>(() => {
   if (status === 'deleting') return 'danger';
   return 'success';
 });
-
-function formatDate(value: string): string {
-  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T') + 'Z');
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
-}
 
 // Release Tag 指向的 commit 以短 SHA 展示
 function shortCommit(commit: string): string {
@@ -461,7 +461,7 @@ async function loadMatrix(): Promise<void> {
       )
     );
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -485,10 +485,10 @@ async function archiveSkill(): Promise<void> {
       `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/archive`,
       { method: 'POST' }
     );
-    ElMessage.success('技能已归档');
+    ElMessage.success(t('skill.skillArchived'));
     await loadMatrix();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -498,10 +498,10 @@ async function restoreSkill(): Promise<void> {
       `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/restore`,
       { method: 'POST' }
     );
-    ElMessage.success('技能已恢复');
+    ElMessage.success(t('skill.skillRestored'));
     await loadMatrix();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -515,7 +515,7 @@ async function openDeleteDialog(): Promise<void> {
     deleteConfirm.value = '';
     deleteDialogVisible.value = true;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -523,11 +523,11 @@ async function deleteWholeSkill(): Promise<void> {
   const reason = deleteReason.value.trim();
   const identity = `@${props.scope}/${props.skillName}`;
   if (!reason) {
-    errorMessage.value = '请填写删除原因';
+    errorMessage.value = t('skill.reasonRequired');
     return;
   }
   if (deleteConfirm.value.trim() !== identity) {
-    errorMessage.value = `确认失败：请输入完整技能身份 ${identity}`;
+    errorMessage.value = t('skill.confirmIdentity', { identity });
     return;
   }
   try {
@@ -536,11 +536,11 @@ async function deleteWholeSkill(): Promise<void> {
       { method: 'POST', body: { confirm: identity, reason } }
     );
     deleteDialogVisible.value = false;
-    ElMessage.success('技能已彻底删除');
+    ElMessage.success(t('skill.skillDeleted'));
     await router.push(String(route.name ?? '').startsWith('super-') ? { name: 'super-skills' } : { name: 'me-skills' });
   } catch (error) {
     await loadMatrix();
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -552,11 +552,11 @@ async function deleteRelease(version: string): Promise<void> {
   let answer: string;
   try {
     const result = await ElMessageBox.prompt(
-      `删除 v${version} 会移除该版本的发布包、版本记录与 Release Tag（源码 Git 历史与其他版本保留），且该版本号不可再发布。请输入 ${version} 确认：`,
-      '删除 Skill Release',
+      t('skill.releaseDeleteWarning', { version }),
+      t('skill.releaseDeleteTitle'),
       {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
+        confirmButtonText: t('actions.delete'),
+        cancelButtonText: t('actions.cancel'),
         inputPlaceholder: version,
         type: 'warning'
       }
@@ -566,7 +566,7 @@ async function deleteRelease(version: string): Promise<void> {
     return; // 用户取消
   }
   if (answer.trim() !== version) {
-    errorMessage.value = `确认失败：请输入完整版本号 ${version}`;
+    errorMessage.value = t('skill.confirmReleaseVersion', { version });
     return;
   }
 
@@ -576,10 +576,10 @@ async function deleteRelease(version: string): Promise<void> {
         `/releases/${encodeURIComponent(version)}/delete`,
       { method: 'POST', body: { confirm: version } }
     );
-    ElMessage.success(`已删除 v${version}`);
+    ElMessage.success(t('skill.releaseDeleted', { version }));
     await loadMatrix();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -596,14 +596,14 @@ async function applyAction(action: string, extra: Record<string, unknown> = {}):
     );
     return true;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
     return false;
   }
 }
 
 async function grantTeam(): Promise<void> {
   if (!selectedTeam.value) {
-    errorMessage.value = '请选择或输入团队名';
+    errorMessage.value = t('skill.teamNameRequired');
     return;
   }
   const team = selectedTeam.value;
@@ -613,19 +613,19 @@ async function grantTeam(): Promise<void> {
     : { team, permission: teamPermission.value };
   if (await applyAction('set_team', payload)) {
     selectedTeam.value = '';
-    ElMessage.success('团队授权已更新');
+    ElMessage.success(t('skill.teamAuthorizationUpdated'));
   }
 }
 
 async function grantMember(): Promise<void> {
   if (!selectedMember.value) {
-    errorMessage.value = '请选择或输入成员用户名';
+    errorMessage.value = t('skill.memberUsernameRequired');
     return;
   }
   const username = selectedMember.value;
   if (await applyAction('add_member', { username, permission: memberPermission.value })) {
     selectedMember.value = '';
-    ElMessage.success('成员授权已更新');
+    ElMessage.success(t('skill.memberAuthorizationUpdated'));
   }
 }
 

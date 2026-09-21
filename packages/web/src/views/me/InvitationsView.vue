@@ -2,15 +2,15 @@
   <div>
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
-        <span class="toolbar-caption">我的邀请</span>
+        <span class="toolbar-caption">{{ t('invitation.title') }}</span>
       </div>
 
       <el-table v-if="invitations.length > 0" :data="invitations" data-test="invitations-table" v-loading="loading">
-        <el-table-column label="组织" min-width="180">
+        <el-table-column :label="t('columns.organization')" min-width="180">
           <template #default="{ row }">@{{ row.orgName }}</template>
         </el-table-column>
-        <el-table-column prop="invitedBy" label="邀请人" width="180" />
-        <el-table-column label="操作" width="200">
+        <el-table-column prop="invitedBy" :label="t('columns.inviter')" width="180" />
+        <el-table-column :label="t('columns.actions')" width="200">
           <template #default="{ row }">
             <el-button
               link
@@ -18,7 +18,7 @@
               :data-test="`accept-invitation-${row.orgName}`"
               @click="respond(row.id, 'accept')"
             >
-              接受
+              {{ t('actions.accept') }}
             </el-button>
             <el-button
               link
@@ -26,13 +26,13 @@
               :data-test="`decline-invitation-${row.orgName}`"
               @click="respond(row.id, 'decline')"
             >
-              拒绝
+              {{ t('actions.reject') }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && invitations.length === 0" description="没有待处理的邀请" />
+      <el-empty v-if="!loading && invitations.length === 0" :description="t('invitation.empty')" />
 
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
@@ -41,9 +41,12 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import { useAuthStore, type SessionOrganization } from '../../stores/auth';
+
+const { t } = useLocaleState();
 
 interface Invitation {
   id: number;
@@ -62,7 +65,7 @@ async function loadInvitations(): Promise<void> {
   try {
     invitations.value = await apiRequest<Invitation[]>('/api/orgs/invitations');
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
@@ -72,7 +75,7 @@ async function respond(id: number, action: 'accept' | 'decline'): Promise<void> 
   errorMessage.value = '';
   try {
     await apiRequest(`/api/orgs/invitations/${id}/${action}`, { method: 'POST' });
-    ElMessage.success(action === 'accept' ? '已加入组织' : '已拒绝邀请');
+    ElMessage.success(action === 'accept' ? t('invitation.accepted') : t('invitation.declined'));
     await loadInvitations();
     if (action === 'accept') {
       // 接受后组织隶属关系变了，刷新会话里的组织列表
@@ -82,7 +85,7 @@ async function respond(id: number, action: 'accept' | 'decline'): Promise<void> 
       }
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

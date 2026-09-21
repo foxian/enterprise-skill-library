@@ -72,6 +72,56 @@ describe('esl login', () => {
     expect(Number.isNaN(Date.parse(credentials.loginAt as string))).toBe(false);
   });
 
+  it('stores the account locale returned by the server', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        token: 'mock_skill_user_token',
+        username: 'zhangsan',
+        organizations: [],
+        locale: 'zh-CN'
+      })
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.locale).toBe('zh-CN');
+  });
+
+  it('translates API errors using the requested locale', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      text: async () =>
+        JSON.stringify({
+          code: 'unauthorizedInvalidCredentials',
+          params: {},
+          message: 'Unauthorized: invalid credentials'
+        })
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await expect(
+      executeLogin({
+        server: 'http://skills.company.com',
+        username: 'zhangsan',
+        passwordFile,
+        locale: 'zh-CN',
+        homeDir,
+        customFetch: mockFetch as any
+      })
+    ).rejects.toThrow('未认证：凭据无效');
+  });
+
   it('stores a token from a token file without contacting the server', async () => {
     const mockFetch = vi.fn();
     const tokenFile = path.join(homeDir, 'token.txt');

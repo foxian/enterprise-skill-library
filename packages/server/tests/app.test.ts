@@ -283,7 +283,7 @@ describe('Fastify Server API', () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('already exists');
+    expect(response.json().message).toContain('already exists');
     expect(mockGitea.updateSkillName).not.toHaveBeenCalled();
     expect(mockGitea.renameRepo).not.toHaveBeenCalled();
   });
@@ -428,6 +428,7 @@ describe('Fastify Server API', () => {
     expect(loginRes.json()).toEqual({
       token: 'skill-user-token',
       username: 'alice',
+      locale: null,
       organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
     });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('alice', 'correct-password');
@@ -477,6 +478,7 @@ describe('Fastify Server API', () => {
       token: 'gitea-token',
       username: 'eslroot',
       isPlatformAdmin: true,
+      locale: null,
       organizations: []
     });
     expect(mockGitea.loginUser).toHaveBeenCalledWith('eslroot', 'correct-password');
@@ -496,7 +498,11 @@ describe('Fastify Server API', () => {
     });
 
     expect(loginRes.statusCode).toBe(401);
-    expect(loginRes.json()).toEqual({ error: 'Unauthorized: invalid credentials' });
+    expect(loginRes.json()).toEqual({
+      code: 'unauthorizedInvalidCredentials',
+      params: {},
+      message: 'Unauthorized: invalid credentials'
+    });
   });
 
   it('structurally excludes the platform administrator from the CLI login endpoint', async () => {
@@ -513,7 +519,7 @@ describe('Fastify Server API', () => {
     });
 
     expect(loginRes.statusCode).toBe(403);
-    expect(loginRes.json().error).toContain('Platform administrators');
+    expect(loginRes.json().message).toContain('Platform administrators');
     expect(mockGitea.loginUser).not.toHaveBeenCalled();
   });
 
@@ -573,7 +579,11 @@ describe('Fastify Server API', () => {
     });
 
     expect(res.statusCode).toBe(401);
-    expect(res.json()).toEqual({ error: 'Unauthorized: current password is incorrect' });
+    expect(res.json()).toEqual({
+      code: 'unauthorizedCurrentPasswordIsIncorrect',
+      params: {},
+      message: 'Unauthorized: current password is incorrect'
+    });
     expect(mockGitea.changeUserPassword).not.toHaveBeenCalled();
   });
 

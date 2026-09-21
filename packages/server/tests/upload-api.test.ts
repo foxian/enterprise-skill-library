@@ -94,7 +94,7 @@ describe('Skill Source Upload API', () => {
 
     const retry = await upload();
     expect(retry.statusCode).toBe(409);
-    expect(retry.json().error).toContain('already exists');
+    expect(retry.json().message).toContain('already exists');
   });
 
   it('rejects an upload into a namespace the caller does not hold', async () => {
@@ -123,7 +123,7 @@ describe('Skill Source Upload API', () => {
       payload: { name: '@frozen/reviewer', description: 'Shared reviewer' }
     });
     expect(response.statusCode).toBe(403);
-    expect(response.json().error).toContain('Organization frozen is not active');
+    expect(response.json().message).toContain('Organization frozen is not active');
     expect(gitea.createRepo).not.toHaveBeenCalled();
   });
 

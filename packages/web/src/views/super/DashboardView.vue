@@ -6,7 +6,7 @@
           <div class="stat-card-icon primary">
             <el-icon><OfficeBuilding /></el-icon>
           </div>
-          <p class="stat-card-title">组织总数</p>
+        <p class="stat-card-title">{{ t('dashboard.totalOrganizations') }}</p>
           <p class="stat-card-value">{{ orgs.length }}</p>
         </el-card>
       </el-col>
@@ -15,7 +15,7 @@
           <div class="stat-card-icon warning">
             <el-icon><Tickets /></el-icon>
           </div>
-          <p class="stat-card-title">待审批申请</p>
+        <p class="stat-card-title">{{ t('dashboard.pendingApplications') }}</p>
           <p class="stat-card-value">{{ pendingCount }}</p>
         </el-card>
       </el-col>
@@ -24,7 +24,7 @@
           <div class="stat-card-icon info">
             <el-icon><Files /></el-icon>
           </div>
-          <p class="stat-card-title">平台技能总数</p>
+        <p class="stat-card-title">{{ t('dashboard.totalSkills') }}</p>
           <p class="stat-card-value">{{ skillTotal }}</p>
         </el-card>
       </el-col>
@@ -32,12 +32,12 @@
 
     <el-card class="status-card" data-test="platform-status" shadow="never" style="margin-top: 16px">
       <template #header>
-        <span class="status-card-title">平台状态</span>
+        <span class="status-card-title">{{ t('dashboard.platformStatus') }}</span>
       </template>
       <template v-if="bootstrapStatus">
         <div class="status-row">
           <el-tag :type="bootstrapStatus.ready ? 'success' : 'warning'" data-test="bootstrap-ready" size="large">
-            {{ bootstrapStatus.ready ? 'Bootstrap 就绪' : 'Bootstrap 未就绪' }}
+        {{ bootstrapStatus.ready ? t('status.bootstrapReady') : t('status.bootstrapNotReady') }}
           </el-tag>
           <div class="status-details">
             <div class="status-item">
@@ -45,11 +45,11 @@
               <span class="status-item-value">{{ bootstrapStatus.gitea }}</span>
             </div>
             <div class="status-item">
-              <span class="status-item-label">管理员 Token</span>
+        <span class="status-item-label">{{ t('dashboard.adminToken') }}</span>
               <span class="status-item-value">{{ bootstrapStatus.adminToken }}</span>
             </div>
             <div class="status-item">
-              <span class="status-item-label">平台仓库</span>
+        <span class="status-item-label">{{ t('dashboard.platformRepository') }}</span>
               <span class="status-item-value">{{ bootstrapStatus.repoOwner }}</span>
             </div>
           </div>
@@ -63,6 +63,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { OfficeBuilding, Tickets, Files } from '@element-plus/icons-vue';
 import { apiRequest } from '../../api/client';
 
@@ -88,6 +89,8 @@ interface BootstrapStatus {
   repoOwner: 'ready' | 'missing';
 }
 
+const { t } = useLocaleState();
+
 const orgs = ref<OrgSummary[]>([]);
 const applications = ref<ApplicationView[]>([]);
 const bootstrapStatus = ref<BootstrapStatus | null>(null);
@@ -107,7 +110,7 @@ onMounted(async () => {
     applications.value = applicationList;
     bootstrapStatus.value = status;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 });
 </script>
@@ -118,3 +121,4 @@ onMounted(async () => {
   color: var(--el-text-color-primary);
 }
 </style>
+

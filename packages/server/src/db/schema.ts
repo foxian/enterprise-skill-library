@@ -68,6 +68,7 @@ export const databaseSchema = `
     username TEXT PRIMARY KEY,
     disabled INTEGER NOT NULL DEFAULT 0,
     platform_admin INTEGER NOT NULL DEFAULT 0,
+    locale TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );

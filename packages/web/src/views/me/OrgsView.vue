@@ -2,33 +2,33 @@
   <div>
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
-        <span class="toolbar-caption">我所在的组织</span>
+        <span class="toolbar-caption">{{ t('organization.myOrganizations') }}</span>
         <div class="toolbar-end">
-          <el-button type="primary" data-test="create-org" @click="openCreateDialog">创建组织</el-button>
+          <el-button type="primary" data-test="create-org" @click="openCreateDialog">{{ t('organization.createOrganization') }}</el-button>
         </div>
       </div>
 
       <el-table v-if="rows.length > 0" :data="rows" data-test="my-orgs-table" v-loading="loading">
-        <el-table-column label="组织" min-width="180">
+        <el-table-column :label="t('columns.organization')" min-width="180">
           <template #default="{ row }">@{{ row.org }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="120">
+        <el-table-column :label="t('columns.status')" width="120">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)" :data-test="`org-status-${row.status}`">
-              {{ statusText(row.status) }}
+              {{ t(statusText(row.status)) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="我的身份" width="180">
+        <el-table-column :label="t('columns.myIdentity')" width="180">
           <template #default="{ row }">
             <!-- 待审申请还没产生组织，此时没有任何身份（ADR-0038） -->
             <el-tag v-if="row.identity" :type="identityTagType(row.identity)" :data-test="`org-identity-${row.identity}`">
-              {{ identityLabel(row.identity) }}
+              {{ t(identityLabel(row.identity)) }}
             </el-tag>
             <span v-else data-test="org-identity-none">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180">
+        <el-table-column :label="t('columns.actions')" width="180">
           <template #default="{ row }">
             <!-- 运营入口对管理成员与所有者成员开放；其余成员看到只读技能入口。 -->
             <el-button
@@ -38,7 +38,7 @@
               :data-test="`manage-${row.org}`"
               @click="openOrg(row.org)"
             >
-              {{ row.status === 'delete_failed' ? '重试删除' : '查看进度' }}
+              {{ row.status === 'delete_failed' ? t('actions.retryDelete') : t('actions.viewProgress') }}
             </el-button>
             <el-button
               v-else-if="(row.identity === 'managing' || row.identity === 'owner') && row.status === 'active'"
@@ -47,7 +47,7 @@
               :data-test="`manage-${row.org}`"
               @click="openOrg(row.org)"
             >
-              管理
+              {{ t('actions.manage') }}
             </el-button>
             <el-button
               v-else-if="row.status === 'active'"
@@ -56,34 +56,34 @@
               :data-test="`browse-${row.org}`"
               @click="browseOrgSkills(row.org)"
             >
-              查看技能
+              {{ t('actions.viewSkills') }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && rows.length === 0" description="你还没有加入任何组织" />
+      <el-empty v-if="!loading && rows.length === 0" :description="t('organization.noOrganizations')" />
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
 
-    <el-dialog v-model="createDialogVisible" :title="manualMode ? '申请创建组织' : '创建组织'" width="460px">
+    <el-dialog v-model="createDialogVisible" :title="manualMode ? t('organization.applyCreateOrganization') : t('organization.createOrganization')" width="460px">
       <p class="create-hint">
         {{
           manualMode
-            ? '当前平台为审批制：提交申请后由平台管理员审批，通过即开通，你自动成为所有者成员。'
-            : '组织创建后即时开通，你自动成为所有者成员。'
+            ? t('organization.approvalCreationHint')
+            : t('organization.manualCreationHint')
         }}
       </p>
       <el-form label-width="90px">
-        <el-form-item label="组织名" required>
-          <el-input v-model="newOrgName" data-test="create-org-name" placeholder="小写字母、数字与连字符" />
+        <el-form-item :label="t('columns.organizationName')" required>
+          <el-input v-model="newOrgName" data-test="create-org-name" :placeholder="t('organization.orgNamePlaceholder')" />
           <div v-if="newOrgNameError" class="field-error" data-test="create-org-name-error">{{ newOrgNameError }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button @click="createDialogVisible = false">{{ t('actions.cancel') }}</el-button>
         <el-button type="primary" data-test="create-org-submit" @click="submitCreate">
-          {{ manualMode ? '提交申请' : '创建' }}
+          {{ manualMode ? t('actions.submit') : t('actions.create') }}
         </el-button>
       </template>
     </el-dialog>
@@ -92,6 +92,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 // 深层引入纯函数模块，避免把 @esl/core 的 Node 依赖打进浏览器包
@@ -100,6 +101,8 @@ import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { useAuthStore } from '../../stores/auth';
+
+const { t } = useLocaleState();
 
 interface OrganizationRow {
   org: string;
@@ -118,11 +121,11 @@ interface MyOrgsResponse {
 // deleting / delete_failed 是需要被治理者看见的状态：组织不能悄悄消失，
 // 删除失败也不是死局——列表上带状态、可回到组织详情重试（ADR-0034）。
 const STATUS_LABELS: Record<string, string> = {
-  active: '正常',
-  pending: '待审',
-  deleting: '删除中',
-  delete_failed: '删除失败',
-  deleted: '已删除'
+  active: 'status.active',
+  pending: 'status.pending',
+  deleting: 'status.deleting',
+  delete_failed: 'status.deleteFailed',
+  deleted: 'status.deleted'
 };
 
 function statusText(status: string): string {
@@ -185,7 +188,7 @@ async function loadOrgs(): Promise<void> {
       }))
     });
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
@@ -208,7 +211,7 @@ async function submitCreate(): Promise<void> {
   errorMessage.value = '';
   const orgName = newOrgName.value.trim();
   if (!orgName) {
-    errorMessage.value = '请输入组织名';
+    errorMessage.value = t('organization.enterOrgName');
     return;
   }
   // 命名不合规由 newOrgNameError 就地提示（随输入实时显示），这里只负责不发请求
@@ -218,15 +221,15 @@ async function submitCreate(): Promise<void> {
   try {
     if (manualMode.value) {
       await apiRequest('/api/orgs/applications', { method: 'POST', body: { orgName } });
-      ElMessage.success(`组织申请 ${orgName} 已提交，等待平台管理员审批`);
+      ElMessage.success(t('organization.applicationSubmitted', { org: orgName }));
     } else {
       await apiRequest('/api/orgs', { method: 'POST', body: { orgName } });
-      ElMessage.success(`组织 ${orgName} 已创建`);
+      ElMessage.success(t('organization.orgCreated', { org: orgName }));
     }
     createDialogVisible.value = false;
     await loadOrgs();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

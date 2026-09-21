@@ -1,8 +1,11 @@
+import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { validatePassword } from '@esl/core';
 import type { AdminRepository, PlatformSettingsRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import { deriveOrganizations } from '../services/organization-membership.js';
+import { SUPPORTED_LOCALES } from '@esl/i18n';
+import { logEvent } from '../logging.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
@@ -21,23 +24,28 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
   app.post('/api/auth/login', async (request, reply) => {
     const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
     if (!username || !password) {
-      return reply.status(400).send({ error: 'Username and password are required' });
+      return reply.status(400).send(apiError('usernameAndPasswordAreRequired'));
     }
     if (username === giteaService.adminUsername) {
-      return reply.status(403).send({ error: 'Platform administrators sign in from the Admin Console' });
+      return reply.status(403).send(apiError('platformAdministratorsSignInFromTheAdminConsole'));
     }
 
     const token = await giteaService.loginUser(username, password);
     if (!token) {
-      return unauthorized(reply);
+      return unauthorized(reply, request, username);
     }
     try {
       repository.registerIssuedToken(username, token);
     } catch {
-      return unauthorized(reply);
+      return unauthorized(reply, request, username);
     }
 
-    return { token, username, organizations: await deriveOrganizations(giteaService, username) };
+    return {
+      token,
+      username,
+      locale: repository.getLocale(username),
+      organizations: await deriveOrganizations(giteaService, username)
+    };
   });
 
   // 管理后台专用登录：平台管理员与普通用户都收，平台角色只有这两个
@@ -46,17 +54,17 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
   app.post('/api/console/login', async (request, reply) => {
     const { username, password } = (request.body ?? {}) as { username?: string; password?: string };
     if (!username || !password) {
-      return reply.status(400).send({ error: 'Username and password are required' });
+      return reply.status(400).send(apiError('usernameAndPasswordAreRequired'));
     }
 
     const token = await giteaService.loginUser(username, password);
     if (!token) {
-      return unauthorized(reply);
+      return unauthorized(reply, request, username);
     }
     try {
       repository.registerIssuedToken(username, token);
     } catch {
-      return unauthorized(reply);
+      return unauthorized(reply, request, username);
     }
 
     const isPlatformAdmin = username === giteaService.adminUsername;
@@ -64,19 +72,39 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       token,
       username,
       isPlatformAdmin,
+      locale: repository.getLocale(username),
       // 平台管理员不属于任何组织（ADR-0033），不参与组织治理故不派生隶属关系
       organizations: isPlatformAdmin ? [] : await deriveOrganizations(giteaService, username)
     };
   });
 
+  // 账户语言偏好（ADR-0044）：登录用户（含平台管理员）读取与更新自己的 locale。
+  app.get('/api/account/preferences', async (request, reply) => {
+    const username = resolveRepositoryUsername(request, reply, repository);
+    if (!username) return;
+    return { locale: repository.getLocale(username) };
+  });
+
+  app.put('/api/account/preferences', async (request, reply) => {
+    const username = resolveRepositoryUsername(request, reply, repository);
+    if (!username) return;
+
+    const { locale } = (request.body ?? {}) as { locale?: string | null };
+    if (locale !== null && locale !== undefined && !(SUPPORTED_LOCALES as readonly string[]).includes(locale)) {
+      return reply.status(400).send(apiError('unsupportedLocale', { locale }));
+    }
+    repository.setLocale(username, locale ?? null);
+    return { locale: locale ?? null };
+  });
+
   app.post('/api/auth/password', async (request, reply) => {
     const { oldPassword, newPassword } = request.body as { oldPassword?: string; newPassword?: string };
     if (!oldPassword || !newPassword) {
-      return reply.status(400).send({ error: 'Current and new passwords are required' });
+      return reply.status(400).send(apiError('currentAndNewPasswordsAreRequired'));
     }
     const passwordValidation = validatePassword(newPassword, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
     }
 
     const username = await resolveTokenUsername(request, reply, giteaService);
@@ -84,7 +112,18 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
 
     const valid = await giteaService.validateUserPassword(username, oldPassword);
     if (!valid) {
-      return reply.status(401).send({ error: 'Unauthorized: current password is incorrect' });
+      logEvent(
+        request.log,
+        'warn',
+        {
+          event: 'auth.password-change',
+          outcome: 'failed',
+          actorUsername: username,
+          errorCode: 'unauthorizedCurrentPasswordIsIncorrect'
+        },
+        'Password change rejected'
+      );
+      return reply.status(401).send(apiError('unauthorizedCurrentPasswordIsIncorrect'));
     }
 
     await giteaService.changeUserPassword(username, newPassword);
@@ -99,19 +138,50 @@ async function resolveTokenUsername(
 ): Promise<string | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
-    reply.status(401).send({ error: 'Unauthorized: missing token' });
+    reply.status(401).send(apiError('unauthorizedMissingToken'));
     return null;
   }
 
   const token = authorization.replace('token ', '').trim();
   const user = await giteaService.validateToken(token);
   if (!user) {
-    reply.status(401).send({ error: 'Unauthorized: invalid token' });
+    reply.status(401).send(apiError('unauthorizedInvalidToken'));
     return null;
   }
   return user.username;
 }
 
-function unauthorized(reply: FastifyReply) {
-  return reply.status(401).send({ error: 'Unauthorized: invalid credentials' });
+// 认证失败是安全事件（ADR-0045）：记 warn 供发现潜在攻击或误配置，但不升级
+// 成服务端异常。只记尝试的用户名，绝不记密码或 token。
+function unauthorized(reply: FastifyReply, request: FastifyRequest, username: string) {
+  logEvent(
+    request.log,
+    'warn',
+    {
+      event: 'auth.login',
+      outcome: 'failed',
+      actorUsername: username,
+      errorCode: 'unauthorizedInvalidCredentials'
+    },
+    'Login rejected'
+  );
+  return reply.status(401).send(apiError('unauthorizedInvalidCredentials'));
+}
+
+function resolveRepositoryUsername(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  repository: AdminRepository
+): string | null {
+  const authorization = request.headers.authorization;
+  if (!authorization?.startsWith('token ')) {
+    reply.status(401).send(apiError('unauthorizedMissingToken'));
+    return null;
+  }
+  const user = repository.validateUserToken(authorization.replace('token ', '').trim());
+  if (!user) {
+    reply.status(401).send(apiError('unauthorizedInvalidToken'));
+    return null;
+  }
+  return user.username;
 }

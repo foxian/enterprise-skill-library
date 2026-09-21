@@ -68,15 +68,15 @@ describe('user self-registration', () => {
     it('rejects a username that collides with an existing user, organization, or reserved name', async () => {
       const user = await register('existing');
       expect(user.statusCode).toBe(409);
-      expect(user.json().error).toContain('existing');
+      expect(user.json().message).toContain('existing');
 
       const org = await register('acme');
       expect(org.statusCode).toBe(409);
-      expect(org.json().error).toContain('acme');
+      expect(org.json().message).toContain('acme');
 
       const reserved = await register('system');
       expect(reserved.statusCode).toBe(400);
-      expect(reserved.json().error).toContain('reserved');
+      expect(reserved.json().message).toContain('reserved');
     });
 
     it('rejects weak passwords and malformed usernames', async () => {
@@ -158,7 +158,7 @@ describe('user self-registration', () => {
       const duplicate = await register('grace');
 
       expect(duplicate.statusCode).toBe(409);
-      expect(duplicate.json().error).toContain('pending');
+      expect(duplicate.json().message).toContain('pending');
     });
 
     it('lists pending registrations for the super administrator', async () => {

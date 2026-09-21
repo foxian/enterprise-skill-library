@@ -10,6 +10,7 @@ import {
 } from './network-options.js';
 import { isBuiltinIdentity, loadBuiltinPackageOrThrow, sortVersionsDescending } from '@esl/core';
 import { resolveBuiltinDir } from '../builtin-dir.js';
+import { ApiError } from '../api-error.js';
 
 export interface SkillInfo {
   name: string;
@@ -53,6 +54,15 @@ export async function executeInfo(name: string, options: NetworkCommandOptions =
   if (!res.ok && res.status !== 301) {
     const err = await res.text();
     const message = `Failed to fetch skill info: ${err}`;
+    try {
+      const apiError = new ApiError(res.status, message, JSON.parse(err) as Record<string, unknown>);
+      apiError.message = withAuthGuidanceIfForbidden(res.status, message);
+      throw apiError;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+    }
     throw new Error(withAuthGuidanceIfForbidden(res.status, message));
   }
 

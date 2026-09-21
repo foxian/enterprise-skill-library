@@ -1,4 +1,5 @@
 import { DEFAULT_PASSWORD_MIN_LENGTH } from '@esl/core';
+import { isLogLevel, type LogLevel } from './logging.js';
 
 export interface ServerConfig {
   port: number;
@@ -13,6 +14,8 @@ export interface ServerConfig {
   // When true the server seeds sample skill metadata at startup (ESL_AUTO_SEED).
   // Development environments opt in; production keeps the database clean.
   autoSeed: boolean;
+  // Diagnostic log verbosity (LOG_LEVEL). Defaults to info.
+  logLevel: LogLevel;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -41,6 +44,13 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   }
   const autoSeed = env.ESL_AUTO_SEED === 'true' || env.ESL_AUTO_SEED === '1';
 
+  // 非法日志级别在启动阶段直接失败（ADR-0045）：静默回退会让运维误以为
+  // debug 日志已开启，排障时才发现配置从未生效。
+  const logLevelRaw = env.LOG_LEVEL ?? 'info';
+  if (!isLogLevel(logLevelRaw)) {
+    throw new Error(`Invalid LOG_LEVEL: ${logLevelRaw}`);
+  }
+
   return {
     port,
     databasePath: requireEnv(env, 'DATABASE_PATH'),
@@ -51,6 +61,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     giteaAdminPassword: env.GITEA_ADMIN_PASSWORD,
     repoOwner: 'esl-skills',
     passwordMinLength,
-    autoSeed
+    autoSeed,
+    logLevel: logLevelRaw
   };
 }

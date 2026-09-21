@@ -65,6 +65,9 @@ Git HTTP 流量在 `/git` 下路由，Web 管理后台（从 `packages/web` 构�
 `server`（nginx）容器会等待 `api` 容器健康检查通过后再启动，因此启动后即可直接访问，
 不会出现冷启动 502 窗口。Nginx 的上传大小限制为 200 MB（`client_max_body_size 200m`）。
 
+API 服务输出结构化 JSON Lines 日志。查看、过滤与日志留存策略见
+[ESL Server 日志](logging.md)。
+
 ## 重新部署 Web 管理后台
 
 前端不会被打包进任何镜像：`packages/web/dist` 以 bind mount 方式挂载到

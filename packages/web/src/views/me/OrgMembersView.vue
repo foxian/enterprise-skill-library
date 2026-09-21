@@ -2,24 +2,24 @@
   <div>
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
-        <span class="toolbar-caption">成员 {{ members.length }} 人</span>
+        <span class="toolbar-caption">{{ t('member.count', { count: formatNumber(members.length) }) }}</span>
         <div class="toolbar-end">
-          <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">添加成员</el-button>
+          <el-button type="primary" data-test="open-add-member" @click="addDialogVisible = true">{{ t('actions.addMember') }}</el-button>
         </div>
       </div>
 
       <el-table v-if="members.length > 0" :data="members" data-test="members-table" v-loading="loading">
-        <el-table-column label="成员">
+        <el-table-column :label="t('columns.member')">
           <template #default="{ row }">{{ row.username }}</template>
         </el-table-column>
-        <el-table-column label="身份" width="130">
+        <el-table-column :label="t('columns.identity')" width="130">
           <template #default="{ row }">
             <el-tag :type="identityTagType(row.identity)" :data-test="`identity-${row.identity}`">
-              {{ identityLabel(row.identity) }}
+              {{ t(identityLabel(row.identity)) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320">
+        <el-table-column :label="t('columns.actions')" width="320">
           <template #default="{ row }">
             <template v-if="canGovern">
               <!-- 身份变更是一等动作（ADR-0038）。三档嵌套，所以可用的动作就是
@@ -32,7 +32,7 @@
                 :data-test="`set-${next}-${row.username}`"
                 @click="changeIdentity(row, next)"
               >
-                {{ promotionLabel(next) }}
+                {{ t(promotionLabel(next)) }}
               </el-button>
               <el-button
                 v-if="row.identity !== 'ordinary'"
@@ -40,10 +40,10 @@
                 type="warning"
                 :data-test="`demote-${row.username}`"
                 :disabled="!canDemote(row)"
-                :title="demoteBlockReason(row)"
+                :title="t(demoteBlockReason(row))"
                 @click="changeIdentity(row, 'ordinary')"
               >
-                收回为普通成员
+                {{ t('organization.demoteToOrdinary') }}
               </el-button>
               <!-- 互管与"至少保留一名所有者成员"（ADR-0038）在服务端兜底，
                    前端按同一规则禁用，以免点了才吃 400 -->
@@ -52,10 +52,10 @@
                 type="danger"
                 :data-test="`remove-${row.username}`"
                 :disabled="!canRemove(row)"
-                :title="removalBlockReason(row)"
+                :title="t(removalBlockReason(row))"
                 @click="openRemove(row)"
               >
-                {{ row.username === auth.username ? '退出组织' : '移出' }}
+                {{ row.username === auth.username ? t('actions.leaveOrganization') : t('actions.remove') }}
               </el-button>
             </template>
             <el-button
@@ -65,26 +65,26 @@
               :data-test="`remove-${row.username}`"
               @click="openRemove(row)"
             >
-              退出组织
+              {{ t('actions.leaveOrganization') }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-else-if="!loading" description="组织暂无成员" />
+      <el-empty v-else-if="!loading" :description="t('organization.noMembers')" />
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
 
     <el-card v-if="inviteMode && canGovern" class="data-card" shadow="never">
-      <template #header>待接受的邀请</template>
+      <template #header>{{ t('member.pendingInvitationsTitle') }}</template>
       <el-table
         v-if="invitations.length > 0"
         :data="invitations"
         data-test="pending-invitations-table"
         v-loading="invitationsLoading"
       >
-        <el-table-column prop="username" label="被邀请人" />
-        <el-table-column prop="invitedBy" label="邀请人" width="180" />
-        <el-table-column label="操作" width="120">
+        <el-table-column prop="username" :label="t('columns.invitedUser')" />
+        <el-table-column prop="invitedBy" :label="t('columns.inviter')" width="180" />
+        <el-table-column :label="t('columns.actions')" width="120">
           <template #default="{ row }">
             <el-button
               link
@@ -92,40 +92,40 @@
               :data-test="`revoke-invitation-${row.username}`"
               @click="revokeInvitation(row)"
             >
-              撤销
+              {{ t('actions.revoke') }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-else-if="!invitationsLoading" description="没有待接受的邀请" />
+      <el-empty v-else-if="!invitationsLoading" :description="t('member.noPendingInvitations')" />
     </el-card>
 
-    <el-dialog v-model="addDialogVisible" title="添加成员" width="420px">
-      <p v-if="inviteMode" class="dialog-hint">当前平台为邀请制：对方接受邀请后才会加入组织。</p>
+    <el-dialog v-model="addDialogVisible" :title="t('member.addTitle')" width="420px">
+      <p v-if="inviteMode" class="dialog-hint">{{ t('member.invitationModeHint') }}</p>
       <el-form label-width="100px">
-        <el-form-item label="用户名" required>
-          <el-input v-model="addUsername" data-test="add-member-username" placeholder="对方的全局账号用户名" />
+        <el-form-item :label="t('registration.username')" required>
+          <el-input v-model="addUsername" data-test="add-member-username" :placeholder="t('member.usernamePlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="addDialogVisible = false">取消</el-button>
+        <el-button @click="addDialogVisible = false">{{ t('actions.cancel') }}</el-button>
         <el-button type="primary" data-test="add-member-submit" @click="addMember">
-          {{ inviteMode ? '发送邀请' : '添加' }}
+          {{ inviteMode ? t('actions.sendInvite') : t('actions.add') }}
         </el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="removeDialogVisible" :title="leaveSelf ? '退出组织' : '移出成员'" width="420px">
+    <el-dialog v-model="removeDialogVisible" :title="leaveSelf ? t('member.leaveTitle') : t('member.removeTitle')" width="420px">
       <p v-if="leaveSelf">
-        退出后你将离开 <strong>@{{ org }}</strong> 并从全部团队移出；你在平台上的账号不受影响。
+        {{ t('member.leaveWarning', { org }) }}
       </p>
       <p v-else>
-        移出后 <strong>{{ removeTarget }}</strong> 将离开组织并从全部团队移出。确认继续？
+        {{ t('member.removeWarning', { member: removeTarget }) }}
       </p>
       <template #footer>
-        <el-button @click="removeDialogVisible = false">取消</el-button>
+        <el-button @click="removeDialogVisible = false">{{ t('actions.cancel') }}</el-button>
         <el-button type="danger" data-test="remove-member-confirm" @click="removeMember">
-          {{ leaveSelf ? '确认退出' : '确认移出' }}
+          {{ leaveSelf ? t('actions.confirmLeave') : t('actions.confirmRemove') }}
         </el-button>
       </template>
     </el-dialog>
@@ -134,12 +134,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType, promotionLabel } from '../../constants/org-identity';
 import { useAuthStore, type SessionOrganization } from '../../stores/auth';
+
+const { t, formatNumber } = useLocaleState();
 
 interface OrgMemberView {
   username: string;
@@ -191,14 +194,14 @@ function promotionTargets(member: OrgMemberView): Array<'managing' | 'owner'> {
  */
 function demoteBlockReason(member: OrgMemberView): string {
   if (member.identity === 'owner' && ownerCount.value <= 1) {
-    return '组织必须至少保留一名所有者成员';
+    return 'organization.lastOwnerDisabled';
   }
   return '';
 }
 
 function removalBlockReason(member: OrgMemberView): string {
   if (member.identity === 'owner' && ownerCount.value <= 1) {
-    return '组织必须至少保留一名所有者成员';
+    return 'organization.lastOwnerDisabled';
   }
   return '';
 }
@@ -217,7 +220,7 @@ async function loadMembers(): Promise<void> {
   try {
     members.value = await apiRequest<OrgMemberView[]>(`/api/orgs/${org.value}/members`);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
@@ -257,17 +260,17 @@ async function changeIdentity(member: OrgMemberView, identity: OrgIdentity): Pro
       method: 'PUT',
       body: { identity }
     });
-    ElMessage.success(`${member.username} 现在是${identityLabel(identity)}`);
+    ElMessage.success(t('organization.identityChanged', { username: member.username, identity: t(identityLabel(identity)) }));
     await Promise.all([loadMembers(), refreshSessionOrganizations()]);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
 async function addMember(): Promise<void> {
   errorMessage.value = '';
   if (!addUsername.value.trim()) {
-    errorMessage.value = '请输入用户名';
+    errorMessage.value = t('member.usernameRequired');
     return;
   }
   try {
@@ -278,13 +281,13 @@ async function addMember(): Promise<void> {
     addDialogVisible.value = false;
     addUsername.value = '';
     if (result.status === 'invited') {
-      ElMessage.success(`已向 ${result.username} 发送入组邀请`);
+      ElMessage.success(t('member.inviteSent', { member: result.username }));
     } else {
-      ElMessage.success(`成员 ${result.username} 已加入组织`);
+      ElMessage.success(t('member.memberAdded', { member: result.username }));
     }
     await Promise.all([loadMembers(), loadInvitations()]);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -301,11 +304,13 @@ async function removeMember(): Promise<void> {
     });
     removeDialogVisible.value = false;
     ElMessage.success(
-      leaveSelf.value ? `你已退出 @${org.value}` : `成员 ${removeTarget.value} 已移出组织`
+      leaveSelf.value
+        ? t('member.selfLeft', { org: org.value })
+        : t('member.memberRemoved', { member: removeTarget.value })
     );
     await Promise.all([loadMembers(), refreshSessionOrganizations()]);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -313,10 +318,10 @@ async function revokeInvitation(row: InvitationView): Promise<void> {
   errorMessage.value = '';
   try {
     await apiRequest(`/api/orgs/${org.value}/invitations/${row.id}`, { method: 'DELETE' });
-    ElMessage.success(`已撤销对 ${row.username} 的邀请`);
+    ElMessage.success(t('member.inviteRevoked', { member: row.username }));
     await loadInvitations();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

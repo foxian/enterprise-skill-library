@@ -6,6 +6,7 @@ import type { Component } from 'vue';
 import { router } from '../src/router';
 import LoginView from '../src/views/LoginView.vue';
 import { setFetchImpl } from '../src/api/client';
+import { initializeLocale } from '../src/i18n/locale';
 import { useAuthStore } from '../src/stores/auth';
 
 // 登录视图的响应式 fetch mock：记录请求体并返回可配置的响应。
@@ -38,6 +39,7 @@ function mockFetch(status = 200, body: unknown = {}): {
 async function mountLogin(): Promise<VueWrapper> {
   const pinia = createPinia();
   setActivePinia(pinia);
+  await initializeLocale({ browserLanguages: ['zh-CN'] });
   return mount(LoginView as unknown as Component, {
     global: {
       plugins: [pinia, ElementPlus, router]
@@ -69,6 +71,7 @@ describe('LoginView', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    document.cookie = 'esl-locale=; Max-Age=0; path=/';
     vi.spyOn(router, 'push').mockImplementation(async () => undefined);
   });
 

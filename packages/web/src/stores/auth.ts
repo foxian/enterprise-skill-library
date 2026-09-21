@@ -24,6 +24,7 @@ export interface AuthSession {
   username: string;
   isPlatformAdmin: boolean;
   organizations: SessionOrganization[];
+  locale?: string | null;
 }
 
 const STORAGE_KEY = 'esl-admin-session';
@@ -71,6 +72,7 @@ export const useAuthStore = defineStore('auth', {
     username: (state): string | null => state.session?.username ?? null,
     isPlatformAdmin: (state): boolean => state.session?.isPlatformAdmin ?? false,
     organizations: (state): SessionOrganization[] => state.session?.organizations ?? [],
+    accountLocale: (state): string | null => state.session?.locale ?? null,
     homePath(state): string {
       if (!state.session) {
         return '/admin/login';
@@ -82,6 +84,12 @@ export const useAuthStore = defineStore('auth', {
     establish(session: AuthSession): void {
       this.session = session;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    },
+    setLocale(locale: string | null): void {
+      if (this.session) {
+        this.session.locale = locale;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session));
+      }
     },
     logout(): void {
       this.session = null;

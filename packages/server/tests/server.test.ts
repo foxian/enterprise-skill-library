@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { startServer } from '../src/server.js';
+import { reportStartupFailure, startServer } from '../src/server.js';
 import { GiteaService } from '../src/services/gitea.js';
+import { createLogCapture, recordsForEvent } from './helpers/log-capture.js';
 
 describe('server runtime', () => {
   it('starts Fastify with env config and injected listen behavior', async () => {
@@ -17,6 +18,7 @@ describe('server runtime', () => {
       } as NodeJS.ProcessEnv,
       listen,
       readFile,
+      logger: false,
       giteaServiceFactory: () => ({
         validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }),
         validateAdminToken: async () => true
@@ -46,6 +48,7 @@ describe('server runtime', () => {
       } as NodeJS.ProcessEnv,
       listen,
       readFile,
+      logger: false,
       giteaServiceFactory: (url, token) => new GiteaService(url, token, customFetch as any)
     });
 
@@ -81,6 +84,7 @@ describe('server runtime', () => {
         GITEA_ADMIN_TOKEN: 'admin-token'
       } as NodeJS.ProcessEnv,
       listen,
+      logger: false,
       giteaServiceFactory: () => giteaService as any
     });
 
@@ -134,6 +138,60 @@ describe('server runtime', () => {
         readFile: vi.fn().mockRejectedValue(new Error('ENOENT'))
       })
     ).rejects.toThrow('Failed to read Gitea admin token file: /bootstrap/gitea-admin-token: ENOENT');
+  });
+
+  it('records server.started with the listening port', async () => {
+    const capture = createLogCapture();
+    const listen = vi.fn().mockResolvedValue('http://127.0.0.1:3999');
+    const app = await startServer({
+      env: {
+        PORT: '3999',
+        DATABASE_PATH: ':memory:',
+        GITEA_URL: 'http://gitea:3000',
+        GITEA_ADMIN_TOKEN: 'admin-token'
+      } as NodeJS.ProcessEnv,
+      listen,
+      logger: capture.logger,
+      giteaServiceFactory: () =>
+        ({ validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }) }) as never
+    });
+
+    const started = recordsForEvent(capture, 'server.started');
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatchObject({ outcome: 'succeeded', port: 3999, level: 30 });
+    await app.close();
+  });
+
+  it('records server.start.failed and still rejects when listening fails', async () => {
+    const capture = createLogCapture();
+    const listen = vi.fn().mockRejectedValue(new Error('port already in use'));
+
+    await expect(
+      startServer({
+        env: {
+          DATABASE_PATH: ':memory:',
+          GITEA_URL: 'http://gitea:3000',
+          GITEA_ADMIN_TOKEN: 'admin-token'
+        } as NodeJS.ProcessEnv,
+        listen,
+        logger: capture.logger,
+        giteaServiceFactory: () =>
+          ({ validateToken: async () => ({ id: 1, username: 'admin', email: 'admin@local.esl' }) }) as never
+      })
+    ).rejects.toThrow('port already in use');
+
+    const failed = recordsForEvent(capture, 'server.start.failed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ outcome: 'failed', level: 50 });
+    expect((failed[0].err as { message: string }).message).toBe('port already in use');
+  });
+
+  it('writes one stderr diagnostic when startup fails before a logger exists', () => {
+    const lines: string[] = [];
+
+    reportStartupFailure(new Error('Invalid LOG_LEVEL: verbose'), (line) => lines.push(line));
+
+    expect(lines).toEqual(['ESL API Server failed to start: Invalid LOG_LEVEL: verbose\n']);
   });
 
   

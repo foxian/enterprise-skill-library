@@ -1,3 +1,4 @@
+import { apiError } from '../errors.js';
 import {
   highestSatisfyingVersion,
   highestStableVersion,
@@ -23,6 +24,8 @@ import type {
 import type { GiteaService, GiteaTeam } from '../services/gitea.js';
 import { isManagingMemberOf, isOwnerMemberOf } from '../services/organization-membership.js';
 import { backendTeamName } from '../services/logical-team-projection.js';
+import { logEvent } from '../logging.js';
+import type { ApiErrorCode } from '@esl/i18n';
 
 export interface SkillsRouteOptions {
   repository: SkillRepository;
@@ -32,6 +35,39 @@ export interface SkillsRouteOptions {
   tenantOrganizationRepository: TenantOrganizationRepository;
   skillTeamGrantRepository: SkillTeamGrantRepository;
   packageRoot?: string;
+}
+
+// 技能生命周期的关键状态变化事件（ADR-0045）。resourceId 优先用 Skill ID——
+// 它在 Skill Rename 后仍然稳定，比可变的名字更适合做检索键；errorCode 与响应
+// 体里的 API Error Code 对齐，便于把客户端看到的拒绝与服务端日志关联。
+interface SkillEventInput {
+  event: 'skill.source-upload' | 'skill.published';
+  outcome: 'succeeded' | 'failed';
+  message: string;
+  actorUsername: string;
+  scope: string;
+  name: string;
+  skillId?: string;
+  errorCode?: ApiErrorCode;
+  durationMs?: number;
+}
+
+function logSkillEvent(request: FastifyRequest, input: SkillEventInput): void {
+  logEvent(
+    request.log,
+    input.outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event: input.event,
+      outcome: input.outcome,
+      actorUsername: input.actorUsername,
+      organization: input.scope,
+      resourceType: 'skill',
+      resourceId: input.skillId ?? input.name,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {})
+    },
+    input.message
+  );
 }
 
 export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteOptions): void {
@@ -91,7 +127,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.post('/api/skills/upload', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
 
     // ADR-0032:release.json v3 的 name 是归属的唯一权威来源。无 scope 的裸名
@@ -100,10 +136,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const body = request.body as { name?: string; description?: string };
     const identity = parseSkillIdentity(body.name ?? '');
     if (!identity) {
-      return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
+      return reply.status(400).send(apiError('skillNameMustUseLowercaseLettersDigitsAndHyphens'));
     }
     if (!body.description) {
-      return reply.status(400).send({ error: 'Skill description is required' });
+      return reply.status(400).send(apiError('skillDescriptionIsRequired'));
     }
 
     let scope: string;
@@ -113,9 +149,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // 组织命名空间:要求组织激活且上传者是成员(任何成员皆可 upload,ADR-0032)。
       const tenant = tenantOrganizationRepository.get(identity.scope);
       if (!tenant || tenant.status !== 'active') {
-        return reply.status(403).send({
-          error: `Organization ${identity.scope} is not active; it must be provisioned before uploading skills`
-        });
+        return reply
+          .status(403)
+          .send(apiError('organizationNotActiveForUpload', { org: identity.scope ?? '' }));
       }
       let member = false;
       try {
@@ -124,7 +160,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         member = false;
       }
       if (!member) {
-        return reply.status(403).send({ error: `You are not a member of organization ${identity.scope}` });
+        return reply.status(403).send(apiError('notMemberOfOrganization', { org: identity.scope }));
       }
       scope = identity.scope;
     }
@@ -134,12 +170,21 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const existing = repository.getSkill(name);
     if (existing) {
       if (existing.status !== 'active-unreleased' || existing.createdBy !== user.username) {
-        return reply.status(409).send({ error: 'Skill already exists; use source and Git push to update it' });
+        return reply.status(409).send(apiError('skillAlreadyExistsUseSourceAndGitPushToUpdateIt'));
       }
       // An interrupted first Source Upload: the same creator may resume against
       // the Active Unreleased Skill Source instead of hitting a duplicate error.
       // 断点续传同样补齐创建者的 Git 访问权：修复前注册的来源可能从未授权。
       await ensureSourceCreatorGitAccess(giteaService, scope, shortName, user.username);
+      logSkillEvent(request, {
+        event: 'skill.source-upload',
+        outcome: 'succeeded',
+        message: 'Skill source upload resumed',
+        actorUsername: user.username,
+        scope,
+        name,
+        skillId: existing.skillId
+      });
       return reply
         .status(200)
         .send(withCloneUrl(request, { ...existing, versions: repository.getVersions(name) }));
@@ -178,6 +223,15 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       }
       throw error;
     }
+    logSkillEvent(request, {
+      event: 'skill.source-upload',
+      outcome: 'succeeded',
+      message: 'Skill source uploaded',
+      actorUsername: user.username,
+      scope,
+      name,
+      skillId: skill!.skillId
+    });
     return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
   });
 
@@ -204,7 +258,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.get('/api/skills/inventory', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const view: Array<SkillRecord & { access: SkillAccessLevel; relation: 'managed' | 'shared' }> = [];
     for (const skill of repository.listSkills()) {
@@ -220,20 +274,20 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.post('/api/skills/:scope/:skillName/visibility', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const skill = repository.getSkill(name);
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     if (!(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const { visibility = '' } = request.body as { visibility?: string };
     if (visibility !== 'public' && visibility !== 'private') {
-      return reply.status(400).send({ error: 'Visibility must be public or private' });
+      return reply.status(400).send(apiError('visibilityMustBePublicOrPrivate'));
     }
     repository.setVisibility(name, visibility);
     return { name: skill.name, visibility };
@@ -242,17 +296,17 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.get('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const skill = repository.getSkill(name);
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     // 读矩阵与技能上下文不是敏感数据:任何对该技能有可见性的用户都能查看;变更仍走 POST 的管理权守门。
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
+      return reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'));
     }
     return buildPermissionsResponse(
       skill,
@@ -266,20 +320,20 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.put('/api/skills/:scope/:skillName/description', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const skill = repository.getSkill(name);
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     if (!(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const body = request.body as { description?: string };
     if (typeof body.description !== 'string' || !body.description.trim()) {
-      return reply.status(400).send({ error: 'Skill description is required' });
+      return reply.status(400).send(apiError('skillDescriptionIsRequired'));
     }
     repository.updateSkillDescription(name, body.description.trim());
     return { name: skill.name, description: body.description.trim() };
@@ -288,16 +342,16 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.post('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const skill = repository.getSkill(name);
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     if (!(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
 
     const body = request.body as {
@@ -327,7 +381,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         const teamName = SHARE_TIER_TEAM_NAMES[shareTierOf(body.action)];
         const team = (await giteaService.listTeams(skill.scope)).find((entry) => entry.name === teamName);
         if (!team) {
-          return reply.status(404).send({ error: `Default team ${teamName} not found in organization` });
+          return reply.status(404).send(apiError('defaultTeamNotFound', { teamName }));
         }
         payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, teamId: team.id };
         break;
@@ -347,20 +401,20 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           ? readTeam.name.slice(0, -'-read'.length)
           : teamKey;
         if (!readTeam || !logicalName) {
-          return reply.status(404).send({ error: 'Team not found in organization' });
+          return reply.status(404).send(apiError('teamNotFoundInOrganization'));
         }
         const isProjection =
           teams.some((entry) => entry.name === backendTeamName(logicalName, 'read')) &&
           teams.some((entry) => entry.name === backendTeamName(logicalName, 'write')) &&
           teams.some((entry) => entry.name === backendTeamName(logicalName, 'manage'));
         if (!isProjection) {
-          return reply.status(400).send({ error: 'Team is not a logical custom team' });
+          return reply.status(400).send(apiError('teamIsNotALogicalCustomTeam'));
         }
         if (body.action === 'set_team' &&
             body.permission !== 'read' &&
             body.permission !== 'write' &&
             body.permission !== 'manage') {
-          return reply.status(400).send({ error: 'Team permission must be read, write, or manage' });
+          return reply.status(400).send(apiError('teamPermissionMustBeReadWriteOrManage'));
         }
         payload = {
           skillName: name,
@@ -380,14 +434,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           !body.username ||
           (body.permission !== 'read' && body.permission !== 'write' && body.permission !== 'manage')
         ) {
-          return reply.status(400).send({ error: 'Username and a read, write, or manage permission are required' });
+          return reply.status(400).send(apiError('usernameAndAReadWriteOrManagePermissionAreRequired'));
         }
         payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, username: body.username, permission: body.permission };
         break;
       }
       case 'remove_member': {
         if (!body.username) {
-          return reply.status(400).send({ error: 'Username is required' });
+          return reply.status(400).send(apiError('usernameIsRequired'));
         }
         payload = { skillName: name, scope: skill.scope, repoOwner: repo.owner, repoName: repo.name, action: body.action, username: body.username };
         break;
@@ -397,7 +451,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         break;
       }
       default:
-        return reply.status(400).send({ error: 'Unknown permission action' });
+        return reply.status(400).send(apiError('unknownPermissionAction'));
     }
 
     // 常设团队档位互斥（原 ADR-0026 组织共享级别语义）：设置某档时卸载其余两档
@@ -429,7 +483,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           }
           const permission = payload.permission as 'read' | 'write' | 'manage';
           const selected = projection[permission];
-          if (!selected) return reply.status(409).send({ error: 'Logical team projection is incomplete' });
+          if (!selected) return reply.status(409).send(apiError('logicalTeamProjectionIsIncomplete'));
           await giteaService.addTeamRepo(selected.id, repo.owner, repo.name);
           skillTeamGrantRepository.set(payload.skillName, payload.teamId!, permission);
           break;
@@ -469,11 +523,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
           break;
         }
         default:
-          return reply.status(400).send({ error: 'Unknown permission action' });
+          return reply.status(400).send(apiError('unknownPermissionAction'));
       }
     } catch (error) {
       return reply.status(409).send({
-        error: (error as Error).message ?? 'Permission change failed',
+        ...apiError('internalError', { detail: (error as Error).message ?? 'Permission change failed' }),
         retryable: true
       });
     }
@@ -487,15 +541,15 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const skill = repository.getSkill(currentName);
     const nextShortName = (request.body as { name?: string }).name ?? '';
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     if (!/^[a-z0-9-]{1,64}$/.test(nextShortName)) {
-      return reply.status(400).send({ error: 'Skill name must use lowercase letters, digits, and hyphens' });
+      return reply.status(400).send(apiError('skillNameMustUseLowercaseLettersDigitsAndHyphens'));
     }
     const repo = skillRepo(skill);
     const nextName = `@${skill.scope}/${nextShortName}`;
     if (repository.getSkill(nextName)) {
-      return reply.status(409).send({ error: 'Skill name already exists' });
+      return reply.status(409).send(apiError('skillNameAlreadyExists'));
     }
     let metadataUpdated = false;
     let repoRenamed = false;
@@ -527,7 +581,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         }
       }
       return reply.status(409).send({
-        error: `Skill rename failed; rollback attempted: ${(error as Error).message}`,
+        ...apiError('skillRenameFailed', { detail: (error as Error).message }),
         retryable: true
       });
     }
@@ -539,14 +593,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     if (typeof giteaService.addCollaborator === 'function') {
       try {
         const repo = skillRepo(skill);
         await giteaService.addCollaborator(repo.owner, repo.name, user.username, 'read');
       } catch (error) {
-        return reply.status(409).send({ error: (error as Error).message });
+        return reply.status(409).send(apiError('internalError', { detail: (error as Error).message }));
       }
     }
     return reply.send(withCloneUrl(request, skill));
@@ -555,13 +609,35 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.post('/api/skills/:scope/:skillName/releases', async (request, reply) => {
     const params = request.params as { scope: string; skillName: string };
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const startedAt = Date.now();
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
+    // 发布是长流程且失败分支多，统一走 fail()：保证每条拒绝路径都只记一条业务
+    // 事件，且 errorCode 与响应体一致（ADR-0045 的「同一次异常只记录一次」）。
+    const fail = (
+      status: number,
+      code: ApiErrorCode,
+      errorParams: Record<string, string> = {}
+    ): ReturnType<FastifyReply['send']> => {
+      logSkillEvent(request, {
+        event: 'skill.published',
+        outcome: 'failed',
+        message: 'Skill release publish rejected',
+        actorUsername: user?.username ?? '',
+        // 拿不到技能记录时退回请求路径里的 scope，至少保留组织维度可供检索。
+        scope: skill?.scope ?? decodeURIComponent(params.scope ?? ''),
+        name,
+        skillId: skill?.skillId,
+        errorCode: code,
+        durationMs: Date.now() - startedAt
+      });
+      return reply.status(status).send(apiError(code, errorParams));
+    };
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return fail(403, 'forbiddenManagePermissionRequired');
     }
     if (skill.status === 'archived') {
-      return reply.status(409).send({ error: 'Archived skills cannot create releases' });
+      return fail(409, 'archivedSkillsCannotCreateReleases');
     }
 
     const body = request.body as {
@@ -572,10 +648,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       notes?: string;
     };
     if (!body.version || !semver.valid(body.version)) {
-      return reply.status(400).send({ error: 'Release version must be valid SemVer' });
+      return fail(400, 'releaseVersionMustBeValidSemver');
     }
     if (!body.sourceCommit) {
-      return reply.status(400).send({ error: 'sourceCommit is required' });
+      return fail(400, 'sourcecommitIsRequired');
     }
     const repo = skillRepo(skill);
     const sourceFiles = typeof giteaService.readSourceTree === 'function'
@@ -586,12 +662,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       try {
         sourceManifest = JSON.parse(sourceFiles['release.json']);
       } catch {
-        return reply.status(400).send({ error: 'release.json is not valid JSON' });
+        return fail(400, 'releaseJsonIsNotValidJson');
       }
     }
     const manifest = validateReleaseManifest(sourceManifest);
     if (!manifest.success) {
-      return reply.status(400).send({ error: manifest.errors.join(', ') });
+      return fail(400, 'validationFailed', { detail: manifest.errors.join(', ') });
     }
     // ADR-0032:publish 只断言归属——release.json 的 name 必须与技能既定身份
     // 一致(裸名按发布者个人命名空间补全),不一致即拒绝,归属变更不得借发布顺车。
@@ -601,24 +677,41 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       !manifestIdentity ||
       `@${manifestScope}/${manifestIdentity.shortName}` !== skill.name
     ) {
+      // 这条拒绝的响应体多带两个字段，不能走 fail()，但事件与错误码保持一致。
+      logSkillEvent(request, {
+        event: 'skill.published',
+        outcome: 'failed',
+        message: 'Skill release publish rejected',
+        actorUsername: user.username,
+        scope: skill.scope,
+        name,
+        skillId: skill.skillId,
+        errorCode: 'releaseManifestNameMismatch',
+        durationMs: Date.now() - startedAt
+      });
       return reply.status(409).send({
-        error: `Release manifest name "${manifest.data.name}" does not match the established identity ${skill.name}; ownership changes are not allowed via publish`
+        ...apiError('releaseManifestNameMismatch', {
+          manifestName: String(manifest.data.name),
+          skillName: skill.name
+        })
       });
     }
     if (!skill.skillId) {
-      return reply.status(409).send({ error: 'Skill has no Skill ID' });
+      return fail(409, 'skillHasNoSkillId');
     }
     // Tombstones included on purpose: deleting a release burns its version number.
     if (repository.getRelease(name, body.version, { includeDeleted: true })) {
-      return reply.status(409).send({ error: `Skill Release ${body.version} already exists` });
+      return fail(409, 'skillReleaseAlreadyExists', { version: body.version });
     }
     const releaseTag = `v${body.version}`;
     let existingReleaseTag: { target: string } | null = null;
     if (typeof giteaService.getReleaseTag === 'function') {
       existingReleaseTag = await giteaService.getReleaseTag(repo.owner, repo.name, releaseTag);
       if (existingReleaseTag && existingReleaseTag.target !== body.sourceCommit) {
-        return reply.status(409).send({
-          error: `Release Tag ${releaseTag} points to ${existingReleaseTag.target}, expected ${body.sourceCommit}`
+        return fail(409, 'releaseTagPointsElsewhere', {
+          tag: releaseTag,
+          target: existingReleaseTag.target,
+          expected: body.sourceCommit
         });
       }
     }
@@ -627,7 +720,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     try {
       dependencyLock = resolveDependencyLock(repository, name, manifest.data.dependencies);
     } catch (error) {
-      return reply.status(409).send({ error: (error as Error).message });
+      return fail(409, 'internalError', { detail: (error as Error).message });
     }
 
     const publishedFiles = { ...sourceFiles };
@@ -684,7 +777,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     } catch (error) {
       await fs.rm(packagePath, { force: true });
       if (String(error).toLowerCase().includes('unique')) {
-        return reply.status(409).send({ error: `Skill Release ${body.version} already exists` });
+        return fail(409, 'skillReleaseAlreadyExists', { version: body.version });
       }
       throw error;
     }
@@ -704,6 +797,16 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     repository.addVersion(name, body.version);
     if (skill.status !== 'active-published') repository.markPublished(name);
+    logSkillEvent(request, {
+      event: 'skill.published',
+      outcome: 'succeeded',
+      message: 'Skill release published',
+      actorUsername: user.username,
+      scope: skill.scope,
+      name,
+      skillId: skill.skillId,
+      durationMs: Date.now() - startedAt
+    });
     return reply.status(201).send({
       ...release,
       status: 'published',
@@ -718,14 +821,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const release = repository.getRelease(name, decodeURIComponent(params.version));
     if (!release) {
-      return reply.status(404).send({ error: 'Skill Release not found' });
+      return reply.status(404).send(apiError('skillReleaseNotFound'));
     }
     if (typeof giteaService.getReleaseTag !== 'function') {
-      return reply.status(501).send({ error: 'Release Tag repair is not supported by the Git backend' });
+      return reply.status(501).send(apiError('releaseTagRepairIsNotSupportedByTheGitBackend'));
     }
 
     const tag = `v${release.version}`;
@@ -734,7 +837,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (existing) {
       if (existing.target !== release.sourceCommit) {
         return reply.status(409).send({
-          error: `Release Tag ${tag} points to ${existing.target}, expected ${release.sourceCommit}`
+          ...apiError('releaseTagPointsElsewhere', {
+            tag,
+            target: existing.target,
+            expected: release.sourceCommit
+          })
         });
       }
       return reply.send({
@@ -753,7 +860,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         `Release ${name} ${release.version}`
       );
     } catch (error) {
-      return reply.status(409).send({ error: (error as Error).message });
+      return reply.status(409).send(apiError('internalError', { detail: (error as Error).message }));
     }
     return reply.send({
       repaired: true,
@@ -765,25 +872,25 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   app.get('/api/packages/:skillId/:version/:checksum', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
-      return reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     const params = request.params as { skillId: string; version: string; checksum: string };
     if (![params.skillId, params.version, params.checksum].every((value) => /^[A-Za-z0-9._-]+$/.test(value))) {
-      return reply.status(400).send({ error: 'Invalid Published Skill Package path' });
+      return reply.status(400).send(apiError('invalidPublishedSkillPackagePath'));
     }
     const skill = repository.getSkillById(params.skillId);
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
+      return reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'));
     }
     const packagePath = path.join(packageRoot, params.skillId, params.version, params.checksum);
     try {
       const bytes = await fs.readFile(packagePath);
       return reply.type('application/json').send(bytes);
     } catch {
-      return reply.status(404).send({ error: 'Published Skill Package not found' });
+      return reply.status(404).send(apiError('publishedSkillPackageNotFound'));
     }
   });
 
@@ -793,16 +900,16 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const version = decodeURIComponent(params.version);
     const body = request.body as { message?: string };
     if (typeof body.message !== 'string') {
-      return reply.status(400).send({ error: 'Release notes message is required' });
+      return reply.status(400).send(apiError('releaseNotesMessageIsRequired'));
     }
     const updated = repository.updateReleaseNotes(name, version, body.message);
     if (!updated) {
-      return reply.status(404).send({ error: 'Skill Release not found' });
+      return reply.status(404).send(apiError('skillReleaseNotFound'));
     }
     return reply.send(updated);
   });
@@ -817,26 +924,26 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const body = (request.body ?? {}) as { confirm?: string; force?: boolean };
     if (body.confirm !== version) {
-      return reply.status(400).send({ error: 'Deletion requires confirm matching the release version' });
+      return reply.status(400).send(apiError('deletionRequiresConfirmMatchingTheReleaseVersion'));
     }
     const release = repository.getRelease(name, version);
     if (!release || !skill.skillId) {
-      return reply.status(404).send({ error: 'Skill Release not found' });
+      return reply.status(404).send(apiError('skillReleaseNotFound'));
     }
     const dependents = repository.findDependentReleases(skill.skillId, version);
     if (dependents.length > 0) {
       if (!body.force) {
         return reply.status(409).send({
-          error: `Release ${version} is required by ${dependents.join(', ')}; deleting it would break their installs. Pass force to override.`
+          ...apiError('releaseRequiredByDependents', { version, dependents: dependents.join(', ') })
         });
       }
       if (!(await authorizePlatformAdministrator(request, adminRepository, giteaService))) {
         return reply.status(403).send({
-          error: 'Forbidden: forcing past a pinned dependency requires a platform administrator'
+          ...apiError('forbiddenForcingPastAPinnedDependencyRequiresAPlatformAdministrator')
         });
       }
     }
@@ -863,14 +970,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     if (skill.status === 'archived') {
-      return reply.status(409).send({ error: 'Archived skills do not accept release changes' });
+      return reply.status(409).send(apiError('archivedSkillsDoNotAcceptReleaseChanges'));
     }
     const body = request.body as { message?: string };
     if (body.message !== undefined && typeof body.message !== 'string') {
-      return reply.status(400).send({ error: 'Deprecation message must be a string' });
+      return reply.status(400).send(apiError('deprecationMessageMustBeAString'));
     }
     const updated = repository.setReleaseDeprecation(
       name,
@@ -878,7 +985,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       body.message ?? ''
     );
     if (!updated) {
-      return reply.status(404).send({ error: 'Skill Release not found' });
+      return reply.status(404).send(apiError('skillReleaseNotFound'));
     }
     return reply.send(updated);
   });
@@ -889,14 +996,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
-      return reply.status(403).send({ error: 'Forbidden: manage permission required' });
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     if (typeof giteaService.setRepositoryArchived === 'function') {
       try {
         const repo = skillRepo(skill);
         await giteaService.setRepositoryArchived(repo.owner, repo.name, true);
       } catch (error) {
-        return reply.status(409).send({ error: (error as Error).message });
+        return reply.status(409).send(apiError('internalError', { detail: (error as Error).message }));
       }
     }
     repository.archiveSkill(name);
@@ -908,22 +1015,22 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    if (!user || !skill) return reply.status(404).send(apiError('skillNotFound'));
     const platformAdmin = Boolean(
       await authorizePlatformAdministrator(request, adminRepository, giteaService)
     );
     if (!(await canRestoreSkill(skill, user.username, platformAdmin))) {
-      return reply.status(403).send({ error: 'Forbidden: restore permission required' });
+      return reply.status(403).send(apiError('forbiddenRestorePermissionRequired'));
     }
     if (skill.status !== 'archived') {
-      return reply.status(409).send({ error: 'Only archived skills can be restored' });
+      return reply.status(409).send(apiError('onlyArchivedSkillsCanBeRestored'));
     }
     if (typeof giteaService.setRepositoryArchived === 'function') {
       try {
         const repo = skillRepo(skill);
         await giteaService.setRepositoryArchived(repo.owner, repo.name, false);
       } catch (error) {
-        return reply.status(409).send({ error: (error as Error).message });
+        return reply.status(409).send(apiError('internalError', { detail: (error as Error).message }));
       }
     }
     repository.restoreSkill(name, repository.hasEverPublished(name));
@@ -936,12 +1043,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    if (!user || !skill) return reply.status(404).send(apiError('skillNotFound'));
     const platformAdmin = Boolean(
       await authorizePlatformAdministrator(request, adminRepository, giteaService)
     );
     if (!(await canDeleteWholeSkill(skill, user.username, platformAdmin))) {
-      return reply.status(403).send({ error: 'Forbidden: delete permission required' });
+      return reply.status(403).send(apiError('forbiddenDeletePermissionRequired'));
     }
     const skillId = skill.skillId ?? '';
     const releasesRemoved = (repository as SkillRepository).getReleases(skill.name).length;
@@ -958,23 +1065,23 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     const skill = repository.getSkill(name);
-    if (!user || !skill) return reply.status(404).send({ error: 'Skill not found' });
+    if (!user || !skill) return reply.status(404).send(apiError('skillNotFound'));
     const platformAdmin = Boolean(
       await authorizePlatformAdministrator(request, adminRepository, giteaService)
     );
     if (!(await canDeleteWholeSkill(skill, user.username, platformAdmin))) {
-      return reply.status(403).send({ error: 'Forbidden: delete permission required' });
+      return reply.status(403).send(apiError('forbiddenDeletePermissionRequired'));
     }
     if (skill.status !== 'archived' && skill.status !== 'delete_failed') {
-      return reply.status(409).send({ error: 'Skill must be archived before deletion' });
+      return reply.status(409).send(apiError('skillMustBeArchivedBeforeDeletion'));
     }
     const body = (request.body ?? {}) as { confirm?: string; reason?: string };
     const reason = body.reason?.trim() ?? '';
     if (!reason) {
-      return reply.status(400).send({ error: 'Deletion requires a non-empty reason' });
+      return reply.status(400).send(apiError('deletionRequiresANonEmptyReason'));
     }
     if (body.confirm !== name) {
-      return reply.status(400).send({ error: 'Deletion requires confirm matching the skill identity' });
+      return reply.status(400).send(apiError('deletionRequiresConfirmMatchingTheSkillIdentity'));
     }
 
     // 两阶段删除的第二个阶段必须可重试。进入 deleting 后，任何外部资产失败都
@@ -987,7 +1094,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       } catch (error) {
         const message = `Failed to delete Git repository: ${(error as Error).message}`;
         repository.markSkillDeletionFailed(name, message);
-        return reply.status(409).send({ error: message });
+        return reply.status(409).send(apiError('internalError', { detail: message }));
       }
     }
     try {
@@ -997,7 +1104,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     } catch (error) {
       const message = `Failed to delete published packages: ${(error as Error).message}`;
       repository.markSkillDeletionFailed(name, message);
-      return reply.status(409).send({ error: message });
+      return reply.status(409).send(apiError('internalError', { detail: message }));
     }
     const deleted = repository.deleteSkillWithAudit({
       fullName: name,
@@ -1017,18 +1124,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const redirect = repository.resolveRedirect(name);
     if (!skill && redirect) {
       return reply.status(301).send({
-        error: 'Skill renamed',
+        ...apiError('skillRenamed'),
         oldName: name,
         currentName: redirect.currentName,
         skillId: redirect.skillId
       });
     }
     if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
+      return reply.status(404).send(apiError('skillNotFound'));
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!(await hasReadAccess(giteaService, skill, user?.username))) {
-      return reply.status(403).send({ error: 'Forbidden: no access to this private skill; request access from its maintainers' });
+      return reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'));
     }
 
     const releases = repository.getReleases(name);

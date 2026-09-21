@@ -39,6 +39,39 @@ afterEach(async () => {
 });
 
 describe('ConsoleShell 侧边栏用户菜单 修改密码', () => {
+  it('顶栏语言切换保存账户偏好并立即更新控制台文案', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url === '/api/account/preferences') {
+        return { status: 200, json: { locale: 'en-US' } };
+      }
+      return { status: 200, json: {} };
+    });
+    wrapper = await mountConsoleView(ConsoleShell as never, {
+      account: 'member',
+      route: '/admin/me/skills',
+      props: { brand: '墨库', menuItems: [] }
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.console-header-name').text()).toBe('技能');
+
+    const englishControl = wrapper.find('[data-test="locale-en-US"]');
+    const englishInput = englishControl.find('input');
+    if (englishInput.exists()) {
+      await englishInput.setValue('en-US');
+    } else {
+      await englishControl.trigger('click');
+    }
+    await flushPromises();
+
+    expect(requests).toContainEqual({
+      method: 'PUT',
+      url: '/api/account/preferences',
+      body: { locale: 'en-US' }
+    });
+    expect(wrapper.find('.console-header-name').text()).toBe('Skills');
+  });
+
   it('侧边栏左下角打开修改密码对话框并提交自服务改密请求', async () => {
     const { requests } = useApiMock((method, url) => {
       if (url === '/api/auth/password') {

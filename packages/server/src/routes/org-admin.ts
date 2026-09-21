@@ -1,3 +1,4 @@
+import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   OrgApplicationRepository,
@@ -8,7 +9,7 @@ import type {
 } from '../db/database.js';
 import type { GiteaService, GiteaUser } from '../services/gitea.js';
 import { initializeOrganization } from '../services/org-init.js';
-import { performOrganizationDeletion } from '../services/org-delete.js';
+import { ORG_DELETION_TASK_ID, performOrganizationDeletion } from '../services/org-delete.js';
 import {
   applyOrgIdentity,
   checkOwnerMemberInvariant,
@@ -16,6 +17,37 @@ import {
   removeMemberFromOrganization
 } from '../services/organization-membership.js';
 import { validateOrgName, validatePassword } from '@esl/core';
+import { logEvent, taskLogger } from '../logging.js';
+import type { ApiErrorCode } from '@esl/i18n';
+
+// 审批类治理事件（ADR-0045）：操作者是做出决定的管理员，资源是申请/注册记录。
+// 状态流转是"关键业务事件"，普通查询（列表、详情）不记。
+function logGovernanceEvent(
+  request: FastifyRequest,
+  actorUsername: string,
+  event: 'organization.application' | 'user.registration' | 'organization.delete',
+  outcome: 'succeeded' | 'failed',
+  resourceType: string,
+  resourceId: string,
+  message: string,
+  errorCode?: ApiErrorCode,
+  organization?: string
+): void {
+  logEvent(
+    request.log,
+    outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event,
+      outcome,
+      actorUsername,
+      ...(organization ? { organization } : {}),
+      resourceType,
+      resourceId,
+      ...(errorCode ? { errorCode } : {})
+    },
+    message
+  );
+}
 
 export interface OrgAdminRouteOptions {
   giteaService: GiteaService;
@@ -39,13 +71,13 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const id = Number((request.params as { id: string }).id);
     const application = orgApplicationRepository.getApplicationById(id);
     if (!application) {
-      return reply.status(404).send({ error: 'Organization application not found' });
+      return reply.status(404).send(apiError('organizationApplicationNotFound'));
     }
     if (application.status !== 'pending') {
-      return reply.status(409).send({ error: 'Organization application has already been processed' });
+      return reply.status(409).send(apiError('organizationApplicationHasAlreadyBeenProcessed'));
     }
     if (await giteaService.organizationExists(application.orgName)) {
-      return reply.status(409).send({ error: 'Organization name is already taken' });
+      return reply.status(409).send(apiError('organizationNameIsAlreadyTaken'));
     }
 
     // ADR-0032：审批只是申请表上的状态翻转 + 同步开通，异步 Operation 机器退役。
@@ -57,8 +89,30 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       orgApplicationRepository.updateApplicationStatusById(id, 'approved');
     } catch (error) {
       options.tenantOrganizationRepository.transition(application.orgName, 'failed');
-      return reply.status(409).send({ error: `Organization initialization failed: ${(error as Error).message}` });
+      logGovernanceEvent(
+        request,
+        admin.username,
+        'organization.application',
+        'failed',
+        'organization',
+        application.orgName,
+        'Organization application approval failed',
+        'organizationInitializationFailed',
+        application.orgName
+      );
+      return reply.status(409).send(apiError('organizationInitializationFailed', { detail: (error as Error).message }));
     }
+    logGovernanceEvent(
+      request,
+      admin.username,
+      'organization.application',
+      'succeeded',
+      'organization',
+      application.orgName,
+      'Organization application approved',
+      undefined,
+      application.orgName
+    );
     return { status: 'active', orgName: application.orgName, applicant };
   });
 
@@ -68,10 +122,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const id = Number((request.params as { id: string }).id);
     const application = orgApplicationRepository.getApplicationById(id);
     if (!application) {
-      return reply.status(404).send({ error: 'Organization application not found' });
+      return reply.status(404).send(apiError('organizationApplicationNotFound'));
     }
     if (application.status !== 'pending') {
-      return reply.status(409).send({ error: 'Organization application has already been processed' });
+      return reply.status(409).send(apiError('organizationApplicationHasAlreadyBeenProcessed'));
     }
     // 拒绝即释放名字（ADR-0032）：组织从未开通，状态翻转即可，无外部副作用。
     const updated = orgApplicationRepository.updateApplicationStatusById(id, 'rejected');
@@ -79,6 +133,17 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (tenant) {
       options.tenantOrganizationRepository.transition(application.orgName, 'rejected');
     }
+    logGovernanceEvent(
+      request,
+      admin.username,
+      'organization.application',
+      'succeeded',
+      'organization',
+      application.orgName,
+      'Organization application rejected',
+      undefined,
+      application.orgName
+    );
     return { status: 'rejected', orgName: updated?.orgName ?? application.orgName };
   });
 
@@ -88,10 +153,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const id = Number((request.params as { id: string }).id);
     const application = orgApplicationRepository.getApplicationById(id);
     if (!application) {
-      return reply.status(404).send({ error: 'Organization application not found' });
+      return reply.status(404).send(apiError('organizationApplicationNotFound'));
     }
     if (application.status !== 'pending') {
-      return reply.status(409).send({ error: 'Only pending applications can be cancelled' });
+      return reply.status(409).send(apiError('onlyPendingApplicationsCanBeCancelled'));
     }
     // 取消即释放名字（ADR-0032）：状态翻转，无外部副作用。
     orgApplicationRepository.updateApplicationStatusById(id, 'cancelled');
@@ -122,17 +187,17 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
 
     if (body.orgRegistrationMode !== undefined) {
       if (body.orgRegistrationMode !== 'auto' && body.orgRegistrationMode !== 'manual') {
-        return reply.status(400).send({ error: 'orgRegistrationMode must be auto or manual' });
+        return reply.status(400).send(apiError('orgregistrationmodeMustBeAutoOrManual'));
       }
     }
     if (body.registrationMode !== undefined) {
       if (body.registrationMode !== 'open' && body.registrationMode !== 'approval') {
-        return reply.status(400).send({ error: 'registrationMode must be open or approval' });
+        return reply.status(400).send(apiError('registrationmodeMustBeOpenOrApproval'));
       }
     }
     if (body.memberAddMode !== undefined) {
       if (body.memberAddMode !== 'direct' && body.memberAddMode !== 'invite') {
-        return reply.status(400).send({ error: 'memberAddMode must be direct or invite' });
+        return reply.status(400).send(apiError('memberaddmodeMustBeDirectOrInvite'));
       }
     }
 
@@ -170,13 +235,22 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const id = Number((request.params as { id: string }).id);
     const registration = options.userRegistrationRepository.getById(id);
     if (!registration) {
-      return reply.status(404).send({ error: 'Registration not found' });
+      return reply.status(404).send(apiError('registrationNotFound'));
     }
     if (registration.status !== 'pending') {
-      return reply.status(409).send({ error: 'Registration has already been processed' });
+      return reply.status(409).send(apiError('registrationHasAlreadyBeenProcessed'));
     }
     await giteaService.enableUser(registration.username);
     const updated = options.userRegistrationRepository.updateStatusById(id, 'approved');
+    logGovernanceEvent(
+      request,
+      admin.username,
+      'user.registration',
+      'succeeded',
+      'user',
+      registration.username,
+      'User registration approved'
+    );
     return { status: 'approved', username: registration.username, registrationId: updated?.id };
   });
 
@@ -186,14 +260,23 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const id = Number((request.params as { id: string }).id);
     const registration = options.userRegistrationRepository.getById(id);
     if (!registration) {
-      return reply.status(404).send({ error: 'Registration not found' });
+      return reply.status(404).send(apiError('registrationNotFound'));
     }
     if (registration.status !== 'pending') {
-      return reply.status(409).send({ error: 'Registration has already been processed' });
+      return reply.status(409).send(apiError('registrationHasAlreadyBeenProcessed'));
     }
     // 删除账号即释放名字；记录保留为 rejected 供审计。
     await giteaService.deleteUser(registration.username);
     const updated = options.userRegistrationRepository.updateStatusById(id, 'rejected');
+    logGovernanceEvent(
+      request,
+      admin.username,
+      'user.registration',
+      'succeeded',
+      'user',
+      registration.username,
+      'User registration rejected'
+    );
     return { status: 'rejected', username: registration.username, registrationId: updated?.id };
   });
 
@@ -238,12 +321,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
     const { confirm } = (request.body ?? {}) as { confirm?: string };
     if (confirm !== orgName) {
-      return reply.status(400).send({ error: 'Deletion requires confirm matching the organization name' });
+      return reply.status(400).send(apiError('deletionRequiresConfirmMatchingTheOrganizationName'));
     }
     // 只有 ESL 开通的组织才允许自动删除;未登记的组织一律拒绝,防止误删外部资源。
     const tenant = options.tenantOrganizationRepository.get(orgName);
     if (!tenant) {
-      return reply.status(404).send({ error: 'Organization not found or not managed by ESL' });
+      return reply.status(404).send(apiError('organizationNotFoundOrNotManagedByEsl'));
     }
     // 同步删除（ADR-0032）：Git Backend 清理 + 平台记录一次完成，不再走
     // 可恢复工作流；失败原样返回，管理员重试即可。
@@ -254,11 +337,14 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
           skillRepository: options.skillRepository,
           tenantOrganizationRepository: options.tenantOrganizationRepository
         },
-        orgName
+        orgName,
+        // 请求内后台任务：子 logger 带 taskId 与触发请求 id，任务日志可回到
+        // 原始请求的时间线（US37/US38）。
+        taskLogger(request.log, ORG_DELETION_TASK_ID, request.id)
       );
     } catch (error) {
       // 失败原因已由删除流程写入租户状态（delete_failed + lastError）
-      return reply.status(409).send({ error: `Organization deletion failed: ${(error as Error).message}`, retryable: true });
+      return reply.status(409).send({ ...apiError('organizationDeletionFailed', { detail: (error as Error).message }), retryable: true });
     }
     return { status: 'deleted', orgName };
   });
@@ -271,7 +357,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (!(await requireSuperAdministrator(request, reply, giteaService))) return;
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
     if (!(await giteaService.organizationExists(orgName))) {
-      return reply.status(404).send({ error: 'Organization not found' });
+      return reply.status(404).send(apiError('organizationNotFound'));
     }
     return listOrgMembersWithIdentity(giteaService, orgName);
   });
@@ -285,10 +371,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const username = decodeURIComponent((request.params as { username: string }).username);
     const { identity } = (request.body ?? {}) as { identity?: string };
     if (identity !== 'ordinary' && identity !== 'managing' && identity !== 'owner') {
-      return reply.status(400).send({ error: 'Identity must be ordinary, managing, or owner' });
+      return reply.status(400).send(apiError('identityMustBeOrdinaryManagingOrOwner'));
     }
     if (!(await giteaService.organizationExists(orgName))) {
-      return reply.status(404).send({ error: 'Organization not found' });
+      return reply.status(404).send(apiError('organizationNotFound'));
     }
     const isMember = (await giteaService.listOrgMembers(orgName)).some(
       (member) => member.username === username
@@ -297,15 +383,15 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       // 空降只对"设为所有者成员"开放：兜底要救的是组织里没有可用管理者，这种局面
       // 下组织成员也可能一个都不剩。
       if (identity !== 'owner') {
-        return reply.status(404).send({ error: `User is not a member of ${orgName}` });
+        return reply.status(404).send(apiError('userIsNotMemberOf', { org: orgName }));
       }
       if (!(await giteaService.getUser(username))) {
-        return reply.status(404).send({ error: `User does not exist: ${username}` });
+        return reply.status(404).send(apiError('userDoesNotExist', { username }));
       }
     }
     const blocked = await checkOwnerMemberInvariant(giteaService, orgName, username, identity);
     if (blocked) {
-      return reply.status(400).send({ error: blocked });
+      return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
     // applyOrgIdentity 会把对方挂进常设团队，而 Git Backend 由团队挂载建立组织
     // 隶属关系——不需要（也没有）单独的"加入组织"调用。
@@ -318,14 +404,14 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     const orgName = decodeURIComponent((request.params as { orgName: string }).orgName);
     const username = decodeURIComponent((request.params as { username: string }).username);
     if (!(await giteaService.organizationExists(orgName))) {
-      return reply.status(404).send({ error: 'Organization not found' });
+      return reply.status(404).send(apiError('organizationNotFound'));
     }
     if (!(await giteaService.listOrgMembers(orgName)).some((member) => member.username === username)) {
-      return reply.status(404).send({ error: `User is not a member of ${orgName}` });
+      return reply.status(404).send(apiError('userIsNotMemberOf', { org: orgName }));
     }
     const blocked = await checkOwnerMemberInvariant(giteaService, orgName, username, null);
     if (blocked) {
-      return reply.status(400).send({ error: blocked });
+      return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
     await removeMemberFromOrganization(giteaService, orgName, username);
     return { removed: true, orgName, username };
@@ -368,12 +454,12 @@ async function requireSuperAdministrator(
 ): Promise<GiteaUser | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
-    reply.status(401).send({ error: 'Unauthorized: missing token' });
+    reply.status(401).send(apiError('unauthorizedMissingToken'));
     return null;
   }
   const token = authorization.replace('token ', '').trim();
   const admin = await giteaService.validateAdminUserToken(token);
   if (admin) return admin;
-  reply.status(403).send({ error: 'Forbidden: super administrator token required' });
+  reply.status(403).send(apiError('forbiddenSuperAdministratorTokenRequired'));
   return null;
 }

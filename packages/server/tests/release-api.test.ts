@@ -270,7 +270,7 @@ describe('Skill Release API', () => {
     });
 
     expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().error).toContain('@alice/reviewer');
+    expect(blocked.json().message).toContain('@alice/reviewer');
 
     // A maintainer cannot force it ...
     const maintainerForce = await app.inject({
@@ -491,7 +491,7 @@ describe('Skill Release API', () => {
     });
 
     expect(duplicate.statusCode).toBe(409);
-    expect(duplicate.json().error).toContain('already exists');
+    expect(duplicate.json().message).toContain('already exists');
   });
 
   it('rejects publishing when the release tag already points to another commit', async () => {
@@ -523,7 +523,7 @@ describe('Skill Release API', () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('points to');
+    expect(response.json().message).toContain('points to');
     expect(gitea.createReleaseTag).not.toHaveBeenCalled();
   });
 
@@ -610,7 +610,7 @@ describe('Skill Release API', () => {
     });
 
     expect(repair.statusCode).toBe(409);
-    expect(repair.json().error).toContain('points to');
+    expect(repair.json().message).toContain('points to');
     expect(gitea.createReleaseTag).toHaveBeenCalledTimes(1);
   });
 

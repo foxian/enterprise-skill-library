@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { requireOkResponse } from '../api-error.js';
 import { isInteractive, readHidden } from '../prompt.js';
 import { apiUrl, fetchWithTimeout, requireConfigured, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 
@@ -27,22 +28,8 @@ export async function executeChangeOwnPassword(options: ChangeOwnPasswordOptions
     body: JSON.stringify({ oldPassword: currentPassword, newPassword })
   });
   if (!res.ok) {
-    const err = await readErrorMessage(res);
-    throw new Error(`Failed to change password: ${err}`);
+    await requireOkResponse(res, 'Failed to change password');
   }
-}
-
-async function readErrorMessage(res: Response): Promise<string> {
-  const text = await res.text();
-  try {
-    const body = JSON.parse(text) as { error?: unknown };
-    if (typeof body.error === 'string') {
-      return body.error;
-    }
-  } catch {
-    // Fall through to the raw response body.
-  }
-  return text;
 }
 
 async function resolveNewPassword(options: ChangePasswordOptions): Promise<string> {

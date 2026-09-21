@@ -16,6 +16,7 @@ import { ensureReleaseManifest } from './release-manifest.js';
 import { executeInfo } from './info.js';
 import { confirm, isInteractive, readText } from '../prompt.js';
 import { notify } from '../output.js';
+import { requireOkResponse } from '../api-error.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -286,7 +287,7 @@ async function uploadSource(
       body: JSON.stringify({ name: identity, description })
     });
     if (!response.ok) {
-      throw new Error(`Failed to upload skill source: ${await response.text()}`);
+      await requireOkResponse(response, 'Failed to upload skill source');
     }
     uploaded = (await response.json()) as UploadedSkill;
     if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {

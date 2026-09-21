@@ -32,8 +32,8 @@
                   <span v-if="managerOrgsLabel" class="console-user-meta-org">{{ managerOrgsLabel }}</span>
                 </div>
               </div>
-              <el-dropdown-item command="change-password" data-test="change-password">修改密码</el-dropdown-item>
-              <el-dropdown-item command="logout" divided data-test="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item command="change-password" data-test="change-password">{{ t('common.changePassword') }}</el-dropdown-item>
+              <el-dropdown-item command="logout" divided data-test="logout">{{ t('common.signOut') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -45,6 +45,7 @@
           <h1 class="console-header-name">{{ currentTitle }}</h1>
           <span v-if="currentDescription" class="console-header-desc">{{ currentDescription }}</span>
         </div>
+        <LocaleSwitch class="console-header-locale" />
       </el-header>
       <el-main class="console-main">
         <div class="console-content">
@@ -60,6 +61,8 @@
 import { computed, ref, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ChangePasswordDialog from '../ChangePasswordDialog.vue';
+import LocaleSwitch from '../LocaleSwitch.vue';
+import { useLocaleState } from '../../i18n/locale';
 import { useAuthStore } from '../../stores/auth';
 
 export interface ConsoleMenuItem {
@@ -76,26 +79,29 @@ defineProps<{
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const { t } = useLocaleState();
 const dialog = ref<InstanceType<typeof ChangePasswordDialog> | null>(null);
 
 const avatarText = computed<string>(() => (auth.username ?? '?').charAt(0).toUpperCase());
 
 // 平台角色只有两个（ADR-0033），组织身份不在这里当角色展示。
-const roleLabel = computed<string>(() => (auth.isPlatformAdmin ? '超级管理员' : '用户'));
+const roleLabel = computed<string>(() => (auth.isPlatformAdmin ? t('common.platformAdministrator') : t('common.user')));
 
 const managerOrgsLabel = computed<string>(() => {
   const orgs = auth.organizations.filter((membership) => membership.isOwnerMember).map((m) => m.org);
-  return orgs.length > 0 ? `组织管理：${orgs.join(', ')}` : '';
+  return orgs.length > 0 ? t('common.organizationManagement', { orgs: orgs.join(', ') }) : '';
 });
 
 const currentTitle = computed<string>(() => {
   const meta = route.meta as { title?: string };
-  return meta.title ?? '';
+  const title = meta.title ? t(String(meta.title)) : '';
+  return title;
 });
 
 const currentDescription = computed<string>(() => {
   const meta = route.meta as { description?: string };
-  return meta.description ?? '';
+  const description = meta.description ? t(String(meta.description)) : '';
+  return description;
 });
 
 async function onCommand(command: string): Promise<void> {

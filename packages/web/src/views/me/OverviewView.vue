@@ -3,18 +3,18 @@
     <el-card class="data-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>待办</span>
+          <span>{{ t('overview.todos') }}</span>
           <el-tag v-if="todoCount > 0" type="warning" size="small" data-test="todo-count">{{ todoCount }}</el-tag>
         </div>
       </template>
-      <el-empty v-if="todoCount === 0" description="没有待处理的事项" />
+      <el-empty v-if="todoCount === 0" :description="t('overview.noTodos')" />
       <ul v-else class="todo-list">
         <li v-for="invitation in invitations" :key="`invitation-${invitation.id}`">
-          组织 <strong>@{{ invitation.orgName }}</strong> 邀请你加入
-          <el-button link type="primary" data-test="go-invitations" @click="goInvitations">去处理</el-button>
+          {{ t('overview.orgInvitation', { org: invitation.orgName }) }}
+          <el-button link type="primary" data-test="go-invitations" @click="goInvitations">{{ t('overview.handle') }}</el-button>
         </li>
         <li v-for="application in pendingApplications" :key="`application-${application.orgName}`">
-          组织申请 <strong>@{{ application.orgName }}</strong> 待平台管理员审批
+          {{ t('overview.orgApplication', { org: application.orgName }) }}
         </li>
       </ul>
     </el-card>
@@ -22,11 +22,11 @@
     <el-card class="data-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>我的组织</span>
-          <el-button link type="primary" data-test="go-orgs" @click="goOrgs">全部组织</el-button>
+          <span>{{ t('nav.myOrganizations') }}</span>
+          <el-button link type="primary" data-test="go-orgs" @click="goOrgs">{{ t('overview.allOrganizations') }}</el-button>
         </div>
       </template>
-      <el-empty v-if="organizations.length === 0" description="你还没有加入任何组织" />
+      <el-empty v-if="organizations.length === 0" :description="t('organization.noOrganizations')" />
       <div v-else class="org-chips">
         <el-tag
           v-for="membership in organizations"
@@ -34,7 +34,7 @@
           :type="identityTagType(membership.identity)"
           size="large"
         >
-          @{{ membership.org }} · {{ identityLabel(membership.identity) }}
+          @{{ membership.org }} · {{ t(identityLabel(membership.identity)) }}
         </el-tag>
       </div>
     </el-card>
@@ -42,17 +42,17 @@
     <el-card class="data-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <span>我管理的技能</span>
-          <el-button link type="primary" data-test="go-skills" @click="goSkills">全部技能</el-button>
+          <span>{{ t('overview.managedSkills') }}</span>
+          <el-button link type="primary" data-test="go-skills" @click="goSkills">{{ t('overview.allSkills') }}</el-button>
         </div>
       </template>
-      <el-empty v-if="!loading && managedSkills.length === 0" description="你还没有管理任何技能" />
+      <el-empty v-if="!loading && managedSkills.length === 0" :description="t('overview.noManagedSkills')" />
       <el-table v-else :data="managedSkills" data-test="overview-managed-skills" v-loading="loading">
-        <el-table-column prop="name" label="技能名" />
-        <el-table-column label="命名空间" width="160">
+        <el-table-column prop="name" :label="t('skill.name')" />
+        <el-table-column :label="t('columns.namespace')" width="160">
           <template #default="{ row }">@{{ row.scope }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="120">
+        <el-table-column :label="t('columns.actions')" width="120">
           <template #default="{ row }">
             <el-button
               link
@@ -60,7 +60,7 @@
               :data-test="`manage-skill-${row.skillName}`"
               @click="openSkill(row.scope, row.skillName)"
             >
-              管理
+              {{ t('actions.manage') }}
             </el-button>
           </template>
         </el-table-column>
@@ -73,11 +73,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { loadSkillInventorySummaries, type SkillInventoryItem } from '../../skills/skill-list';
 import { useAuthStore, type SessionOrganization } from '../../stores/auth';
+
+const { t } = useLocaleState();
 
 interface Invitation {
   id: number;
@@ -144,7 +147,7 @@ onMounted(async () => {
   const failure = [invitationResult, orgResult, skillResult].find((result) => result.status === 'rejected');
   if (failure && failure.status === 'rejected') {
     const reason: unknown = failure.reason;
-    errorMessage.value = reason instanceof Error ? reason.message : String(reason);
+    errorMessage.value = formatRequestError(reason);
   }
   loading.value = false;
 });

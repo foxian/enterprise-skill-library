@@ -158,6 +158,11 @@ describe('esl program', () => {
     expect(program.options.map((option) => option.long)).toContain('--no-input');
   });
 
+  it('registers a temporary locale override', () => {
+    const program = createProgram();
+    expect(program.options.map((option) => option.long)).toContain('--locale');
+  });
+
   it('registers --tools and --no-tools on install', () => {
     const program = createProgram();
     const install = program.commands.find((command) => command.name() === 'install');
@@ -287,6 +292,15 @@ describe('esl program', () => {
 
   it('formats non-Error throws', () => {
     expect(formatErrorMessage('plain string')).toContain('Error: plain string');
+  });
+
+  it('formats API errors in the requested locale', () => {
+    const error = Object.assign(new Error('Unauthorized: invalid credentials'), {
+      code: 'unauthorizedInvalidCredentials',
+      params: {}
+    });
+
+    expect(formatErrorMessage(error, 'zh-CN')).toContain('Error: 未认证：凭据无效');
   });
 
   it('reports the CLI version from the package manifest', () => {

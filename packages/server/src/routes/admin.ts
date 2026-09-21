@@ -1,3 +1,4 @@
+import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { validatePassword } from '@esl/core';
 import type { AdminRepository } from '../db/database.js';
@@ -23,7 +24,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const { password } = request.body as { password: string };
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
     }
     await giteaService.changeAdminPassword(password);
     return { passwordChanged: true };
@@ -37,7 +38,7 @@ async function authorizeAdministratorAccount(
 ): Promise<boolean> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) {
-    reply.status(401).send({ error: 'Unauthorized: missing token' });
+    reply.status(401).send(apiError('unauthorizedMissingToken'));
     return false;
   }
 
@@ -45,6 +46,6 @@ async function authorizeAdministratorAccount(
   const admin = await giteaService.validateAdminUserToken(token);
   if (admin) return true;
 
-  reply.status(403).send({ error: 'Administrator account login required to change its password' });
+  reply.status(403).send(apiError('administratorAccountLoginRequiredToChangeItsPassword'));
   return false;
 }

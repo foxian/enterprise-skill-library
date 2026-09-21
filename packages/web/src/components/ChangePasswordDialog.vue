@@ -1,31 +1,31 @@
 <template>
-  <el-dialog v-model="visible" title="修改密码" width="420px" append-to-body @closed="reset">
+  <el-dialog v-model="visible" :title="t('password.title')" width="420px" append-to-body @closed="reset">
     <el-form label-position="top" @submit.prevent="submit">
-      <el-form-item label="当前密码" required>
+      <el-form-item :label="t('password.current')" required>
         <el-input
           v-model="currentPassword"
           type="password"
           show-password
           data-test="current-password"
-          placeholder="当前密码"
+          :placeholder="t('password.current')"
         />
       </el-form-item>
-      <el-form-item label="新密码" required>
+      <el-form-item :label="t('password.new')" required>
         <el-input
           v-model="newPassword"
           type="password"
           show-password
           data-test="new-password"
-          placeholder="新密码"
+          :placeholder="t('password.new')"
         />
       </el-form-item>
-      <el-form-item label="确认新密码" required>
+      <el-form-item :label="t('password.confirm')" required>
         <el-input
           v-model="confirmPassword"
           type="password"
           show-password
           data-test="confirm-password"
-          placeholder="再次输入新密码"
+          :placeholder="t('password.confirmPlaceholder')"
         />
       </el-form-item>
       <el-alert
@@ -37,7 +37,7 @@
       />
     </el-form>
     <template #footer>
-      <el-button data-test="change-password-cancel" @click="visible = false">取消</el-button>
+      <el-button data-test="change-password-cancel" @click="visible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         type="primary"
         data-test="change-password-submit"
@@ -45,7 +45,7 @@
         :disabled="!canSubmit"
         @click="submit"
       >
-        确认修改
+        {{ t('password.submit') }}
       </el-button>
     </template>
   </el-dialog>
@@ -55,6 +55,7 @@
 import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../api/client';
+import { formatRequestError, useLocaleState } from '../i18n/locale';
 
 const visible = ref(false);
 const currentPassword = ref('');
@@ -62,6 +63,7 @@ const newPassword = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
+const { t } = useLocaleState();
 
 const canSubmit = computed(
   () => Boolean(currentPassword.value && newPassword.value && newPassword.value === confirmPassword.value)
@@ -80,7 +82,7 @@ function reset(): void {
 
 async function submit(): Promise<void> {
   if (!canSubmit.value) {
-    errorMessage.value = '请填写当前密码，并确保两次新密码一致';
+    errorMessage.value = t('password.required');
     return;
   }
   loading.value = true;
@@ -91,10 +93,10 @@ async function submit(): Promise<void> {
       method: 'POST',
       body: { oldPassword: currentPassword.value, newPassword: newPassword.value }
     });
-    ElMessage.success('密码已修改');
+    ElMessage.success(t('password.changed'));
     visible.value = false;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }

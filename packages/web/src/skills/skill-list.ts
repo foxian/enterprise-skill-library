@@ -93,16 +93,16 @@ export interface SkillInventoryItem {
 export type SkillInventorySummary = SkillInventoryItem & { matrix?: PermissionMatrix };
 
 export function accessText(access: string): string {
-  if (access === 'manage') return '管理';
-  return access === 'write' ? '读写' : '只读';
+  if (access === 'manage') return 'skill.access.manage';
+  return access === 'write' ? 'skill.access.write' : 'skill.access.read';
 }
 
 export function statusText(status?: string): string {
-  if (status === 'active-published' || status === 'published') return '已发布';
-  if (status === 'archived') return '已归档';
-  if (status === 'deleting') return '删除中';
-  if (status === 'delete_failed') return '删除失败';
-  return '未发布';
+  if (status === 'active-published' || status === 'published') return 'skill.state.published';
+  if (status === 'archived') return 'skill.state.archived';
+  if (status === 'deleting') return 'skill.state.deleting';
+  if (status === 'delete_failed') return 'skill.state.deleteFailed';
+  return 'skill.state.unpublished';
 }
 
 // 读取角色化技能清单;共享状态矩阵只对持有管理权的技能可读,其余以 access 呈现。
@@ -161,17 +161,17 @@ export async function loadSkillSummaries(filter: (skill: SkillRecordView) => boo
 export function deriveShareState(matrix: PermissionMatrix): ShareState {
   // ADR-0026 组织共享级别:三档互斥,按档位由高到低判定
   if (matrix.sharedAllManage) {
-    return { key: 'all-manage', text: '全员管理', tagType: 'danger' };
+    return { key: 'all-manage', text: 'skill.share.allManage', tagType: 'danger' };
   }
   if (matrix.sharedAllWrite) {
-    return { key: 'all-write', text: '全员读写', tagType: 'warning' };
+    return { key: 'all-write', text: 'skill.share.allWrite', tagType: 'warning' };
   }
   if (matrix.sharedAllRead) {
-    return { key: 'all-read', text: '全员只读', tagType: 'success' };
+    return { key: 'all-read', text: 'skill.share.allRead', tagType: 'success' };
   }
   // members 中至少包含创建者本人，超出即视为自定义授权
   if (matrix.teams.length > 0 || matrix.members.length > 1) {
-    return { key: 'custom', text: '自定义', tagType: 'primary' };
+    return { key: 'custom', text: 'skill.share.custom', tagType: 'primary' };
   }
-  return { key: 'private', text: '仅创建者', tagType: 'info' };
+  return { key: 'private', text: 'skill.share.private', tagType: 'info' };
 }

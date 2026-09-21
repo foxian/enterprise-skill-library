@@ -2,28 +2,28 @@
   <div>
     <el-card class="data-card" shadow="never">
       <el-form label-width="160px">
-        <el-form-item label="用户注册模式">
+        <el-form-item :label="t('settings.userRegistrationMode')">
           <el-radio-group v-model="registrationMode" data-test="user-registration-mode">
-            <el-radio value="open">开放注册（注册即可用）</el-radio>
-            <el-radio value="approval">需要审批（批准后激活）</el-radio>
+            <el-radio value="open">{{ t('settings.openRegistration') }}</el-radio>
+            <el-radio value="approval">{{ t('settings.approvalRegistration') }}</el-radio>
           </el-radio-group>
           <div class="form-hint">
-            审批模式下账号注册后处于待审批状态，在「注册审批」中批准或拒绝。
+            {{ t('settings.approvalRegistrationHint') }}
           </div>
         </el-form-item>
-        <el-form-item label="组织注册审批模式">
+        <el-form-item :label="t('settings.orgRegistrationMode')">
           <el-radio-group v-model="orgRegistrationMode" data-test="registration-mode">
-            <el-radio value="auto">免审批（即时创建）</el-radio>
-            <el-radio value="manual">需要审批</el-radio>
+            <el-radio value="auto">{{ t('settings.autoOrgRegistration') }}</el-radio>
+            <el-radio value="manual">{{ t('settings.manualOrgRegistration') }}</el-radio>
           </el-radio-group>
           <div class="form-hint">
-            免审批时任何注册用户可即时创建组织；需要审批时走组织注册申请。
+            {{ t('settings.autoOrgRegistrationHint') }}
           </div>
         </el-form-item>
-        <el-form-item label="拉人方式">
+        <el-form-item :label="t('settings.memberAdditionMode')">
           <el-radio-group v-model="memberAddMode" data-test="member-add-mode">
-            <el-radio value="direct">直接添加（即时入组）</el-radio>
-            <el-radio value="invite">邀请制（对方接受后入组）</el-radio>
+            <el-radio value="direct">{{ t('settings.directAddition') }}</el-radio>
+            <el-radio value="invite">{{ t('settings.invitationMode') }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item>
@@ -34,7 +34,7 @@
             :disabled="!hasChanges"
             @click="handleSave"
           >
-            保存
+            {{ t('common.save') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -45,8 +45,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
+
+const { t } = useLocaleState();
 
 type RegistrationMode = 'auto' | 'manual';
 type UserRegistrationMode = 'open' | 'approval';
@@ -87,7 +90,7 @@ async function load(): Promise<void> {
     registrationMode.value = saved.value.registrationMode;
     memberAddMode.value = saved.value.memberAddMode;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -110,9 +113,9 @@ async function handleSave(): Promise<void> {
     };
     orgRegistrationMode.value = settings.orgRegistrationMode;
     registrationMode.value = settings.registrationMode;
-    ElMessage.success('平台设置已保存');
+    ElMessage.success(t('settings.saved'));
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     saving.value = false;
   }

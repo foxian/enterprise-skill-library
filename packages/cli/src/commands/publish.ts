@@ -8,7 +8,8 @@ import {
   highestStableVersion,
   isBuiltinIdentity,
   validateSkillSourceDirectory
-} from '@esl/core';
+  } from '@esl/core';
+import { requireOkResponse } from '../api-error.js';
 import { confirm, isInteractive, readText } from '../prompt.js';
 import {
   apiUrl,
@@ -119,7 +120,7 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
     })
   });
   if (!response.ok) {
-    throw new Error(`Failed to publish Skill Release: ${await response.text()}`);
+    await requireOkResponse(response, 'Failed to publish Skill Release');
   }
   return response.json();
 }

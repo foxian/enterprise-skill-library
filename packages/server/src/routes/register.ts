@@ -1,8 +1,34 @@
-import type { FastifyInstance } from 'fastify';
+import { apiError } from '../errors.js';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { RESERVED_SCOPE_NAMES, validateMemberUsername, validatePassword } from '@esl/core';
 import type { OrgApplicationRepository, UserRegistrationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { PlatformSettingsRepository } from '../db/database.js';
+import { logEvent } from '../logging.js';
+import type { ApiErrorCode } from '@esl/i18n';
+
+// 用户注册的状态变化事件（ADR-0045）。注册者本人就是操作者：这里不记密码，
+// 只记用户名与结果。
+function logRegistration(
+  request: FastifyRequest,
+  username: string,
+  outcome: 'succeeded' | 'failed',
+  errorCode?: ApiErrorCode
+): void {
+  logEvent(
+    request.log,
+    outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event: 'user.registration',
+      outcome,
+      actorUsername: username,
+      resourceType: 'user',
+      resourceId: username,
+      ...(errorCode ? { errorCode } : {})
+    },
+    outcome === 'succeeded' ? 'User registered' : 'User registration rejected'
+  );
+}
 
 export interface RegisterRouteOptions {
   giteaService: GiteaService;
@@ -22,29 +48,32 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
     const { username: rawUsername, password } = (request.body ?? {}) as { username?: string; password?: string };
     const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
     if (!username || !password) {
-      return reply.status(400).send({ error: 'Username and password are required' });
+      return reply.status(400).send(apiError('usernameAndPasswordAreRequired'));
     }
     if (username === giteaService.adminUsername) {
-      return reply.status(409).send({ error: `Username is already taken: ${username}` });
+      logRegistration(request, username, 'failed', 'usernameAlreadyTaken');
+      return reply.status(409).send(apiError('usernameAlreadyTaken', { username }));
     }
 
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send({ error: usernameValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
     }
 
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send({ error: passwordValidation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
     }
 
     // 扁平命名池查重（先到先得）：待审注册 / 待审组织申请 / 用户名 /
     // 组织名（Gitea 同一命名空间），任何一类占用都在提交时当场拒绝。
     if (userRegistrationRepository.getByUsername(username)?.status === 'pending') {
-      return reply.status(409).send({ error: `Username has a pending registration: ${username}` });
+      logRegistration(request, username, 'failed', 'usernameHasPendingRegistration');
+      return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
     }
     if (orgApplicationRepository.getApplication(username)?.status === 'pending') {
-      return reply.status(409).send({ error: `Username is claimed by a pending organization application: ${username}` });
+      logRegistration(request, username, 'failed', 'usernameClaimedByPendingOrganizationApplication');
+      return reply.status(409).send(apiError('usernameClaimedByPendingOrganizationApplication', { username }));
     }
     let existing: unknown = null;
     try {
@@ -53,7 +82,8 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
       existing = null;
     }
     if (existing) {
-      return reply.status(409).send({ error: `Username is already taken: ${username}` });
+      logRegistration(request, username, 'failed', 'usernameAlreadyTaken');
+      return reply.status(409).send(apiError('usernameAlreadyTaken', { username }));
     }
 
     const mode = platformSettingsRepository.getSetting('registration_mode') ?? 'open';
@@ -62,6 +92,7 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
       await giteaService.createUser(username, password);
       await giteaService.disableUser(username);
       const registration = userRegistrationRepository.create(username);
+      logRegistration(request, username, 'succeeded');
       return reply.status(202).send({
         status: 'pending',
         username: registration.username,
@@ -70,6 +101,7 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
     }
 
     await giteaService.createUser(username, password);
+    logRegistration(request, username, 'succeeded');
     return reply.status(201).send({ status: 'registered', username });
   });
 }

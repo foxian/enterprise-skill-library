@@ -7,6 +7,7 @@ import path from 'node:path';
 import { readHidden, readStdinText, readText, isInteractive } from '../prompt.js';
 import {
   AgentInteractionRequiredError,
+  loadConfig,
   SUPPORTED_TOOLS,
   assertNoDuplicateCommandParams,
   createAgentInteractionRequest,
@@ -18,6 +19,13 @@ import {
   type AgentInteractionField,
   type ToolName
 } from '@esl/core';
+import {
+  DEFAULT_LOCALE,
+  resolveLocale,
+  SUPPORTED_LOCALES,
+  translateApiError,
+  type Locale
+} from '@esl/i18n';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
@@ -171,6 +179,7 @@ function versionAgentFields(inspection: VersionInspection): AgentInteractionFiel
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version']);
+let activeLocale: Locale = DEFAULT_LOCALE;
 
 export function createProgram(): Command {
   const program = new Command();
@@ -183,15 +192,29 @@ export function createProgram(): Command {
     '--agent-tool <tool>',
     'AI tool invoking the command, e.g. claude-code or codex (requires --agent-interaction)'
   );
+  program.option('--locale <locale>', 'Use a temporary locale for this command (zh-CN or en-US)');
   program.option('--params-json <json>', 'pass command parameters as a JSON object');
   program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
-  program.hook('preAction', (_thisCommand, actionCommand) => {
+  program.hook('preAction', async (_thisCommand, actionCommand) => {
     const options = program.opts<{
       cd?: string;
       paramsJson?: string;
       agentInteraction?: boolean;
       agentTool?: string;
+      locale?: string;
     }>();
+    if (
+      options.locale !== undefined &&
+      !(SUPPORTED_LOCALES as readonly string[]).includes(options.locale)
+    ) {
+      throw new Error(`Unsupported locale: ${options.locale}`);
+    }
+    try {
+      const config = await loadConfig({});
+      activeLocale = resolveLocale({ override: options.locale, accountLocale: config.locale });
+    } catch {
+      activeLocale = resolveLocale({ override: options.locale, accountLocale: null });
+    }
     if (options.agentTool !== undefined && resolveToolName(options.agentTool) === undefined) {
       throw new Error(
         `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_AGENT_TOOL_NAMES}`
@@ -290,6 +313,7 @@ export function createProgram(): Command {
     .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
       const login = await executeLogin({
         ...options,
+        locale: program.opts().locale as string | undefined,
         noInput: program.opts().input === false,
         readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
         readServer: process.stdin.isTTY ? undefined : () => readStdinText(),
@@ -875,9 +899,29 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   return program;
 }
 
-export function formatErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return `Error: ${message}\nRun with --debug for more detail.`;
+export function formatErrorMessage(error: unknown, locale: Locale = 'en-US'): string {
+  const apiError = error as {
+    code?: unknown;
+    params?: Record<string, string>;
+    message?: string;
+    status?: unknown;
+  };
+  const message =
+    typeof apiError.code === 'string'
+      ? translateApiError({
+          locale,
+          code: apiError.code,
+          params: apiError.params,
+          fallback: apiError.message ?? 'The request failed'
+        })
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  const localizedMessage =
+    apiError.status === 403
+      ? `${message}\nThis skill may be maintained by another account or organization; log in with the maintaining organization ("esl login") and retry.`
+      : message;
+  return `Error: ${localizedMessage}\nRun with --debug for more detail.`;
 }
 
 function isPromptCancellation(error: unknown): boolean {
@@ -905,7 +949,7 @@ export async function run(argv: string[]): Promise<void> {
       process.exitCode = 130;
       return;
     }
-    console.error(debug ? error : formatErrorMessage(error));
+    console.error(debug ? error : formatErrorMessage(error, activeLocale));
     process.exitCode = 1;
   } finally {
     process.off('SIGINT', onSigint);

@@ -1,25 +1,25 @@
 <template>
   <div>
     <el-breadcrumb class="page-breadcrumb" separator="/">
-      <el-breadcrumb-item :to="{ name: 'super-orgs' }">组织管理</el-breadcrumb-item>
+      <el-breadcrumb-item :to="{ name: 'super-orgs' }">{{ t('common.organizationManagement') }}</el-breadcrumb-item>
       <el-breadcrumb-item>{{ orgName }}</el-breadcrumb-item>
     </el-breadcrumb>
     <el-card class="data-card" shadow="never" data-test="org-summary">
       <el-descriptions :column="3" border>
-        <el-descriptions-item label="组织名">{{ summary?.name ?? orgName }}</el-descriptions-item>
-        <el-descriptions-item label="生命周期">
-          <el-tag :type="orgStatusTagType(summary?.status)" data-test="org-status">{{ orgStatusText(summary?.status) }}</el-tag>
+        <el-descriptions-item :label="t('columns.organizationName')">{{ summary?.name ?? orgName }}</el-descriptions-item>
+        <el-descriptions-item :label="t('columns.lifecycle')">
+          <el-tag :type="orgStatusTagType(summary?.status)" data-test="org-status">{{ t(orgStatusText(summary?.status)) }}</el-tag>
         </el-descriptions-item>
-        <el-descriptions-item label="成员数">{{ summary?.memberCount ?? '-' }}</el-descriptions-item>
-        <el-descriptions-item label="技能数">{{ summary?.skillCount ?? '-' }}</el-descriptions-item>
-        <el-descriptions-item label="创建时间">{{ formatTime(summary?.createdAt) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('columns.memberCount')">{{ summary?.memberCount == null ? '-' : formatNumber(summary.memberCount) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('columns.skillCount')">{{ summary?.skillCount == null ? '-' : formatNumber(summary.skillCount) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('columns.createdAt')">{{ formatDate(summary?.createdAt) }}</el-descriptions-item>
       </el-descriptions>
     </el-card>
 
     <el-alert
       v-if="summary?.lastError"
       type="error"
-      :title="`失败原因：${summary.lastError}`"
+      :title="t('organization.failedReason', { reason: summary.lastError })"
       :closable="false"
       class="page-error"
       data-test="org-last-error"
@@ -32,22 +32,22 @@
     <el-card class="data-card" shadow="never" data-test="admin-members-card">
       <template #header>
         <div class="card-header">
-          <span>成员</span>
+          <span>{{ t('organization.membersTitle') }}</span>
           <el-button type="primary" size="small" data-test="admin-airdrop-open" @click="airdropVisible = true">
-            指派所有者成员
+            {{ t('organization.ownerAirdropTitle') }}
           </el-button>
         </div>
       </template>
       <el-table v-if="members.length > 0" :data="members" data-test="admin-members-table" v-loading="membersLoading">
-        <el-table-column prop="username" label="成员" />
-        <el-table-column label="身份" width="130">
+        <el-table-column prop="username" :label="t('columns.member')" />
+        <el-table-column :label="t('columns.identity')" width="130">
           <template #default="{ row }">
             <el-tag :type="identityTagType(row.identity)" :data-test="`admin-identity-${row.identity}`">
-              {{ identityLabel(row.identity) }}
+              {{ t(identityLabel(row.identity)) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320">
+        <el-table-column :label="t('columns.actions')" width="320">
           <template #default="{ row }">
             <el-button
               v-for="next in promotionTargets(row)"
@@ -57,7 +57,7 @@
               :data-test="`admin-set-${next}-${row.username}`"
               @click="changeIdentity(row.username, next)"
             >
-              {{ promotionLabel(next) }}
+              {{ t(promotionLabel(next)) }}
             </el-button>
             <el-button
               v-if="row.identity !== 'ordinary'"
@@ -65,38 +65,38 @@
               type="warning"
               :data-test="`admin-demote-${row.username}`"
               :disabled="isLastOwner(row)"
-              :title="isLastOwner(row) ? '组织必须至少保留一名所有者成员' : ''"
+              :title="isLastOwner(row) ? t('organization.lastOwnerDisabled') : ''"
               @click="changeIdentity(row.username, 'ordinary')"
             >
-              收回为普通成员
+              {{ t('organization.demoteToOrdinary') }}
             </el-button>
             <el-button
               link
               type="danger"
               :data-test="`admin-remove-${row.username}`"
               :disabled="isLastOwner(row)"
-              :title="isLastOwner(row) ? '组织必须至少保留一名所有者成员' : ''"
+              :title="isLastOwner(row) ? t('organization.lastOwnerDisabled') : ''"
               @click="removeMember(row)"
             >
-              移出
+              {{ t('actions.remove') }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-else-if="!membersLoading" description="组织暂无成员" />
+      <el-empty v-else-if="!membersLoading" :description="t('organization.noMembers')" />
       <el-alert v-if="memberError" type="error" :title="memberError" :closable="false" class="page-error" />
     </el-card>
 
     <el-card class="danger-zone" data-test="danger-zone">
-      <template #header>危险操作</template>
+      <template #header>{{ t('organization.dangerTitle') }}</template>
       <p class="danger-hint">
-        删除组织将移除其全部技能仓库与关联数据（成员是全局账号，不受影响），操作不可恢复。
-        删除失败时可再次点击删除重试。
+        {{ t('organization.deleteWarning') }}
+        {{ t('organization.deleteRetryHint') }}
       </p>
       <el-input
         v-model="confirmInput"
         data-test="delete-confirm-input"
-        placeholder="请输入组织名以确认删除"
+        :placeholder="t('organization.enterOrgNameToConfirm')"
         class="danger-input"
       />
       <el-button
@@ -106,32 +106,32 @@
         :loading="deleting"
         @click="confirmDelete"
       >
-        彻底删除组织
+        {{ t('organization.permanentlyDelete') }}
       </el-button>
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="二次确认" width="420px">
-      <p>即将删除组织 <strong>{{ orgName }}</strong> 及其全部数据，该操作不可恢复。确认继续？</p>
+    <el-dialog v-model="dialogVisible" :title="t('organization.confirmTitle')" width="420px">
+      <p>{{ t('organization.confirmDeleteWarning', { org: orgName }) }}</p>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="danger" data-test="delete-org-confirm" @click="deleteOrg">确认删除</el-button>
+        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="danger" data-test="delete-org-confirm" @click="deleteOrg">{{ t('actions.confirmDelete') }}</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="airdropVisible" title="指派所有者成员" width="460px">
+    <el-dialog v-model="airdropVisible" :title="t('organization.ownerAirdropTitle')" width="460px">
       <p class="dialog-hint">
-        用于组织里没有可用管理者时：把<strong>任何已注册账号</strong>设为该组织的所有者成员。
-        对方若还不在组织内，会同时被加入组织并进入三个技能授权团队与 org-managers。
+        {{ t('organization.ownerAirdropHint') }}
+        {{ t('organization.ownerAirdropDetail') }}
       </p>
       <el-form label-width="100px">
-        <el-form-item label="用户名" required>
-          <el-input v-model="airdropUsername" data-test="admin-airdrop-username" placeholder="对方的全局账号用户名" />
+        <el-form-item :label="t('registration.username')" required>
+          <el-input v-model="airdropUsername" data-test="admin-airdrop-username" :placeholder="t('member.usernamePlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="airdropVisible = false">取消</el-button>
-        <el-button type="primary" data-test="admin-airdrop-submit" @click="airdropOwner">指派</el-button>
+        <el-button @click="airdropVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" data-test="admin-airdrop-submit" @click="airdropOwner">{{ t('actions.assign') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -139,12 +139,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType, promotionLabel } from '../../constants/org-identity';
 import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
+
+const { t, formatDate, formatNumber } = useLocaleState();
 
 interface OrgSummary {
   name: string;
@@ -195,10 +198,10 @@ async function changeIdentity(username: string, identity: OrgIdentity): Promise<
       `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members/${encodeURIComponent(username)}/identity`,
       { method: 'PUT', body: { identity } }
     );
-    ElMessage.success(`${username} 现在是${identityLabel(identity)}`);
+    ElMessage.success(t('organization.identityChanged', { username, identity: t(identityLabel(identity)) }));
     await Promise.all([loadMembers(), loadSummary()]);
   } catch (error) {
-    memberError.value = error instanceof Error ? error.message : String(error);
+    memberError.value = formatRequestError(error);
   }
 }
 
@@ -206,7 +209,7 @@ async function airdropOwner(): Promise<void> {
   memberError.value = '';
   const username = airdropUsername.value.trim();
   if (!username) {
-    memberError.value = '请输入用户名';
+    memberError.value = t('organization.usernameRequired');
     return;
   }
   try {
@@ -216,15 +219,11 @@ async function airdropOwner(): Promise<void> {
     );
     airdropVisible.value = false;
     airdropUsername.value = '';
-    ElMessage.success(`${username} 已成为所有者成员`);
+    ElMessage.success(t('organization.ownerAssigned', { username }));
     await Promise.all([loadMembers(), loadSummary()]);
   } catch (error) {
-    memberError.value = error instanceof Error ? error.message : String(error);
+    memberError.value = formatRequestError(error);
   }
-}
-
-function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString('zh-CN') : '-';
 }
 
 async function loadSummary(): Promise<void> {
@@ -233,7 +232,7 @@ async function loadSummary(): Promise<void> {
     const orgs = await apiRequest<OrgSummary[]>('/api/admin/orgs');
     summary.value = orgs.find((org) => org.name === orgName.value) ?? null;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -248,11 +247,11 @@ async function deleteOrg(): Promise<void> {
       method: 'DELETE',
       body: { confirm: orgName.value }
     });
-    ElMessage.success(`组织 ${orgName.value} 已删除`);
+    ElMessage.success(t('organization.orgDeleted', { org: orgName.value }));
     dialogVisible.value = false;
     await router.push({ name: 'super-orgs' });
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     deleting.value = false;
   }
@@ -266,7 +265,7 @@ async function loadMembers(): Promise<void> {
       `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members`
     );
   } catch (error) {
-    memberError.value = error instanceof Error ? error.message : String(error);
+    memberError.value = formatRequestError(error);
     members.value = [];
   } finally {
     membersLoading.value = false;
@@ -280,10 +279,10 @@ async function removeMember(row: AdminMemberView): Promise<void> {
       `/api/admin/orgs/${encodeURIComponent(orgName.value)}/members/${encodeURIComponent(row.username)}`,
       { method: 'DELETE' }
     );
-    ElMessage.success(`成员 ${row.username} 已移出组织`);
+    ElMessage.success(t('organization.memberRemoved', { username: row.username }));
     await Promise.all([loadMembers(), loadSummary()]);
   } catch (error) {
-    memberError.value = error instanceof Error ? error.message : String(error);
+    memberError.value = formatRequestError(error);
   }
 }
 

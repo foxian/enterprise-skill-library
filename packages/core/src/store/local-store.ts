@@ -89,6 +89,8 @@ export interface ConfigIdentity {
 export interface EslConfig extends ConfigIdentity {
   server: string | null;
   username: string | null;
+  /** 账户语言偏好（ADR-0044）；null 表示未主动选择。 */
+  locale?: string | null;
   organizations: OrganizationMembership[] | null;
   tools: string[];
 }

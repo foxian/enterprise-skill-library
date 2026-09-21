@@ -45,6 +45,8 @@ services:
       PORT: "3000"
       # Container-internal path: /data is the bind-mount destination
       DATABASE_PATH: /data/esl.db
+      # 诊断日志级别(ADR-0045):trace|debug|info|warn|error|fatal,非法值启动即失败
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       ESL_PASSWORD_MIN_LENGTH: ${ESL_PASSWORD_MIN_LENGTH:-8}
       GITEA_URL: http://gitea:3000
       GITEA_ADMIN_TOKEN_FILE: ${GITEA_ADMIN_TOKEN_FILE:-/bootstrap/gitea-admin-token}
@@ -52,6 +54,13 @@ services:
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
       # Seed sample skill metadata at startup (development only)
       ESL_AUTO_SEED: ${ESL_AUTO_SEED:-false}
+    # 日志进 stdout(JSON Lines),由部署层采集。这里只约束单文件大小与文件数,
+    # 防止开发环境长时间运行占满磁盘;按日期归档与保留天数由采集器/logrotate 负责。
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     volumes:
       - ${ESL_DATA_DIR:-./data}/api:/data
       - ${ESL_DATA_DIR:-./data}/secrets:/bootstrap:ro

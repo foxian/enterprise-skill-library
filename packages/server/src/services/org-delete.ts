@@ -3,6 +3,7 @@ import type {
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService } from './gitea.js';
+import { logTaskFinished, logTaskStarted, type DiagnosticLogger } from '../logging.js';
 
 export interface OrganizationDeletionOptions {
   giteaService: GiteaService;
@@ -10,17 +11,30 @@ export interface OrganizationDeletionOptions {
   tenantOrganizationRepository: TenantOrganizationRepository;
 }
 
+export const ORG_DELETION_TASK_ID = 'organization-deletion';
+
 /**
  * 组织删除的统一入口（ADR-0034）：先置 `deleting` 让"处理中"对外可见，再执行
  * 跨系统清理。失败由 runOrganizationDeletion 落成 `delete_failed` + 原因，可由
  * 所有者成员或平台管理员重试。所有者成员与平台管理员两条路由共用。
+ *
+ * logger 由调用方在组合点绑定（ADR-0045）：请求内任务传 request.log 派生的子
+ * logger，带上 taskId 与触发请求 id，任务日志因此能回到原始请求的时间线。
  */
 export async function performOrganizationDeletion(
   options: OrganizationDeletionOptions,
-  orgName: string
+  orgName: string,
+  logger?: DiagnosticLogger
 ): Promise<void> {
-  options.tenantOrganizationRepository.transition(orgName, 'deleting');
-  await runOrganizationDeletion(options, orgName);
+  logTaskStarted(logger, ORG_DELETION_TASK_ID, 'Organization deletion started');
+  try {
+    options.tenantOrganizationRepository.transition(orgName, 'deleting');
+    await runOrganizationDeletion(options, orgName);
+  } catch (error) {
+    logTaskFinished(logger, ORG_DELETION_TASK_ID, error);
+    throw error;
+  }
+  logTaskFinished(logger, ORG_DELETION_TASK_ID);
 }
 
 // 组织删除（ADR-0032）：成员是全局账号（不属于组织），删除只清理

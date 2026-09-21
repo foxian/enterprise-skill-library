@@ -1,3 +1,4 @@
+import { apiError } from '../errors.js';
 import { RESERVED_SCOPE_NAMES, validateOrgName } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
@@ -8,12 +9,65 @@ import type {
 import type { GiteaService } from '../services/gitea.js';
 import { initializeOrganization } from '../services/org-init.js';
 import { deriveOrganizations } from '../services/organization-membership.js';
+import { logEvent } from '../logging.js';
+import type { ApiErrorCode } from '@esl/i18n';
 
 export interface OrgRouteOptions {
   giteaService: GiteaService;
   orgApplicationRepository: OrgApplicationRepository;
   platformSettingsRepository: PlatformSettingsRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
+}
+
+// 组织治理的对外结果事件（ADR-0045）：只在名称占用/状态流转等业务状态变化时
+// 记录，普通读请求不产生事件。错误码与响应体里的 API Error Code 对齐，便于把
+// 客户端看到的拒绝与服务端日志关联起来。
+function logOrganizationOutcome(
+  request: FastifyRequest,
+  actorUsername: string,
+  orgName: string,
+  outcome: 'succeeded' | 'failed',
+  errorCode?: ApiErrorCode
+): void {
+  logEvent(
+    request.log,
+    outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event: 'organization.create',
+      outcome,
+      actorUsername,
+      organization: orgName,
+      resourceType: 'organization',
+      resourceId: orgName,
+      ...(errorCode ? { errorCode } : {})
+    },
+    outcome === 'succeeded' ? 'Organization created' : 'Organization creation rejected'
+  );
+}
+
+// 组织注册申请（manual 模式）的结果事件：申请提交与随后的审批是两条独立时间线，
+// 用不同事件名区分。
+function logOrganizationApplication(
+  request: FastifyRequest,
+  actorUsername: string,
+  orgName: string,
+  outcome: 'succeeded' | 'failed',
+  errorCode?: ApiErrorCode
+): void {
+  logEvent(
+    request.log,
+    outcome === 'succeeded' ? 'info' : 'warn',
+    {
+      event: 'organization.application',
+      outcome,
+      actorUsername,
+      organization: orgName,
+      resourceType: 'organization',
+      resourceId: orgName,
+      ...(errorCode ? { errorCode } : {})
+    },
+    outcome === 'succeeded' ? 'Organization application submitted' : 'Organization application rejected'
+  );
 }
 
 // 组织创建（ADR-0032）：任何已注册用户可创建多个组织，方式由平台设置
@@ -25,30 +79,37 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
   async function requireSkillUser(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
     const authorization = request.headers.authorization;
     if (!authorization?.startsWith('token ')) {
-      reply.status(401).send({ error: 'Unauthorized: missing token' });
+      reply.status(401).send(apiError('unauthorizedMissingToken'));
       return null;
     }
     const user = await giteaService.validateToken(authorization.replace('token ', '').trim());
     if (!user) {
-      reply.status(401).send({ error: 'Unauthorized: invalid token' });
+      reply.status(401).send(apiError('unauthorizedInvalidToken'));
       return null;
     }
     return user.username;
   }
 
   // 扁平命名池查重（先到先得）：已存在组织 / 用户 / 保留名 / 同名待审申请。
-  async function rejectIfNameTaken(orgName: string, reply: FastifyReply): Promise<boolean> {
-    if (await giteaService.organizationExists(orgName)) {
-      reply.status(409).send({ error: 'Organization name is already taken' });
+  async function rejectIfNameTaken(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    orgName: string,
+    username: string
+  ): Promise<boolean> {
+    const reject = (code: ApiErrorCode): true => {
+      logOrganizationOutcome(request, username, orgName, 'failed', code);
+      reply.status(409).send(apiError(code));
       return true;
+    };
+    if (await giteaService.organizationExists(orgName)) {
+      return reject('organizationNameIsAlreadyTaken');
     }
     if (await giteaService.getUser(orgName)) {
-      reply.status(409).send({ error: 'Organization name collides with an existing user' });
-      return true;
+      return reject('organizationNameCollidesWithAnExistingUser');
     }
     if (orgApplicationRepository.getApplication(orgName)?.status === 'pending') {
-      reply.status(409).send({ error: 'An application for this organization name is already pending' });
-      return true;
+      return reject('anApplicationForThisOrganizationNameIsAlreadyPending');
     }
     return false;
   }
@@ -81,23 +142,32 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     const { orgName = '' } = request.body as { orgName?: string };
     const validation = validateOrgName(orgName);
     if (!validation.success) {
-      return reply.status(400).send({ error: validation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: validation.errors.join(', ') }));
     }
     if (RESERVED_SCOPE_NAMES.has(orgName)) {
-      return reply.status(400).send({ error: 'Organization name is reserved' });
+      logOrganizationOutcome(request, username, orgName, 'failed', 'organizationNameIsReserved');
+      return reply.status(400).send(apiError('organizationNameIsReserved'));
     }
-    if (await rejectIfNameTaken(orgName, reply)) return;
+    if (await rejectIfNameTaken(request, reply, orgName, username)) return;
 
     const mode = platformSettingsRepository.getSetting('org_registration_mode') ?? 'auto';
     if (mode === 'manual') {
+      logOrganizationOutcome(
+        request,
+        username,
+        orgName,
+        'failed',
+        'organizationRegistrationRequiresApprovalOnThisPlatformSubmitAnApplicationInstead'
+      );
       return reply.status(409).send({
-        error: 'Organization registration requires approval on this platform; submit an application instead'
+        ...apiError('organizationRegistrationRequiresApprovalOnThisPlatformSubmitAnApplicationInstead')
       });
     }
 
     // auto 模式：同步直调 Gitea 开通，创建者入组织管理团队（Gitea Owners）成为初始成员。
     await initializeOrganization(giteaService, orgName, username, tenantOrganizationRepository);
     tenantOrganizationRepository.create({ orgName, status: 'active' });
+    logOrganizationOutcome(request, username, orgName, 'succeeded');
     return reply.status(201).send({ orgName, status: 'active', identity: 'owner', isOwnerMember: true });
   });
 
@@ -108,17 +178,25 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     const { orgName = '' } = request.body as { orgName?: string };
     const validation = validateOrgName(orgName);
     if (!validation.success) {
-      return reply.status(400).send({ error: validation.errors.join(', ') });
+      return reply.status(400).send(apiError('validationFailed', { detail: validation.errors.join(', ') }));
     }
     if (RESERVED_SCOPE_NAMES.has(orgName)) {
-      return reply.status(400).send({ error: 'Organization name is reserved' });
+      logOrganizationApplication(request, username, orgName, 'failed', 'organizationNameIsReserved');
+      return reply.status(400).send(apiError('organizationNameIsReserved'));
     }
-    if (await rejectIfNameTaken(orgName, reply)) return;
+    if (await rejectIfNameTaken(request, reply, orgName, username)) return;
 
     const mode = platformSettingsRepository.getSetting('org_registration_mode') ?? 'auto';
     if (mode !== 'manual') {
+      logOrganizationApplication(
+        request,
+        username,
+        orgName,
+        'failed',
+        'organizationsAreCreatedInstantlyOnThisPlatformCreateOneDirectlyInstead'
+      );
       return reply.status(409).send({
-        error: 'Organizations are created instantly on this platform; create one directly instead'
+        ...apiError('organizationsAreCreatedInstantlyOnThisPlatformCreateOneDirectlyInstead')
       });
     }
     try {
@@ -133,10 +211,18 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
       } else {
         tenantOrganizationRepository.create({ orgName, status: 'pending' });
       }
+      logOrganizationApplication(request, username, orgName, 'succeeded');
       return reply.status(201).send({ status: 'pending', applicationId: application.id, orgName });
     } catch (error) {
       if (String(error).toLowerCase().includes('unique')) {
-        return reply.status(409).send({ error: 'An application for this organization already exists' });
+        logOrganizationApplication(
+          request,
+          username,
+          orgName,
+          'failed',
+          'anApplicationForThisOrganizationAlreadyExists'
+        );
+        return reply.status(409).send(apiError('anApplicationForThisOrganizationAlreadyExists'));
       }
       throw error;
     }
@@ -149,11 +235,11 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
     if (!username) return;
     const application = orgApplicationRepository.getApplication(orgName);
     if (application && application.applicantUsername && application.applicantUsername !== username) {
-      return reply.status(403).send({ error: 'Only the applicant may query this application' });
+      return reply.status(403).send(apiError('onlyTheApplicantMayQueryThisApplication'));
     }
     const tenant = tenantOrganizationRepository.get(orgName);
     if (!tenant && !application) {
-      return reply.status(404).send({ error: 'Organization application not found' });
+      return reply.status(404).send(apiError('organizationApplicationNotFound'));
     }
     return { orgName, status: tenant?.status ?? application!.status };
   });

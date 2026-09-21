@@ -203,7 +203,7 @@ describe('organization governance powers', () => {
       headers: superHeaders
     });
     expect(last.statusCode).toBe(400);
-    expect(last.json().error).toContain('owner member');
+    expect(last.json().message).toContain('owner member');
     expect((await gitea.listOrgMembers('acme')).map((member) => member.username)).toContain('admin-alice');
   });
 

@@ -578,7 +578,7 @@ describe('organization console API', () => {
       payload: { name: 'backend', permission: 'write' }
     });
     expect(fixed.statusCode).toBe(400);
-    expect(fixed.json().error).toContain('fixed permission');
+    expect(fixed.json().message).toContain('fixed permission');
 
     const reserved = await app.inject({
       method: 'POST',
@@ -712,7 +712,7 @@ describe('organization console API', () => {
     });
 
     expect(res.statusCode).toBe(404);
-    expect(res.json().error).toContain('ghost');
+    expect(res.json().message).toContain('ghost');
   });
 
   // 身份变更（ADR-0038）：提升 / 收回是成员列表上的一等动作，只有所有者成员能做。
@@ -843,7 +843,7 @@ describe('organization console API', () => {
       headers: aliceHeaders
     });
     expect(leave.statusCode).toBe(400);
-    expect(leave.json().error).toContain('last owner member');
+    expect(leave.json().message).toContain('last owner member');
 
     const demoteSelf = await app.inject({
       method: 'PUT',
@@ -852,7 +852,7 @@ describe('organization console API', () => {
       payload: { identity: 'ordinary' }
     });
     expect(demoteSelf.statusCode).toBe(400);
-    expect(demoteSelf.json().error).toContain('at least one owner member');
+    expect(demoteSelf.json().message).toContain('at least one owner member');
 
     const ownersId = await teamId('acme', 'Owners');
     expect(await gitea.isTeamMember(ownersId!, 'admin-alice')).toBe(true);

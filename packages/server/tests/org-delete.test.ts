@@ -184,7 +184,7 @@ describe('organization deletion', () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(response.json().error).toContain('provenance');
+    expect(response.json().message).toContain('provenance');
     expect(mockGitea.deleteRepo).not.toHaveBeenCalled();
     expect(mockGitea.deleteOrg).not.toHaveBeenCalled();
   });

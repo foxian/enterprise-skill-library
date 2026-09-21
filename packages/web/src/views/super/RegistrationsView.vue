@@ -3,33 +3,33 @@
     <el-card class="data-card" shadow="never">
       <div class="console-toolbar">
         <el-radio-group v-model="status" data-test="registration-filter" @change="load">
-          <el-radio-button value="pending">待审批</el-radio-button>
-          <el-radio-button value="approved">已批准</el-radio-button>
-          <el-radio-button value="rejected">已拒绝</el-radio-button>
+        <el-radio-button value="pending">{{ t('status.pending') }}</el-radio-button>
+        <el-radio-button value="approved">{{ t('status.approved') }}</el-radio-button>
+        <el-radio-button value="rejected">{{ t('status.rejected') }}</el-radio-button>
         </el-radio-group>
       </div>
       <el-table :data="registrations" data-test="registrations-table" v-loading="loading">
-        <el-table-column prop="username" label="用户名" />
-        <el-table-column label="命名空间" width="180">
+        <el-table-column prop="username" :label="t('registration.username')" />
+        <el-table-column :label="t('columns.namespace')" width="180">
           <template #default="{ row }">@{{ row.username }}</template>
         </el-table-column>
-        <el-table-column label="提交时间" width="200">
+        <el-table-column :label="t('columns.submittedAt')" width="200">
           <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
+        <el-table-column :label="t('columns.status')" width="110">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)" :data-test="`registration-status-${row.id}`">
               {{ statusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="status === 'pending'" label="操作" width="180">
+        <el-table-column v-if="status === 'pending'" :label="t('columns.actions')" width="180">
           <template #default="{ row }">
             <el-button link type="success" :data-test="`approve-registration-${row.id}`" @click="approve(row)">
-              批准
+            {{ t('actions.approve') }}
             </el-button>
             <el-button link type="danger" :data-test="`reject-registration-${row.id}`" @click="reject(row)">
-              拒绝
+            {{ t('actions.reject') }}
             </el-button>
           </template>
         </el-table-column>
@@ -41,8 +41,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
+
+const { t } = useLocaleState();
 
 // 用户注册审批（ADR-0032 / #60）：approval 模式下账号先建后禁用，
 // 批准 = 解禁登录，拒绝 = 删除账号并释放用户名。
@@ -63,7 +66,7 @@ function formatTime(value: string): string {
 }
 
 function statusText(value: RegistrationView['status']): string {
-  return value === 'pending' ? '待审批' : value === 'approved' ? '已批准' : '已拒绝';
+  return t(value === 'pending' ? 'status.pending' : value === 'approved' ? 'status.approved' : 'status.rejected');
 }
 
 function statusTagType(value: RegistrationView['status']): 'warning' | 'success' | 'info' {
@@ -78,7 +81,7 @@ async function load(): Promise<void> {
       `/api/admin/registrations?status=${status.value}`
     );
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
@@ -88,10 +91,10 @@ async function approve(row: RegistrationView): Promise<void> {
   errorMessage.value = '';
   try {
     await apiRequest(`/api/admin/registrations/${row.id}/approve`, { method: 'POST' });
-    ElMessage.success(`已批准 ${row.username} 的注册`);
+    ElMessage.success(t('orgApproval.registrationApproved', { username: row.username }));
     await load();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 
@@ -99,10 +102,10 @@ async function reject(row: RegistrationView): Promise<void> {
   errorMessage.value = '';
   try {
     await apiRequest(`/api/admin/registrations/${row.id}/reject`, { method: 'POST' });
-    ElMessage.success(`已拒绝 ${row.username} 的注册`);
+    ElMessage.success(t('orgApproval.registrationRejected', { username: row.username }));
     await load();
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = formatRequestError(error);
   }
 }
 

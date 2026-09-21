@@ -51,6 +51,7 @@ describe('global identity login', () => {
     expect(response.json()).toEqual({
       token: expect.any(String),
       username: 'alice',
+      locale: null,
       organizations: [
         { org: 'acme', identity: 'ordinary', isOwnerMember: false },
         { org: 'beta', identity: 'owner', isOwnerMember: true }

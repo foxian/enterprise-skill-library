@@ -14,6 +14,7 @@ sharing, and using AI Agent skills across teams.
 
 - [Usage guide](docs/guides/usage.md)
 - [Local development](docs/guides/local-development.md)
+- [Server logging](docs/guides/logging.md)
 - [Docker troubleshooting](docs/guides/docker-troubleshooting.md)
 - [Domain context](CONTEXT.md)
 - [Architecture decisions](docs/adr/)
