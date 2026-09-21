@@ -22,7 +22,14 @@ import type {
   TenantOrganizationRepository
 } from '../db/database.js';
 import type { GiteaService, GiteaTeam } from '../services/gitea.js';
-import { isManagingMemberOf, isOwnerMemberOf } from '../services/organization-membership.js';
+import { isOwnerMemberOf } from '../services/organization-membership.js';
+import {
+  canManageSkill,
+  getAccessLevel,
+  hasReadAccess,
+  skillRepo,
+  type SkillAccessLevel
+} from '../services/skill-access.js';
 import { backendTeamName } from '../services/logical-team-projection.js';
 import { logEvent } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
@@ -1207,94 +1214,6 @@ function resolveDependencyLock(
     visit(name, range);
   }
   return lock;
-}
-
-// 从技能记录的 gitRepoPath（如 "e2e223219/e2e223219_demo-skill"）解析 Gitea 仓库
-// 属主与仓库名。CLI 上传流的仓库为 "{repoOwner}/{skillName}"，而 API 创建的
-// 组织级技能仓库为 "{scope}/{scope}_{skillName}"，故不能直接用 scope/skillName 重建路径。
-function skillRepo(skill: SkillRecord): { owner: string; name: string } {
-  const slash = skill.gitRepoPath.indexOf('/');
-  return {
-    owner: skill.gitRepoPath.slice(0, slash),
-    name: skill.gitRepoPath.slice(slash + 1)
-  };
-}
-
-// ADR-0025 三档权限:Read/Write/Manage,Manage 档隐含读与写。
-// 判定顺序:先看 DB 记录与角色约定(owner/初始 Maintainer/所有者成员/超管,
-// 无网络往返),再查 Git Backend 的团队与协作者授权(Gitea 是权限事实来源)。
-export type SkillAccessLevel = 'none' | 'read' | 'write' | 'manage';
-
-async function getAccessLevel(
-  giteaService: GiteaService,
-  skill: SkillRecord,
-  username: string | undefined
-): Promise<SkillAccessLevel> {
-  if (!username) return 'none';
-  // DB 记录的 owner 与初始 Maintainer(创建者)天然持有管理权(ADR-0025:
-  // maintainers_json 退化为初始创建者记录);超级管理员同理。
-  if (username === skill.owner || skill.maintainers.includes(username)) return 'manage';
-  if (giteaService.adminUsername && username === giteaService.adminUsername) return 'manage';
-  // 组织管理团队治理兜底（ADR-0033）：Owners 团队成员可见并管理
-  // 本组织名下全部技能；个人技能的 scope 即所有者本人，已在上面命中。
-  if (skill.scope !== username && (await isOrgSkillManager(giteaService, skill.scope, username))) {
-    return 'manage';
-  }
-  // public 是 Read 基线而不是权限上限：继续合并团队与个人授权，使 write/manage
-  // 来源能够提升最终权限。仓库缺失或查询失败时仍保留 public 的可读兜底。
-  const publicRead = skill.visibility === 'public';
-  const hasPermissionSupport =
-    typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
-  if (!hasPermissionSupport) {
-    // Git backends without permission APIs cannot be filtered; keep legacy behavior.
-    return 'read';
-  }
-  const repo = skillRepo(skill);
-  let level: SkillAccessLevel = publicRead ? 'read' : 'none';
-  try {
-    if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
-      for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
-        if (!(await giteaService.isTeamMember(team.id, username))) continue;
-        if (team.permission === 'admin' || team.permission === 'owner') return 'manage';
-        if (team.permission === 'write') level = 'write';
-        else if (level === 'none') level = 'read';
-      }
-    }
-    if (typeof giteaService.getCollaboratorPermission === 'function') {
-      const permission = await giteaService.getCollaboratorPermission(repo.owner, repo.name, username);
-      if (permission === 'admin' || permission === 'owner') return 'manage';
-      if (permission === 'write') level = 'write';
-      else if (permission === 'read' && level === 'none') level = 'read';
-    }
-  } catch (error) {
-    if (publicRead) return level;
-    throw error;
-  }
-  return level;
-}
-
-// 组织级技能管理权（ADR-0038）：所有者成员或 org-managers 成员。scope 不是组织
-// （个人技能）时按无组织级权限处理，判定统一走共享实现。
-async function isOrgSkillManager(giteaService: GiteaService, org: string, username: string): Promise<boolean> {
-  return (await isOwnerMemberOf(giteaService, org, username)) ||
-    (await isManagingMemberOf(giteaService, org, username));
-}
-
-async function hasReadAccess(
-  giteaService: GiteaService,
-  skill: SkillRecord,
-  username: string | undefined
-): Promise<boolean> {
-  return (await getAccessLevel(giteaService, skill, username)) !== 'none';
-}
-
-// 管理权判定(ADR-0025):publish、rename、archive、权限配置等技能管理操作统一守门。
-async function canManageSkill(
-  giteaService: GiteaService,
-  skill: SkillRecord,
-  username: string | undefined
-): Promise<boolean> {
-  return (await getAccessLevel(giteaService, skill, username)) === 'manage';
 }
 
 // ESL 三档权限词汇(ADR-0025):Gitea 的 admin/owner 仓库访问级别统一呈现为
