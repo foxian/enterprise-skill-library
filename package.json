@@ -7,6 +7,11 @@
   "scripts": {
     "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
     "deploy:web": "npm run build --workspace @esl/web && docker compose up -d server",
+    "deploy:prod": "bash scripts/prod/deploy.sh",
+    "backup:prod": "bash scripts/prod/backup.sh",
+    "restore:prod": "bash scripts/prod/restore.sh",
+    "restart:prod": "bash scripts/prod/restart.sh",
+    "enable:tls": "bash scripts/prod/enable-tls.sh",
     "smoke:git-backend-maintenance-entry": "node scripts/check-git-backend-maintenance-entry.mjs",
     "initialize:permissions": "npm run build --workspace @esl/core && npm run build --workspace @esl/server && npm run initialize:permissions --workspace @esl/server",
     "reset:dev": "node scripts/reset-dev-env.mjs",

@@ -7,6 +7,13 @@ packages/*/dist/
 # Local data directory (default ESL bind-mount location)
 data/
 
+# 生产运维产物（ADR-0047）：备份归档（含秘密，必须留在服务器上）、
+# certbot 证书、enable-tls.sh 生成的 TLS compose 片段与域名校验文件
+backups/
+letsencrypt/
+docker-compose.prod.tls.yml
+.tls-domain
+
 # Playwright E2E 运行产物(.auth 含会话 storageState)
 .auth/
 test-results/
