@@ -20,11 +20,8 @@ blob-report/
 .claude/agents/
 .mcp.json
 
-# Smoke-test runtime artifacts (may contain real credentials)
-.scratch/smoke-workspace/
-.scratch/docker-smoke.env
-.scratch/docker-smoke-compose.yml
-.scratch/docker-smoke.override.yml
+# 本地 issue tracker / 工作区与 smoke 产物(可能含真实凭据),均不纳入版本控制
+.scratch/
 
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
