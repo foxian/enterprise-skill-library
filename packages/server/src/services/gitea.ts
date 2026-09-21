@@ -151,20 +151,27 @@ export class GiteaService {
     );
   }
 
-  async listUsers(search?: string): Promise<GiteaAdminUser[]> {
-    const url = new URL(`${this.baseUrl}/api/v1/admin/users`);
-    url.searchParams.set('limit', '50');
-    if (search) {
-      url.searchParams.set('search', search);
+  async listUsers(): Promise<GiteaAdminUser[]> {
+    const users: GiteaAdminUser[] = [];
+    const pageSize = 50;
+    for (let page = 1; page <= 200; page++) {
+      const url = new URL(`${this.baseUrl}/api/v1/admin/users`);
+      url.searchParams.set('limit', String(pageSize));
+      url.searchParams.set('page', String(page));
+      const res = await this.request('listUsers', url.toString(), {
+        headers: { Authorization: `token ${this.adminToken}` }
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new GiteaRequestError(res.status, `Failed to list Gitea users: ${err}`);
+      }
+      const batch = (await res.json()) as GiteaAdminUser[];
+      users.push(...batch);
+      if (batch.length < pageSize) {
+        return users;
+      }
     }
-    const res = await this.request('listUsers', url.toString(), {
-      headers: { Authorization: `token ${this.adminToken}` }
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new GiteaRequestError(res.status, `Failed to list Gitea users: ${err}`);
-    }
-    return (await res.json()) as GiteaAdminUser[];
+    return users;
   }
 
   async validateToken(token: string): Promise<GiteaUser | null> {
@@ -227,7 +234,7 @@ export class GiteaService {
   async createUser(
     username: string,
     password: string,
-    options: { tolerateExisting?: boolean } = {}
+    options: { email?: string; mustChangePassword?: boolean; tolerateExisting?: boolean } = {}
   ): Promise<void> {
     const res = await this.request('createUser', `${this.baseUrl}/api/v1/admin/users`, {
       method: 'POST',
@@ -237,9 +244,9 @@ export class GiteaService {
       },
       body: JSON.stringify({
         username,
-        email: giteaUserEmail(username),
+        email: options.email ?? giteaUserEmail(username),
         password,
-        must_change_password: false
+        must_change_password: options.mustChangePassword ?? false
       })
     });
 
@@ -337,6 +344,43 @@ export class GiteaService {
     }
   }
 
+  async revokeUserTokens(username: string): Promise<void> {
+    if (!this.adminUsername || !this.adminPassword) {
+      throw new Error('Gitea admin username/password required to revoke user tokens');
+    }
+    const basicAuth = `Basic ${Buffer.from(`${this.adminUsername}:${this.adminPassword}`).toString('base64')}`;
+    const pageSize = 50;
+    for (let page = 1; page <= 200; page++) {
+      const list = await this.request(
+        'revokeUserTokens',
+        `${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens?limit=${pageSize}&page=${page}`,
+        { headers: { Authorization: basicAuth } }
+      );
+      if (!list.ok) {
+        const err = await list.text();
+        throw new GiteaRequestError(list.status, `Failed to list Gitea user tokens: ${err}`);
+      }
+      const tokens = (await list.json()) as Array<{ id: number }>;
+      for (const token of tokens) {
+        const removed = await this.request(
+          'revokeUserTokens',
+          `${this.baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${token.id}`,
+          {
+            method: 'DELETE',
+            headers: { Authorization: basicAuth }
+          }
+        );
+        if (!removed.ok && removed.status !== 404) {
+          const err = await removed.text();
+          throw new GiteaRequestError(removed.status, `Failed to revoke Gitea user token: ${err}`);
+        }
+      }
+      if (tokens.length < pageSize) {
+        return;
+      }
+    }
+  }
+
   async changeUserPassword(username: string, password: string): Promise<void> {
     const res = await this.request('changeUserPassword', `${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
@@ -350,6 +394,22 @@ export class GiteaService {
     if (!res.ok) {
       const err = await res.text();
       throw new GiteaRequestError(res.status, `Failed to change Gitea user password: ${err}`);
+    }
+  }
+
+  async changeUserEmail(username: string, email: string): Promise<void> {
+    const res = await this.request('changeUserEmail', `${this.baseUrl}/api/v1/admin/users/${username}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `token ${this.adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ login_name: username, email })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new GiteaRequestError(res.status, `Failed to change Gitea user email: ${err}`);
     }
   }
 

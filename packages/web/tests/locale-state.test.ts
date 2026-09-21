@@ -160,6 +160,9 @@ describe('web locale state', () => {
     const setUsername = wrapper.find('[data-test="register-username"]');
     (setUsername.element as HTMLInputElement).value = 'dave';
     await setUsername.trigger('input');
+    const setEmail = wrapper.find('[data-test="register-email"]');
+    (setEmail.element as HTMLInputElement).value = 'dave@example.com';
+    await setEmail.trigger('input');
     const setPassword = wrapper.find('[data-test="register-password"]');
     (setPassword.element as HTMLInputElement).value = 'a-valid-password';
     await setPassword.trigger('input');

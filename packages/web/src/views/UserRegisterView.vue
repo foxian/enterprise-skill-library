@@ -31,6 +31,9 @@
         <el-form-item :label="t('registration.username')" required>
           <el-input v-model="username" data-test="register-username" :placeholder="t('registration.usernamePlaceholder')" />
         </el-form-item>
+        <el-form-item :label="t('registration.email')" required>
+          <el-input v-model="email" data-test="register-email" :placeholder="t('registration.emailPlaceholder')" />
+        </el-form-item>
         <el-form-item :label="t('registration.password')" required>
           <el-input v-model="password" data-test="register-password" type="password" show-password />
         </el-form-item>
@@ -61,6 +64,7 @@ import LocaleSwitch from '../components/LocaleSwitch.vue';
 import { formatRequestError } from '../i18n/locale';
 
 const username = ref('');
+const email = ref('');
 const password = ref('');
 const confirmPassword = ref('');
 const loading = ref(false);
@@ -76,7 +80,7 @@ onMounted(() => {
 
 async function submit(): Promise<void> {
   errorMessage.value = '';
-  if (!username.value.trim() || !password.value) {
+  if (!username.value.trim() || !email.value.trim() || !password.value) {
     errorMessage.value = t('registration.credentialsRequired');
     return;
   }
@@ -88,7 +92,7 @@ async function submit(): Promise<void> {
   try {
     const result = await apiRequest<{ status: string; username: string }>('/api/auth/register', {
       method: 'POST',
-      body: { username: username.value.trim(), password: password.value }
+      body: { username: username.value.trim(), email: email.value.trim(), password: password.value }
     });
     if (result.status === 'pending') {
       pending.value = result.username;

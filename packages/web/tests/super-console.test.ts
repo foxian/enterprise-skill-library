@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { flushPromises } from '@vue/test-utils';
+import { DOMWrapper, flushPromises } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import { router } from '../src/router';
 import ApplicationsView from '../src/views/super/ApplicationsView.vue';
@@ -8,6 +8,7 @@ import OrgsView from '../src/views/super/OrgsView.vue';
 import SettingsView from '../src/views/super/SettingsView.vue';
 import SuperRegistrations from '../src/views/super/RegistrationsView.vue';
 import DashboardView from '../src/views/super/DashboardView.vue';
+import UsersView from '../src/views/super/UsersView.vue';
 import { mountConsoleView, resetConsole, useApiMock, type RecordedRequest } from './helpers';
 import * as clientApi from '../src/api/client';
 
@@ -41,6 +42,20 @@ const applications = [
 ];
 
 let wrapper: VueWrapper | undefined;
+
+function doc(testId: string): DOMWrapper<Element> {
+  const element = document.querySelector(`[data-test="${testId}"]`);
+  if (!element) {
+    throw new Error(`[data-test="${testId}"] not found in document`);
+  }
+  return new DOMWrapper(element);
+}
+
+async function setDocInput(testId: string, value: string): Promise<void> {
+  const input = doc(testId).element as HTMLInputElement;
+  input.value = value;
+  await doc(testId).trigger('input');
+}
 
 afterEach(async () => {
   wrapper?.unmount();
@@ -369,6 +384,7 @@ describe('SettingsView 平台设置', () => {
             orgRegistrationMode: 'auto',
             registrationMode: 'open',
             memberAddMode: 'direct',
+            adminProvisionedPasswordChangePolicy: 'force',
             ...settings
           }
         };
@@ -380,6 +396,7 @@ describe('SettingsView 平台设置', () => {
             orgRegistrationMode: 'auto',
             registrationMode: 'open',
             memberAddMode: 'direct',
+            adminProvisionedPasswordChangePolicy: 'force',
             ...settings
           }
         };
@@ -388,7 +405,7 @@ describe('SettingsView 平台设置', () => {
     });
   }
 
-  it('展示三项平台设置（用户注册 / 组织注册 / 拉人方式）', async () => {
+  it('展示四项平台设置（用户注册 / 组织注册 / 拉人方式 / 建号改密）', async () => {
     mockSettings();
     wrapper = await mountConsoleView(SettingsView, { account: 'platformAdmin', route: '/admin/super/settings' });
     await flushPromises();
@@ -396,6 +413,7 @@ describe('SettingsView 平台设置', () => {
     expect(wrapper.find('[data-test="user-registration-mode"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="registration-mode"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="member-add-mode"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="admin-provisioned-password-change-policy"]').exists()).toBe(true);
     // 表单与已保存值一致时不出现保存变更
     expect((wrapper.find('[data-test="save-settings"]').element as HTMLButtonElement).disabled).toBe(true);
   });
@@ -416,6 +434,151 @@ describe('SettingsView 平台设置', () => {
 
     const put = requests.find((request) => request.method === 'PUT' && request.url === '/api/admin/orgs/settings');
     expect(put?.body).toMatchObject({ registrationMode: 'approval' });
+  });
+
+  it('切换建号首登改密策略后保存设置', async () => {
+    const { requests } = mockSettings();
+    wrapper = await mountConsoleView(SettingsView, { account: 'platformAdmin', route: '/admin/super/settings' });
+    await flushPromises();
+
+    const allow = wrapper
+      .findAll('[data-test="admin-provisioned-password-change-policy"] input[type="radio"]')
+      .at(1)!;
+    await allow.setValue(true);
+    await flushPromises();
+    await wrapper.find('[data-test="save-settings"]').trigger('click');
+    await flushPromises();
+
+    const put = requests.find((request) => request.method === 'PUT' && request.url === '/api/admin/orgs/settings');
+    expect(put?.body).toMatchObject({ adminProvisionedPasswordChangePolicy: 'allow' });
+  });
+});
+
+describe('UsersView 用户管理', () => {
+  const users = [
+    {
+      username: 'alice',
+      email: 'alice@example.com',
+      enabled: true,
+      emailPendingCompletion: false
+    },
+    {
+      username: 'legacy',
+      email: 'legacy@local.esl',
+      enabled: false,
+      emailPendingCompletion: true
+    }
+  ];
+
+  it('展示用户列表、邮箱、启用状态与待补全标记', async () => {
+    useApiMock((method, url) => {
+      if (method === 'GET' && url.startsWith('/api/admin/users')) {
+        return { status: 200, json: users };
+      }
+      return { status: 200, json: {} };
+    });
+    wrapper = await mountConsoleView(UsersView, { account: 'platformAdmin', route: '/admin/super/users' });
+    await flushPromises();
+
+    const table = wrapper.find('[data-test="users-table"]').text();
+    expect(table).toContain('alice@example.com');
+    expect(table).toContain('legacy@local.esl');
+    expect(table).toContain('邮箱待补全');
+    expect(table).toContain('已禁用');
+  });
+
+  it('按用户名或邮箱查询并按启用状态筛选', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (method === 'GET' && url.startsWith('/api/admin/users')) {
+        return { status: 200, json: users };
+      }
+      return { status: 200, json: {} };
+    });
+    wrapper = await mountConsoleView(UsersView, { account: 'platformAdmin', route: '/admin/super/users' });
+    await flushPromises();
+
+    const vm = wrapper.vm as unknown as { search: string; status: string };
+    vm.search = 'alice@example.com';
+    vm.status = 'enabled';
+    await wrapper.find('[data-test="user-search-submit"]').trigger('click');
+    await flushPromises();
+
+    expect(requests).toContainEqual({
+      method: 'GET',
+      url: '/api/admin/users?search=alice%40example.com&status=enabled',
+      body: undefined
+    });
+  });
+
+  it('管理员建号并提交用户名、邮箱和初始密码', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (method === 'GET' && url.startsWith('/api/admin/users')) {
+        return { status: 200, json: users };
+      }
+      if (method === 'POST' && url === '/api/admin/users') {
+        return {
+          status: 201,
+          json: {
+            username: 'dave',
+            email: 'dave@example.com',
+            enabled: true,
+            emailPendingCompletion: false
+          }
+        };
+      }
+      return { status: 200, json: {} };
+    });
+    wrapper = await mountConsoleView(UsersView, { account: 'platformAdmin', route: '/admin/super/users' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="provision-user-open"]').trigger('click');
+    await flushPromises();
+    await setDocInput('provision-username', 'dave');
+    await setDocInput('provision-email', 'dave@example.com');
+    await setDocInput('provision-password', 'initial-password');
+    await doc('provision-user-submit').trigger('click');
+    await flushPromises();
+
+    const request = requests.find((item) => item.method === 'POST' && item.url === '/api/admin/users');
+    expect(request?.body).toEqual({
+      username: 'dave',
+      email: 'dave@example.com',
+      password: 'initial-password'
+    });
+  });
+
+  it('禁用用户并修改用户邮箱', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (method === 'GET' && url.startsWith('/api/admin/users')) {
+        return { status: 200, json: users };
+      }
+      if (method === 'POST' && url === '/api/admin/users/alice/disable') {
+        return { status: 200, json: { ...users[0], enabled: false } };
+      }
+      if (method === 'PUT' && url === '/api/admin/users/alice/email') {
+        return { status: 200, json: { ...users[0], email: 'alice.new@example.com' } };
+      }
+      return { status: 200, json: {} };
+    });
+    wrapper = await mountConsoleView(UsersView, { account: 'platformAdmin', route: '/admin/super/users' });
+    await flushPromises();
+
+    await wrapper.find('[data-test="disable-user-alice"]').trigger('click');
+    await flushPromises();
+    expect(
+      requests.some((request) => request.method === 'POST' && request.url === '/api/admin/users/alice/disable')
+    ).toBe(true);
+
+    await wrapper.find('[data-test="edit-email-alice"]').trigger('click');
+    await flushPromises();
+    await setDocInput('edit-user-email', 'alice.new@example.com');
+    await doc('edit-user-email-submit').trigger('click');
+    await flushPromises();
+
+    const emailChange = requests.find(
+      (request) => request.method === 'PUT' && request.url === '/api/admin/users/alice/email'
+    );
+    expect(emailChange?.body).toEqual({ email: 'alice.new@example.com' });
   });
 });
 

@@ -79,6 +79,7 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
     ensureColumn(db, 'deleted_by', 'TEXT', 'skill_releases');
     ensureColumn(db, "applicant_username", "TEXT NOT NULL DEFAULT ''", 'org_applications');
     ensureColumn(db, 'locale', 'TEXT', 'admin_users');
+    ensureColumn(db, 'email', 'TEXT', 'user_registrations');
     db.exec(`
       UPDATE skills
       SET created_by = author
@@ -86,7 +87,16 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
     `);
     db.exec(`
       INSERT OR IGNORE INTO platform_settings (key, value)
-      VALUES ('org_registration_mode', 'auto'), ('registration_mode', 'open'), ('member_add_mode', 'direct')
+      VALUES
+        ('org_registration_mode', 'auto'),
+        ('registration_mode', 'open'),
+        ('member_add_mode', 'direct'),
+        ('admin_provisioned_password_change_policy', 'force')
+    `);
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_registrations_pending_email_unique
+      ON user_registrations (email)
+      WHERE status = 'pending' AND email IS NOT NULL
     `);
   } catch (error) {
     logEvent(
@@ -1077,6 +1087,7 @@ export type UserRegistrationStatus = 'pending' | 'approved' | 'rejected';
 export interface UserRegistrationRecord {
   id: number;
   username: string;
+  email: string | null;
   status: UserRegistrationStatus;
   createdAt: string;
   updatedAt: string;
@@ -1087,22 +1098,27 @@ export interface UserRegistrationRecord {
 export class UserRegistrationRepository {
   constructor(private readonly db: Database.Database) {}
 
-  create(username: string): UserRegistrationRecord {
+  create(username: string, email: string): UserRegistrationRecord {
     const existing = this.getByUsername(username);
     if (existing) {
       // 名字被拒绝的注册释放后可再次申请：重置为待审而非新增行。
+      this.db.prepare(`
+        UPDATE user_registrations
+        SET email = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(email, existing.id);
       return this.updateStatusById(existing.id, 'pending')!;
     }
     this.db.prepare(`
-      INSERT INTO user_registrations (username, status)
-      VALUES (?, 'pending')
-    `).run(username);
+      INSERT INTO user_registrations (username, email, status)
+      VALUES (?, ?, 'pending')
+    `).run(username, email);
     return this.getByUsername(username)!;
   }
 
   getById(id: number): UserRegistrationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, username, status, created_at, updated_at
+      SELECT id, username, email, status, created_at, updated_at
       FROM user_registrations
       WHERE id = ?
     `).get(id) as Parameters<UserRegistrationRepository['deserialize']>[0] | undefined;
@@ -1111,16 +1127,25 @@ export class UserRegistrationRepository {
 
   getByUsername(username: string): UserRegistrationRecord | undefined {
     const row = this.db.prepare(`
-      SELECT id, username, status, created_at, updated_at
+      SELECT id, username, email, status, created_at, updated_at
       FROM user_registrations
       WHERE username = ?
     `).get(username) as Parameters<UserRegistrationRepository['deserialize']>[0] | undefined;
     return row ? this.deserialize(row) : undefined;
   }
 
+  getPendingByEmail(email: string): UserRegistrationRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, username, email, status, created_at, updated_at
+      FROM user_registrations
+      WHERE email = ? AND status = 'pending'
+    `).get(email) as Parameters<UserRegistrationRepository['deserialize']>[0] | undefined;
+    return row ? this.deserialize(row) : undefined;
+  }
+
   listByStatus(status: UserRegistrationStatus): UserRegistrationRecord[] {
     const rows = this.db.prepare(`
-      SELECT id, username, status, created_at, updated_at
+      SELECT id, username, email, status, created_at, updated_at
       FROM user_registrations
       WHERE status = ?
       ORDER BY id ASC
@@ -1140,6 +1165,7 @@ export class UserRegistrationRepository {
   private deserialize(row: {
     id: number;
     username: string;
+    email: string | null;
     status: UserRegistrationStatus;
     created_at: string;
     updated_at: string;
@@ -1147,6 +1173,7 @@ export class UserRegistrationRepository {
     return {
       id: row.id,
       username: row.username,
+      email: row.email,
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at

@@ -173,7 +173,8 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     return {
       orgRegistrationMode: getRegistrationMode(),
       registrationMode: getUserRegistrationMode(),
-      memberAddMode: getMemberAddMode()
+      memberAddMode: getMemberAddMode(),
+      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy()
     };
   });
 
@@ -183,6 +184,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       orgRegistrationMode?: string;
       registrationMode?: string;
       memberAddMode?: string;
+      adminProvisionedPasswordChangePolicy?: string;
     };
 
     if (body.orgRegistrationMode !== undefined) {
@@ -200,6 +202,14 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         return reply.status(400).send(apiError('memberaddmodeMustBeDirectOrInvite'));
       }
     }
+    if (body.adminProvisionedPasswordChangePolicy !== undefined) {
+      if (
+        body.adminProvisionedPasswordChangePolicy !== 'force' &&
+        body.adminProvisionedPasswordChangePolicy !== 'allow'
+      ) {
+        return reply.status(400).send(apiError('adminprovisionedpasswordchangepolicyMustBeForceOrAllow'));
+      }
+    }
 
     if (body.orgRegistrationMode !== undefined) {
       platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
@@ -210,10 +220,17 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (body.memberAddMode !== undefined) {
       platformSettingsRepository.setSetting('member_add_mode', body.memberAddMode);
     }
+    if (body.adminProvisionedPasswordChangePolicy !== undefined) {
+      platformSettingsRepository.setSetting(
+        'admin_provisioned_password_change_policy',
+        body.adminProvisionedPasswordChangePolicy
+      );
+    }
     return {
       orgRegistrationMode: getRegistrationMode(),
       registrationMode: getUserRegistrationMode(),
-      memberAddMode: getMemberAddMode()
+      memberAddMode: getMemberAddMode(),
+      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy()
     };
   });
 
@@ -428,6 +445,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
   function getMemberAddMode(): string {
     return platformSettingsRepository.getSetting('member_add_mode') ?? 'direct';
   }
+
+  function getAdminProvisionedPasswordChangePolicy(): string {
+    return (
+      platformSettingsRepository.getSetting('admin_provisioned_password_change_policy') ?? 'force'
+    );
+  }
 }
 function toApplicationView(application: {
   id: number;
@@ -447,7 +470,7 @@ function toApplicationView(application: {
   };
 }
 
-async function requireSuperAdministrator(
+export async function requireSuperAdministrator(
   request: FastifyRequest,
   reply: FastifyReply,
   giteaService: GiteaService

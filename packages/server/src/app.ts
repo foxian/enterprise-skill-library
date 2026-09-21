@@ -17,6 +17,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOrgRoutes } from './routes/orgs.js';
 import { registerOrgAdminRoutes } from './routes/org-admin.js';
+import { registerUserAdminRoutes } from './routes/user-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
@@ -214,6 +215,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repository: adminRepository,
     giteaService: options.giteaService,
     platformSettingsRepository,
+    userRegistrationRepository: new UserRegistrationRepository(db),
     passwordMinLength: options.passwordMinLength
   });
   registerUserRoutes(app, {
@@ -236,6 +238,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     skillRepository: repository,
     tenantOrganizationRepository,
     userRegistrationRepository: new UserRegistrationRepository(db)
+  });
+  registerUserAdminRoutes(app, {
+    adminRepository,
+    giteaService: options.giteaService,
+    orgApplicationRepository,
+    platformSettingsRepository,
+    userRegistrationRepository: new UserRegistrationRepository(db),
+    passwordMinLength: options.passwordMinLength
   });
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,

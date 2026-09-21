@@ -11,6 +11,18 @@
             {{ t('settings.approvalRegistrationHint') }}
           </div>
         </el-form-item>
+        <el-form-item :label="t('settings.adminProvisionedPasswordChangePolicy')">
+          <el-radio-group
+            v-model="adminProvisionedPasswordChangePolicy"
+            data-test="admin-provisioned-password-change-policy"
+          >
+            <el-radio value="force">{{ t('settings.forceAdminPasswordChange') }}</el-radio>
+            <el-radio value="allow">{{ t('settings.allowAdminInitialPassword') }}</el-radio>
+          </el-radio-group>
+          <div class="form-hint">
+            {{ t('settings.adminProvisionedPasswordChangePolicyHint') }}
+          </div>
+        </el-form-item>
         <el-form-item :label="t('settings.orgRegistrationMode')">
           <el-radio-group v-model="orgRegistrationMode" data-test="registration-mode">
             <el-radio value="auto">{{ t('settings.autoOrgRegistration') }}</el-radio>
@@ -54,20 +66,24 @@ const { t } = useLocaleState();
 type RegistrationMode = 'auto' | 'manual';
 type UserRegistrationMode = 'open' | 'approval';
 type MemberAddMode = 'direct' | 'invite';
+type AdminProvisionedPasswordChangePolicy = 'force' | 'allow';
 
 interface PlatformSettings {
   orgRegistrationMode: RegistrationMode;
   registrationMode: UserRegistrationMode;
   memberAddMode: MemberAddMode;
+  adminProvisionedPasswordChangePolicy: AdminProvisionedPasswordChangePolicy;
 }
 
 const orgRegistrationMode = ref<RegistrationMode>('auto');
 const registrationMode = ref<UserRegistrationMode>('open');
 const memberAddMode = ref<MemberAddMode>('direct');
+const adminProvisionedPasswordChangePolicy = ref<AdminProvisionedPasswordChangePolicy>('force');
 const saved = ref<PlatformSettings>({
   orgRegistrationMode: 'auto',
   registrationMode: 'open',
-  memberAddMode: 'direct'
+  memberAddMode: 'direct',
+  adminProvisionedPasswordChangePolicy: 'force'
 });
 const saving = ref(false);
 const errorMessage = ref('');
@@ -76,7 +92,8 @@ const hasChanges = computed(() => {
   return (
     orgRegistrationMode.value !== saved.value.orgRegistrationMode ||
     registrationMode.value !== saved.value.registrationMode ||
-    memberAddMode.value !== saved.value.memberAddMode
+    memberAddMode.value !== saved.value.memberAddMode ||
+    adminProvisionedPasswordChangePolicy.value !== saved.value.adminProvisionedPasswordChangePolicy
   );
 });
 
@@ -89,6 +106,7 @@ async function load(): Promise<void> {
     orgRegistrationMode.value = saved.value.orgRegistrationMode;
     registrationMode.value = saved.value.registrationMode;
     memberAddMode.value = saved.value.memberAddMode;
+    adminProvisionedPasswordChangePolicy.value = saved.value.adminProvisionedPasswordChangePolicy;
   } catch (error) {
     errorMessage.value = formatRequestError(error);
   }
@@ -103,16 +121,19 @@ async function handleSave(): Promise<void> {
       body: {
         orgRegistrationMode: orgRegistrationMode.value,
         registrationMode: registrationMode.value,
-        memberAddMode: memberAddMode.value
+        memberAddMode: memberAddMode.value,
+        adminProvisionedPasswordChangePolicy: adminProvisionedPasswordChangePolicy.value
       }
     });
     saved.value = {
       orgRegistrationMode: settings.orgRegistrationMode,
       registrationMode: settings.registrationMode,
-      memberAddMode: memberAddMode.value
+      memberAddMode: memberAddMode.value,
+      adminProvisionedPasswordChangePolicy: settings.adminProvisionedPasswordChangePolicy
     };
     orgRegistrationMode.value = settings.orgRegistrationMode;
     registrationMode.value = settings.registrationMode;
+    adminProvisionedPasswordChangePolicy.value = settings.adminProvisionedPasswordChangePolicy;
     ElMessage.success(t('settings.saved'));
   } catch (error) {
     errorMessage.value = formatRequestError(error);

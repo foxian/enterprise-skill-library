@@ -69,6 +69,7 @@ describe('UserRegisterView', () => {
     await flushPromises();
 
     await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-email"]', 'dave@example.com');
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -76,7 +77,11 @@ describe('UserRegisterView', () => {
 
     const call = fetchMock.calls.find((candidate) => candidate.url === '/api/auth/register');
     expect(call).toBeDefined();
-    expect(JSON.parse(String(call!.init.body))).toEqual({ username: 'dave', password: 'a-valid-password' });
+    expect(JSON.parse(String(call!.init.body))).toEqual({
+      username: 'dave',
+      email: 'dave@example.com',
+      password: 'a-valid-password'
+    });
     expect(wrapper.find('[data-test="register-success"]').text()).toContain('dave');
   });
 
@@ -91,6 +96,7 @@ describe('UserRegisterView', () => {
     await flushPromises();
 
     await setField(wrapper, '[data-test="register-username"]', 'erin');
+    await setField(wrapper, '[data-test="register-email"]', 'erin@example.com');
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -106,6 +112,7 @@ describe('UserRegisterView', () => {
     await flushPromises();
 
     await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-email"]', 'dave@example.com');
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'different-pass');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
@@ -122,11 +129,28 @@ describe('UserRegisterView', () => {
     await flushPromises();
 
     await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-email"]', 'dave@example.com');
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
     await flushPromises();
 
     expect(wrapper.find('[data-test="register-error"]').text()).toContain('already taken');
+  });
+
+  it('要求填写用户邮箱', async () => {
+    const fetchMock = mockFetch({ registrationMode: 'open' }, 201, { status: 'registered', username: 'dave' });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
+    await flushPromises();
+
+    await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
+    await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="register-error"]').text()).toContain('用户邮箱');
+    expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
   });
 });

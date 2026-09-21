@@ -67,6 +67,46 @@
       </el-table>
     </el-card>
 
+    <el-card v-if="profile" class="data-card" shadow="never">
+      <template #header>
+        <div class="card-header">
+          <span>{{ t('profile.emailTitle') }}</span>
+          <el-tag v-if="profile.emailPendingCompletion" type="warning" size="small" data-test="email-pending-reminder">
+            {{ t('userManagement.emailPendingCompletion') }}
+          </el-tag>
+        </div>
+      </template>
+      <p class="profile-email" data-test="profile-email">{{ profile.email }}</p>
+      <el-alert
+        v-if="profile.emailPendingCompletion"
+        type="warning"
+        :title="t('profile.emailPendingHint')"
+        :closable="false"
+        class="profile-alert"
+      />
+      <el-form label-position="top" class="profile-form" @submit.prevent="changeEmail">
+        <el-form-item :label="t('profile.newEmail')" required>
+          <el-input v-model="newEmail" data-test="profile-email-input" />
+        </el-form-item>
+        <el-form-item :label="t('profile.currentPassword')" required>
+          <el-input
+            v-model="currentPassword"
+            data-test="profile-current-password"
+            type="password"
+            show-password
+          />
+        </el-form-item>
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="savingEmail"
+          data-test="profile-email-submit"
+        >
+          {{ t('profile.saveEmail') }}
+        </el-button>
+      </el-form>
+    </el-card>
+
     <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
   </div>
 </template>
@@ -76,6 +116,7 @@ import { computed, onMounted, ref } from 'vue';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { apiRequest } from '../../api/client';
+import { ElMessage } from 'element-plus';
 import { identityLabel, identityTagType } from '../../constants/org-identity';
 import { loadSkillInventorySummaries, type SkillInventoryItem } from '../../skills/skill-list';
 import { useAuthStore, type SessionOrganization } from '../../stores/auth';
@@ -91,6 +132,12 @@ interface PendingApplication {
   orgName: string;
 }
 
+interface AccountProfile {
+  username: string;
+  email: string;
+  emailPendingCompletion: boolean;
+}
+
 const router = useRouter();
 const auth = useAuthStore();
 
@@ -99,6 +146,10 @@ const pendingApplications = ref<PendingApplication[]>([]);
 const managedSkills = ref<SkillInventoryItem[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
+const profile = ref<AccountProfile | null>(null);
+const newEmail = ref('');
+const currentPassword = ref('');
+const savingEmail = ref(false);
 
 const organizations = computed(() => auth.organizations);
 const todoCount = computed(() => invitations.value.length + pendingApplications.value.length);
@@ -119,16 +170,37 @@ function openSkill(scope: string, skillName: string): void {
   void router.push({ name: 'me-skill-manage', params: { scope, skillName } });
 }
 
+async function changeEmail(): Promise<void> {
+  savingEmail.value = true;
+  errorMessage.value = '';
+  try {
+    profile.value = await apiRequest<AccountProfile>('/api/account/email', {
+      method: 'PUT',
+      body: {
+        email: newEmail.value.trim(),
+        currentPassword: currentPassword.value
+      }
+    });
+    currentPassword.value = '';
+    ElMessage.success(t('profile.emailChanged'));
+  } catch (error) {
+    errorMessage.value = formatRequestError(error);
+  } finally {
+    savingEmail.value = false;
+  }
+}
+
 onMounted(async () => {
   loading.value = true;
   errorMessage.value = '';
   // 待办与技能来自不同端点，任一失败不应让整页空掉，故各自兜底。
-  const [invitationResult, orgResult, skillResult] = await Promise.allSettled([
+  const [invitationResult, orgResult, skillResult, profileResult] = await Promise.allSettled([
     apiRequest<Invitation[]>('/api/orgs/invitations'),
     apiRequest<{ organizations: SessionOrganization[]; pendingApplications: PendingApplication[] }>(
       '/api/orgs/mine'
     ),
-    loadSkillInventorySummaries()
+    loadSkillInventorySummaries(),
+    apiRequest<AccountProfile>('/api/account/profile')
   ]);
 
   if (invitationResult.status === 'fulfilled') {
@@ -143,8 +215,14 @@ onMounted(async () => {
   if (skillResult.status === 'fulfilled') {
     managedSkills.value = skillResult.value.filter((item) => item.relation === 'managed');
   }
+  if (profileResult.status === 'fulfilled') {
+    profile.value = profileResult.value;
+    newEmail.value = profileResult.value.email;
+  }
 
-  const failure = [invitationResult, orgResult, skillResult].find((result) => result.status === 'rejected');
+  const failure = [invitationResult, orgResult, skillResult, profileResult].find(
+    (result) => result.status === 'rejected'
+  );
   if (failure && failure.status === 'rejected') {
     const reason: unknown = failure.reason;
     errorMessage.value = formatRequestError(reason);
@@ -174,5 +252,18 @@ onMounted(async () => {
 
 .page-error {
   margin-top: 16px;
+}
+
+.profile-email {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.profile-alert {
+  margin-bottom: 16px;
+}
+
+.profile-form {
+  max-width: 520px;
 }
 </style>

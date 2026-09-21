@@ -5,6 +5,17 @@ export const apiErrorMessages = {
   unauthorizedMissingToken: 'Unauthorized: missing token',
   administratorAccountLoginRequiredToChangeItsPassword: 'Administrator account login required to change its password',
   usernameAndPasswordAreRequired: 'Username and password are required',
+  emailIsRequired: 'Skill User Email is required',
+  emailAlreadyTaken: 'Skill User Email is already taken: {email}',
+  emailHasPendingRegistration: 'Skill User Email has a pending registration: {email}',
+  currentPasswordAndEmailAreRequired: 'Current password and Skill User Email are required',
+  userStatusMustBeEnabledOrDisabled: 'User status must be enabled or disabled',
+  adminprovisionedpasswordchangepolicyMustBeForceOrAllow:
+    'adminProvisionedPasswordChangePolicy must be force or allow',
+  forbiddenSuperAdministratorAccountCannotBeManaged:
+    'Forbidden: the Super Administrator account cannot be managed as a Skill User',
+  pendingRegistrationMustBeProcessedFromUserRegistrationApproval:
+    'Pending user registration must be processed from User Registration approval',
   platformAdministratorsSignInFromTheAdminConsole: 'Platform administrators sign in from the Admin Console',
   currentAndNewPasswordsAreRequired: 'Current and new passwords are required',
   unauthorizedCurrentPasswordIsIncorrect: 'Unauthorized: current password is incorrect',
@@ -108,6 +119,17 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   unauthorizedMissingToken: '未认证：缺少令牌',
   administratorAccountLoginRequiredToChangeItsPassword: '修改管理员账户密码需先登录该账户',
   usernameAndPasswordAreRequired: '需要提供用户名和密码',
+  emailIsRequired: '需要提供用户邮箱',
+  emailAlreadyTaken: '用户邮箱已被占用：{email}',
+  emailHasPendingRegistration: '用户邮箱有等待处理的注册申请：{email}',
+  currentPasswordAndEmailAreRequired: '需要提供当前密码和用户邮箱',
+  userStatusMustBeEnabledOrDisabled: '用户状态必须是 enabled 或 disabled',
+  adminprovisionedpasswordchangepolicyMustBeForceOrAllow:
+    'adminProvisionedPasswordChangePolicy 必须是 force 或 allow',
+  forbiddenSuperAdministratorAccountCannotBeManaged:
+    '禁止：不能把超级管理员账号作为 Skill User 管理',
+  pendingRegistrationMustBeProcessedFromUserRegistrationApproval:
+    '待审用户注册必须从“用户注册审批”处理',
   platformAdministratorsSignInFromTheAdminConsole: '平台管理员请从管理后台登录',
   currentAndNewPasswordsAreRequired: '需要提供当前密码和新密码',
   unauthorizedCurrentPasswordIsIncorrect: '未授权：当前密码不正确',

@@ -301,6 +301,15 @@ describe('API Server Database', () => {
     const settings = new PlatformSettingsRepository(db);
 
     expect(settings.getSetting('org_registration_mode')).toBe('auto');
+    expect(settings.getSetting('admin_provisioned_password_change_policy')).toBe('force');
+    db.close();
+  });
+
+  it('stores the reserved Skill User Email on user registration records', () => {
+    const db = initDatabase(dbPath);
+    const columns = db.pragma('table_info(user_registrations)') as { name: string }[];
+
+    expect(columns.map((column) => column.name)).toContain('email');
     db.close();
   });
 

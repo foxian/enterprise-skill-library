@@ -1,11 +1,17 @@
 import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { RESERVED_SCOPE_NAMES, validateMemberUsername, validatePassword } from '@esl/core';
+import {
+  RESERVED_SCOPE_NAMES,
+  validateMemberUsername,
+  validatePassword,
+  validateSkillUserEmail
+} from '@esl/core';
 import type { OrgApplicationRepository, UserRegistrationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { PlatformSettingsRepository } from '../db/database.js';
 import { logEvent } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
+import { findSkillUserEmailConflict } from '../services/skill-user-email.js';
 
 // 用户注册的状态变化事件（ADR-0045）。注册者本人就是操作者：这里不记密码，
 // 只记用户名与结果。
@@ -45,11 +51,23 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
   const { giteaService, platformSettingsRepository, userRegistrationRepository, orgApplicationRepository } = options;
 
   app.post('/api/auth/register', async (request, reply) => {
-    const { username: rawUsername, password } = (request.body ?? {}) as { username?: string; password?: string };
+    const { username: rawUsername, password, email: rawEmail } = (request.body ?? {}) as {
+      username?: string;
+      password?: string;
+      email?: string;
+    };
     const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
     if (!username || !password) {
       return reply.status(400).send(apiError('usernameAndPasswordAreRequired'));
     }
+    if (typeof rawEmail !== 'string' || !rawEmail.trim()) {
+      return reply.status(400).send(apiError('emailIsRequired'));
+    }
+    const emailValidation = validateSkillUserEmail(rawEmail);
+    if (!emailValidation.success) {
+      return reply.status(400).send(apiError('validationFailed', { detail: emailValidation.errors.join(', ') }));
+    }
+    const email = emailValidation.data;
     if (username === giteaService.adminUsername) {
       logRegistration(request, username, 'failed', 'usernameAlreadyTaken');
       return reply.status(409).send(apiError('usernameAlreadyTaken', { username }));
@@ -85,13 +103,22 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
       logRegistration(request, username, 'failed', 'usernameAlreadyTaken');
       return reply.status(409).send(apiError('usernameAlreadyTaken', { username }));
     }
+    const emailConflict = await findSkillUserEmailConflict(giteaService, userRegistrationRepository, email);
+    if (emailConflict === 'pending-registration') {
+      logRegistration(request, username, 'failed', 'emailHasPendingRegistration');
+      return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
+    }
+    if (emailConflict === 'active-user') {
+      logRegistration(request, username, 'failed', 'emailAlreadyTaken');
+      return reply.status(409).send(apiError('emailAlreadyTaken', { email }));
+    }
 
     const mode = platformSettingsRepository.getSetting('registration_mode') ?? 'open';
     if (mode === 'approval') {
       // 账号先建后禁用：名字即刻占用，审批只是解禁；拒绝时删除账号释放名字。
-      await giteaService.createUser(username, password);
+      await giteaService.createUser(username, password, { email });
       await giteaService.disableUser(username);
-      const registration = userRegistrationRepository.create(username);
+      const registration = userRegistrationRepository.create(username, email);
       logRegistration(request, username, 'succeeded');
       return reply.status(202).send({
         status: 'pending',
@@ -100,7 +127,7 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
       });
     }
 
-    await giteaService.createUser(username, password);
+    await giteaService.createUser(username, password, { email });
     logRegistration(request, username, 'succeeded');
     return reply.status(201).send({ status: 'registered', username });
   });

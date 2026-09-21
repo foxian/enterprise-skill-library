@@ -31,11 +31,15 @@ describe('user self-registration', () => {
     return res.statusCode;
   }
 
-  async function register(username: string, password = 'a-valid-password'): Promise<{ statusCode: number; json: () => any }> {
+  async function register(
+    username: string,
+    password = 'a-valid-password',
+    email = `${username}@example.com`
+  ): Promise<{ statusCode: number; json: () => any }> {
     const res = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      payload: { username, password }
+      payload: { username, password, email }
     });
     return { statusCode: res.statusCode, json: () => res.json() };
   }
@@ -85,6 +89,33 @@ describe('user self-registration', () => {
 
       const bad = await register('Bad Name');
       expect(bad.statusCode).toBe(400);
+    });
+
+    it('requires a Skill User Email', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: { username: 'dave', password: 'a-valid-password' }
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('emailIsRequired');
+    });
+
+    it('stores the provided Skill User Email in the Git Backend', async () => {
+      const res = await register('dave', 'a-valid-password', 'dave@example.com');
+
+      expect(res.statusCode).toBe(201);
+      expect(await gitea.getUser('dave')).toMatchObject({ email: 'dave@example.com' });
+    });
+
+    it('rejects a Skill User Email already used by another account', async () => {
+      await register('dave', 'a-valid-password', 'shared@example.com');
+
+      const duplicate = await register('erin', 'a-valid-password', 'SHARED@example.com');
+
+      expect(duplicate.statusCode).toBe(409);
+      expect(duplicate.json().code).toBe('emailAlreadyTaken');
     });
   });
 
@@ -161,6 +192,15 @@ describe('user self-registration', () => {
       expect(duplicate.json().message).toContain('pending');
     });
 
+    it('rejects a Skill User Email already reserved by a pending registration', async () => {
+      await register('grace', 'a-valid-password', 'shared@example.com');
+
+      const duplicate = await register('henry', 'a-valid-password', 'shared@example.com');
+
+      expect(duplicate.statusCode).toBe(409);
+      expect(duplicate.json().code).toBe('emailHasPendingRegistration');
+    });
+
     it('lists pending registrations for the super administrator', async () => {
       await register('henry');
       const list = await app.inject({
@@ -171,7 +211,12 @@ describe('user self-registration', () => {
 
       expect(list.statusCode).toBe(200);
       expect(list.json()).toEqual([
-        expect.objectContaining({ id: expect.any(Number), username: 'henry', status: 'pending' })
+        expect.objectContaining({
+          id: expect.any(Number),
+          username: 'henry',
+          email: 'henry@example.com',
+          status: 'pending'
+        })
       ]);
     });
   });

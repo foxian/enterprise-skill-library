@@ -1,16 +1,27 @@
 import { apiError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { validatePassword } from '@esl/core';
-import type { AdminRepository, PlatformSettingsRepository } from '../db/database.js';
+import {
+  giteaUserEmail,
+  normalizeSkillUserEmail,
+  validatePassword,
+  validateSkillUserEmail
+} from '@esl/core';
+import type {
+  AdminRepository,
+  PlatformSettingsRepository,
+  UserRegistrationRepository
+} from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import { deriveOrganizations } from '../services/organization-membership.js';
 import { SUPPORTED_LOCALES } from '@esl/i18n';
 import { logEvent } from '../logging.js';
+import { findSkillUserEmailConflict } from '../services/skill-user-email.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
   giteaService: GiteaService;
   platformSettingsRepository: PlatformSettingsRepository;
+  userRegistrationRepository: UserRegistrationRepository;
   passwordMinLength?: number;
 }
 
@@ -95,6 +106,62 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     }
     repository.setLocale(username, locale ?? null);
     return { locale: locale ?? null };
+  });
+
+  app.get('/api/account/profile', async (request, reply) => {
+    const username = await resolveTokenUsername(request, reply, giteaService);
+    if (!username) return;
+    const user = await giteaService.getUser(username);
+    if (!user) {
+      return reply.status(404).send(apiError('userDoesNotExist', { username }));
+    }
+    const email = normalizeSkillUserEmail(user.email);
+    return {
+      username,
+      email,
+      emailPendingCompletion: email === giteaUserEmail(username)
+    };
+  });
+
+  app.put('/api/account/email', async (request, reply) => {
+    const { currentPassword, email: rawEmail } = (request.body ?? {}) as {
+      currentPassword?: string;
+      email?: string;
+    };
+    if (!currentPassword || typeof rawEmail !== 'string' || !rawEmail.trim()) {
+      return reply.status(400).send(apiError('currentPasswordAndEmailAreRequired'));
+    }
+    const username = await resolveTokenUsername(request, reply, giteaService);
+    if (!username) return;
+
+    const valid = await giteaService.validateUserPassword(username, currentPassword);
+    if (!valid) {
+      return reply.status(401).send(apiError('unauthorizedCurrentPasswordIsIncorrect'));
+    }
+    const validation = validateSkillUserEmail(rawEmail);
+    if (!validation.success) {
+      return reply.status(400).send(apiError('validationFailed', { detail: validation.errors.join(', ') }));
+    }
+    const email = validation.data;
+    const conflict = await findSkillUserEmailConflict(
+      giteaService,
+      options.userRegistrationRepository,
+      email,
+      { exceptUsername: username }
+    );
+    if (conflict === 'pending-registration') {
+      return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
+    }
+    if (conflict === 'active-user') {
+      return reply.status(409).send(apiError('emailAlreadyTaken', { email }));
+    }
+
+    await giteaService.changeUserEmail(username, email);
+    return {
+      username,
+      email,
+      emailPendingCompletion: false
+    };
   });
 
   app.post('/api/auth/password', async (request, reply) => {

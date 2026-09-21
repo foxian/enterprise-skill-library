@@ -281,7 +281,12 @@ describe('super administrator org console API', () => {
 
     const initial = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
     expect(initial.statusCode).toBe(200);
-    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(initial.json()).toEqual({
+      orgRegistrationMode: 'auto',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
 
     const updated = await app.inject({
       method: 'PUT',
@@ -290,10 +295,20 @@ describe('super administrator org console API', () => {
       payload: { orgRegistrationMode: 'manual' }
     });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(updated.json()).toEqual({
+      orgRegistrationMode: 'manual',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
 
     const reread = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
-    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(reread.json()).toEqual({
+      orgRegistrationMode: 'manual',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
 
     const invalid = await app.inject({
       method: 'PUT',

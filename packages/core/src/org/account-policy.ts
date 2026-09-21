@@ -1,6 +1,7 @@
 import type { ValidationResult } from '../schema/validation-result.js';
 
 const ACCOUNT_NAME_PATTERN = /^[a-z0-9-]+$/;
+const SKILL_USER_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // 扁平命名池的保留名（ADR-0032）：用户名与组织名共用同一约束，
 // 保证保留 scope 与系统路径永远可用。
@@ -44,11 +45,25 @@ export function validateMemberUsername(username: string): ValidationResult<strin
   return errors.length > 0 ? { success: false, errors } : { success: true, data: username };
 }
 
+export function normalizeSkillUserEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function validateSkillUserEmail(email: string): ValidationResult<string> {
+  const normalized = normalizeSkillUserEmail(email);
+  const errors: string[] = [];
+  if (!SKILL_USER_EMAIL_PATTERN.test(normalized)) {
+    errors.push('email must be a valid address');
+  }
+  if (normalized.endsWith('@local.esl')) {
+    errors.push('email domain is reserved');
+  }
+  return errors.length > 0 ? { success: false, errors } : { success: true, data: normalized };
+}
 
 // Git Backend 用户账号的 email 约定(用户创建流程统一使用该格式):以该 email
 // 作为 commit author 时,Git Backend 可通过 email 把提交匹配到对应账号。
 export function giteaUserEmail(giteaUsername: string): string {
   return `${giteaUsername}@local.esl`;
 }
-
 

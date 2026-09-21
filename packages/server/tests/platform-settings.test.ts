@@ -63,7 +63,12 @@ describe('platform settings', () => {
 
   it('lets the super administrator switch org_registration_mode', async () => {
     const initial = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
-    expect(initial.json()).toEqual({ orgRegistrationMode: 'auto', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(initial.json()).toEqual({
+      orgRegistrationMode: 'auto',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
 
     const updated = await app!.inject({
       method: 'PUT',
@@ -71,10 +76,35 @@ describe('platform settings', () => {
       headers: headers(),
       payload: { orgRegistrationMode: 'manual' }
     });
-    expect(updated.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(updated.json()).toEqual({
+      orgRegistrationMode: 'manual',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
 
     const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
-    expect(reread.json()).toEqual({ orgRegistrationMode: 'manual', registrationMode: 'open', memberAddMode: 'direct' });
+    expect(reread.json()).toEqual({
+      orgRegistrationMode: 'manual',
+      registrationMode: 'open',
+      memberAddMode: 'direct',
+      adminProvisionedPasswordChangePolicy: 'force'
+    });
+  });
+
+  it('lets the super administrator allow permanent initial passwords for future provisioning', async () => {
+    const updated = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: headers(),
+      payload: { adminProvisionedPasswordChangePolicy: 'allow' }
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().adminProvisionedPasswordChangePolicy).toBe('allow');
+
+    const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
+    expect(reread.json().adminProvisionedPasswordChangePolicy).toBe('allow');
   });
 
   it('rejects invalid mode values', async () => {
@@ -93,5 +123,13 @@ describe('platform settings', () => {
       payload: { registrationMode: 'whenever' }
     });
     expect(regMode.statusCode).toBe(400);
+
+    const passwordPolicy = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: headers(),
+      payload: { adminProvisionedPasswordChangePolicy: 'sometimes' }
+    });
+    expect(passwordPolicy.statusCode).toBe(400);
   });
 });

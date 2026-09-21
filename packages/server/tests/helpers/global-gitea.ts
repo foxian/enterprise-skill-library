@@ -7,6 +7,7 @@ import { vi } from 'vitest';
 export interface FakeGiteaUser {
   username: string;
   password: string;
+  email?: string;
 }
 
 export interface FakeGiteaTeam {
@@ -28,6 +29,8 @@ export interface GlobalGiteaSeed {
 
 export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
   const users = new Map<string, string>();
+  const emails = new Map<string, string>();
+  const mustChangePasswords = new Map<string, boolean>();
   const tokens = new Map<string, string>(); // token → username
   const disabled = new Set<string>();
   let tokenCounter = 0;
@@ -40,6 +43,8 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
   for (const user of seed.users ?? []) {
     users.set(user.username, user.password);
+    emails.set(user.username, user.email ?? `${user.username}@local.esl`);
+    mustChangePasswords.set(user.username, false);
   }
   for (const org of seed.orgs ?? []) {
     orgs.set(
@@ -85,6 +90,21 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       const token = `gitea-token-${++tokenCounter}-${username}`;
       tokens.set(token, username);
       return token;
+    }),
+
+    validateUserPassword: vi.fn(async (username: string, password: string) =>
+      !disabled.has(username) && users.get(username) === password
+    ),
+
+    listUsers: vi.fn(async () => {
+      return Array.from(users.keys())
+        .map((username) => ({
+          id: 1,
+          username,
+          email: emails.get(username) ?? `${username}@local.esl`,
+          active: true,
+          prohibit_login: disabled.has(username)
+        }));
     }),
 
     listUserOrgs: vi.fn(async (username: string) =>
@@ -308,19 +328,30 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
       }
     }),
 
-    createUser: vi.fn(async (username: string, password: string) => {
+    createUser: vi.fn(async (
+      username: string,
+      password: string,
+      options: { email?: string; mustChangePassword?: boolean } = {}
+    ) => {
       users.set(username, password);
+      emails.set(username, options.email ?? `${username}@local.esl`);
+      mustChangePasswords.set(username, options.mustChangePassword ?? false);
     }),
 
     getUser: vi.fn(async (username: string) => {
       if (users.has(username)) {
-        return { id: 1, username, email: `${username}@local.esl` };
+        return { id: 1, username, email: emails.get(username) ?? `${username}@local.esl` };
       }
       // Gitea 里组织与用户共享同一命名空间（org 即 users 表的 organization 类型）
       if (orgs.has(username)) {
         return { id: 2, username, email: `${username}@local.esl` };
       }
       return null;
+    }),
+
+    changeUserEmail: vi.fn(async (username: string, email: string) => {
+      if (!users.has(username)) throw new Error(`No such user: ${username}`);
+      emails.set(username, email);
     }),
 
     organizationExists: vi.fn(async (orgName: string) => orgs.has(orgName)),
@@ -331,6 +362,12 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     enableUser: vi.fn(async (username: string) => {
       disabled.delete(username);
+    }),
+
+    revokeUserTokens: vi.fn(async (username: string) => {
+      tokens.forEach((tokenUsername, token) => {
+        if (tokenUsername === username) tokens.delete(token);
+      });
     }),
 
     deleteUser: vi.fn(async (username: string) => {
@@ -345,6 +382,8 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
     __state: {
       orgs,
       users,
+      emails,
+      mustChangePasswords,
       tokens,
       repos,
       ownersTeam,

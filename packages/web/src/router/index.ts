@@ -7,6 +7,7 @@ import SuperOrgs from '../views/super/OrgsView.vue';
 import SuperOrgDetail from '../views/super/OrgDetailView.vue';
 import SuperApplications from '../views/super/ApplicationsView.vue';
 import SuperRegistrations from '../views/super/RegistrationsView.vue';
+import SuperUsers from '../views/super/UsersView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
 import SuperSkills from '../views/super/SkillsView.vue';
 import SuperSkillManage from '../views/super/SkillManageView.vue';
@@ -53,6 +54,7 @@ export const router = createRouter({
         { path: 'orgs/:orgName', name: 'super-org-detail', component: SuperOrgDetail, meta: { title: 'routes.orgDetail' } },
         { path: 'applications', name: 'super-applications', component: SuperApplications, meta: { title: 'routes.orgApplications', description: 'routes.orgApplicationsDescription' } },
         { path: 'registrations', name: 'super-registrations', component: SuperRegistrations, meta: { title: 'routes.userRegistrations', description: 'routes.userRegistrationsDescription' } },
+        { path: 'users', name: 'super-users', component: SuperUsers, meta: { title: 'routes.userManagement', description: 'routes.userManagementDescription' } },
         { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: 'routes.skillOverview', description: 'routes.skillOverviewDescription' } },
         { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: 'routes.skillManagement' } },
         { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: 'routes.platformSettings', description: 'routes.platformSettingsDescription' } }
