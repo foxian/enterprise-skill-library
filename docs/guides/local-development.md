@@ -17,25 +17,12 @@
 | 变量 | 必填 | 说明 |
 |---|---|---|
 | `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
-| `ESL_APPLICATION_ENCRYPTION_KEY` | ✅ | 应用层加密密钥，64 个十六进制字符（256 位）。服务启动时校验，缺失会直接报错退出。可使用 `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` 生成。 |
 
 `GITEA_ADMIN_USERNAME` 默认为 `eslroot`；Gitea 1.22 在 bootstrap 用户创建时会拒绝保留用户名 `admin`。
 
-### 部署模式与默认组织（ADR-0022）
-
-ESL 支持两种部署模式，通过 `ESL_DEPLOYMENT_MODE` 声明，服务启动时自动 Bootstrap：
-
-- **`multi`（默认）**：多组织模式，技能云提供商场景；不预置任何组织，通过注册申请开通。可选地成对声明 `ESL_DEFAULT_ORG` + `ESL_ORG_ADMIN_PASSWORD`，启动时自动开通该组织并设为默认组织。
-- **`single`**：单组织模式，企业自部署场景；**必须**成对声明 `ESL_DEFAULT_ORG` 与 `ESL_ORG_ADMIN_PASSWORD`，启动时直接开通该组织并设为默认组织，不开放公开注册。
-
-```dotenv
-# 单组织模式示例
-ESL_DEPLOYMENT_MODE=single
-ESL_DEFAULT_ORG=acme
-ESL_ORG_ADMIN_PASSWORD=your-org-admin-password-at-least-8-chars
-```
-
-单组织模式下，组织管理员初始用户名为 `org_admin`，登录时省略组织名即可（服务端按默认组织拼装账号）。平台超级管理员（`eslroot`）不受模式限制，始终可登录管理后台切换模式。
+> 注：早期版本要求的 `ESL_APPLICATION_ENCRYPTION_KEY` 与 `ESL_DEPLOYMENT_MODE`
+> / `ESL_DEFAULT_ORG` / `ESL_ORG_ADMIN_PASSWORD` 已随 npm 式身份模型重构拆除
+> （ADR-0032），不再需要配置；组织通过注册申请（auto/manual）开通。
 
 ### 可选配置
 
