@@ -385,12 +385,12 @@ _Avoid_: 团队名（当指团队标识名时）。
 
 ## Super Administrator
 
-ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理与全局治理兜底权限。它不属于任何 Organization，不持有个人控制台，也不以个人命名空间发布技能（ADR-0033）。
+ESL 技能库平台的全局超级管理员（对应 Gitea 中的 `GITEA_ADMIN_USERNAME`，如 `eslroot`）。超越于单个组织之外，拥有审批组织注册、配置平台策略、全平台组织管理、Skill User 的用户管理（列表、查询、建号、禁用与启用）与全局治理兜底权限。它不属于任何 Organization，不持有个人控制台，也不以个人命名空间发布技能，也不出现在 Skill User 用户列表中（ADR-0033、ADR-0046）。
 
 ## 管理后台 (Admin Console)
 
 ESL 面向浏览器操作的 Web 管理界面，位于 `/admin/` 路径下。它承载两类视角：
-Super Administrator 控制台（`/admin/super/`，申请审批与平台设置）与个人控制台
+Super Administrator 控制台（`/admin/super/`，用户注册审批、用户管理、申请审批与平台设置等分立入口）与个人控制台
 （跨命名空间聚合的技能视图与组织管理——创建与删除组织、成员与团队管理、组织
 名下技能管理，按 managed/shared 标注），通过 ESL Server 的 Registry API 完成
 登录、注册与治理操作。组织管理不是独立视角：治理入口只对所有者成员渲染，
@@ -577,20 +577,67 @@ _Avoid_: Gitea administrator when referring to a human ESL Platform Administrato
 
 An authenticated person who can log in to ESL and consume, create, publish, or
 maintain skills according to their permissions. 身份全局唯一（即 Gitea 用户
-名，无组织前缀），通过用户注册获得，可同时属于多个 Organization，注册成功
-即拥有个人命名空间（ADR-0032）。
+名，无组织前缀），通过用户注册或用户建号获得，可同时属于多个 Organization，
+获得账号即拥有个人命名空间，并必须具备用户邮箱（ADR-0032）。
+
+## 用户邮箱 (Skill User Email)
+
+Skill User 的必填联系属性，全局唯一。它不是登录标识，也不属于 Skill User
+Credential；登录仍使用用户名与密码。它同时作为该账号在 Git Backend 中的提交
+匹配邮箱（author email 与之对应）。由用户注册或用户建号写入；之后 Skill
+User 可修改自己的用户邮箱，Super Administrator 可修改任意 Skill User 的用户邮箱。
+存量账号若仍持有历史上的合成邮箱，处于邮箱待补全，不视为已满足本属性的合格形态。
+_Avoid_: 登录邮箱（当指用 email 登录时）；合成邮箱、Gitea email（当指已由用户邮箱承接的联系与匹配属性时）。
+
+## 邮箱待补全 (Email Pending Completion)
+
+存量 Skill User 尚未写入合格用户邮箱时的迁移状态：仍可登录并正常使用平台，仅在
+个人资料与 Super Administrator 用户管理中标记/提醒；本人或 Super Administrator
+补全唯一的用户邮箱后，该状态消除。新用户注册与用户建号不得进入此状态（ADR-0046）。
 
 ## 用户注册 (User Registration)
 
 Skill User 自助创建全局账号的入口（服务端经 Git Backend 管理员 API 创建
-账号，用户自设密码）。模式由平台设置 `registration_mode` 决定：`open`
+账号，用户自设密码并填写用户邮箱）。模式由平台设置 `registration_mode` 决定：`open`
 （默认）注册即用；`approval` 需 Super Administrator 审批激活（ADR-0032）。
+`approval` 下待审申请同时占用用户名与用户邮箱；拒绝或完成后释放未采纳的占用。
+
+## 用户建号 (Admin User Provisioning)
+
+Super Administrator 直接创建 Skill User 的治理操作：立即激活、由管理员设定
+初始密码、写入必填用户邮箱、占用个人命名空间。不受 `registration_mode` 约束；
+审批流只约束用户注册，不约束用户建号。是否强制该用户首次登录修改密码，由平台
+设置「建号首登改密策略」决定。
+
+## 用户禁用 (Skill User Disable)
+
+Super Administrator 对 Skill User 施加的可逆治理动作：禁止其登录 ESL，并立即
+失效其已有 Skill User Token 与浏览器登录态。不删除账号，不释放用户名与个人
+命名空间，也不自动解除其组织成员或所有者成员身份——即使该用户是某组织最后一名
+所有者成员，仍允许禁用，组织治理由 Super Administrator 兜底（ADR-0046）。对偶动作是用户启用。
+_Avoid_: 删除用户（当仅指禁止登录时）；停用组织。
+
+## 用户启用 (Skill User Enable)
+
+Super Administrator 解除用户禁用、恢复 Skill User 登录能力的治理动作。
+
+## 建号首登改密策略 (Admin Provisioned Password Change Policy)
+
+平台设置：用户建号时是否要求该 Skill User 首次登录修改密码。出厂默认强制，可由
+Super Administrator 关闭。策略在建号当时快照到该账号，之后更改平台设置只影响
+此后新建立的号，不回溯已有账号（ADR-0046）。
 
 ## Skill User Credential
 
 A username and password pair that a Skill User presents to log in to ESL. The
 password is hosted and validated by Gitea; ESL never stores the password
-itself.
+itself. 用户邮箱不是 Credential 的一部分。
+
+## 用户邮箱变更 (Skill User Email Change)
+
+Skill User 修改自己的用户邮箱，或 Super Administrator 修改某一 Skill User
+用户邮箱的操作。新邮箱必须全局唯一；补全合格邮箱后消除邮箱待补全。Skill User
+本人变更时必须验证当前密码；Super Administrator 变更不消费目标用户密码。
 
 ## Skill User Password Change
 
