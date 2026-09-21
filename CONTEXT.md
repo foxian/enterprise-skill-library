@@ -661,6 +661,20 @@ Bootstrap 从干净状态准备平台状态（幂等、无破坏）；Bootstrap 
 清空再准备，必须由操作者确认。
 _Avoid_: Bootstrap，当指代"清空后重新初始化"时。
 
+## 备份 (Backup)
+
+生产环境持久数据（API 数据库、Git Backend 数据、Bootstrap 机密）的一致性
+副本，在服务运行期间即可生成，用于灾难恢复。与 Bootstrap Reset 的区分：
+备份不触碰在线数据，是生产环境唯一的"回到过去"手段；Bootstrap Reset 是
+开发/测试专用的破坏性清空。
+_Avoid_: 重置，快照（当指代 ESL 数据副本时）。
+
+## 恢复 (Restore)
+
+从备份副本将生产持久数据回退到备份时刻状态的操作，是备份的逆操作，
+属于生产操作面，需停服执行以保证数据一致性。
+_Avoid_: 重置，回滚（当指代数据而非代码版本时）。
+
 ## Bootstrap Secret Volume
 
 The Docker volume that stores the internal Gitea administrator token generated
