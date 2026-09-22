@@ -1,5 +1,6 @@
 import { apiError } from '../errors.js';
 import {
+  DISPLAY_NAME_MAX_LENGTH,
   highestSatisfyingVersion,
   highestStableVersion,
   SHARE_TIER_TEAM_NAMES,
@@ -140,13 +141,19 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     // ADR-0032:release.json v3 的 name 是归属的唯一权威来源。无 scope 的裸名
     // 解析为上传者个人命名空间;@scope/short 需上传者持有该命名空间(本人或
     // 组织成员)。身份在首次 Source Upload 固定。
-    const body = request.body as { name?: string; description?: string };
+    const body = request.body as { name?: string; description?: string; displayName?: string };
     const identity = parseSkillIdentity(body.name ?? '');
     if (!identity) {
       return reply.status(400).send(apiError('skillNameMustUseLowercaseLettersDigitsAndHyphens'));
     }
     if (!body.description) {
       return reply.status(400).send(apiError('skillDescriptionIsRequired'));
+    }
+    // 显示名（ADR-0048）：随 Source Upload 同步当前源码值；trim 后空串按未设置，
+    // 长度上限与 release.json 校验一致。
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : undefined;
+    if (displayName !== undefined && displayName.length > DISPLAY_NAME_MAX_LENGTH) {
+      return reply.status(400).send(apiError('skillDisplayNameTooLong'));
     }
 
     let scope: string;
@@ -211,6 +218,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         scope,
         skillName: shortName,
         description: body.description,
+        displayName,
         createdBy: user.username,
         owner: user.username,
         maintainers: [user.username],
@@ -318,8 +326,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       });
       if (results.length >= limitCount) break;
     }
-    return results;
-  });
+    return results;  });
 
   // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
   // 这里返回调用方可见的全部技能(含未发布)及其权限关系,供管理后台的
@@ -335,7 +342,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     for (const skill of repository.listSkills()) {
       const access = await getAccessLevel(giteaService, skill, user.username);
       if (access === 'none') continue;
-      view.push({ ...skill, access, relation: access === 'manage' ? 'managed' : 'shared' });
+      view.push({
+        ...skill,
+        displayName: resolveSkillDisplayName(repository, skill),
+        access,
+        relation: access === 'manage' ? 'managed' : 'shared'
+      });
     }
     return view;
   });
@@ -408,6 +420,33 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }
     repository.updateSkillDescription(name, body.description.trim());
     return { name: skill.name, description: body.description.trim() };
+  });
+
+  // 显示名当前源码值（ADR-0048）：随 Source Upload 同步，也可由 Maintainer 直接改。
+  // 仅 Maintainer 可改，直接落库，不涉及 Git Backend；空串/缺失即清空。已发布后
+  // 对外标题由最近 Release 快照覆盖，此处改的是未发布展示值。
+  app.put('/api/skills/:scope/:skillName/display-name', async (request, reply) => {
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user) {
+      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
+    }
+    const params = request.params as { scope: string; skillName: string };
+    const name = `${decodeURIComponent(params.scope).startsWith('@') ? '' : '@'}${decodeURIComponent(params.scope)}/${decodeURIComponent(params.skillName)}`;
+    const skill = repository.getSkill(name);
+    if (!skill) {
+      return reply.status(404).send(apiError('skillNotFound'));
+    }
+    if (!(await canManageSkill(giteaService, skill, user.username))) {
+      return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
+    }
+    const body = request.body as { displayName?: string };
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : undefined;
+    if (displayName !== undefined && displayName.length > DISPLAY_NAME_MAX_LENGTH) {
+      return reply.status(400).send(apiError('skillDisplayNameTooLong'));
+    }
+    repository.updateSkillDisplayName(name, displayName || null);
+    // 空串/缺失统一清空为 null，响应与落库一致（避免返回 '' 而库里是 null）。
+    return { name: skill.name, displayName: displayName || null };
   });
 
   app.post('/api/skills/:scope/:skillName/permissions', async (request, reply) => {
@@ -1213,6 +1252,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const latest = newestStableRelease(releases);
     return withCloneUrl(request, {
       ...skill,
+      displayName: resolveSkillDisplayName(repository, skill),
       versions: sortVersionsDescending(repository.getVersions(name)),
       releases: releases.map((release) => ({
         ...release,
@@ -1378,6 +1418,24 @@ async function getPermissionMatrix(
   };
 }
 
+// 技能显示名解析（ADR-0048）：消费面与管理面标题共用同一规则——
+// 1) 曾发布 → 取最近一次 Skill Release（按发布时间，含预发布）快照的 displayName；
+//    字段缺失或为空 → 回退 Identity 短名（不读 upload 脏值）；
+// 2) 从未发布（active-unreleased）→ 取 upload 同步到服务器的当前源码 displayName；
+// 3) 仍未设置 → Identity 短名原文（运行时不做 Title Case）。
+function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord): string {
+  const releases = repository.getReleases(skill.name);
+  if (releases.length > 0) {
+    const manifest = releases[0].releaseManifest as { displayName?: unknown };
+    if (typeof manifest.displayName === 'string' && manifest.displayName.length > 0) {
+      return manifest.displayName;
+    }
+    return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
+  }
+  if (skill.displayName) return skill.displayName;
+  return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
+}
+
 // 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
 // Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
 function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
@@ -1394,6 +1452,7 @@ function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
   }));
   return {
     name: skill.name,
+    displayName: resolveSkillDisplayName(repository, skill),
     description: skill.description,
     status: skill.status,
     everPublished,

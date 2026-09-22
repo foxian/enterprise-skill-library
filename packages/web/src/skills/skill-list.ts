@@ -22,6 +22,8 @@ export interface ReleaseView {
 
 export interface SkillContext {
   name: string;
+  /** 对外显示名（ADR-0048）：优先最近 Release 快照，其次 upload 当前值。 */
+  displayName?: string;
   description: string;
   status?: string;
   everPublished?: boolean;
@@ -66,6 +68,7 @@ export interface MemberOption {
 
 export interface SkillRecordView {
   name: string;
+  displayName?: string;
   scope: string;
   skillName: string;
   createdBy: string;
@@ -80,6 +83,7 @@ export interface SkillSummary extends SkillRecordView {
 // managed=持有管理权,shared=可读/可写但无管理权。
 export interface SkillInventoryItem {
   name: string;
+  displayName?: string;
   scope: string;
   skillName: string;
   description?: string;

@@ -88,7 +88,9 @@ async function writeVersion(dir: string, version: string): Promise<void> {
   const manifestPath = path.join(dir, 'release.json');
   const raw = await fs.readFile(manifestPath, 'utf8');
   const data = JSON.parse(raw) as Record<string, unknown>;
-  data.schemaVersion = 3;
+  // 保留现有 v3/v4 版本；仅把 schemaVersion 1（版本跟踪前）升级到 v4（ADR-0048）。
+  const manifestVersion = typeof data.schemaVersion === 'number' ? data.schemaVersion : 1;
+  data.schemaVersion = manifestVersion >= 3 ? manifestVersion : 4;
   data.version = version;
   await fs.writeFile(manifestPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
@@ -167,7 +169,7 @@ export async function executeVersion(
   if (isBump(input)) {
     if (inspection.isPreVersion) {
       throw new Error(
-        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 3.'
+        'This release manifest is from before version tracking (schemaVersion 1). Run `esl version <SemVer>` with an explicit version number to initialize versioning and upgrade the manifest to schemaVersion 4.'
       );
     }
     if (!inspection.currentVersion) {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createMinimalReleaseManifest,
   parseSkillIdentity,
+  titleCaseDisplayName,
   validateReleaseManifest,
   validateSkillSourceDirectory
 } from '../src/index.js';
@@ -199,7 +200,7 @@ describe('Release Manifest', () => {
     const manifest = createMinimalReleaseManifest('reviewer', 'MIT');
 
     expect(manifest).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       name: 'reviewer',
       version: '0.1.0',
       license: 'MIT',
@@ -226,5 +227,141 @@ describe('Release Manifest', () => {
     for (const bad of ['', '@acme/', '/reviewer', '@acme', '@acme/a/b', 'Reviewer', '@acme/reviewer!']) {
       expect(parseSkillIdentity(bad)).toBeNull();
     }
+  });
+
+
+  it("accepts a v4 manifest with a displayName", () => {
+    const result = validateReleaseManifest({
+      schemaVersion: 4,
+      name: "@acme/reviewer",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "代码评审",
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.displayName).toBe("代码评审");
+    }
+  });
+
+  it("rejects a v3 manifest that carries a displayName", () => {
+    const result = validateReleaseManifest({
+      schemaVersion: 3,
+      name: "@acme/reviewer",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "Code Reviewer",
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errors.join("\n")).toContain("schemaVersion 4");
+    }
+  });
+
+  it("treats a blank displayName as unset", () => {
+    const result = validateReleaseManifest({
+      schemaVersion: 4,
+      name: "reviewer",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "   ",
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.displayName).toBeUndefined();
+    }
+  });
+
+  it("trims a displayName and rejects overlong values after trimming", () => {
+    const ok = validateReleaseManifest({
+      schemaVersion: 4,
+      name: "reviewer",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "  Reviewer  ",
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(ok.success).toBe(true);
+    if (ok.success) expect(ok.data.displayName).toBe("Reviewer");
+
+    const tooLong = validateReleaseManifest({
+      schemaVersion: 4,
+      name: "reviewer",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "x".repeat(129),
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(tooLong.success).toBe(false);
+    if (!tooLong.success) {
+      expect(tooLong.errors.join("\n")).toContain("128");
+    }
+  });
+
+  it("accepts a source directory whose v4 manifest has a displayName", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "esl-source-"));
+    fs.writeFileSync(
+      path.join(directory, "SKILL.md"),
+      "---\nname: markdown-master\ndescription: Convert documents to Markdown\n---\n\n# Markdown Master\n"
+    );
+    fs.writeFileSync(
+      path.join(directory, "release.json"),
+      JSON.stringify({
+        schemaVersion: 4,
+        name: "markdown-master",
+        version: "0.1.0",
+        license: "MIT",
+        displayName: "Markdown Master",
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+
+    const result = await validateSkillSourceDirectory(directory);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.releaseManifest.displayName).toBe("Markdown Master");
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it("builds a v4 minimal manifest with an optional displayName", () => {
+    const manifest = createMinimalReleaseManifest("markdown-master", "MIT", "Markdown Master");
+
+    expect(manifest).toEqual({
+      schemaVersion: 4,
+      name: "markdown-master",
+      version: "0.1.0",
+      license: "MIT",
+      displayName: "Markdown Master",
+      keywords: [],
+      compatibility: {},
+      dependencies: {}
+    });
+    expect(validateReleaseManifest(manifest).success).toBe(true);
+  });
+
+  it("title-cases an identity short name into a display name seed", () => {
+    expect(titleCaseDisplayName("markdown-master")).toBe("Markdown Master");
+    expect(titleCaseDisplayName("@acme/code-review")).toBe("Code Review");
+    expect(titleCaseDisplayName("csv-import-export")).toBe("Csv Import Export");
   });
 });

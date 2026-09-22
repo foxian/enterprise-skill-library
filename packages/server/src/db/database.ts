@@ -69,6 +69,7 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
     ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
     ensureColumn(db, 'skill_id', 'TEXT');
     ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
+    ensureColumn(db, 'display_name', 'TEXT');
     ensureColumn(db, 'deletion_requested_by', 'TEXT');
     ensureColumn(db, 'deletion_reason', 'TEXT');
     ensureColumn(db, 'deletion_error', 'TEXT');
@@ -137,6 +138,8 @@ export interface SkillRecord {
   scope: string;
   skillName: string;
   description: string;
+  /** 当前源码显示名（ADR-0048）：从未发布时作为对外显示名来源；曾发布后由最近 Release 快照覆盖。 */
+  displayName?: string;
   createdBy: string;
   owner: string;
   maintainers: string[];
@@ -181,16 +184,17 @@ export class SkillRepository {
   createSkill(skill: SkillRecord): void {
     const stmt = this.db.prepare(`
       INSERT INTO skills (
-        name, scope, skill_name, description, author, created_by,
+        name, scope, skill_name, description, display_name, author, created_by,
         owner, maintainers_json, visibility, git_repo_path
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       skill.name,
       skill.scope,
       skill.skillName,
       skill.description,
+      skill.displayName ?? null,
       skill.createdBy,
       skill.createdBy,
       skill.owner,
@@ -205,10 +209,10 @@ export class SkillRepository {
     const status = skill.status ?? 'active-unreleased';
     const stmt = this.db.prepare(`
       INSERT INTO skills (
-        name, skill_id, scope, skill_name, description, author, created_by,
+        name, skill_id, scope, skill_name, description, display_name, author, created_by,
         owner, maintainers_json, visibility, status, git_repo_path
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       skill.name,
@@ -216,6 +220,7 @@ export class SkillRepository {
       skill.scope,
       skill.skillName,
       skill.description,
+      skill.displayName ?? null,
       skill.createdBy,
       skill.createdBy,
       skill.owner,
@@ -349,6 +354,13 @@ export class SkillRepository {
     return result.changes > 0;
   }
 
+  updateSkillDisplayName(name: string, displayName: string | null): boolean {
+    const result = this.db
+      .prepare(`UPDATE skills SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+      .run(displayName, name);
+    return result.changes > 0;
+  }
+
   /**
    * 最终删除与审计在同一事务：如果技能记录删除成功，审计必须已经写入；audit
    * 不设 skills 外键，因此审计生命周期独立于被删记录。
@@ -477,6 +489,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -502,6 +515,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -524,6 +538,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -576,6 +591,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -589,14 +605,23 @@ export class SkillRepository {
   }
 
   // 可安装技能发现面（ADR-0049）的检索底座：只返回已发布状态的技能，
-  // 支持空 query（浏览全部）与 namespace 硬过滤；显示名/keywords 富化在
-  // 路由层基于 Release 快照完成，不进 SQL。
+  // 支持空 query（浏览全部）与 namespace 硬过滤；query 除名称/描述外还
+  // 匹配当前源码显示名与最近发布快照 displayName（ADR-0048）。显示名的
+  // 对外解析与 keywords 富化仍在路由层基于 Release 快照完成。
   searchSkills(query: string, filters: { namespace?: string } = {}): SkillRecord[] {
     const clauses: string[] = [
-      '(name LIKE ? OR description LIKE ?)',
+      `(name LIKE ? OR description LIKE ? OR display_name LIKE ? OR EXISTS (
+          SELECT 1
+          FROM skill_releases r
+          WHERE r.skill_name = skills.name
+            AND r.deleted_at IS NULL
+            AND r.id = (SELECT MAX(r2.id) FROM skill_releases r2
+                        WHERE r2.skill_name = skills.name AND r2.deleted_at IS NULL)
+            AND json_extract(r.release_manifest_json, '$.displayName') LIKE ?
+        ))`,
       "(status IS NULL OR status = 'published' OR status = 'active-published')"
     ];
-    const params: string[] = [`%${query}%`, `%${query}%`];
+    const params: string[] = [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`];
     if (filters.namespace) {
       clauses.push('scope = ?');
       params.push(filters.namespace);
@@ -607,6 +632,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -1520,6 +1546,7 @@ function deserializeSkill(
     visibility: row.visibility,
     gitRepoPath: row.gitRepoPath
   };
+  if (row.displayName) skill.displayName = row.displayName;
   if (row.skillId) skill.skillId = row.skillId;
   if (row.skillId && row.status) skill.status = row.status;
   if (row.deletionRequestedBy) skill.deletionRequestedBy = row.deletionRequestedBy;

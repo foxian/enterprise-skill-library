@@ -6,7 +6,7 @@
 ## 搜索
 `esl search [query] [--namespace <org>] [--keyword <text>] [--visibility public|private] [--limit <n>] [--json]` —— 列出或查询 ESL Server 上**已发布且当前可安装**的技能。
 
-- 不传 `query` 就是浏览全部可见技能；query 会匹配 Identity、描述、显示名和 keywords。
+- 不传 `query` 就是浏览全部可见技能；query 会匹配 Identity、描述、显示名（`displayName`，ADR-0048）和 keywords，`@scope/短名` 作技术名。
 - `--namespace` 收窄组织/命名空间；`--keyword` 做硬过滤；`--visibility` 可选 `public` / `private`；`--limit` 控制条数（默认 50）。
 - 匿名只能看到 public；登录后结果会附加用户有权读取的 private。匿名传 `--visibility private` 会明确报错并要求 `esl login`。
 - 结果包含 `name`、`displayName`、`description`、`latestStableVersion`（不含 prerelease）和 `visibility`；`--json` 返回结构化数据。
@@ -14,7 +14,7 @@
 - 人类在交互式终端可不带 `--json` 使用 search：箭头选择技能、调整筛选、看详情；安装前 CLI 会回显完整 `esl install …` 并要求确认。`install` 本身不做远端目录浏览。
 
 ## 查看详情
-`esl info @scope/skill-name [--json]` —— 技能的元数据、版本、源码信息。已登录时请求会带上当前 Skill User Token：private 技能对其维护账号与有权限成员可见；未登录只能看到 public 技能。
+`esl info @scope/skill-name [--json]` —— 技能的元数据、版本、源码信息；对外显示名（`displayName`，ADR-0048）也随详情返回。已登录时请求会带上当前 Skill User Token：private 技能对其维护账号与有权限成员可见；未登录只能看到 public 技能。
 
 ## 免安装试用
 `esl use @scope/skill-name|./path [--version V]` —— 把技能 Prompt 文本打到 stdout，不安装、不改项目。可管道：`esl use @scope/skill-name | <agent>`。

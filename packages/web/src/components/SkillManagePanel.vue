@@ -2,7 +2,12 @@
   <div data-test="skill-manage-panel">
     <div class="console-toolbar">
       <h2 class="panel-title">
-        {{ t('skill.manageTitlePrefix') }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        <template v-if="panelIdentity">
+          {{ t('skill.manageTitle', { identity: panelIdentity }) }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        </template>
+        <template v-else>
+          {{ t('skill.manageTitlePrefix') }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        </template>
       </h2>
       <el-tag :type="stateTagType" data-test="share-state">{{ stateText }}</el-tag>
     </div>
@@ -371,6 +376,14 @@ const memberPermission = ref<'read' | 'write' | 'manage'>('read');
 // 所有者成员提供团队/成员下拉建议；普通成员视角退化为手工输入
 const teamOptions = computed(() => props.teamOptions ?? []);
 const memberOptions = computed(() => props.memberOptions ?? []);
+
+// 面板标题（ADR-0048）：优先对外显示名，仅当与 Identity 短名不同时展示，避免重复。
+const panelIdentity = computed(() => {
+  if (context.value?.displayName && context.value.displayName !== props.skillName) {
+    return context.value.displayName;
+  }
+  return undefined;
+});
 
 const shareState = computed(() => deriveShareState(matrix.value));
 

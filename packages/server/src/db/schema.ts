@@ -5,6 +5,7 @@ export const databaseSchema = `
     scope TEXT NOT NULL,
     skill_name TEXT NOT NULL,
     description TEXT NOT NULL,
+    display_name TEXT,
     author TEXT NOT NULL,
     created_by TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT 'platform',

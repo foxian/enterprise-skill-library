@@ -451,16 +451,17 @@ export function createProgram(): Command {
     .option('--namespace <namespace>', 'release.json namespace: personal (default) or an organization')
     .option('--license <spdx>', 'release.json license (default MIT)')
     .option('--description <text>', 'SKILL.md description (asked interactively when omitted)')
+    .option('--display-name <text>', 'release.json display name (defaults to a title-cased short name)')
     .option('--keywords <list>', 'comma-separated release.json keywords')
     .addHelpText('after', example('$ esl init ./markdown-master\n  $ esl init --name my-skill'))
     .action(
       async (
         skillPath: string | undefined,
-        options: { name?: string; namespace?: string; license?: string; description?: string; keywords?: string }
+        options: { name?: string; namespace?: string; license?: string; description?: string; displayName?: string; keywords?: string }
       ) => {
         const rawParamsJson = program.opts().paramsJson as string | undefined;
         const params = rawParamsJson
-          ? parseCommandParams(rawParamsJson, 'init', ['name', 'namespace', 'license', 'description', 'keywords'])
+          ? parseCommandParams(rawParamsJson, 'init', ['name', 'namespace', 'license', 'description', 'display-name', 'keywords'])
           : {};
         assertNoDuplicateCommandParams(
           params,
@@ -469,6 +470,7 @@ export function createProgram(): Command {
             namespace: options.namespace,
             license: options.license,
             description: options.description,
+            'display-name': options.displayName,
             keywords: options.keywords
           },
           'init'
@@ -477,6 +479,7 @@ export function createProgram(): Command {
         const namespace = readOptionalStringParam(params, 'namespace', 'init') ?? options.namespace;
         const license = readOptionalStringParam(params, 'license', 'init') ?? options.license;
         const description = readOptionalStringParam(params, 'description', 'init') ?? options.description;
+        const displayName = readOptionalStringParam(params, 'display-name', 'init') ?? options.displayName;
         const keywords =
           readOptionalStringArrayParam(params, 'keywords', 'init') ??
           options.keywords
@@ -489,6 +492,7 @@ export function createProgram(): Command {
           namespace,
           license,
           description,
+          displayName,
           keywords,
           noInput: program.opts().input === false,
           agentInteraction: program.opts().agentInteraction === true,

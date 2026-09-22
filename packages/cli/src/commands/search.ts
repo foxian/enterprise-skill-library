@@ -10,10 +10,11 @@ import { requireOkResponse } from '../api-error.js';
 
 export interface SkillSearchResult {
   name: string;
+  /** 对外当前显示名（ADR-0048）：标题位优先显示名，name 作技术名。 */
+  displayName?: string;
   description: string;
   scope?: string;
   skillName?: string;
-  displayName?: string;
   latestStableVersion?: string;
   visibility?: string;
 }
