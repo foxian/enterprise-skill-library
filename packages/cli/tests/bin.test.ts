@@ -15,19 +15,22 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-const { checkboxMock, inputMock, selectMock } = vi.hoisted(() => ({
+const { checkboxMock, confirmMock, executeSearchMock, inputMock, selectMock } = vi.hoisted(() => ({
   checkboxMock: vi.fn(),
+  confirmMock: vi.fn(),
+  executeSearchMock: vi.fn(),
   inputMock: vi.fn(),
   selectMock: vi.fn()
 }));
 
 vi.mock('@inquirer/prompts', () => ({
   checkbox: checkboxMock,
-  confirm: vi.fn(),
+  confirm: confirmMock,
   input: inputMock,
   password: vi.fn(),
   select: selectMock
 }));
+vi.mock('../src/commands/search.js', () => ({ executeSearch: executeSearchMock }));
 vi.mock('../src/prompt.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/prompt.js')>();
   return { ...actual, isInteractive: vi.fn() };
@@ -48,8 +51,12 @@ describe('esl program', () => {
   beforeEach(() => {
     vi.mocked(isInteractive).mockReturnValue(false);
     checkboxMock.mockReset();
+    confirmMock.mockReset();
+    executeSearchMock.mockReset();
     inputMock.mockReset();
     selectMock.mockReset();
+    vi.mocked(executeInstall).mockReset();
+    vi.mocked(resolveDefaultInstallTools).mockReset();
   });
 
   it('returns the tools selected from the checkbox prompt', async () => {
@@ -128,6 +135,135 @@ describe('esl program', () => {
 
     expect(info?.options.map((option) => option.long)).toContain('--json');
     expect(search?.options.map((option) => option.long)).toContain('--json');
+  });
+
+  it('registers the search discovery flags with an optional query', () => {
+    const program = createProgram();
+    const search = program.commands.find((command) => command.name() === 'search');
+    const options = search?.options.map((option) => option.long) ?? [];
+
+    expect(options).toEqual(expect.arrayContaining(['--namespace', '--keyword', '--visibility', '--limit']));
+    expect((search?.options.find((option) => option.long === '--visibility') as { argChoices?: string[] }).argChoices)
+      .toEqual(['public', 'private']);
+    expect((search as unknown as { _args: Array<{ required: boolean }> })._args[0].required).toBe(false);
+  });
+
+  it('search TTY session installs after echoing the full command and confirming', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    executeSearchMock.mockResolvedValue([
+      { name: '@acme/tool', description: 'Org tool', displayName: 'tool', latestStableVersion: '1.0.0', visibility: 'public' },
+      { name: '@beta/lib', description: 'Beta library', latestStableVersion: '1.2.0', visibility: 'public' }
+    ]);
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValue(['claude']);
+    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
+    selectMock.mockResolvedValueOnce('@acme/tool');
+    selectMock.mockResolvedValueOnce('install');
+    confirmMock.mockResolvedValueOnce(true);
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+
+    try {
+      await run(['node', 'esl', 'search', '--server', 'http://search.example']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(executeSearchMock).toHaveBeenCalledWith(undefined, expect.objectContaining({ server: 'http://search.example' }));
+    const listCall = selectMock.mock.calls[0][0] as { default?: string; choices: Array<{ name: string }> };
+    expect(listCall.default).toBe('@acme/tool');
+    expect(listCall.choices[0].name).toBe('Adjust filters…');
+    expect(listCall.choices.at(-1)?.name).toBe('Exit');
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(logs.join('\n')).toContain('$ esl install @acme/tool --server http://search.example');
+    expect(executeInstall).toHaveBeenCalledWith('@acme/tool', expect.objectContaining({ tools: ['claude'] }));
+  });
+
+  it('search TTY session keeps the full flow for one result and uses configured tools', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    executeSearchMock.mockResolvedValue([
+      { name: '@acme/tool', description: 'Org tool', latestStableVersion: '1.0.0', visibility: 'public' }
+    ]);
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValue(['claude']);
+    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
+    selectMock.mockResolvedValueOnce('@acme/tool');
+    selectMock.mockResolvedValueOnce('install');
+    confirmMock.mockResolvedValueOnce(true);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await run(['node', 'esl', 'search']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(executeSearchMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(executeInstall).toHaveBeenCalledWith('@acme/tool', expect.objectContaining({ tools: ['claude'] }));
+  });
+
+  it('search TTY session returns to the list without installing when the confirm is rejected', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    executeSearchMock.mockResolvedValue([
+      { name: '@acme/tool', description: 'Org tool', latestStableVersion: '1.0.0', visibility: 'public' }
+    ]);
+    selectMock.mockResolvedValueOnce('@acme/tool');
+    selectMock.mockResolvedValueOnce('install');
+    confirmMock.mockResolvedValueOnce(false);
+    selectMock.mockResolvedValueOnce('__exit__');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await run(['node', 'esl', 'search']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(executeInstall).not.toHaveBeenCalled();
+    expect(executeSearchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('search TTY session offers adjust or exit when nothing matches', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    executeSearchMock.mockResolvedValue([]);
+    selectMock.mockResolvedValueOnce('__exit__');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await run(['node', 'esl', 'search', 'missing']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const listCall = selectMock.mock.calls[0][0] as { choices: Array<{ name: string }> };
+    expect(listCall.choices.map((choice) => choice.name)).toEqual(['Adjust filters…', 'Exit']);
+    expect(executeInstall).not.toHaveBeenCalled();
+  });
+
+  it('search does not prompt in json or no-input mode', async () => {
+    vi.mocked(isInteractive).mockReturnValue(true);
+    executeSearchMock.mockResolvedValue([
+      { name: '@acme/tool', description: 'Org tool', latestStableVersion: '1.0.0', visibility: 'public' }
+    ]);
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+
+    try {
+      await run(['node', 'esl', 'search', '--json']);
+      await run(['node', 'esl', 'search', '--no-input']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(selectMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(JSON.parse(logs[0])).toEqual([
+      { name: '@acme/tool', description: 'Org tool', latestStableVersion: '1.0.0', visibility: 'public' }
+    ]);
+    expect(logs[1]).toContain('@acme/tool');
   });
 
   it('uses --server for ESL Server commands and does not expose old network flags', () => {

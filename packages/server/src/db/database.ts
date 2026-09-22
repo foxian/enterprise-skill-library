@@ -588,7 +588,19 @@ export class SkillRepository {
     return (stmt.all() as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[]).map(deserializeSkill);
   }
 
-  searchSkills(query: string): SkillRecord[] {
+  // 可安装技能发现面（ADR-0049）的检索底座：只返回已发布状态的技能，
+  // 支持空 query（浏览全部）与 namespace 硬过滤；显示名/keywords 富化在
+  // 路由层基于 Release 快照完成，不进 SQL。
+  searchSkills(query: string, filters: { namespace?: string } = {}): SkillRecord[] {
+    const clauses: string[] = [
+      '(name LIKE ? OR description LIKE ?)',
+      "(status IS NULL OR status = 'published' OR status = 'active-published')"
+    ];
+    const params: string[] = [`%${query}%`, `%${query}%`];
+    if (filters.namespace) {
+      clauses.push('scope = ?');
+      params.push(filters.namespace);
+    }
     const stmt = this.db.prepare(`
       SELECT
         name,
@@ -601,11 +613,9 @@ export class SkillRepository {
         visibility,
         git_repo_path AS gitRepoPath
       FROM skills
-      WHERE (name LIKE ? OR description LIKE ?)
-        AND (status IS NULL OR status = 'published' OR status = 'active-published')
+      WHERE ${clauses.join(' AND ')}
     `);
-    const term = `%${query}%`;
-    return (stmt.all(term, term) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
+    return (stmt.all(...params) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
       .map(deserializeSkill);
   }
 

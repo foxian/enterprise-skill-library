@@ -125,6 +125,32 @@ describe('skill RBAC permissions', () => {
       gitRepoPath: 'acme/secret',
       status: 'active-published'
     });
+    // search（ADR-0049）只返回有 Skill Release 的技能；给夹具补发布记录。
+    for (const seed of [
+      { name: '@acme/reviewer', skillName: 'reviewer' },
+      { name: '@acme/secret', skillName: 'secret' }
+    ]) {
+      const skill = repository.getSkill(seed.name)!;
+      repository.createRelease({
+        skillId: skill.skillId!,
+        skillName: seed.name,
+        version: '0.9.0',
+        sourceCommit: 'abc123',
+        packagePath: `packages/${seed.skillName}-0.9.0.tgz`,
+        checksum: `checksum-${seed.skillName}`,
+        releaseManifest: {
+          schemaVersion: 3,
+          name: seed.name,
+          version: '0.9.0',
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        },
+        dependencyLock: {},
+        createdBy: 'alice'
+      });
+    }
     db.close();
   });
 
@@ -156,10 +182,11 @@ describe('skill RBAC permissions', () => {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
         status: 'active-published',
-        everPublished: false,
+        everPublished: true,
         deletionError: null,
         createdBy: 'acme_alice',
-        releases: []
+        latestRelease: expect.objectContaining({ version: '0.9.0' }),
+        releases: [expect.objectContaining({ version: '0.9.0' })]
       },
       viewerAccess: 'manage',
       viewerLifecycle: { canArchive: true, canRestore: true, canDelete: true }
@@ -200,10 +227,11 @@ describe('skill RBAC permissions', () => {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
         status: 'active-published',
-        everPublished: false,
+        everPublished: true,
         deletionError: null,
         createdBy: 'acme_alice',
-        releases: []
+        latestRelease: expect.objectContaining({ version: '0.9.0' }),
+        releases: [expect.objectContaining({ version: '0.9.0' })]
       },
       viewerAccess: 'manage',
       viewerLifecycle: { canArchive: true, canRestore: true, canDelete: true }
@@ -1059,7 +1087,8 @@ describe('skill RBAC permissions', () => {
       createdBy: 'acme_alice',
       latestRelease: { version: '1.0.0', notes: 'first release' },
       releases: [
-        { version: '1.0.0', notes: 'first release', sourceCommit: 'abc1234', createdBy: 'acme_alice' }
+        { version: '1.0.0', notes: 'first release', sourceCommit: 'abc1234', createdBy: 'acme_alice' },
+        expect.objectContaining({ version: '0.9.0' })
       ]
     });
 

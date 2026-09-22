@@ -28,7 +28,7 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `tools list` `whoami` `validate`——直接跑，跑完把结果给用户。会改状态或写盘的命令——`install` `link` `unlink` `update` `uninstall` `adapt` `tools remove` `init` `upload` `publish` `share` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `tools list` `whoami` `validate`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。会改状态或写盘的命令——`install` `link` `unlink` `update` `uninstall` `adapt` `tools remove` `init` `upload` `publish` `share` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`install` 会把远端内容拉进项目、`publish` 把东西推到全公司共享的服务器、`uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。
 
@@ -40,7 +40,7 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 ## 输出与解析
 
-- 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`search`/`info`/`list`/`tools list` 支持），你直接解析结构化数据。
+- 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`search`/`info`/`list`/`tools list` 支持），你直接解析结构化数据。`search` 面向人类有 TTY 发现会话；Agent 一律用 `--json`。
 - 给用户看时用人类可读的默认输出。
 - `esl use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl use @ns/name | <agent>`。
 

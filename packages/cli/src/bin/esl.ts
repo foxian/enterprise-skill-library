@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
-import { checkbox, select } from '@inquirer/prompts';
+import { Command, Option } from 'commander';
+import { checkbox, confirm, input, select } from '@inquirer/prompts';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -49,7 +49,7 @@ import { executeStatus } from '../commands/status.js';
 import { executeRename } from '../commands/rename.js';
 import { executeNotes } from '../commands/notes.js';
 import { executeRepairTag } from '../commands/repair-tag.js';
-import { executeSearch } from '../commands/search.js';
+import { executeSearch, type SkillSearchFilters, type SkillSearchResult } from '../commands/search.js';
 import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
@@ -127,6 +127,204 @@ export async function promptVersionSelection(
     choices,
     default: inspection.currentVersion ? 'patch' : 'custom'
   });
+}
+
+// 可安装技能发现面（ADR-0049）：search TTY 会话的两步选择。
+// 列表中「Adjust filters…」视觉置顶，default 高亮第一条技能；末项 Exit。
+const SEARCH_ADJUST = '__adjust__';
+const SEARCH_EXIT = '__exit__';
+
+// 复用 executeSearch 的筛选契约；server 只用于本会话请求与安装命令回显。
+export interface SearchSessionFilters extends SkillSearchFilters {
+  server?: string;
+}
+
+export interface SearchSessionDeps {
+  select?: typeof select;
+  confirm?: typeof confirm;
+  input?: typeof input;
+  search?: (filters: SearchSessionFilters) => Promise<SkillSearchResult[]>;
+  install?: (nameOrPath: string) => Promise<void>;
+}
+
+function searchChoiceLabel(skill: SkillSearchResult): string {
+  const parts = [skill.name];
+  if (skill.displayName && skill.displayName !== skill.skillName) parts.push(skill.displayName);
+  if (skill.latestStableVersion) parts.push(`v${skill.latestStableVersion}`);
+  if (skill.visibility) parts.push(`(${skill.visibility})`);
+  return parts.join('  ');
+}
+
+function installCommandFor(skillName: string, server?: string): string {
+  return `esl install ${skillName}${server ? ` --server ${server}` : ''}`;
+}
+
+function printSearchDetails(skill: SkillSearchResult, server?: string): void {
+  console.log(`\n${skill.name}`);
+  if (skill.displayName && skill.displayName !== skill.skillName) {
+    console.log(`Display name: ${skill.displayName}`);
+  }
+  console.log(`Description: ${skill.description}`);
+  if (skill.latestStableVersion) console.log(`Latest stable version: v${skill.latestStableVersion}`);
+  if (skill.visibility) console.log(`Visibility: ${skill.visibility}`);
+  console.log(`More: ${installCommandFor(skill.name, server)} (or "esl info ${skill.name}")`);
+}
+
+// 调整筛选：query / namespace / keyword / visibility 循环修改，Done 返回列表。
+export async function adjustSearchFilters(
+  filters: SearchSessionFilters,
+  selectPrompt: typeof select = select,
+  inputPrompt: typeof input = input
+): Promise<SearchSessionFilters> {
+  const next = { ...filters };
+  for (;;) {
+    const field = await selectPrompt({
+      message: 'Adjust filters',
+      choices: [
+        { name: `Query: ${next.query ?? '(browse all)'}`, value: 'query' },
+        { name: `Namespace: ${next.namespace ?? '(all)'}`, value: 'namespace' },
+        { name: `Keyword: ${next.keyword ?? '(all)'}`, value: 'keyword' },
+        { name: `Visibility: ${next.visibility ?? '(all)'}`, value: 'visibility' },
+        { name: 'Done', value: 'done' }
+      ]
+    });
+    if (field === 'done') return next;
+    if (field === 'query') {
+      const value = await inputPrompt({ message: 'Search query (empty to browse all)' });
+      next.query = value.trim() || undefined;
+    } else if (field === 'namespace') {
+      const value = await inputPrompt({ message: 'Namespace (empty for all)' });
+      next.namespace = value.trim() || undefined;
+    } else if (field === 'keyword') {
+      const value = await inputPrompt({ message: 'Keyword (empty for all)' });
+      next.keyword = value.trim() || undefined;
+    } else if (field === 'visibility') {
+      const value = await selectPrompt({
+        message: 'Visibility',
+        choices: [
+          { name: 'All', value: 'all' },
+          { name: 'Public', value: 'public' },
+          { name: 'Private', value: 'private' }
+        ]
+      });
+      next.visibility = value === 'all' ? undefined : (value as 'public' | 'private');
+    }
+  }
+}
+
+export async function runSearchSession(
+  program: Command,
+  initialFilters: SearchSessionFilters,
+  deps: SearchSessionDeps = {}
+): Promise<void> {
+  const selectPrompt = deps.select ?? select;
+  const confirmPrompt = deps.confirm ?? confirm;
+  const inputPrompt = deps.input ?? input;
+  let filters = { ...initialFilters };
+  const server = filters.server;
+  const search =
+    deps.search ?? ((filters: SearchSessionFilters) => executeSearch(filters.query, filters));
+  const install = deps.install ?? ((nameOrPath: string) => installSkill(program, nameOrPath, { server }));
+
+  for (;;) {
+    const results = await search(filters);
+    if (results.length === 0) {
+      // 0 条结果不进入空技能列表，直接提供调整筛选或退出。
+      const action = await selectPrompt({
+        message: 'No skills match the current filters',
+        choices: [
+          { name: 'Adjust filters…', value: SEARCH_ADJUST },
+          { name: 'Exit', value: SEARCH_EXIT }
+        ]
+      });
+      if (action === SEARCH_EXIT) return;
+      filters = await adjustSearchFilters(filters, selectPrompt, inputPrompt);
+      continue;
+    }
+
+    // 同一次筛选结果在浏览、详情和确认拒绝之间复用，避免重复请求。
+    for (;;) {
+      const chosen = await selectPrompt({
+        message: `Select a skill (${results.length} found)`,
+        default: results[0].name,
+        choices: [
+          { name: 'Adjust filters…', value: SEARCH_ADJUST },
+          ...results.map((skill) => ({
+            name: searchChoiceLabel(skill),
+            value: skill.name,
+            description: skill.description
+          })),
+          { name: 'Exit', value: SEARCH_EXIT }
+        ]
+      });
+      if (chosen === SEARCH_EXIT) return;
+      if (chosen === SEARCH_ADJUST) break;
+
+      const skill = results.find((entry) => entry.name === chosen)!;
+      const action = await selectPrompt({
+        message: chosen,
+        choices: [
+          { name: 'View details', value: 'details' },
+          { name: 'Install', value: 'install' },
+          { name: 'Back to list', value: 'back' }
+        ]
+      });
+      if (action === 'details') {
+        printSearchDetails(skill, server);
+        continue;
+      }
+      if (action === 'back') continue;
+
+      // 安装前回显完整命令并确认；拒绝则回到列表继续浏览。
+      console.log(`\n$ ${installCommandFor(chosen, server)}`);
+      const proceed = await confirmPrompt({ message: 'Run this install command?', default: false });
+      if (!proceed) continue;
+      await install(chosen);
+      return;
+    }
+  }
+}
+
+export interface InstallCommandOptions {
+  version?: string;
+  global?: boolean;
+  tools?: string | boolean;
+  force?: boolean;
+  adapt?: boolean;
+  server?: string;
+  ignoreCompatibility?: boolean;
+}
+
+// install 命令主体：search TTY 会话确认后也走同一条安装路径（含 tools 选择）。
+export async function installSkill(
+  program: Command,
+  nameOrPath: string,
+  options: InstallCommandOptions
+): Promise<void> {
+  const skipToolLinks = options.tools === false || options.adapt === false;
+  let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+  if (!skipToolLinks && tools.length === 0) {
+    const configured = await resolveDefaultInstallTools(process.cwd(), {
+      ...options,
+      tools: undefined,
+      global: options.global
+    });
+    if (configured.length === 0) {
+      if (program.opts().input === false || !isInteractive()) {
+        throw new Error('No tools configured; pass --tools or run interactively');
+      }
+      tools = await promptToolSelection();
+    } else {
+      tools = configured;
+    }
+  }
+
+  const targetDir = await executeInstall(nameOrPath, {
+    ...options,
+    tools,
+    noAdapt: skipToolLinks
+  });
+  console.log(`Skill installed at ${targetDir}`);
 }
 
 async function promptCustomVersion(): Promise<string> {
@@ -376,19 +574,57 @@ export function createProgram(): Command {
 
   program
     .command('search')
-    .argument('<query>')
+    .argument('[query]', 'search query (omit to browse all visible published skills)')
     .option('--server <url>', 'ESL Server URL')
+    .option('--namespace <namespace>', 'filter by namespace (org or user)')
+    .option('--keyword <keyword>', 'hard filter by skill keyword')
+    .addOption(
+      new Option('--visibility <visibility>', 'filter by visibility').choices(['public', 'private'])
+    )
+    .option('--limit <count>', 'maximum number of results (default 50)')
     .option('--json', 'Output as JSON')
-    .addHelpText('after', example('$ esl search code-review'))
-    .action(async (query: string, options: { server?: string; json?: boolean }) => {
-      const results = await executeSearch(query, options);
-      if (options.json) {
-        console.log(JSON.stringify(results, null, 2));
+    .addHelpText('after', example('$ esl search code-review\n$ esl search'))
+    .action(async (query: string | undefined, options: {
+      server?: string;
+      namespace?: string;
+      keyword?: string;
+      visibility?: 'public' | 'private';
+      limit?: string;
+      json?: boolean;
+    }) => {
+      let limit: number | undefined;
+      if (options.limit !== undefined) {
+        limit = Number(options.limit);
+        if (!Number.isInteger(limit) || limit <= 0) {
+          throw new Error('--limit must be a positive integer');
+        }
+      }
+      const filters: SearchSessionFilters = {
+        namespace: options.namespace,
+        keyword: options.keyword,
+        visibility: options.visibility,
+        limit,
+        server: options.server
+      };
+      // TTY（stdin+stdout 且未 --no-input/--json）才进入两步选择会话。
+      if (program.opts().input === false || options.json || !isInteractive()) {
+        const results = await executeSearch(query, { ...options, ...filters });
+        if (options.json) {
+          console.log(JSON.stringify(results, null, 2));
+          return;
+        }
+        if (results.length === 0) {
+          console.log('No skills found.');
+          return;
+        }
+        for (const result of results) {
+          console.log(
+            `${result.name}\t${result.displayName ?? result.skillName ?? ''}\t${result.latestStableVersion ?? ''}\t${result.visibility ?? ''}\t${result.description}`
+          );
+        }
         return;
       }
-      for (const result of results) {
-        console.log(`${result.name}\t${result.description}`);
-      }
+      await runSearchSession(program, { ...filters, query });
     });
 
   program
@@ -605,29 +841,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         console.log('Restoring skills from the ESL install manifest...');
         return;
       }
-
-      const skipToolLinks = options.tools === false || options.adapt === false;
-      let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
-      if (!skipToolLinks && tools.length === 0) {
-        const configured = await resolveDefaultInstallTools(process.cwd(), {
-          ...options,
-          tools: undefined,
-          global: options.global
-        });
-        if (configured.length === 0) {
-          if (program.opts().input === false || !isInteractive()) {
-            throw new Error('No tools configured; pass --tools or run interactively');
-          }
-          tools = await promptToolSelection();
-        }
-      }
-
-      const targetDir = await executeInstall(nameOrPath, {
-        ...options,
-        tools,
-        noAdapt: skipToolLinks
-      });
-      console.log(`Skill installed at ${targetDir}`);
+      await installSkill(program, nameOrPath, options);
     });
 
   program

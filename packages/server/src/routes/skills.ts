@@ -242,19 +242,83 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
   });
 
-  app.get('/api/skills/search', async (request) => {
-    const { q = '' } = request.query as { q?: string };
-    const user = await authenticateSkillUser(request, adminRepository, giteaService);
-    if (!user) {
-      return [];
+  app.get('/api/skills/search', async (request, reply) => {
+    // 可安装技能发现面（ADR-0049）：匿名可浏览 public 已发布技能，登录后
+    // 附加有权的 private；结果由本路由一次 enrich，CLI 不做逐条 info。
+    const { q = '', namespace, keyword, visibility, limit } = request.query as {
+      q?: string;
+      namespace?: string;
+      keyword?: string;
+      visibility?: string;
+      limit?: string;
+    };
+    if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
+      return reply.status(400).send(apiError('visibilityMustBePublicOrPrivate'));
     }
-    const accessible: SkillRecord[] = [];
-    for (const skill of repository.searchSkills(q)) {
-      if (await hasReadAccess(giteaService, skill, user.username)) {
-        accessible.push(skill);
+    let limitCount = 50;
+    if (limit !== undefined) {
+      const parsed = Number(limit);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return reply
+          .status(400)
+          .send(apiError('validationFailed', { detail: 'limit must be a positive integer' }));
       }
+      limitCount = parsed;
     }
-    return accessible;
+    const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    if (!user && visibility === 'private') {
+      return reply.status(401).send(apiError('unauthorizedMissingToken'));
+    }
+    const lowerQuery = q.toLowerCase();
+    const lowerKeyword = keyword?.trim().toLowerCase();
+    const results: Array<{
+      name: string;
+      scope: string;
+      skillName: string;
+      description: string;
+      displayName: string;
+      latestStableVersion?: string;
+      visibility: string;
+    }> = [];
+    // query 还要匹配显示名与 keywords（不在 skills 表），文本匹配统一在
+    // 内存里做，DB 只承担已发布状态与 namespace 过滤。
+    for (const skill of repository.searchSkills('', { namespace: namespace?.trim() || undefined })) {
+      // public 是全员可读基线；private 需要有效登录与读权限。
+      if (visibility && skill.visibility !== visibility) continue;
+      if (skill.visibility !== 'public' && !(user && (await hasReadAccess(giteaService, skill, user.username)))) {
+        continue;
+      }
+      // 未发布（无任何 Skill Release）的技能不可安装，不进入发现面。
+      const releases = repository.getReleases(skill.name);
+      if (releases.length === 0) continue;
+      // getReleases 按 id 倒序 = 发布时间最新（含 prerelease，ADR-0048）。
+      const latestRelease = releases[0];
+      // Keywords 与 displayName 一样取最新 Release 快照；历史 Release 已移除的关键词不应继续命中目录。
+      const keywords = new Set<string>();
+      const manifestKeywords = (latestRelease.releaseManifest as { keywords?: unknown }).keywords;
+      if (Array.isArray(manifestKeywords)) {
+        for (const entry of manifestKeywords) {
+          if (typeof entry === 'string') keywords.add(entry.toLowerCase());
+        }
+      }
+      const displayName = searchDisplayName(latestRelease.releaseManifest, skill.skillName);
+      if (lowerQuery) {
+        const haystack = [skill.name, skill.description, displayName, ...keywords].join('\n').toLowerCase();
+        if (!haystack.includes(lowerQuery)) continue;
+      }
+      if (lowerKeyword && !keywords.has(lowerKeyword)) continue;
+      results.push({
+        name: skill.name,
+        scope: skill.scope,
+        skillName: skill.skillName,
+        description: skill.description,
+        displayName,
+        latestStableVersion: highestStableVersion(releases.map((release) => release.version)) ?? undefined,
+        visibility: skill.visibility
+      });
+      if (results.length >= limitCount) break;
+    }
+    return results;
   });
 
   // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
@@ -1174,6 +1238,12 @@ function newestStableRelease<T extends { version: string }>(
   return version ? releases.find((release) => release.version === version) : undefined;
 }
 
+// 目录显示名（ADR-0048）：有发布时取最近 Release 快照的 displayName，
+// 缺失或为空回退 Identity 短名。运行时不做 Title Case，保持用户原文。
+function searchDisplayName(releaseManifest: unknown, fallback: string): string {
+  const displayName = (releaseManifest as { displayName?: unknown }).displayName;
+  return typeof displayName === 'string' && displayName.trim() ? displayName : fallback;
+}
 function resolveDependencyLock(
   repository: SkillRepository,
   rootName: string,
