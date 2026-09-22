@@ -14,6 +14,8 @@ import { ApiError } from '../api-error.js';
 
 export interface SkillInfo {
   name: string;
+  /** 对外当前显示名（ADR-0048）：曾发布取最近 Release 快照，否则取 upload 同步值。 */
+  displayName?: string;
   description?: string;
   createdBy?: string;
   owner?: string;
@@ -93,7 +95,11 @@ async function infoFromBuiltin(name: string, options: NetworkCommandOptions): Pr
 }
 
 export function formatSkillInfo(info: SkillInfo): string {
-  const lines: string[] = [`Name: ${info.name}`];
+  const lines: string[] = [
+    info.displayName && info.displayName !== info.name
+      ? `Name: ${info.displayName} (${info.name})`
+      : `Name: ${info.name}`
+  ];
   if (info.description) {
     lines.push(`Description: ${info.description}`);
   }

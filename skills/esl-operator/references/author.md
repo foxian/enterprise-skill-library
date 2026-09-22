@@ -4,11 +4,13 @@
 写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
 
 ## 初始化新技能（就地补缺）
-`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 3`、`name`、`version: 0.1.0`，`license` 默认 `MIT`）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
+`esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 4`、`name`、`version: 0.1.0`、`license` 默认 `MIT`、`displayName` 默认按短名 Title Case）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
 
 短名权威顺序：已有 `SKILL.md.name` > `--name` > 目录 basename。已有 `SKILL.md` 时整个文件不动；frontmatter 只要包含合法的 `name` 和 `description` 即可，`metadata`、`allowed-tools` 等额外键会被接受并忽略。缺少必填字段或类型非法时，`init` 只补缺并打一行警告，严格校验交给 `esl validate`。目录已是 git 仓库（含父级）时跳过 `git init`。
 
-在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把四个字段都用旗标给全**，避免依赖问答。
+在终端里 `init` 会逐项询问仍缺失字段的 description、license、keywords、displayName、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把五个字段都用旗标给全**，避免依赖问答。
+
+`displayName` 是显示名（ADR-0048）：`init` 自动把短名转成标题（`markdown-master` → `Markdown Master`）预填为种子；想用中文显示名直接删除种子输入中文即可，留空则生成 v4 清单时省略该字段。
 
 AI Agent 必须运行 `esl init ./my-skill --agent-interaction --agent-tool <tool>`，
 让缺失输入以 JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。Claude Code、
@@ -39,16 +41,17 @@ esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '
 `esl upload [./path] [--license SPDX] [--confirm-identity <技能名>]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录用位置路径（`esl upload ./markdown-master`，默认当前目录）或全局 `-C` 指定。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
 
 - **技能描述随每次 upload 同步**：`upload` 始终以 `SKILL.md` frontmatter 的 description 为准，把技能描述登记/更新到服务器（首次注册随登记写入；已托管源的后续同步走独立的仅 Maintainer 可用的 description 更新）。描述更新失败不阻断源码同步，仅在输出中提示——看到提示可如实转述，不要重试整个 upload。管理后台的技能管理页面展示的就是这个「最近一次 upload 登记的描述」，改了 `SKILL.md` 的描述后要跑一次 `upload` 才会在线上生效。
+- **显示名随每次 upload 同步**：`upload` 以 `release.json` 的 `displayName` 为准确认/更新服务器显示名（ADR-0048），与 description 一样走「最近一次 upload 登记的值」；已托管源的后续同步走独立的仅 Maintainer 可用的 display-name 更新。改了 `release.json` 的 `displayName` 后要跑一次 `upload` 才会在线上生效。
 
 - **归属由 `release.json` 的 `name` 决定**（ADR-0032）：`@组织名/短名` 要求上传者是该组织成员（任何成员都可直发新技能，上传者成为初始 Maintainer，无需组织管理员预授权）；裸短名或 `@自己的用户名/短名` 落在个人命名空间。身份在**首次 upload 时固定**，之后 `publish` 只会断言 `name` 与既定身份一致——不一致直接报错，归属变更不得借发布顺车。
 - **首次 upload 先确认身份**（ADR-0039）：交互式终端会显示将要创建的完整技能身份并要求 `y/N` 确认；非交互模式必须传 `--confirm-identity <release.json.name>`，值要和清单里的 `name` 完全一致。确认错了就改 `release.json` 后再上传，别把错误归属注册成新源。
 - **已托管源禁止跨 namespace 漂移**（ADR-0039）：后续 `upload` 会在 fetch/rebase/push 前比对 `release.json` 声明的 namespace 与 `esl` remote 揭示的既有 namespace；不一致直接阻断。恢复 `release.json` 的原 namespace 后继续同步；确需其他归属，只能显式创建新源，不支持跨 namespace 迁移。
-- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 3`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`，可用 `--license` 覆盖），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
+- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`，可用 `--license` 覆盖），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
 - **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
 - 已托管目录（有 `esl` remote）上 fetch 失败时，`upload` 先用 Registry API 做一次只读探测再报错（ADR-0027），按探测结果分三种文案：**① 技能身份在服务器可见但 Git 源同步不了**——凭据陈旧或缺仓库权限，提示用维护它的账号重新登录后再 `esl upload`；**② 身份可见但服务器 cloneUrl 与 remote 仓库路径不一致**——remote 指向陈旧路径（如改名后），提示核对后手动 `git remote remove esl` 再重新 `esl upload`；**③ 探测失败（不确定）**——降级为统一的两种可能文案（其他账号维护 或 源已不存在），出路上「切维护账号重登」或确认删除后手动 `git remote remove esl` 两步重建。push 失败走同一统一文案并附 `git push esl HEAD:main` 收尾提示。CLI 绝不自动删除 remote 重注册——看到这类报错别提议删 remote，先按文案里的探测结论引导：能确定「身份可见」就只查账号/权限，探测失败才让用户去确认服务器源是否还在。
 
 ## 发布
-`esl publish [./path] [--message <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 3`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+`esl publish [./path] [--message <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
 
 - **传版本号会被拒绝**：`esl publish 1.0.0` 不再兼容（会被识别为误传的版本参数并报错指路 `esl version`）。要发 1.0.0 就先 `esl version 1.0.0`（或 `esl version major`）。
 - **自动同步源码**：对已托管源，`publish` 会 `fetch`、必要时 rebase 到 `esl/main`、并 push 本地领先的提交与 tag——忘记 push 不再阻断发布；rebase 冲突时保留现场，提示解决后重跑。

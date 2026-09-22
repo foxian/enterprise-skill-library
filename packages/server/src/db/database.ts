@@ -69,6 +69,7 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
     ensureColumn(db, 'maintainers_json', "TEXT NOT NULL DEFAULT '[]'");
     ensureColumn(db, 'skill_id', 'TEXT');
     ensureColumn(db, 'status', "TEXT NOT NULL DEFAULT 'published'");
+    ensureColumn(db, 'display_name', 'TEXT');
     ensureColumn(db, 'deletion_requested_by', 'TEXT');
     ensureColumn(db, 'deletion_reason', 'TEXT');
     ensureColumn(db, 'deletion_error', 'TEXT');
@@ -137,6 +138,8 @@ export interface SkillRecord {
   scope: string;
   skillName: string;
   description: string;
+  /** 当前源码显示名（ADR-0048）：从未发布时作为对外显示名来源；曾发布后由最近 Release 快照覆盖。 */
+  displayName?: string;
   createdBy: string;
   owner: string;
   maintainers: string[];
@@ -181,16 +184,17 @@ export class SkillRepository {
   createSkill(skill: SkillRecord): void {
     const stmt = this.db.prepare(`
       INSERT INTO skills (
-        name, scope, skill_name, description, author, created_by,
+        name, scope, skill_name, description, display_name, author, created_by,
         owner, maintainers_json, visibility, git_repo_path
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       skill.name,
       skill.scope,
       skill.skillName,
       skill.description,
+      skill.displayName ?? null,
       skill.createdBy,
       skill.createdBy,
       skill.owner,
@@ -205,10 +209,10 @@ export class SkillRepository {
     const status = skill.status ?? 'active-unreleased';
     const stmt = this.db.prepare(`
       INSERT INTO skills (
-        name, skill_id, scope, skill_name, description, author, created_by,
+        name, skill_id, scope, skill_name, description, display_name, author, created_by,
         owner, maintainers_json, visibility, status, git_repo_path
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       skill.name,
@@ -216,6 +220,7 @@ export class SkillRepository {
       skill.scope,
       skill.skillName,
       skill.description,
+      skill.displayName ?? null,
       skill.createdBy,
       skill.createdBy,
       skill.owner,
@@ -349,6 +354,13 @@ export class SkillRepository {
     return result.changes > 0;
   }
 
+  updateSkillDisplayName(name: string, displayName: string | null): boolean {
+    const result = this.db
+      .prepare(`UPDATE skills SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+      .run(displayName, name);
+    return result.changes > 0;
+  }
+
   /**
    * 最终删除与审计在同一事务：如果技能记录删除成功，审计必须已经写入；audit
    * 不设 skills 外键，因此审计生命周期独立于被删记录。
@@ -477,6 +489,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -502,6 +515,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -524,6 +538,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -576,6 +591,7 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
@@ -595,17 +611,28 @@ export class SkillRepository {
         scope,
         skill_name AS skillName,
         description,
+        display_name AS displayName,
         created_by AS createdBy,
         owner,
         maintainers_json AS maintainersJson,
         visibility,
         git_repo_path AS gitRepoPath
       FROM skills
-      WHERE (name LIKE ? OR description LIKE ?)
+      WHERE (name LIKE ? OR description LIKE ? OR display_name LIKE ? OR EXISTS (
+          SELECT 1
+          FROM skill_releases r
+          WHERE r.skill_name = skills.name
+            AND r.deleted_at IS NULL
+            AND r.id = (SELECT MAX(r2.id) FROM skill_releases r2
+                        WHERE r2.skill_name = skills.name AND r2.deleted_at IS NULL)
+            AND json_extract(r.release_manifest_json, '$.displayName') LIKE ?
+        ))
         AND (status IS NULL OR status = 'published' OR status = 'active-published')
     `);
     const term = `%${query}%`;
-    return (stmt.all(term, term) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
+    // 对外显示名对已发布技能来自最近 Release 快照（ADR-0048），故 search 除
+    // name/description/当前源码显示名外，还要匹配最近一次发布的 displayName。
+    return (stmt.all(term, term, term, term) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
       .map(deserializeSkill);
   }
 
@@ -1510,6 +1537,7 @@ function deserializeSkill(
     visibility: row.visibility,
     gitRepoPath: row.gitRepoPath
   };
+  if (row.displayName) skill.displayName = row.displayName;
   if (row.skillId) skill.skillId = row.skillId;
   if (row.skillId && row.status) skill.status = row.status;
   if (row.deletionRequestedBy) skill.deletionRequestedBy = row.deletionRequestedBy;

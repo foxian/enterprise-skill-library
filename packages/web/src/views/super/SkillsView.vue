@@ -2,7 +2,12 @@
   <div>
     <el-card class="data-card" shadow="never">
       <el-table :data="rows" data-test="super-skills-table" v-loading="loading">
-        <el-table-column prop="name" :label="t('skill.name')" />
+        <el-table-column :label="t('skill.name')">
+          <template #default="{ row }">
+            <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
+            <code class="skill-path">{{ row.name }}</code>
+          </template>
+        </el-table-column>
         <el-table-column prop="scope" :label="t('columns.organization')" width="140" />
         <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
         <el-table-column :label="t('columns.status')" width="100">

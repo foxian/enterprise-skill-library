@@ -20,7 +20,12 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane :label="t('skill.managedTab')" name="managed">
           <el-table :data="visibleManagedRows" data-test="skill-list-managed" v-loading="loading">
-            <el-table-column prop="name" :label="t('skill.name')" />
+            <el-table-column :label="t('skill.name')">
+              <template #default="{ row }">
+                <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
+                <code class="skill-path">{{ row.name }}</code>
+              </template>
+            </el-table-column>
             <el-table-column :label="t('columns.namespace')" width="140">
               <template #default="{ row }">@{{ row.scope }}</template>
             </el-table-column>
@@ -54,7 +59,12 @@
         </el-tab-pane>
         <el-tab-pane :label="t('skill.sharedTab')" name="shared">
           <el-table :data="visibleSharedRows" data-test="skill-list-shared" v-loading="loading">
-            <el-table-column prop="name" :label="t('skill.name')" />
+            <el-table-column :label="t('skill.name')">
+              <template #default="{ row }">
+                <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
+                <code class="skill-path">{{ row.name }}</code>
+              </template>
+            </el-table-column>
             <el-table-column :label="t('columns.namespace')" width="140">
               <template #default="{ row }">@{{ row.scope }}</template>
             </el-table-column>

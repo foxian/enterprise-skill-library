@@ -527,6 +527,7 @@ describe('agent interaction', () => {
         'Skill description',
         'License',
         'Keywords',
+        'Display name',
         'Namespace'
       ]);
       expect(payload.questions[0].options).toEqual([
@@ -534,7 +535,9 @@ describe('agent interaction', () => {
       ]);
       expect(payload.questions[1].options).toEqual([{ label: 'MIT', description: '默认值' }]);
       expect(payload.questions[2].multiSelect).toBe(true);
-      expect(payload.questions[3].options).toEqual([{ label: 'personal', description: '默认值' }]);
+      expect(payload.questions[3].multiSelect).toBe(false);
+      expect(payload.questions[3].options).toEqual([{ label: 'My Skill', description: '默认值' }]);
+      expect(payload.questions[4].options).toEqual([{ label: 'personal', description: '默认值' }]);
     } finally {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
@@ -835,7 +838,7 @@ describe('agent interaction', () => {
         ]
       });
       expect(JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'))).toMatchObject({
-        schemaVersion: 3,
+        schemaVersion: 4,
         version: '2.0.0'
       });
     } finally {
@@ -920,6 +923,7 @@ describe('agent interaction', () => {
         'Skill description',
         'License',
         'Keywords',
+        'Display name',
         'Namespace'
       ]);
       expect(payload.questions[0].multiSelect).toBe(false);
@@ -930,7 +934,9 @@ describe('agent interaction', () => {
       expect(payload.questions[2].multiSelect).toBe(true);
       expect(payload.questions[2].options).toEqual([]);
       expect(payload.questions[3].multiSelect).toBe(false);
-      expect(payload.questions[3].options).toEqual([{ label: 'personal', description: '默认值' }]);
+      expect(payload.questions[3].options).toEqual([{ label: 'My Skill', description: '默认值' }]);
+      expect(payload.questions[4].multiSelect).toBe(false);
+      expect(payload.questions[4].options).toEqual([{ label: 'personal', description: '默认值' }]);
     } finally {
       stdoutSpy.mockRestore();
       stderrSpy.mockRestore();
@@ -970,6 +976,7 @@ describe('agent interaction', () => {
         'Skill description',
         'License',
         'Keywords',
+        'Display name',
         'Namespace'
       ]);
     } finally {

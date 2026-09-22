@@ -48,7 +48,12 @@
       </template>
       <el-empty v-if="!loading && managedSkills.length === 0" :description="t('overview.noManagedSkills')" />
       <el-table v-else :data="managedSkills" data-test="overview-managed-skills" v-loading="loading">
-        <el-table-column prop="name" :label="t('skill.name')" />
+        <el-table-column :label="t('skill.name')">
+          <template #default="{ row }">
+            <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
+            <code class="skill-path">{{ row.name }}</code>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('columns.namespace')" width="160">
           <template #default="{ row }">@{{ row.scope }}</template>
         </el-table-column>
