@@ -43,6 +43,27 @@ describe('skill visibility', () => {
       gitRepoPath: 'acme/tool',
       status: 'active-published'
     });
+    // search（ADR-0049）只返回有 Skill Release 的技能；给夹具补发布记录。
+    const tool = repository.getSkill('@acme/tool')!;
+    repository.createRelease({
+      skillId: tool.skillId!,
+      skillName: '@acme/tool',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: 'packages/tool-1.0.0.tgz',
+      checksum: 'checksum-tool',
+      releaseManifest: {
+        schemaVersion: 3,
+        name: '@acme/tool',
+        version: '1.0.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      dependencyLock: {},
+      createdBy: 'alice'
+    });
     db.close();
     app = await buildApp({ dbPath, giteaService: gitea as any, repoOwner: 'esl-skills' });
     gitea.validateToken.mockImplementation(async (token: string) => {
