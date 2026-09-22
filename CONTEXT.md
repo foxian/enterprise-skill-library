@@ -50,7 +50,12 @@ Identity 安装时，客户端提示迁移到新 Identity；指定历史 Release
 ## 技能描述 (Skill Description)
 
 Server-hosted Skill 的展示性一句话元数据，由 Source Upload 从源码登记，随后续 Source Update 更新。它描述当前源码，不属于任何 Skill Release 的固化内容；每个 Published Skill Package 携带的是自己发布时刻的描述快照。
-_Avoid_: Release 描述（当指技能当前描述时）。
+_Avoid_: Release 描述（当指技能当前描述时）；技能显示名（当指短标题时）。
+
+## 技能显示名 (Skill Display Name)
+
+Skill 面向人的短标题，与 Skill Identity 解耦，可为中文或其他自然语言。它是纯展示概念，不参与身份、授权或安装判定；声明在 Release Manifest 中。对外展示取最近一次 Skill Release（按发布时间，含预发布）快照中的显示名；若从未发布，则取 Source Upload 同步的当前源码显示名；仍未设置则回退 Identity 的短名。与技能描述分工：显示名回答「叫什么」，描述回答「做什么」。
+_Avoid_: 技能名（当指 Skill Identity 时）；中文显示名（当把该字段说成中文专用时）；技能描述（当指短标题时）。
 
 ## Server-hosted Skill Source
 
@@ -376,6 +381,13 @@ _Avoid_: 团队名（当指团队标识名时）。
 平台内所有 Skill User 都可搜索、安装；`private`（默认）：仅 Maintainer 与
 被授权的团队、成员可见可安装。组织成员对组织内 private 技能默认没有任何
 权限，授权通过共享给常设团队或逐技能添加团队、成员实现（ADR-0032）。
+
+## 可安装技能发现 (Installable Skill Discovery)
+
+面向当前主体（匿名或已登录 Skill User）检索、浏览其可见的已发布可安装技能。
+它只包含有 Skill Release、且按技能可见性与授权可被该主体安装消费的技能；不包含
+未发布源码，也不表达 managed/shared 等管理关系。与管理向技能清单（inventory）分流。
+_Avoid_: inventory（当指消费者搜索/浏览时）；远端 list（当指可安装发现时）。
 
 ## 技能团队授权 (Skill Team Grant)
 

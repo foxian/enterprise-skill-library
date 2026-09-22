@@ -107,13 +107,28 @@ esl account change-password
 如果你是技能的使用者，希望在项目或个人开发环境中使用团队共享的技能：
 
 ### 1. 搜索技能 (Search)
-在 ESL Server 搜索可用技能：
+
+`esl search` 是消费者发现面：列出或查询当前能从 ESL Server **安装**的已发布技能
+（ADR-0049）。不传 query 即浏览全部可见技能；匿名可见 `public`，登录后附加有权的
+`private`。未发布技能不出现在此结果中（管理清单另见 Web inventory）。
+
 ```bash
+# 浏览全部可见的已发布可安装技能
+esl search
+
+# 按关键词查询（匹配 Identity / 描述 / 显示名 / keywords）
 esl search code-review
 
-# 输出 JSON 结构化数据
+# 收窄：Namespace、keyword 硬过滤、可见性、条数上限
+esl search review --namespace acme --keyword git --visibility public --limit 50
+
+# 结构化输出（非 TTY / 脚本 / Agent）
 esl search code-review --json
 ```
+
+交互式终端（TTY，且未加 `--json` / `--no-input`）下可用箭头选择技能，并调整
+Namespace / 可见性等筛选；选中后可查看详情，或在确认完整 `esl install …` 命令后安装。
+`esl install` 本身不做远端目录浏览。
 
 ### 2. 查看技能详情 (Info)
 查看指定技能的元数据、版本及源码信息：
