@@ -73,7 +73,8 @@ export async function executeUpload(options: UploadOptions = {}): Promise<Upload
     directory,
     identity,
     sourceValidation.data.skillMd.name,
-    sourceValidation.data.skillMd.description
+    sourceValidation.data.skillMd.description,
+    sourceValidation.data.releaseManifest.displayName
   );
 }
 
@@ -222,7 +223,8 @@ async function uploadSource(
   directory: string,
   identity: string,
   shortName: string,
-  description: string
+  description: string,
+  displayName: string | undefined
 ): Promise<UploadedSkill> {
   const authToken = await requireFreshToken(options);
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
@@ -248,16 +250,16 @@ async function uploadSource(
     }
     await assertHostedNamespace(options, identity, skillNameFromRemote(remoteUrl));
     uploaded = { name: skillNameFromRemote(remoteUrl), skillId: '', cloneUrl: remoteUrl };
-    // 技能描述(CONTEXT:Skill Description)随每次 Source Update 登记到服务器:
-    // 它是纯元数据更新,尽力而为——失败不阻断源码同步,仅在输出中提示。
+    // 技能描述(CONTEXT:Skill Description)与显示名随每次 Source Update 登记到服务器:
+    // 都是纯元数据更新,尽力而为——失败不阻断源码同步,仅在输出中提示。
+    const [hostScope, hostShortName] = uploaded.name.split('/');
+    const descriptionImpl = options.customFetch ?? fetch;
     try {
-      const [scope, shortName] = uploaded.name.split('/');
-      const descriptionImpl = options.customFetch ?? fetch;
       const descriptionResponse = await fetchWithTimeout(
         descriptionImpl,
         apiUrl(
           server,
-          `/api/skills/${encodeURIComponent(scope)}/${encodeURIComponent(shortName)}/description`
+          `/api/skills/${encodeURIComponent(hostScope)}/${encodeURIComponent(hostShortName)}/description`
         ),
         {
           method: 'PUT',
@@ -276,6 +278,32 @@ async function uploadSource(
     } catch {
       console.warn('Note: the description update could not reach the server; the source sync is unaffected.');
     }
+    // 显示名（ADR-0048）：随每次 Source Update 把当前源码 displayName 登记到服务器。
+    // 同样尽力而为——失败不阻断源码同步。已发布后对外标题由最近 Release 快照覆盖。
+    try {
+      const displayNameResponse = await fetchWithTimeout(
+        descriptionImpl,
+        apiUrl(
+          server,
+          `/api/skills/${encodeURIComponent(hostScope)}/${encodeURIComponent(hostShortName)}/display-name`
+        ),
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `token ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ displayName: displayName ?? null })
+        }
+      );
+      if (!displayNameResponse.ok) {
+        console.warn(
+          `Note: the server rejected the display name update (${displayNameResponse.status}); the source sync is unaffected.`
+        );
+      }
+    } catch {
+      console.warn('Note: the display name update could not reach the server; the source sync is unaffected.');
+    }
   } else {
     const fetchImpl = options.customFetch ?? fetch;
     const response = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/skills/upload'), {
@@ -284,7 +312,7 @@ async function uploadSource(
         Authorization: `token ${authToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name: identity, description })
+      body: JSON.stringify({ name: identity, description, displayName })
     });
     if (!response.ok) {
       await requireOkResponse(response, 'Failed to upload skill source');

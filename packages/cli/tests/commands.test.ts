@@ -5,7 +5,7 @@ describe('network CLI commands', () => {
   it('searches skills via API server', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => [{ name: '@myorg/my-skill', description: 'Test skill' }]
+      json: async () => [{ name: '@myorg/my-skill', description: 'Test skill', displayName: 'My Skill' }]
     });
 
     const results = await executeSearch('test', {
@@ -15,6 +15,7 @@ describe('network CLI commands', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0].name).toBe('@myorg/my-skill');
+    expect(results[0].displayName).toBe('My Skill');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/skills/search?q=test',
       expect.objectContaining({ signal: expect.anything() })
@@ -24,7 +25,7 @@ describe('network CLI commands', () => {
   it('fetches skill info via API server', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ name: '@myorg/my-skill', versions: ['0.1.0'] })
+      json: async () => ({ name: '@myorg/my-skill', versions: ['0.1.0'], displayName: 'My Skill' })
     });
 
     const result = await executeInfo('@myorg/my-skill', {
@@ -33,6 +34,7 @@ describe('network CLI commands', () => {
     });
 
     expect(result.name).toBe('@myorg/my-skill');
+    expect(result.displayName).toBe('My Skill');
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/skills/%40myorg%2Fmy-skill',
       expect.objectContaining({ signal: expect.anything() })
@@ -89,5 +91,17 @@ describe('network CLI commands', () => {
 
   it('omits absent fields in human info', () => {
     expect(formatSkillInfo({ name: '@myorg/my-skill' })).toBe('Name: @myorg/my-skill');
+  });
+
+  it('shows the display name in the title position when it differs from the identity', () => {
+    expect(
+      formatSkillInfo({ name: '@myorg/my-skill', displayName: 'My Skill', description: 'A test skill' })
+    ).toBe('Name: My Skill (@myorg/my-skill)\nDescription: A test skill');
+  });
+
+  it('does not repeat the identity when the display name equals it', () => {
+    expect(formatSkillInfo({ name: '@myorg/my-skill', displayName: '@myorg/my-skill' })).toBe(
+      'Name: @myorg/my-skill'
+    );
   });
 });

@@ -34,10 +34,11 @@ describe('esl init', () => {
 
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       name: 'my-skill',
       version: '0.1.0',
       license: 'MIT',
+      displayName: 'My Skill',
       keywords: [],
       compatibility: {},
       dependencies: {}
@@ -245,7 +246,7 @@ describe('esl init', () => {
 
     expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe(original);
     expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       version: '0.1.0'
     });
     expect(warnedInvalid).toBe(true);
@@ -279,7 +280,7 @@ describe('esl init', () => {
     expect(warnedInvalid).toBe(false);
     expect(fs.readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toBe(original);
     expect(JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       version: '0.1.0'
     });
   });
@@ -305,7 +306,7 @@ describe('esl init', () => {
 
     const targetDir = await executeInit({ directory: skillPath(), runGitInit: false, homeDir, promptText });
 
-    expect(asked).toHaveLength(3);
+    expect(asked).toHaveLength(4);
     expect(asked.some((question) => question.includes('escription'))).toBe(false);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('Apache-2.0');
@@ -326,7 +327,7 @@ describe('esl init', () => {
       }
     });
 
-    expect(asked).toHaveLength(4);
+    expect(asked).toHaveLength(5);
     const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
     expect(releaseJson.license).toBe('MIT');
     expect(releaseJson.keywords).toEqual([]);

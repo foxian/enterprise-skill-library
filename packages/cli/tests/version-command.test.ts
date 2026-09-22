@@ -153,7 +153,7 @@ describe('esl version', () => {
 
     expect(result).toBe('2.0.0');
     const manifest = readReleaseJson(skillDir);
-    expect(manifest.schemaVersion).toBe(3);
+    expect(manifest.schemaVersion).toBe(4);
     expect(manifest.version).toBe('2.0.0');
   });
 

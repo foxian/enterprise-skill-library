@@ -155,6 +155,7 @@ describe('skill RBAC permissions', () => {
       skill: {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
+        displayName: 'reviewer',
         status: 'active-published',
         everPublished: false,
         deletionError: null,
@@ -199,6 +200,7 @@ describe('skill RBAC permissions', () => {
       skill: {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
+        displayName: 'reviewer',
         status: 'active-published',
         everPublished: false,
         deletionError: null,

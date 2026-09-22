@@ -223,7 +223,7 @@ description: Use when reviewing code changes.
 
     const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
     expect(created).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       name: 'code-review',
       version: '0.1.0',
       license: 'Apache-2.0',
@@ -253,7 +253,7 @@ description: Use when reviewing code changes.
 
     const created = JSON.parse(fs.readFileSync(path.join(skillDir, 'release.json'), 'utf8'));
     expect(created).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       name: 'code-review',
       version: '0.1.0',
       license: 'MIT',

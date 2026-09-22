@@ -73,7 +73,7 @@ esl init ./my-skill --description "代码审查技能" --license MIT
 多个或嵌套参数使用 `--params-json`：
 
 ```bash
-esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
+esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"display-name":"代码审查","namespace":"personal"}'
 ```
 
 在 Claude Code、Codex 或 Trae 里运行 `init` 时命令要带对应的 `--agent-tool`，

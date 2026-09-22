@@ -4,10 +4,10 @@
 写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `adapt` `tools remove`。
 
 ## 搜索
-`esl search <query> [--json]` —— 在 ESL Server 搜可用技能。要取字段或比对时加 `--json`，你直接解析结构化数据。
+`esl search <query> [--json]` —— 在 ESL Server 搜可用技能。**只返回已发布的技能**；标题位优先显示名（`displayName`，ADR-0048），`@scope/短名` 作技术名。要取字段或比对时加 `--json`，你直接解析结构化数据。
 
 ## 查看详情
-`esl info @scope/skill-name [--json]` —— 技能的元数据、版本、源码信息。已登录时请求会带上当前 Skill User Token：private 技能对其维护账号与有权限成员可见；未登录只能看到 public 技能。
+`esl info @scope/skill-name [--json]` —— 技能的元数据、版本、源码信息；对外显示名（`displayName`，ADR-0048）也随详情返回。已登录时请求会带上当前 Skill User Token：private 技能对其维护账号与有权限成员可见；未登录只能看到 public 技能。
 
 ## 免安装试用
 `esl use @scope/skill-name|./path [--version V]` —— 把技能 Prompt 文本打到 stdout，不安装、不改项目。可管道：`esl use @scope/skill-name | <agent>`。

@@ -36,7 +36,7 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
-**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v3，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`publish` 只断言一致，改归属不得靠改 `name`。
+**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `upload` / `publish` / `source` / `version` / `rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v4，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`publish` 只断言一致，改归属不得靠改 `name`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空格），不参与身份与授权——搜索/列表的标题位优先显示名、`@scope/短名` 作技术名。
 
 ## 输出与解析
 

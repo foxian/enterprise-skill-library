@@ -7,6 +7,7 @@ import {
   createAgentInteractionRequest,
   createMinimalReleaseManifest,
   loadConfig,
+  titleCaseDisplayName,
   validateSkillMd,
   validateSkillSourceDirectory,
   type LocalStoreOptions,
@@ -30,6 +31,8 @@ export interface InitOptions extends LocalStoreOptions {
   license?: string;
   keywords?: string[];
   description?: string;
+  /** release.json displayName；默认按短名 Title Case 生成种子（ADR-0048）。 */
+  displayName?: string;
   /** Skips every prompt and writes the missing artifacts as-is. */
   noInput?: boolean;
   /** Injected by tests in place of the interactive prompt. */
@@ -151,7 +154,10 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
     ));
 
   const defaultDescription = `Use when a user needs the ${skillName} workflow or domain guidance.`;
+  const defaultName = skillName ?? path.basename(targetDir);
+  const displayNameSeed = titleCaseDisplayName(defaultName);
   let description = options.description ?? defaultDescription;
+  let displayName = options.displayName ?? (generateReleaseJson ? displayNameSeed : undefined);
   let license = options.license ?? 'MIT';
   let keywords = options.keywords ?? [];
   let namespace: string | null | undefined;
@@ -183,6 +189,15 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
         label: 'Keywords',
         required: false,
         default: []
+      });
+    }
+    if (generateReleaseJson && options.displayName === undefined) {
+      fields.push({
+        id: 'displayName',
+        kind: 'text' as const,
+        label: 'Display name',
+        required: false,
+        default: displayNameSeed
       });
     }
     if (generateReleaseJson && options.namespace === undefined) {
@@ -226,6 +241,10 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
         .map((keyword) => keyword.trim())
         .filter((keyword) => keyword.length > 0);
     }
+    if (generateReleaseJson && options.displayName === undefined) {
+      const answer = (await ask(`Display name [${displayNameSeed}]: `, displayNameSeed)).trim();
+      displayName = answer || displayNameSeed;
+    }
     if (generateReleaseJson && options.namespace === undefined) {
       const choices = await resolveNamespaceChoices(options);
       if (choices) {
@@ -259,12 +278,11 @@ export async function executeInit(options: InitOptions = {}): Promise<string> {
   }
 
   if (generateReleaseJson) {
-    // v3 的 name 是归属声明（ADR-0032）：默认裸名，由服务端按上传者补全
+    // v4 的 name 是归属声明（ADR-0032）：默认裸名，由服务端按上传者补全
     // 个人命名空间；组织归属必须显式选择，避免静默推断不可逆身份。
-    const defaultName = skillName ?? path.basename(targetDir);
     namespace ??= options.namespace === undefined ? null : normalizeNamespace(options.namespace);
     const scopedName = namespace ? `@${namespace}/${defaultName}` : defaultName;
-    const releaseJson = { ...createMinimalReleaseManifest(scopedName, license), keywords };
+    const releaseJson = { ...createMinimalReleaseManifest(scopedName, license, displayName), keywords };
     await fs.writeFile(releaseJsonPath, `${JSON.stringify(releaseJson, null, 2)}\n`, 'utf8');
   }
 
