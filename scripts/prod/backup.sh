@@ -51,11 +51,27 @@ docker cp "$(api_cid)":/data/esl.db.snapshot-"$TS" "$STAGING/esl.db"
 compose exec -T api rm "/data/esl.db.snapshot-$TS"
 
 echo "backup: copying uploaded packages..."
-docker cp "$(api_cid)":/data/packages "$STAGING/packages"
+# 全新环境尚无技能上传时 /data/packages 不存在，docker cp 会失败；跳过即可
+if compose exec -T api sh -c 'test -d /data/packages' 2>/dev/null; then
+  docker cp "$(api_cid)":/data/packages "$STAGING/packages"
+else
+  echo "backup: no uploaded packages yet — skipping"
+fi
 
 echo "backup: copying Gitea data (brief gitea pause for consistency)..."
 compose stop gitea >/dev/null
-cp -r "$DATA_DIR/gitea" "$STAGING/gitea"
+DATA_DIR_ABS="$(readlink -f "$DATA_DIR")"
+mkdir -p "$STAGING/gitea"
+# 普通数据以宿主用户复制（保持 UID 1000 属主，恢复后容器 git 用户可直接读写）
+for entry in "$DATA_DIR/gitea"/*; do
+  [ "$(basename "$entry")" = "ssh" ] && continue
+  cp -a "$entry" "$STAGING/gitea/"
+done
+# ssh 主机密钥在 gitea 镜像中为 root:root 0600（安全设计，且容器每次启动会把
+# 密钥文件改回 root 属主），宿主用户不可读——经 root sidecar 容器复制，
+# 不依赖宿主机侧属主
+docker run --rm -v "$DATA_DIR_ABS/gitea:/data" -v "$STAGING/gitea:/out" --user root \
+  gitea/gitea:1.22 sh -c 'rm -rf /out/ssh && cp -a /data/ssh /out/ssh'
 compose start gitea >/dev/null
 
 echo "backup: copying bootstrap secrets..."

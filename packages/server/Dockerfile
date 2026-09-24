@@ -22,6 +22,11 @@ RUN npm run build --workspace @esl/core && npm run build --workspace @esl/i18n &
 
 EXPOSE 3000
 
+# 以非 root 运行（node 镜像内置用户 node，UID 1000）：
+# 容器写入 /data 的数据归 UID 1000，与宿主机部署用户一致，
+# 备份/恢复脚本无需 root 即可读写持久化数据（ADR-0047 运维基线）
+USER node
+
 # 健康检查用 node 内置 fetch（slim 镜像无 curl）；server 容器据此等 api 真正就绪
 HEALTHCHECK --interval=5s --timeout=3s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://localhost:'+(process.env.PORT||'3000')+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
