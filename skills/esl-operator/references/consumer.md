@@ -44,10 +44,15 @@
 - 同一源重复 link 是幂等的；换成另一个源必须 `--force`。
 - 未传 `--tools` 时按默认配置或交互 checkbox 选择；非交互环境或 `--no-input` 必须显式传 `--tools` 或 `--no-tools`。
 
-`esl unlink @scope/skill-name [--global]`
+`esl unlink [@scope/skill-name|./path] [--global]`
 
 - 解除 Skill Source Link。有 staging 时纯本地恢复原副本和依赖/锁/安装状态；无 staging 时移除 link 和记录。
 - staging 缺失或损坏时报错并保留 link 状态，不尝试联网恢复。
+- **主推：** 显式 `@scope/skill-name`；已在技能目录且当初是 **global** link 时，可 `esl unlink --global`（省略身份，读当前目录 `release.json`）。
+- **项目级：** 在**项目根**执行 `esl unlink ./相对路径`，或显式传身份。不承诺「cd 进技能子目录后做项目级裸 unlink」能找对 Store（CLI 不以技能目录向上查找 `.eslib`）。
+- 非 `@` 参数一律视为路径。裸短名 `release.json.name` 按 `@local/<短名>` 推导。
+- 若目录推出的身份与真实已 link 身份不一致，报错并列出真实身份；请改传显式 `@identity`。
+- 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 只改工作目录 / 项目根，位置路径决定读哪个技能目录）。
 
 `esl uninstall` 对 link 技能只删除 Skill Store link、记录、Tool Link 和 staging，不会递归删除本地源码目录；`esl update` 会跳过 link 技能并报告 skipped。
 `esl list` / `esl ls [--global] [--json]` —— 当前项目或全局 Skill Store 中已安装的技能。
