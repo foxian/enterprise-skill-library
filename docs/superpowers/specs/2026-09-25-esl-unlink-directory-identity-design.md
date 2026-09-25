@@ -54,6 +54,7 @@ esl unlink [skill-name-or-path] [--global]
   `esl unlink @scope/name`。不承诺「cd 进技能子目录后无路径的项目级 unlink」一定找得到
   Store（除非项目根恰好就是该技能目录）。
 - 帮助与 `esl-operator` 必须写明上述区别，避免把省略写成 project/global 同等可用。
+- **项目级裸 unlink 脚枪提示**：当未传 `--global`、参数为省略或 `.`（即技能目录=cwd）、cwd 可识别为技能源码目录（存在可用的 `SKILL.md` 与/或通过校验的 `release.json`），且推导身份在目标（项目级）Store 中未 link 时，错误信息必须追加可行动提示：项目级请在项目根执行 `esl unlink ./相对路径` 或传入 `@identity`；若实际是全局 link 则加上 `--global`。该提示不改变查找范围（仍不向上找 `.eslib`，仍不跨 global 搜索），只改善失败文案。显式路径或显式 `@identity` 失败时不强制套用本特判。
 
 `--global` 语义不变：只在对应一侧 Skill Store 查找并解除；不自动跨 project/global
 搜索。
@@ -86,6 +87,7 @@ esl unlink [skill-name-or-path] [--global]
 9. As a 技能作者, I want `esl unlink -C <project> ./skills/foo` 中位置路径只决定读取哪个技能目录、项目根仍是 `-C` 后的目录, so that 项目级 Store 位置与 `link` 一致。
 10. As a 技能作者, I want 当目录推出的身份与真实已 link 身份不一致时看到专用错误，并列出全部匹配身份, so that 我能立刻改用正确的 `@scope/name`。
 11. As a 文档/Agent 使用者, I want help 与 `esl-operator` 主推「显式身份」与「global 下目录内省略」，并将项目级 `./path`（须在项目根）与 `-C` 标为进阶写法, so that 不会误以为在技能子目录里做项目级省略 unlink 一定成功，也不会以为会删除源码。
+12. As a 技能作者, I want 在技能子目录误跑项目级裸 `esl unlink` 时看到「去项目根用 ./path / 加 --global」的提示, so that 我不会只看到含糊的 not linked，而是明白该换到项目根或加 --global。
 
 ## Implementation Decisions
 
@@ -96,6 +98,7 @@ esl unlink [skill-name-or-path] [--global]
 - 复用现有 `validateReleaseManifest` / `parseSkillName` / 现有路径比较辅助；不为这件
   糖衣在 `packages/core` 新造领域类型。
 - 目录→身份的解析失败必须发生在任何 Store 变更之前。
+- 项目级裸 unlink 脚枪提示：仅当（未 `--global`）且（目标为省略/`.`）且（cwd 可识别为技能源码目录）且（推导身份在项目 Store 未 link）时，在抛出 not linked 类错误时追加可行动提示；不误伤显式 `@identity` / 显式路径。
 - 专用错误：在**目标** Store 的 Install Manifest 中查找 `source === 'link'` 且
   `resolved` 与目标技能目录同路径的条目；收集所有键名 ≠ 推导身份的匹配项；若集合
   非空则报错并列出全部真实身份。若集合为空，保持既有「该身份未 link」错误。
@@ -123,7 +126,7 @@ esl unlink [skill-name-or-path] [--global]
   - 同一源路径对应多条 link 记录 → 专用错误列出全部身份
   - `--global` 与项目级隔离：全局 link 后无 `--global` 不得误成功
   - 回归/说明性：cwd 在技能子目录、无 `--global`、省略参数时，不得错误地改到
-    父项目 Store（当前语义下应在「子目录 Store / 未 link」路径失败，而不是偷用父项目）
+    父项目 Store（当前语义下应在「子目录 Store / 未 link」路径失败，而不是偷用父项目）；且错误文案含「项目根 ./path」与「--global」提示
 - 不在本特性中重测 staging 恢复主路径（已有覆盖）；仅保证新解析层接到既有
   `executeUnlink` 后旧用例仍绿。
 
@@ -144,6 +147,12 @@ esl unlink [skill-name-or-path] [--global]
 - 在项目根，`esl unlink ./path` 与 `esl unlink @scope/name` 在身份一致时等价（项目级）。
 - 非 `@` 参数从不被解释为短名身份；位置路径不改变 projectRoot。
 - 身份不一致（含多匹配）出现专用错误，并列出全部真实已 link 身份。
-- 帮助与 `esl-operator` 写明：不承诺在技能子目录内做项目级裸 unlink。
+- 帮助与 `esl-operator` 写明：不承诺在技能子目录内做项目级裸 unlink；该误用路径的错误文案含可行动提示。
 - `skills/esl-operator` 与 CLI 行为锁步更新。
 - `npm test` 与 `npm run build` 通过。
+
+## 规格状态
+
+已冻结（grilling 第二轮 Q4=A / Q5=A）。后续变更须显式修订本文件并说明理由；默认下一步为 writing-plans，仍可不立即写代码。
+
+
