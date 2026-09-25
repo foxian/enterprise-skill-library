@@ -462,6 +462,26 @@ describe('esl program', () => {
     }
   });
 
+  it('documents optional unlink skill-name-or-path', () => {
+    const program = createProgram();
+    const command = program.commands.find((entry) => entry.name() === 'unlink');
+    expect(command).toBeDefined();
+    const chunks: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    });
+    try {
+      command!.outputHelp();
+    } finally {
+      spy.mockRestore();
+    }
+    const help = chunks.join('');
+    expect(help).toContain('[skill-name-or-path]');
+    expect(help).toContain('esl unlink --global');
+    expect(help).toContain('esl unlink ./my-skill');
+  });
+
   it('detects direct execution from Windows paths', () => {
     expect(isDirectCliEntry('file:///D:/DevProjects/esl/packages/cli/dist/bin/esl.js', 'D:\\DevProjects\\esl\\packages\\cli\\dist\\bin\\esl.js')).toBe(true);
   });

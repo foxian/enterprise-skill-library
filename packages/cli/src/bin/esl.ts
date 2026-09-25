@@ -1046,15 +1046,24 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   program
     .command('unlink')
     .description('Unlink a local skill source and restore the previous store copy when staged')
-    .argument('<skill-name>')
+    .argument(
+      '[skill-name-or-path]',
+      'skill identity (@scope/name), or a skill directory (defaults to --cd or the current directory)'
+    )
     .option('--global', 'Unlink from global skills directory')
-    .addHelpText('after', example('$ esl unlink @local/my-skill'))
-    .action(async (skillName: string, options: { global?: boolean }) => {
-      const result = await executeUnlink(skillName, options);
+    .addHelpText(
+      'after',
+      example(
+        '$ esl unlink @local/my-skill\n  $ esl unlink --global\n  $ esl unlink ./my-skill'
+      ) +
+        '\n\nProject-level path form must be run from the project root; omit-in-directory is for --global.'
+    )
+    .action(async (target: string | undefined, options: { global?: boolean }) => {
+      const result = await executeUnlink(target, options);
       if (result.restored) {
-        console.log(`Skill ${skillName} unlinked; previous store copy restored at ${result.targetDir}`);
+        console.log(`Skill ${result.identity} unlinked; previous store copy restored at ${result.targetDir}`);
       } else {
-        console.log(`Skill ${skillName} unlinked`);
+        console.log(`Skill ${result.identity} unlinked`);
       }
     });
 
