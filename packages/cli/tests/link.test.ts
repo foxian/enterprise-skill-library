@@ -293,4 +293,126 @@ describe('esl unlink', () => {
       })
     ).rejects.toThrow(/not linked by ESL/i);
   });
+
+  it('unlinks a global link by reading release.json from cwd when the name is omitted', async () => {
+    const sourceDir = path.join(projectDir, 'markdown-master');
+    writeSkillSource(sourceDir, '@forg/markdown-master', '# Live');
+    await executeLink(sourceDir, { homeDir, global: true, noTools: true });
+
+    const result = await executeUnlink(undefined, {
+      homeDir,
+      global: true,
+      cwd: sourceDir,
+      projectRoot: sourceDir
+    });
+
+    expect(result.identity).toBe('@forg/markdown-master');
+    expect(result.restored).toBe(false);
+    const manifest = await loadInstallManifest(path.join(homeDir, '.eslib'));
+    expect(manifest.skills['@forg/markdown-master']).toBeUndefined();
+  });
+
+  it('unlinks a project link from the project root via an explicit skill path', async () => {
+    const sourceDir = path.join(projectDir, 'draft-skill');
+    writeSkillSource(sourceDir, 'draft-skill', '# Draft');
+    await executeLink(sourceDir, { projectRoot: projectDir, homeDir, noTools: true });
+
+    const result = await executeUnlink('./draft-skill', {
+      projectRoot: projectDir,
+      homeDir,
+      cwd: projectDir
+    });
+
+    expect(result.identity).toBe('@local/draft-skill');
+    expect(result.restored).toBe(false);
+    const manifest = await loadInstallManifest(path.join(projectDir, '.eslib'));
+    expect(manifest.skills['@local/draft-skill']).toBeUndefined();
+  });
+
+  it('lists all linked identities when release.json identity mismatches the linked source path', async () => {
+    const sourceDir = path.join(projectDir, 'draft-skill');
+    writeSkillSource(sourceDir, 'draft-skill', '# Draft');
+    await executeLink(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      noTools: true,
+      identity: '@acme'
+    });
+
+    fs.writeFileSync(
+      path.join(sourceDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@other/draft-skill',
+        version: '0.2.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
+
+    await expect(
+      executeUnlink(undefined, {
+        projectRoot: projectDir,
+        homeDir,
+        cwd: sourceDir
+      })
+    ).rejects.toThrow(/@acme\/draft-skill/i);
+  });
+  it('lists every linked identity when multiple manifest entries share the same source path', async () => {
+    const sourceDir = path.join(projectDir, 'shared-source');
+    writeSkillSource(sourceDir, '@one/shared-source', '# Shared');
+    const storeRoot = path.join(projectDir, '.eslib');
+    fs.mkdirSync(storeRoot, { recursive: true });
+    const { saveInstallManifest } = await import('@esl/core');
+    const resolvedSource = path.resolve(sourceDir);
+    await saveInstallManifest(storeRoot, {
+      version: 1,
+      skills: {
+        '@one/shared-source': {
+          identity: '@one/shared-source',
+          version: '0.2.0',
+          resolved: resolvedSource,
+          integrity: '',
+          source: 'link',
+          specifier: `link:${resolvedSource}`,
+          sourceDir: 'skills/@one/shared-source',
+          installedAt: new Date().toISOString()
+        },
+        '@two/shared-source': {
+          identity: '@two/shared-source',
+          version: '0.2.0',
+          resolved: resolvedSource,
+          integrity: '',
+          source: 'link',
+          specifier: `link:${resolvedSource}`,
+          sourceDir: 'skills/@two/shared-source',
+          installedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    await expect(
+      executeUnlink(undefined, {
+        projectRoot: projectDir,
+        homeDir,
+        cwd: sourceDir
+      })
+    ).rejects.toThrow(/@one\/shared-source[\s\S]*@two\/shared-source|@two\/shared-source[\s\S]*@one\/shared-source/i);
+  });
+
+  it('hints project-root path or --global when bare project unlink is run inside a skill directory', async () => {
+    const sourceDir = path.join(projectDir, 'draft-skill');
+    writeSkillSource(sourceDir, '@local/draft-skill', '# Draft');
+    await executeLink(sourceDir, { projectRoot: projectDir, homeDir, noTools: true });
+
+    await expect(
+      executeUnlink(undefined, {
+        projectRoot: sourceDir,
+        homeDir,
+        cwd: sourceDir
+      })
+    ).rejects.toThrow(/project root|relative\/path|--global|@identity/i);
+  });
 });

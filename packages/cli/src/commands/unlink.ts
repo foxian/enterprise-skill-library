@@ -1,4 +1,6 @@
+import path from 'node:path';
 import {
+  fileExists,
   loadInstallManifest,
   loadSkillsJson,
   loadSkillsLock,
@@ -16,10 +18,13 @@ import {
   type LocalStoreOptions
 } from '@esl/core';
 import { installTargetDir, projectSkillsDir } from './network-options.js';
+import { resolveUnlinkIdentity } from './resolve-unlink-identity.js';
 
 export interface UnlinkOptions extends LocalStoreOptions {
   projectRoot?: string;
   global?: boolean;
+  /** 仅用于解析技能目录；默认 process.cwd()。不等于改变项目根语义之外的额外根 */
+  cwd?: string;
 }
 
 export interface UnlinkResult {
@@ -29,8 +34,21 @@ export interface UnlinkResult {
   restored: boolean;
 }
 
-export async function executeUnlink(name: string, options: UnlinkOptions = {}): Promise<UnlinkResult> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+function samePath(left: string, right: string): boolean {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+export async function executeUnlink(
+  target: string | undefined,
+  options: UnlinkOptions = {}
+): Promise<UnlinkResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const projectRoot = options.projectRoot ?? cwd;
+  const resolved = await resolveUnlinkIdentity(target, { cwd });
+  const name = resolved.identity;
+
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root
     : resolveProjectStorePaths(projectRoot).root;
@@ -41,9 +59,38 @@ export async function executeUnlink(name: string, options: UnlinkOptions = {}): 
 
   const installManifest = await loadInstallManifest(storeRoot);
   const entry = installManifest.skills[name];
-  if (!entry || entry.source !== 'link') {
-    throw new Error(`Skill ${name} is not linked by ESL`);
+
+  if (resolved.fromDirectory && resolved.skillDir) {
+    const pathMatches = Object.entries(installManifest.skills)
+      .filter(
+        ([, skill]) =>
+          skill.source === 'link' &&
+          typeof skill.resolved === 'string' &&
+          samePath(skill.resolved, resolved.skillDir!)
+      )
+      .map(([identity]) => identity);
+    const mismatched = pathMatches.filter((identity) => identity !== name);
+    if (mismatched.length > 0) {
+      throw new Error(
+        `Skill directory ${resolved.skillDir} is linked as ${pathMatches.join(', ')}, not ${name}; pass the linked @scope/skill-name explicitly`
+      );
+    }
   }
+
+  if (!entry || entry.source !== 'link') {
+    let message = `Skill ${name} is not linked by ESL`;
+    if (!options.global && resolved.usedOmitOrDot && resolved.skillDir) {
+      const looksLikeSkillDir =
+        (await fileExists(path.join(resolved.skillDir, 'release.json'))) ||
+        (await fileExists(path.join(resolved.skillDir, 'SKILL.md')));
+      if (looksLikeSkillDir) {
+        message +=
+          '. For a project-level Skill Source Link, run this from the project root as `esl unlink ./relative/path` or pass @identity; if the skill was linked with --global, pass --global';
+      }
+    }
+    throw new Error(message);
+  }
+
   const sourceDir = entry.resolved;
   if (!sourceDir) {
     throw new Error(`Skill ${name} has no linked source path in the install manifest`);
@@ -109,4 +156,3 @@ export async function executeUnlink(name: string, options: UnlinkOptions = {}): 
     restored: result.restored
   };
 }
-
