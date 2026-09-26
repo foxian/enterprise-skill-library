@@ -20,7 +20,7 @@
 `esl use @scope/skill-name|./path [--version V]` —— 把技能 Prompt 文本打到 stdout，不安装、不改项目。可管道：`esl use @scope/skill-name | <agent>`。
 
 ## 安装
-`esl install @scope/skill-name|./path [--version V] [--global] [--tools all|工具列表] [--no-tools] [--force]`
+`esl install @scope/skill-name|./path [--version V] [--global|-g] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径。
 - 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 Store 副本里补 `skill.json`，源目录不动。
@@ -35,7 +35,7 @@
 
 ## 本地源码开发链接
 
-`esl link [./path] [--global] [--identity @namespace] [--tools all|工具列表] [--no-tools] [--force]`
+`esl link [./path] [--global|-g] [--identity @namespace] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 把本地技能源码目录链入 Skill Store：Store 位置指向源码，已有 Tool Link 继续指向 Store，形成“工具目录 → Skill Store → 本地源码”的两层链路。
 - 身份来自 `release.json`：完整 `@scope/name` 原样使用；裸短名默认 `@local/<name>`；`--identity` 只能补 namespace 或给出短名一致的完整身份。
@@ -44,7 +44,7 @@
 - 同一源重复 link 是幂等的；换成另一个源必须 `--force`。
 - 未传 `--tools` 时按默认配置或交互 checkbox 选择；非交互环境或 `--no-input` 必须显式传 `--tools` 或 `--no-tools`。
 
-`esl unlink [@scope/skill-name|./path] [--global]`
+`esl unlink [@scope/skill-name|./path] [--global|-g]`
 
 - 解除 Skill Source Link。有 staging 时纯本地恢复原副本和依赖/锁/安装状态；无 staging 时移除 link 和记录。
 - staging 缺失或损坏时报错并保留 link 状态，不尝试联网恢复。
@@ -55,10 +55,10 @@
 - 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 只改工作目录 / 项目根，位置路径决定读哪个技能目录）。
 
 `esl uninstall` 对 link 技能只删除 Skill Store link、记录、Tool Link 和 staging，不会递归删除本地源码目录；`esl update` 会跳过 link 技能并报告 skipped。
-`esl list` / `esl ls [--global] [--json]` —— 当前项目或全局 Skill Store 中已安装的技能。
+`esl list` / `esl ls [--global|-g] [--json]` —— 当前项目或全局 Skill Store 中已安装的技能。
 
 ## 查看工具 link
-`esl tools list [--tool <列表>] [--skill <列表>] [--global|--project] [--managed|--unmanaged] [--status <状态列表>] [--json]`
+`esl tools list [--tool <列表>] [--skill <列表>] [--global|-g|--project] [--managed|--unmanaged] [--status <状态列表>] [--json]`
 
 - `linked`：link 存在且正确指向 Skill Store 源。
 - `broken`：manifest 有记录，但 link 缺失或目标源不存在。
@@ -69,7 +69,7 @@
 - 这个命令只读，直接运行；删除未管理内容仍必须由用户手工处理，ESL 不提供对应删除命令。
 
 ## 手动建立或检查 link
-`esl adapt [--global]` —— 根据工具配置检查并建立已安装技能的 link。它只处理 Skill Store 中已安装的技能，遇到非 ESL 内容报告冲突。
+`esl adapt [--global|-g]` —— 根据工具配置检查并建立已安装技能的 link。它只处理 Skill Store 中已安装的技能，遇到非 ESL 内容报告冲突。
 
 工具标识与目录：
 
@@ -88,7 +88,7 @@
 `trae` 是旧标识，不要在新命令中使用；规范标识是 `trae-intl`。
 
 ## 更新
-`esl update [@scope/skill-name] [--global] [--tools <工具列表>] [--force]`
+`esl update [@scope/skill-name] [--global|-g] [--tools <工具列表>] [--force]`
 
 - 默认更新 Skill Store 中的源和锁文件；已有正确 link 自动看到新内容，不复制、不重建。Skill Source Link 不被 registry 版本替换，输出为 linked (skipped)。
 - 默认不新增工具 link。传 `--tools` 时才确保指定工具存在正确 link。
@@ -97,10 +97,10 @@
 - 某项报 403 时，update 会跳过它继续更新其余技能并逐项报告失败原因；已安装源和其他工具 link 不受影响。
 
 ## 卸载
-`esl uninstall @scope/skill-name [--global]` —— 删除该作用域的技能源、依赖/锁/安装记录，以及该技能的全部 ESL 管理 link。普通安装删除 Store 副本；Skill Source Link 删除 Store 链接、记录和 staging，但保留本地源码目录。未管理内容不会被删除。
+`esl uninstall @scope/skill-name [--global|-g]` —— 删除该作用域的技能源、依赖/锁/安装记录，以及该技能的全部 ESL 管理 link。普通安装删除 Store 副本；Skill Source Link 删除 Store 链接、记录和 staging，但保留本地源码目录。未管理内容不会被删除。
 
 ## 只解除部分工具 link
-`esl tools remove @scope/skill-name --tools claude-code,cursor [--global]`
+`esl tools remove @scope/skill-name --tools claude-code,cursor [--global|-g]`
 
 - 只删除 manifest 记录的指定工具 link，保留 Skill Store 源。
 - 目标已被替换成普通目录、文件或错误链接时报告冲突并保留记录。

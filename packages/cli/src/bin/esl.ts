@@ -651,7 +651,7 @@ program
     .description('Commit, push and (on first use) register a local skill source')
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
-    .option('--message <text>', 'description of this upload, used as the source commit message')
+    .option('-m, --message <text>', 'description of this upload, used as the source commit message')
     .option('--confirm-identity <skill-name>', 'confirm the first-upload skill identity for non-interactive use')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl upload ./my-skill --confirm-identity @acme/my-skill'))
@@ -759,10 +759,10 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
-    .option('--message <text>', 'release notes; defaults to the commits since the last release tag')
+    .option('-m, --message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
     .option('--dry-run', 'validate and preview the release without touching the server')
-    .addHelpText('after', example('$ esl publish ./my-skill --message "fix: dead-link regex"'))
+    .addHelpText('after', example('$ esl publish ./my-skill -m "fix: dead-link regex"'))
     .action(async (skillPath: string | undefined, options: { server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
       if (skillPath && SEMVER_ARGUMENT_PATTERN.test(skillPath)) {
         console.error(
@@ -788,9 +788,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Mark a published version as deprecated, or clear the mark')
     .argument('<skill-name>', 'scoped skill name, e.g. @acme/code-review')
     .argument('<version>', 'published version to deprecate')
-    .option('--message <text>', 'warning shown to anyone installing this version; empty clears the mark', '')
+    .option('-m, --message <text>', 'warning shown to anyone installing this version; empty clears the mark', '')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl deprecate @acme/code-review 1.2.0 --message "Use 1.3.0 instead"'))
+    .addHelpText('after', example('$ esl deprecate @acme/code-review 1.2.0 -m "Use 1.3.0 instead"'))
     .action(async (name: string, version: string, options: { message: string; server?: string }) => {
       await executeDeprecate(name, version, options);
       console.log(
@@ -820,9 +820,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Update the release notes of a published version')
     .argument('<skill-name>')
     .argument('<version>')
-    .requiredOption('--message <text>', 'new release notes')
+    .requiredOption('-m, --message <text>', 'new release notes')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl notes @platform-ai/reviewer 1.1.0 --message "Revised notes"'))
+    .addHelpText('after', example('$ esl notes @platform-ai/reviewer 1.1.0 -m "Revised notes"'))
     .action(async (identity: string, version: string, options: { message: string; server?: string }) => {
       const updated = await executeNotes(identity, version, options);
       console.log(`Release notes updated: ${updated.skillName} ${updated.version}`);
@@ -832,7 +832,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('install')
     .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
     .option('--version <version>', 'version to install')
-    .option('--global', 'Install to global skills directory')
+    .option('-g, --global', 'Install to global skills directory')
     .option('--tools <tools>', 'AI tools to link, comma-separated or all')
     .option('--no-tools', 'Install the skill source without creating tool links')
     .option('-f, --force', 'Replace ESL-owned stale links')
@@ -852,12 +852,12 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('link')
     .description('Link a local skill directory into the store (symlink, like npm link)')
     .argument('[path]', 'local skill directory (defaults to --cd or the current directory)')
-    .option('--global', 'Link to global skills directory')
+    .option('-g, --global', 'Link to global skills directory')
     .option('--tools <tools>', 'AI tools to link, comma-separated or all')
     .option('--no-tools', 'Link the skill source without creating tool links')
     .option('--identity <identity>', 'Namespace or full identity for a bare release.json name')
     .option('-f, --force', 'Replace existing directory or stale link at the target')
-    .addHelpText('after', example('$ esl link ./my-skill --global\\n  $ esl link ../draft-skill'))
+    .addHelpText('after', example('$ esl link ./my-skill -g\\n  $ esl link ../draft-skill'))
     .action(async (skillPath: string | undefined, options: { global?: boolean; tools?: string | boolean; force?: boolean }) => {
       const sourcePath = skillPath ?? '.';
       const skipToolLinks = options.tools === false;
@@ -888,7 +888,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('adapt')
     .description('Ensure Tool Links for installed skills')
     .argument('[path]', 'project directory (defaults to --cd or the current directory)')
-    .option('--global', 'Ensure global Tool Links instead of project links')
+    .option('-g, --global', 'Ensure global Tool Links instead of project links')
     .addHelpText('after', example('$ esl adapt'))
     .action(async (skillPath: string | undefined, options: { global?: boolean }) => {
       const results = await executeAdapt({ ...options, directory: skillPath });
@@ -901,7 +901,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('list')
     .alias('ls')
     .description('List installed skills')
-    .option('--global', 'List global skills instead of project skills')
+    .option('-g, --global', 'List global skills instead of project skills')
     .option('--json', 'Output as JSON')
     .addHelpText('after', example('$ esl list'))
     .action(async (options: { global?: boolean; json?: boolean }) => {
@@ -931,7 +931,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('List skills linked into AI tools')
     .option('--tool <tools>', 'filter by tool, comma-separated')
     .option('--skill <skills>', 'filter by skill identity, comma-separated')
-    .option('--global', 'list global links instead of project links')
+    .option('-g, --global', 'list global links instead of project links')
     .option('--project', 'list project links (the default)')
     .option('--managed', 'only ESL-managed links')
     .option('--unmanaged', 'only links ESL does not manage')
@@ -954,7 +954,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Remove ESL-managed links for a skill')
     .argument('<skill-name>', 'skill identity, e.g. @acme/review')
     .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')
-    .option('--global', 'remove global links instead of project links')
+    .option('-g, --global', 'remove global links instead of project links')
     .addHelpText('after', example('$ esl tools remove @acme/review --tools claude-code,cursor'))
     .action(async (skillName: string, options: { tools?: string; global?: boolean }) => {
       let tools = parseToolsOption(options.tools);
@@ -1003,7 +1003,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('update')
     .description('Update installed skills to latest versions')
     .argument('[skill-name]', 'specific skill to update')
-    .option('--global', 'Update global skills')
+    .option('-g, --global', 'Update global skills')
     .option('--tools <tools>', 'Ensure links for these AI tools after updating')
     .option('-f, --force', 'Replace ESL-owned stale links')
     .option('--server <url>', 'ESL Server URL')
@@ -1031,7 +1031,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('uninstall')
     .description('Remove an installed skill')
     .argument('<skill-name>')
-    .option('--global', 'Uninstall from global skills directory')
+    .option('-g, --global', 'Uninstall from global skills directory')
     .option('-f, --force', 'uninstall without confirmation')
     .addHelpText('after', example('$ esl uninstall @cnfox/code-review'))
     .action(async (skillName: string, options: { global?: boolean }) => {
@@ -1050,11 +1050,11 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       '[skill-name-or-path]',
       'skill identity (@scope/name), or a skill directory (defaults to --cd or the current directory)'
     )
-    .option('--global', 'Unlink from global skills directory')
+    .option('-g, --global', 'Unlink from global skills directory')
     .addHelpText(
       'after',
       example(
-        '$ esl unlink @local/my-skill\n  $ esl unlink --global\n  $ esl unlink ./my-skill'
+        '$ esl unlink @local/my-skill\n  $ esl unlink -g\n  $ esl unlink ./my-skill'
       ) +
         '\n\nProject-level path form must be run from the project root; omit-in-directory is for --global.'
     )

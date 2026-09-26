@@ -478,8 +478,32 @@ describe('esl program', () => {
     }
     const help = chunks.join('');
     expect(help).toContain('[skill-name-or-path]');
-    expect(help).toContain('esl unlink --global');
+    expect(help).toContain('esl unlink -g');
     expect(help).toContain('esl unlink ./my-skill');
+  });
+
+  it('exposes -g/--global and -m/--message short flags', () => {
+    const program = createProgram();
+    const captureHelp = (commandName: string): string => {
+      const command = program.commands.find((entry) => entry.name() === commandName);
+      expect(command).toBeDefined();
+      const chunks: string[] = [];
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        chunks.push(String(chunk));
+        return true;
+      });
+      try {
+        command!.outputHelp();
+      } finally {
+        spy.mockRestore();
+      }
+      return chunks.join('');
+    };
+
+    expect(captureHelp('install')).toMatch(/-g,\s*--global/);
+    expect(captureHelp('publish')).toMatch(/-m,\s*--message/);
+    expect(captureHelp('release-delete')).toMatch(/--force/);
+    expect(captureHelp('release-delete')).not.toMatch(/-f,\s*--force/);
   });
 
   it('detects direct execution from Windows paths', () => {

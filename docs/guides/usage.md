@@ -2,6 +2,8 @@
 
 Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理平台。它为企业内部团队提供统一的技能发现、校验、发布、安装与多 AI Agent 目录适配能力。
 
+常用短选项见 [CLI 约定](cli-conventions.md)（人手示例优先 `-g` / `-m`；完整白名单与禁区也在该页）。
+
 ---
 
 ## 一、 核心概念 (Core Concepts)
@@ -169,7 +171,7 @@ esl install @cnfox/code-review --version 1.0.0
 esl install ./path/to/my-skill
 
 # 安装到个人全局环境 (~/.eslib/skills/)
-esl install @cnfox/code-review --global
+esl install @cnfox/code-review -g
 
 # 链接到全部或指定 AI 工具
 esl install @cnfox/code-review --tools all
@@ -190,7 +192,7 @@ esl link ./path/to/my-skill
 esl link ./path/to/my-skill --identity acme
 
 # 链接到全局 Skill Store
-esl link ./path/to/my-skill --global
+esl link ./path/to/my-skill -g
 
 # 替换同身份的普通安装副本；原副本移入 .eslib/link-staging/
 esl link ./path/to/my-skill --force
@@ -213,7 +215,7 @@ esl list
 esl ls
 
 # 查看全局安装的技能
-esl list --global
+esl list -g
 
 # 输出 JSON 结构化数据
 esl list --json
@@ -226,7 +228,7 @@ esl list --json
 esl adapt
 
 # 检查并建立全局 Tool Link
-esl adapt --global
+esl adapt -g
 ```
 
 ### 8. 查看与删除 Tool Link
@@ -236,7 +238,7 @@ esl tools list
 
 # 筛选工具、技能、作用域和状态
 esl tools list --tool claude-code,codex --status broken,conflict
-esl tools list --global --unmanaged
+esl tools list -g --unmanaged
 esl tools list --json
 
 # 只解除指定工具的 link，保留 Skill Store 源
@@ -253,7 +255,7 @@ esl update
 esl update @cnfox/code-review
 
 # 更新全局技能
-esl update --global
+esl update -g
 
 # 更新后确保指定工具存在正确 link
 esl update @cnfox/code-review --tools claude-code,codex
@@ -266,7 +268,7 @@ esl update @cnfox/code-review --tools claude-code,codex
 esl uninstall @cnfox/code-review
 
 # 卸载全局技能
-esl uninstall @cnfox/code-review --global
+esl uninstall @cnfox/code-review -g
 ```
 
 ---
@@ -295,20 +297,20 @@ esl validate ./my-skill
 ### 3. 上传源码 (Upload)
 把本地源码提交并推送到服务器成为 Server-hosted Skill Source（首次创建 Skill ID 与 `esl` remote，之后对已托管源直接同步）：
 ```bash
-esl upload --directory ./my-skill
+esl upload ./my-skill
 
 # 目录缺 release.json 时自动补清单，可指定许可证
-esl upload --directory ./my-skill --license Apache-2.0
+esl upload ./my-skill --license Apache-2.0
 
 # 用一句话说明本次上传内容（作为源码提交说明）
-esl upload --directory ./my-skill --message "fix: correct the dead-link regex"
+esl upload ./my-skill -m "fix: correct the dead-link regex"
 ```
 `upload` 自动完成 git 前置：非 git 仓库自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit；已托管源推前自动 rebase 到服务器最新，冲突时保留现场并提示解决后重跑。本地已与服务器一致时报告 `already up to date`。查看本地与服务器源的差异状态：
 
 ```bash
 esl status
 ```
-> **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录，`esl upload` 会识别为孤儿场景——交互模式提示"是否移除 esl remote 并重新登记"，同意则自动 `git remote remove esl` 后全新登记；拒绝或非交互则给出 `git remote remove esl` → `esl upload --directory .` 的手动指引。
+> **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录，`esl upload` 会识别为孤儿场景——交互模式提示"是否移除 esl remote 并重新登记"，同意则自动 `git remote remove esl` 后全新登记；拒绝或非交互则给出 `git remote remove esl` → `esl upload .` 的手动指引。
 
 ### 4. 发布技能 (Publish)
 把当前源码发布为 Skill Release 到 ESL Server。版本号取自 `release.json`，不是命令参数：
@@ -317,7 +319,7 @@ cd my-skill
 esl publish
 
 # 指定版本说明（作为发布说明与 release tag 说明）
-esl publish --message "fix: dead-link regex; feat: docx batch"
+esl publish -m "fix: dead-link regex; feat: docx batch"
 
 # 预演：跑完所有本地校验并展示将要发布的内容，不接触服务端
 esl publish --dry-run
@@ -327,10 +329,10 @@ esl publish --force
 ```
 > 版本号来自被发布 commit 的 `release.json.version`；发布前请先 `esl version`（见下节）。直接传版本号（`esl publish 1.0.0`）会被拒绝并提示改用 `esl version`。
 > 对一个已托管源，`publish` 会自动 `fetch`、必要时 rebase 到服务器最新、并 push 本地领先的提交——忘记 push 不再阻断发布；冲突时保留 rebase 现场，解决后重跑即可。
-> 不传 `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
+> 不传 `-m` / `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
 
 ```bash
-esl notes @platform-ai/reviewer 1.1.0 --message "修订后的版本说明"
+esl notes @platform-ai/reviewer 1.1.0 -m "修订后的版本说明"
 ```
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
 > `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`）并落盘，随后提示先 `esl version` 设定版本、再发布。首次登记仍归 `esl upload`：尚无 `esl` remote 时 `publish` 会报错并提示先 `esl upload`，不会隐式建仓。
@@ -340,10 +342,10 @@ esl notes @platform-ai/reviewer 1.1.0 --message "修订后的版本说明"
 **弃用单个版本**：坏版本（安全缺陷、内容错误）发出后无法覆盖，可用弃用标记劝退消费者：
 ```bash
 # 标记为不推荐：安装该版本时会看到这段说明，但仍可安装
-esl deprecate @platform-ai/reviewer 1.0.0 --message "Use 1.1.0; this release ships a broken regex"
+esl deprecate @platform-ai/reviewer 1.0.0 -m "Use 1.1.0; this release ships a broken regex"
 
 # 传空 message 解除标记
-esl deprecate @platform-ai/reviewer 1.0.0 --message ""
+esl deprecate @platform-ai/reviewer 1.0.0 -m ""
 
 # 内容必须从服务器消失时（例如误发密钥）：删除单个版本，需回显版本号确认
 esl release-delete @platform-ai/reviewer 1.0.0 --confirm 1.0.0

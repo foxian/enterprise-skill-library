@@ -1,7 +1,7 @@
 # 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
 
 只读命令（直接跑）：`validate`。
-写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `release-delete` `share`。
+写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `notes` `release-delete` `share`。
 
 ## 初始化新技能（就地补缺）
 `esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 4`、`name`、`version: 0.1.0`、`license` 默认 `MIT`、`displayName` 默认按短名 Title Case）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
@@ -38,7 +38,7 @@ esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '
 注意：`validate` 只校验结构，**不拦 `@local/*` 保留 Scope**——`@local` 的发布拦截由 `publish` 阶段执行。所以你在提议 `publish` 前要自己复核技能身份不是 `@local/*`，别等 `validate` 通过就以为能发。
 
 ## 上传源码（发布前必需）
-`esl upload [./path] [--license SPDX] [--confirm-identity <技能名>]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录用位置路径（`esl upload ./markdown-master`，默认当前目录）或全局 `-C` 指定。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
+`esl upload [./path] [--message|-m <text>] [--license SPDX] [--confirm-identity <技能名>]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。技能目录用位置路径（`esl upload ./markdown-master`，默认当前目录）或全局 `-C` 指定。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `init` 之后，先 `upload` 再 `publish`。
 
 - **技能描述随每次 upload 同步**：`upload` 始终以 `SKILL.md` frontmatter 的 description 为准，把技能描述登记/更新到服务器（首次注册随登记写入；已托管源的后续同步走独立的仅 Maintainer 可用的 description 更新）。描述更新失败不阻断源码同步，仅在输出中提示——看到提示可如实转述，不要重试整个 upload。管理后台的技能管理页面展示的就是这个「最近一次 upload 登记的描述」，改了 `SKILL.md` 的描述后要跑一次 `upload` 才会在线上生效。
 - **显示名随每次 upload 同步**：`upload` 以 `release.json` 的 `displayName` 为准确认/更新服务器显示名（ADR-0048），与 description 一样走「最近一次 upload 登记的值」；已托管源的后续同步走独立的仅 Maintainer 可用的 display-name 更新。改了 `release.json` 的 `displayName` 后要跑一次 `upload` 才会在线上生效。
@@ -51,7 +51,7 @@ esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '
 - 已托管目录（有 `esl` remote）上 fetch 失败时，`upload` 先用 Registry API 做一次只读探测再报错（ADR-0027），按探测结果分三种文案：**① 技能身份在服务器可见但 Git 源同步不了**——凭据陈旧或缺仓库权限，提示用维护它的账号重新登录后再 `esl upload`；**② 身份可见但服务器 cloneUrl 与 remote 仓库路径不一致**——remote 指向陈旧路径（如改名后），提示核对后手动 `git remote remove esl` 再重新 `esl upload`；**③ 探测失败（不确定）**——降级为统一的两种可能文案（其他账号维护 或 源已不存在），出路上「切维护账号重登」或确认删除后手动 `git remote remove esl` 两步重建。push 失败走同一统一文案并附 `git push esl HEAD:main` 收尾提示。CLI 绝不自动删除 remote 重注册——看到这类报错别提议删 remote，先按文案里的探测结论引导：能确定「身份可见」就只查账号/权限，探测失败才让用户去确认服务器源是否还在。
 
 ## 发布
-`esl publish [./path] [--message <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+`esl publish [./path] [--message|-m <text>] [--dry-run] [--force|-f] [--license SPDX]` —— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
 
 - **传版本号会被拒绝**：`esl publish 1.0.0` 不再兼容（会被识别为误传的版本参数并报错指路 `esl version`）。要发 1.0.0 就先 `esl version 1.0.0`（或 `esl version major`）。
 - **自动同步源码**：对已托管源，`publish` 会 `fetch`、必要时 rebase 到 `esl/main`、并 push 本地领先的提交与 tag——忘记 push 不再阻断发布；rebase 冲突时保留现场，提示解决后重跑。
@@ -78,7 +78,8 @@ esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '
 ## 弃用与删除单个版本
 坏版本（安全缺陷、内容错误）发出后不可覆盖、不可重发同号，只能劝退或删除：
 
-- `esl deprecate @ns/name <version> --message "说明"` —— 标记为不推荐。安装该版本的人会看到这段说明，但**仍可安装**；弃用不改变版本解析（被弃用版本若仍是最高稳定版，默认安装依旧选中它）。传空 message 解除标记。需要技能管理权。
+- `esl deprecate @ns/name <version> --message "说明"`（`-m` 等价） —— 标记为不推荐。安装该版本的人会看到这段说明，但**仍可安装**；弃用不改变版本解析（被弃用版本若仍是最高稳定版，默认安装依旧选中它）。传空 message 解除标记。需要技能管理权。
+- `esl notes @ns/name <version> --message "..."`（`-m` 等价） —— 修订已发布版本的 release notes（元数据，不改发布包）。需要技能管理权。
 - `esl release-delete @ns/name <version> --confirm <version>` —— 删除单个 Release，用于内容必须从服务器消失的场景（如误发密钥）。移除该版本的发布包、版本记录与 Release Tag，**保留源码 Git 历史、技能本身与其他版本**。必须用 `--confirm` 回显版本号（版本号烧毁、不可重发，所以要显式确认，别替用户省这一步）。
   - 技能 Maintainer 可删自己技能的版本；若该版本被其他技能的 Release Dependency Lock 引用，服务端会拒绝并列出引用方，此时只有平台管理员能加 `--force` 强制删除（强制后相关技能的安装会因依赖缺失而失败——报错里会说明，别默认加 `--force`）。
   - 想「劝退但不删除」用 `deprecate`；`release-delete` 只在内容必须消失时用。
