@@ -1701,6 +1701,70 @@ export class EmailActionRepository {
   release(id: number): void {
     this.db.prepare('UPDATE email_actions SET claimed_at = NULL WHERE id = ? AND consumed_at IS NULL').run(id);
   }
+
+  // 发信失败时作废刚创建的动作，避免占用用户名/邮箱却永远收不到邮件。
+  supersede(id: number): boolean {
+    const result = this.db.prepare(`
+      UPDATE email_actions SET superseded_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND consumed_at IS NULL AND superseded_at IS NULL
+    `).run(id);
+    return result.changes === 1;
+  }
+
+  // 创建替代动作时记录旧动作，SMTP 发信失败可恢复旧链接。
+  createReplacement(
+    input: {
+      purpose: EmailActionPurpose;
+      username: string;
+      email: string;
+      tokenHash: string;
+      expiresAt: string;
+      passwordCiphertext?: string;
+      previousEmail?: string;
+    }
+  ): { action: EmailActionRecord; previousAction: EmailActionRecord | null } {
+    const replacement = this.db.transaction(() => {
+      this.expireStale();
+      const previousAction = this.getPending(input.purpose, input.username) ?? null;
+      this.supersedePending(input.purpose, input.username);
+      this.db.prepare(`
+        INSERT INTO email_actions (
+          purpose, username, email, token_hash, password_ciphertext,
+          previous_email, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.purpose,
+        input.username,
+        input.email,
+        input.tokenHash,
+        input.passwordCiphertext ?? null,
+        input.previousEmail ?? null,
+        input.expiresAt
+      );
+      const id = (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+      return { action: this.getById(id)!, previousAction };
+    });
+    return replacement();
+  }
+
+  rollbackReplacement(actionId: number, previousActionId?: number): void {
+    const rollback = this.db.transaction(() => {
+      this.supersede(actionId);
+      if (previousActionId !== undefined) this.restore(previousActionId);
+    });
+    rollback();
+  }
+
+  private restore(id: number): boolean {
+    const result = this.db.prepare(`
+      UPDATE email_actions SET superseded_at = NULL
+      WHERE id = ?
+        AND claimed_at IS NULL
+        AND consumed_at IS NULL
+        AND superseded_at IS NOT NULL
+    `).run(id);
+    return result.changes === 1;
+  }
 }
 
 interface EmailActionRow {

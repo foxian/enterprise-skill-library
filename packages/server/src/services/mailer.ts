@@ -6,6 +6,7 @@ export interface MailMessage {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 export interface Mailer {
@@ -49,18 +50,29 @@ export class SmtpMailer implements Mailer {
     if (!settings) {
       throw new Error('Outbound email SMTP is not configured');
     }
+    const secure = settings.port === 465;
     const transporter = nodemailer.createTransport({
       host: settings.host,
       port: settings.port,
-      secure: settings.port === 465,
-      auth: { user: settings.username, pass: settings.password }
+      secure,
+      requireTLS: !secure,
+      auth: { user: settings.username, pass: settings.password },
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 30_000
     });
-    await transporter.sendMail({
-      from: settings.from,
-      to: message.to,
-      subject: message.subject,
-      text: message.text
-    });
+    try {
+      await transporter.sendMail({
+        from: settings.from,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {})
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error('Outbound email delivery failed: ' + detail);
+    }
   }
 }
 
@@ -114,4 +126,3 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
 }
 
 export const EMAIL_ACTION_TTL_MS = 30 * 60 * 1000;
-

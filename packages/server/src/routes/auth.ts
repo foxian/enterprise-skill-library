@@ -25,6 +25,7 @@ import {
   resolveRequestOrigin,
   type Mailer
 } from '../services/mailer.js';
+import { buildOutboundEmail } from '../services/email-templates.js';
 
 export interface AuthRouteOptions {
   repository: AdminRepository;
@@ -186,7 +187,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
         return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
       }
       const token = createActionToken();
-      emailActionRepository.create({
+      const { action, previousAction } = emailActionRepository.createReplacement({
         purpose: 'email_change',
         username,
         email,
@@ -194,11 +195,19 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
         tokenHash: hashActionToken(token),
         expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString()
       });
-      await mailer.send({
-        to: email,
-        subject: 'Verify your new ESL account email',
-        text: `Open this link to confirm your new ESL account email: ${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`
-      });
+      try {
+        const verifyUrl = `${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`;
+        const emailContent = buildOutboundEmail('email_change_verify', verifyUrl);
+        await mailer.send({
+          to: email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html
+        });
+      } catch {
+        emailActionRepository.rollbackReplacement(action.id, previousAction?.id);
+        return reply.status(502).send(apiError('outboundEmailDeliveryFailed'));
+      }
       return {
         username,
         email: normalizeSkillUserEmail(currentUser.email),
@@ -329,7 +338,10 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     if (!action) return reply.status(202).send({ status: 'accepted' });
     if (!mailer.isConfigured()) return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
     const token = createActionToken();
-    emailActionRepository.create({
+    const {
+      action: resent,
+      previousAction
+    } = emailActionRepository.createReplacement({
       purpose: action.purpose,
       username: action.username,
       email: action.email,
@@ -338,11 +350,22 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       tokenHash: hashActionToken(token),
       expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString()
     });
-    await mailer.send({
-      to: action.email,
-      subject: action.purpose === 'register' ? 'Verify your ESL account email' : 'Verify your new ESL account email',
-      text: `Open this link to continue: ${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`
-    });
+    try {
+      const verifyUrl = `${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`;
+      const emailContent = buildOutboundEmail(
+        action.purpose === 'register' ? 'register_verify' : 'email_change_verify',
+        verifyUrl
+      );
+      await mailer.send({
+        to: action.email,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html
+      });
+    } catch {
+      emailActionRepository.rollbackReplacement(resent.id, previousAction?.id);
+      return reply.status(502).send(apiError('outboundEmailDeliveryFailed'));
+    }
     return reply.status(202).send({ status: 'accepted' });
   });
 
@@ -359,18 +382,25 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     const managedUser = (await giteaService.listUsers()).find((candidate) => candidate.username === username);
     if (managedUser?.prohibit_login) return reply.status(202).send(genericResponse);
     const token = createActionToken();
-    emailActionRepository.create({
+    const { action: resetAction, previousAction } = emailActionRepository.createReplacement({
       purpose: 'password_reset',
       username,
       email: normalizeSkillUserEmail(user.email),
       tokenHash: hashActionToken(token),
       expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString()
     });
-    await mailer.send({
-      to: normalizeSkillUserEmail(user.email),
-      subject: 'Reset your ESL account password',
-      text: `Open this link to reset your ESL account password: ${resolveRequestOrigin(request)}/admin/reset-password?token=${encodeURIComponent(token)}`
-    });
+    try {
+      const resetUrl = `${resolveRequestOrigin(request)}/admin/reset-password?token=${encodeURIComponent(token)}`;
+      const emailContent = buildOutboundEmail('password_reset', resetUrl);
+      await mailer.send({
+        to: normalizeSkillUserEmail(user.email),
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html
+      });
+    } catch {
+      emailActionRepository.rollbackReplacement(resetAction.id, previousAction?.id);
+    }
     return reply.status(202).send(genericResponse);
   });
 

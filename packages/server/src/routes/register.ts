@@ -20,6 +20,7 @@ import {
   resolveRequestOrigin,
   type Mailer
 } from '../services/mailer.js';
+import { buildOutboundEmail } from '../services/email-templates.js';
 
 // 用户注册的状态变化事件（ADR-0045）。注册者本人就是操作者：这里不记密码，
 // 只记用户名与结果。
@@ -156,8 +157,9 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
         return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
       }
       const token = createActionToken();
+      let actionId: number | undefined;
       try {
-        emailActionRepository.create({
+        const action = emailActionRepository.create({
           purpose: 'register',
           username,
           email,
@@ -165,6 +167,7 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
           expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString(),
           passwordCiphertext: encryptSecret(password, options.emailActionSecret)
         }, { replacePending: false });
+        actionId = action.id;
       } catch (error) {
         if (error instanceof PendingEmailActionExistsError) {
           if (emailActionRepository.getPending('register', username)) {
@@ -176,11 +179,20 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
         }
         throw error;
       }
-      await mailer.send({
-        to: email,
-        subject: 'Verify your ESL account email',
-        text: `Open this link to activate your ESL account: ${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`
-      });
+      try {
+        const verifyUrl = `${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`;
+        const emailContent = buildOutboundEmail('register_verify', verifyUrl);
+        await mailer.send({
+          to: email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html
+        });
+      } catch (error) {
+        if (actionId !== undefined) emailActionRepository.supersede(actionId);
+        logRegistration(request, username, 'failed', 'outboundEmailDeliveryFailed');
+        return reply.status(502).send(apiError('outboundEmailDeliveryFailed'));
+      }
       logRegistration(request, username, 'succeeded');
       return reply.status(202).send({ status: 'pending_email_verification', username });
     }

@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { initDatabase, PlatformSettingsRepository } from '../src/db/database.js';
 import type { MailMessage, Mailer } from '../src/services/mailer.js';
+import { buildOutboundEmail } from '../src/services/email-templates.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
 describe('email actions', () => {
@@ -14,6 +15,7 @@ describe('email actions', () => {
   let app: FastifyInstance;
   let gitea: GlobalGiteaFake;
   let messages: MailMessage[];
+  let failSend = false;
   let mailer: Mailer;
 
   beforeEach(async () => {
@@ -28,9 +30,11 @@ describe('email actions', () => {
       ]
     });
     messages = [];
+    failSend = false;
     mailer = {
       isConfigured: () => true,
       send: async (message) => {
+        if (failSend) throw new Error('Unexpected socket close');
         messages.push(message);
       }
     };
@@ -54,10 +58,60 @@ describe('email actions', () => {
 
   function tokenFromLastMessage(): string {
     const text = messages.at(-1)?.text ?? '';
-    const match = text.match(/[?&]token=([^\s]+)$/);
+    const match = text.match(/[?&]token=([^\s\r\n]+)/);
     expect(match).not.toBeNull();
     return decodeURIComponent(match![1]);
   }
+
+  it('builds formal multipart messages with clickable HTML action links', () => {
+    const cases = [
+      {
+        kind: 'register_verify',
+        path: '/admin/verify-email',
+        subject: '请验证您的 ESL 账号邮箱',
+        label: '验证邮箱并激活账号',
+        intro: '感谢您注册 Enterprise Skill Library（ESL）',
+        hint: '如非本人操作，请忽略本邮件。'
+      },
+      {
+        kind: 'email_change_verify',
+        path: '/admin/verify-email',
+        subject: '请确认您的 ESL 新邮箱',
+        label: '确认新邮箱',
+        intro: '我们收到了变更 ESL 账号邮箱的请求',
+        hint: '您的邮箱不会被更改'
+      },
+      {
+        kind: 'password_reset',
+        path: '/admin/reset-password',
+        subject: '重置您的 ESL 账号密码',
+        label: '重置密码',
+        intro: '我们收到了重置 ESL 账号密码的请求',
+        hint: '您的密码不会被更改'
+      }
+    ] as const;
+
+    for (const item of cases) {
+      const actionUrl = `https://esl.example.com${item.path}?token=abc-123&returnTo=/dashboard&unsafe=<>'"`;
+      const expectedHref = actionUrl
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+      const message = buildOutboundEmail(item.kind, actionUrl);
+
+      expect(message.subject).toBe(item.subject);
+      expect(message.text).toContain('尊敬的用户，您好：');
+      expect(message.text).toContain(item.intro);
+      expect(message.text).toContain(actionUrl);
+      expect(message.text).toContain('此链接将在 30 分钟内有效。');
+      expect(message.text).toContain(item.hint);
+      expect(message.html).toContain('<html lang="zh-CN">');
+      expect(message.html).toContain(`href="${expectedHref}"`);
+      expect(message.html).toContain(`>${item.label}</a>`);
+    }
+  });
 
   it('holds open registration until the email link is verified', async () => {
     const registration = await app.inject({
@@ -275,6 +329,107 @@ describe('email actions', () => {
     expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
   });
 
+  it('restores the previous registration link when a resent email fails', async () => {
+    const registration = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+    });
+    expect(registration.statusCode).toBe(202);
+    const originalToken = tokenFromLastMessage();
+
+    failSend = true;
+    const resend = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email/resend',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', purpose: 'register' }
+    });
+    expect(resend.statusCode).toBe(502);
+    expect(resend.json().code).toBe('outboundEmailDeliveryFailed');
+
+    failSend = false;
+    const verification = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: originalToken }
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
+  });
+
+  it('restores a pending email change when the replacement email fails', async () => {
+    const token = (await gitea.loginUser('alice', 'alice-password'))!;
+    const firstChange = await app.inject({
+      method: 'PUT',
+      url: '/api/account/email',
+      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      payload: { email: 'alice.one@example.com', currentPassword: 'alice-password' }
+    });
+    expect(firstChange.statusCode).toBe(200);
+    const originalToken = tokenFromLastMessage();
+
+    failSend = true;
+    const secondChange = await app.inject({
+      method: 'PUT',
+      url: '/api/account/email',
+      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      payload: { email: 'alice.two@example.com', currentPassword: 'alice-password' }
+    });
+    expect(secondChange.statusCode).toBe(502);
+
+    failSend = false;
+    const pendingProfile = await app.inject({
+      method: 'GET',
+      url: '/api/account/profile',
+      headers: { authorization: `token ${token}` }
+    });
+    expect(pendingProfile.json()).toMatchObject({ emailPendingVerification: true });
+
+    const verification = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: originalToken }
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(await gitea.getUser('alice')).toMatchObject({ email: 'alice.one@example.com' });
+  });
+
+  it('keeps password reset requests generic when outbound email delivery fails', async () => {
+    failSend = true;
+    const failed = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset/request',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'alice' }
+    });
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset/request',
+      payload: { username: 'unknown' }
+    });
+    expect(failed.statusCode).toBe(202);
+    expect(failed.json()).toEqual(unknown.json());
+
+    failSend = false;
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset/request',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'alice' }
+    });
+    expect(retry.statusCode).toBe(202);
+    expect(messages).toHaveLength(1);
+
+    const reset = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset',
+      payload: { token: tokenFromLastMessage(), newPassword: 'alice-new-password' }
+    });
+    expect(reset.statusCode).toBe(200);
+  });
+
   it('does not let strangers invalidate a pending email change', async () => {
     const token = (await gitea.loginUser('alice', 'alice-password'))!;
     const changed = await app.inject({
@@ -350,6 +505,31 @@ describe('email actions', () => {
       payload: { username: 'carol', password: 'carol-password', email: 'bob@example.com' }
     });
     expect(retry.statusCode).toBe(202);
+  });
+
+
+  it('rolls back a pending registration when outbound email delivery fails', async () => {
+    failSend = true;
+    const registration = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'dave', password: 'dave-password', email: 'dave@example.com' }
+    });
+    expect(registration.statusCode).toBe(502);
+    expect(registration.json().code).toBe('outboundEmailDeliveryFailed');
+    expect(messages).toHaveLength(0);
+
+    failSend = false;
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'dave', password: 'dave-password', email: 'dave@example.com' }
+    });
+    expect(retry.statusCode).toBe(202);
+    expect(retry.json()).toEqual({ status: 'pending_email_verification', username: 'dave' });
+    expect(messages).toHaveLength(1);
   });
 
   it('releases an expired pending registration so the username can be reused', async () => {
