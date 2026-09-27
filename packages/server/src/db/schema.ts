@@ -197,4 +197,9 @@ export const databaseSchema = `
     WHERE purpose IN ('register', 'email_change')
       AND consumed_at IS NULL
       AND superseded_at IS NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS email_actions_pending_identity_unique
+    ON email_actions (purpose, username)
+    WHERE consumed_at IS NULL
+      AND superseded_at IS NULL;
 `;

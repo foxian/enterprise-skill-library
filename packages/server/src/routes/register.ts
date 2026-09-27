@@ -6,7 +6,7 @@ import {
   validatePassword,
   validateSkillUserEmail
 } from '@esl/core';
-import type { EmailActionRepository, OrgApplicationRepository, UserRegistrationRepository } from '../db/database.js';
+import { PendingEmailActionExistsError, type EmailActionRepository, type OrgApplicationRepository, type UserRegistrationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { PlatformSettingsRepository } from '../db/database.js';
 import { logEvent } from '../logging.js';
@@ -156,14 +156,26 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
         return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
       }
       const token = createActionToken();
-      emailActionRepository.create({
-        purpose: 'register',
-        username,
-        email,
-        tokenHash: hashActionToken(token),
-        expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString(),
-        passwordCiphertext: encryptSecret(password, options.emailActionSecret)
-      });
+      try {
+        emailActionRepository.create({
+          purpose: 'register',
+          username,
+          email,
+          tokenHash: hashActionToken(token),
+          expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString(),
+          passwordCiphertext: encryptSecret(password, options.emailActionSecret)
+        }, { replacePending: false });
+      } catch (error) {
+        if (error instanceof PendingEmailActionExistsError) {
+          if (emailActionRepository.getPending('register', username)) {
+            logRegistration(request, username, 'failed', 'usernameHasPendingRegistration');
+            return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
+          }
+          logRegistration(request, username, 'failed', 'emailHasPendingRegistration');
+          return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
+        }
+        throw error;
+      }
       await mailer.send({
         to: email,
         subject: 'Verify your ESL account email',

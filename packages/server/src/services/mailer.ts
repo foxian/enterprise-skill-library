@@ -97,6 +97,8 @@ export function decryptSecret(ciphertext: string, key: string): string {
   ]).toString('utf8');
 }
 
+// 与 skills.ts 的公网 clone URL 一样，信任反代传入的 X-Forwarded-*。
+// 部署时应只让可信代理设置这些头；不另引入 publicOrigin 配置。
 export function resolveRequestOrigin(request: {
   headers: Record<string, string | string[] | undefined>;
   protocol?: string;

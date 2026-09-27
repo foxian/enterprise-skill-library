@@ -23,7 +23,8 @@ describe('email actions', () => {
       users: [
         { username: 'eslroot', password: 'root-password', email: 'eslroot@example.com' },
         { username: 'alice', password: 'alice-password', email: 'alice@example.com' },
-        { username: 'disabled', password: 'disabled-password', email: 'disabled@example.com' }
+        { username: 'disabled', password: 'disabled-password', email: 'disabled@example.com' },
+        { username: 'legacy', password: 'legacy-password' }
       ]
     });
     messages = [];
@@ -218,5 +219,159 @@ describe('email actions', () => {
     expect(administrator.statusCode).toBe(202);
     expect(unknown.json()).toEqual(administrator.json());
     expect(messages).toHaveLength(before);
+  });
+
+  it('does not email password reset links to disabled or incomplete accounts', async () => {
+    await gitea.disableUser('disabled');
+    const before = messages.length;
+    const disabledAccount = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset/request',
+      payload: { username: 'disabled' }
+    });
+    const incomplete = await app.inject({
+      method: 'POST',
+      url: '/api/auth/password-reset/request',
+      payload: { username: 'legacy' }
+    });
+
+    expect(disabledAccount.statusCode).toBe(202);
+    expect(incomplete.statusCode).toBe(202);
+    expect(disabledAccount.json()).toEqual(incomplete.json());
+    expect(messages).toHaveLength(before);
+  });
+
+  it('invalidates the previous registration verification link on resend', async () => {
+    const registration = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+    });
+    expect(registration.statusCode).toBe(202);
+    const originalToken = tokenFromLastMessage();
+
+    const resend = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email/resend',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', purpose: 'register' }
+    });
+    expect(resend.statusCode).toBe(202);
+
+    const reused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: originalToken }
+    });
+    expect(reused.statusCode).toBe(400);
+
+    const verification = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: tokenFromLastMessage() }
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
+  });
+
+  it('does not let strangers invalidate a pending email change', async () => {
+    const token = (await gitea.loginUser('alice', 'alice-password'))!;
+    const changed = await app.inject({
+      method: 'PUT',
+      url: '/api/account/email',
+      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      payload: { email: 'alice.new@example.com', currentPassword: 'alice-password' }
+    });
+    expect(changed.statusCode).toBe(200);
+    const originalToken = tokenFromLastMessage();
+
+    const anonymousResend = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email/resend',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'alice', purpose: 'email_change' }
+    });
+    expect(anonymousResend.statusCode).toBe(401);
+
+    const ownerResend = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email/resend',
+      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      payload: { purpose: 'email_change' }
+    });
+    expect(ownerResend.statusCode).toBe(202);
+
+    const reused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: originalToken }
+    });
+    expect(reused.statusCode).toBe(400);
+
+    const verification = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token: tokenFromLastMessage() }
+    });
+    expect(verification.statusCode).toBe(200);
+    expect(await gitea.getUser('alice')).toMatchObject({ email: 'alice.new@example.com' });
+  });
+
+  it('consumes a registration verification token when the username is taken', async () => {
+    const registration = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+    });
+    expect(registration.statusCode).toBe(202);
+    const token = tokenFromLastMessage();
+    await gitea.createUser('bob', 'other-password', { email: 'other-bob@example.com' });
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token }
+    });
+    expect(first.statusCode).toBe(409);
+
+    const reused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/verify-email',
+      payload: { token }
+    });
+    expect(reused.statusCode).toBe(400);
+
+    const retry = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'carol', password: 'carol-password', email: 'bob@example.com' }
+    });
+    expect(retry.statusCode).toBe(202);
+  });
+
+  it('releases an expired pending registration so the username can be reused', async () => {
+    const registration = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+    });
+    expect(registration.statusCode).toBe(202);
+
+    const db = initDatabase(dbPath);
+    db.prepare('UPDATE email_actions SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+    db.close();
+
+    const reused = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      headers: { host: 'localhost:3000' },
+      payload: { username: 'bob', password: 'other-password', email: 'other-bob@example.com' }
+    });
+    expect(reused.statusCode).toBe(202);
+    expect(await gitea.getUser('bob')).toBeNull();
   });
 });

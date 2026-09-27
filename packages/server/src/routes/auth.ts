@@ -263,11 +263,11 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     if (action.purpose === 'register') {
       try {
         if (!action.passwordCiphertext) {
-          emailActionRepository.release(action.id);
+          emailActionRepository.consume(action.id);
           return reply.status(400).send(apiError('emailVerificationLinkIsInvalidOrExpired'));
         }
         if (await giteaService.getUser(action.username)) {
-          emailActionRepository.release(action.id);
+          emailActionRepository.consume(action.id);
           return reply.status(409).send(apiError('usernameAlreadyTaken', { username: action.username }));
         }
         const password = decryptSecret(action.passwordCiphertext, options.emailActionSecret);
@@ -285,7 +285,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     try {
       const user = await giteaService.getUser(action.username);
       if (!user) {
-        emailActionRepository.release(action.id);
+        emailActionRepository.consume(action.id);
         return reply.status(404).send(apiError('userDoesNotExist', { username: action.username }));
       }
       const conflict = await findSkillUserEmailConflict(
@@ -295,7 +295,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
         { exceptUsername: action.username, emailActionRepository }
       );
       if (conflict === 'active-user' || conflict === 'pending-registration') {
-        emailActionRepository.release(action.id);
+        emailActionRepository.consume(action.id);
         return reply.status(409).send(apiError('emailAlreadyTaken', { email: action.email }));
       }
       await giteaService.changeUserEmail(action.username, action.email);
@@ -314,8 +314,15 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       username?: string;
       purpose?: string;
     };
-    const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
-    if (!username || (purpose !== 'register' && purpose !== 'email_change')) {
+    if (purpose !== 'register' && purpose !== 'email_change') {
+      return reply.status(400).send(apiError('usernameIsRequired'));
+    }
+    let username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
+    if (purpose === 'email_change') {
+      const actor = await resolveTokenUsername(request, reply, giteaService);
+      if (!actor) return;
+      username = actor;
+    } else if (!username) {
       return reply.status(400).send(apiError('usernameIsRequired'));
     }
     const action = emailActionRepository.getPending(purpose, username);

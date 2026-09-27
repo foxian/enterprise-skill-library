@@ -1530,6 +1530,18 @@ export class PlatformSettingsRepository {
   }
 }
 
+export class PendingEmailActionExistsError extends Error {
+  constructor() {
+    super('Pending email action already exists');
+    this.name = 'PendingEmailActionExistsError';
+  }
+}
+
+function isSqliteConstraintError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT');
+}
+
 export type EmailActionPurpose = 'register' | 'email_change' | 'password_reset';
 
 export interface EmailActionRecord {
@@ -1558,33 +1570,51 @@ export class EmailActionRepository {
     `).run(now);
   }
 
-  create(input: {
-    purpose: EmailActionPurpose;
-    username: string;
-    email: string;
-    tokenHash: string;
-    expiresAt: string;
-    passwordCiphertext?: string;
-    previousEmail?: string;
-  }): EmailActionRecord {
-    this.expireStale();
-    this.supersedePending(input.purpose, input.username);
-    this.db.prepare(`
-      INSERT INTO email_actions (
-        purpose, username, email, token_hash, password_ciphertext,
-        previous_email, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.purpose,
-      input.username,
-      input.email,
-      input.tokenHash,
-      input.passwordCiphertext ?? null,
-      input.previousEmail ?? null,
-      input.expiresAt
-    );
-    const id = (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
-    return this.getById(id)!;
+  create(
+    input: {
+      purpose: EmailActionPurpose;
+      username: string;
+      email: string;
+      tokenHash: string;
+      expiresAt: string;
+      passwordCiphertext?: string;
+      previousEmail?: string;
+    },
+    options: { replacePending?: boolean } = {}
+  ): EmailActionRecord {
+    const replacePending = options.replacePending !== false;
+    const insert = this.db.transaction(() => {
+      this.expireStale();
+      if (replacePending) {
+        this.supersedePending(input.purpose, input.username);
+      } else if (this.getPending(input.purpose, input.username)) {
+        throw new PendingEmailActionExistsError();
+      }
+      try {
+        this.db.prepare(`
+          INSERT INTO email_actions (
+            purpose, username, email, token_hash, password_ciphertext,
+            previous_email, expires_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          input.purpose,
+          input.username,
+          input.email,
+          input.tokenHash,
+          input.passwordCiphertext ?? null,
+          input.previousEmail ?? null,
+          input.expiresAt
+        );
+      } catch (error) {
+        if (isSqliteConstraintError(error)) {
+          throw new PendingEmailActionExistsError();
+        }
+        throw error;
+      }
+      const id = (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+      return this.getById(id)!;
+    });
+    return insert();
   }
 
   getById(id: number): EmailActionRecord | undefined {
