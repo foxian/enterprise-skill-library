@@ -18,6 +18,9 @@
 |---|---|---|
 | `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
 
+开启邮箱验证或密码重置时，还应配置 `ESL_EMAIL_ACTION_SECRET` 为稳定的随机字符串。
+该密钥用于保护注册待验流程中暂存的密码，服务重启后必须保持不变；不要把真实密钥提交到仓库。
+
 `GITEA_ADMIN_USERNAME` 默认为 `eslroot`；Gitea 1.22 在 bootstrap 用户创建时会拒绝保留用户名 `admin`。
 
 > 注：早期版本要求的 `ESL_APPLICATION_ENCRYPTION_KEY` 与 `ESL_DEPLOYMENT_MODE`

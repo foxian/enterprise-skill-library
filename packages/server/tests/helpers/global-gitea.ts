@@ -77,12 +77,14 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     validateToken: vi.fn(async (token: string) => {
       const username = tokens.get(token);
-      return username ? { id: 1, username, email: `${username}@local.esl` } : null;
+      return username ? { id: 1, username, email: emails.get(username) ?? `${username}@local.esl` } : null;
     }),
 
     validateAdminUserToken: vi.fn(async (token: string) => {
       const username = tokens.get(token);
-      return username === 'eslroot' ? { id: 1, username, email: `${username}@local.esl` } : null;
+      return username === 'eslroot'
+        ? { id: 1, username, email: emails.get(username) ?? `${username}@local.esl` }
+        : null;
     }),
 
     loginUser: vi.fn(async (username: string, password: string) => {
@@ -352,6 +354,16 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
     changeUserEmail: vi.fn(async (username: string, email: string) => {
       if (!users.has(username)) throw new Error(`No such user: ${username}`);
       emails.set(username, email);
+    }),
+
+    changeUserPassword: vi.fn(async (
+      username: string,
+      password: string,
+      options: { mustChangePassword?: boolean } = {}
+    ) => {
+      if (!users.has(username)) throw new Error(`No such user: ${username}`);
+      users.set(username, password);
+      mustChangePasswords.set(username, options.mustChangePassword ?? false);
     }),
 
     organizationExists: vi.fn(async (orgName: string) => orgs.has(orgName)),

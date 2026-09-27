@@ -38,6 +38,28 @@
             <el-radio value="invite">{{ t('settings.invitationMode') }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item :label="t('settings.emailVerification')">
+          <el-radio-group v-model="emailVerification" data-test="email-verification">
+            <el-radio value="off">{{ t('settings.emailVerificationOff') }}</el-radio>
+            <el-radio value="on">{{ t('settings.emailVerificationOn') }}</el-radio>
+          </el-radio-group>
+          <div class="form-hint">{{ t('settings.emailVerificationHint') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('settings.smtpHost')">
+          <el-input v-model="smtpHost" data-test="smtp-host" />
+        </el-form-item>
+        <el-form-item :label="t('settings.smtpPort')">
+          <el-input-number v-model="smtpPort" :min="1" :max="65535" data-test="smtp-port" />
+        </el-form-item>
+        <el-form-item :label="t('settings.smtpUsername')">
+          <el-input v-model="smtpUsername" data-test="smtp-username" />
+        </el-form-item>
+        <el-form-item :label="t('settings.smtpPassword')">
+          <el-input v-model="smtpPassword" type="password" show-password :placeholder="smtpPasswordSet ? t('settings.smtpPasswordUnchanged') : ''" data-test="smtp-password" />
+        </el-form-item>
+        <el-form-item :label="t('settings.smtpFrom')">
+          <el-input v-model="smtpFrom" data-test="smtp-from" />
+        </el-form-item>
         <el-form-item>
           <el-button
             type="primary"
@@ -67,23 +89,58 @@ type RegistrationMode = 'auto' | 'manual';
 type UserRegistrationMode = 'open' | 'approval';
 type MemberAddMode = 'direct' | 'invite';
 type AdminProvisionedPasswordChangePolicy = 'force' | 'allow';
+type EmailVerification = 'off' | 'on';
 
 interface PlatformSettings {
   orgRegistrationMode: RegistrationMode;
   registrationMode: UserRegistrationMode;
   memberAddMode: MemberAddMode;
   adminProvisionedPasswordChangePolicy: AdminProvisionedPasswordChangePolicy;
+  emailVerification: EmailVerification;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUsername: string;
+  smtpFrom: string;
+  smtpPasswordSet: boolean;
+}
+
+function normalizeSettings(settings: Partial<PlatformSettings>): PlatformSettings {
+  return {
+    orgRegistrationMode: settings.orgRegistrationMode ?? 'auto',
+    registrationMode: settings.registrationMode ?? 'open',
+    memberAddMode: settings.memberAddMode ?? 'direct',
+    adminProvisionedPasswordChangePolicy: settings.adminProvisionedPasswordChangePolicy ?? 'force',
+    emailVerification: settings.emailVerification ?? 'off',
+    smtpHost: settings.smtpHost ?? '',
+    smtpPort: settings.smtpPort ?? 587,
+    smtpUsername: settings.smtpUsername ?? '',
+    smtpFrom: settings.smtpFrom ?? '',
+    smtpPasswordSet: settings.smtpPasswordSet ?? false
+  };
 }
 
 const orgRegistrationMode = ref<RegistrationMode>('auto');
 const registrationMode = ref<UserRegistrationMode>('open');
 const memberAddMode = ref<MemberAddMode>('direct');
 const adminProvisionedPasswordChangePolicy = ref<AdminProvisionedPasswordChangePolicy>('force');
+const emailVerification = ref<EmailVerification>('off');
+const smtpHost = ref('');
+const smtpPort = ref(587);
+const smtpUsername = ref('');
+const smtpPassword = ref('');
+const smtpFrom = ref('');
+const smtpPasswordSet = ref(false);
 const saved = ref<PlatformSettings>({
   orgRegistrationMode: 'auto',
   registrationMode: 'open',
   memberAddMode: 'direct',
-  adminProvisionedPasswordChangePolicy: 'force'
+  adminProvisionedPasswordChangePolicy: 'force',
+  emailVerification: 'off',
+  smtpHost: '',
+  smtpPort: 587,
+  smtpUsername: '',
+  smtpFrom: '',
+  smtpPasswordSet: false
 });
 const saving = ref(false);
 const errorMessage = ref('');
@@ -93,7 +150,13 @@ const hasChanges = computed(() => {
     orgRegistrationMode.value !== saved.value.orgRegistrationMode ||
     registrationMode.value !== saved.value.registrationMode ||
     memberAddMode.value !== saved.value.memberAddMode ||
-    adminProvisionedPasswordChangePolicy.value !== saved.value.adminProvisionedPasswordChangePolicy
+    adminProvisionedPasswordChangePolicy.value !== saved.value.adminProvisionedPasswordChangePolicy ||
+    emailVerification.value !== saved.value.emailVerification
+    || smtpHost.value !== saved.value.smtpHost
+    || smtpPort.value !== saved.value.smtpPort
+    || smtpUsername.value !== saved.value.smtpUsername
+    || smtpFrom.value !== saved.value.smtpFrom
+    || smtpPassword.value.trim().length > 0
   );
 });
 
@@ -101,12 +164,18 @@ const hasChanges = computed(() => {
 async function load(): Promise<void> {
   errorMessage.value = '';
   try {
-    const settings = await apiRequest<PlatformSettings>('/api/admin/orgs/settings');
+    const settings = normalizeSettings(await apiRequest<Partial<PlatformSettings>>('/api/admin/orgs/settings'));
     saved.value = settings;
     orgRegistrationMode.value = saved.value.orgRegistrationMode;
     registrationMode.value = saved.value.registrationMode;
     memberAddMode.value = saved.value.memberAddMode;
     adminProvisionedPasswordChangePolicy.value = saved.value.adminProvisionedPasswordChangePolicy;
+    emailVerification.value = saved.value.emailVerification;
+    smtpHost.value = saved.value.smtpHost;
+    smtpPort.value = saved.value.smtpPort;
+    smtpUsername.value = saved.value.smtpUsername;
+    smtpFrom.value = saved.value.smtpFrom;
+    smtpPasswordSet.value = saved.value.smtpPasswordSet;
   } catch (error) {
     errorMessage.value = formatRequestError(error);
   }
@@ -116,24 +185,44 @@ async function handleSave(): Promise<void> {
   saving.value = true;
   errorMessage.value = '';
   try {
-    const settings = await apiRequest<PlatformSettings>('/api/admin/orgs/settings', {
+    const settings = normalizeSettings(await apiRequest<Partial<PlatformSettings>>('/api/admin/orgs/settings', {
       method: 'PUT',
       body: {
         orgRegistrationMode: orgRegistrationMode.value,
         registrationMode: registrationMode.value,
         memberAddMode: memberAddMode.value,
-        adminProvisionedPasswordChangePolicy: adminProvisionedPasswordChangePolicy.value
+        adminProvisionedPasswordChangePolicy: adminProvisionedPasswordChangePolicy.value,
+        emailVerification: emailVerification.value,
+        smtpHost: smtpHost.value,
+        smtpPort: smtpPort.value,
+        smtpUsername: smtpUsername.value,
+        ...(smtpPassword.value ? { smtpPassword: smtpPassword.value } : {}),
+        smtpFrom: smtpFrom.value
       }
-    });
+    }));
     saved.value = {
       orgRegistrationMode: settings.orgRegistrationMode,
       registrationMode: settings.registrationMode,
-      memberAddMode: memberAddMode.value,
-      adminProvisionedPasswordChangePolicy: settings.adminProvisionedPasswordChangePolicy
+      memberAddMode: settings.memberAddMode,
+      adminProvisionedPasswordChangePolicy: settings.adminProvisionedPasswordChangePolicy,
+      emailVerification: settings.emailVerification,
+      smtpHost: settings.smtpHost,
+      smtpPort: settings.smtpPort,
+      smtpUsername: settings.smtpUsername,
+      smtpFrom: settings.smtpFrom,
+      smtpPasswordSet: settings.smtpPasswordSet
     };
     orgRegistrationMode.value = settings.orgRegistrationMode;
     registrationMode.value = settings.registrationMode;
+    memberAddMode.value = settings.memberAddMode;
     adminProvisionedPasswordChangePolicy.value = settings.adminProvisionedPasswordChangePolicy;
+    emailVerification.value = settings.emailVerification;
+    smtpHost.value = settings.smtpHost;
+    smtpPort.value = settings.smtpPort;
+    smtpUsername.value = settings.smtpUsername;
+    smtpFrom.value = settings.smtpFrom;
+    smtpPasswordSet.value = settings.smtpPasswordSet;
+    smtpPassword.value = '';
     ElMessage.success(t('settings.saved'));
   } catch (error) {
     errorMessage.value = formatRequestError(error);

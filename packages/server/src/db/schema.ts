@@ -172,4 +172,29 @@ export const databaseSchema = `
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- 出站邮件动作（ADR-0050）：原始 token 只出现在邮件链接中，数据库仅保存哈希。
+  CREATE TABLE IF NOT EXISTS email_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purpose TEXT NOT NULL CHECK (purpose IN ('register', 'email_change', 'password_reset')),
+    username TEXT NOT NULL,
+    email TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    password_ciphertext TEXT,
+    previous_email TEXT,
+    expires_at DATETIME NOT NULL,
+    claimed_at DATETIME,
+    consumed_at DATETIME,
+    superseded_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS email_actions_lookup_index
+    ON email_actions (purpose, username, expires_at);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS email_actions_pending_email_unique
+    ON email_actions (email)
+    WHERE purpose IN ('register', 'email_change')
+      AND consumed_at IS NULL
+      AND superseded_at IS NULL;
 `;

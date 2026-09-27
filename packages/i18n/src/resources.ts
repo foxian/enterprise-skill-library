@@ -25,6 +25,8 @@ const zhCN: TranslationTree = {
     username: '用户名',
     password: '密码',
     credentialsRequired: '请输入用户名与密码',
+    usernameRequired: '请输入用户名',
+    forgotPassword: '忘记密码？',
     registerLink: '没有账号？注册个人账号'
   },
   registration: {
@@ -41,6 +43,9 @@ const zhCN: TranslationTree = {
     passwordsDoNotMatch: '两次输入的密码不一致',
     pendingTitle: '注册已提交，等待管理员审批',
     pendingSubtitle: '账号 {{username}} 创建后需平台管理员批准后方可登录。',
+    emailVerificationPendingTitle: '请查收验证邮件',
+    emailVerificationPendingSubtitle: '验证邮件已发送到注册邮箱，完成验证后账号 {{username}} 才能激活。',
+    resendVerification: '重新发送验证邮件',
     successTitle: '注册成功',
     successSubtitle: '账号 {{username}} 已可登录，个人命名空间 @{{username}} 已就绪。',
     goToLogin: '前往登录',
@@ -254,6 +259,16 @@ const zhCN: TranslationTree = {
     memberAdditionMode: '拉人方式',
     directAddition: '直接添加（即时入组）',
     invitationMode: '邀请制（对方接受后入组）',
+    emailVerification: '注册邮箱验证',
+    emailVerificationOff: '关闭',
+    emailVerificationOn: '开启',
+    emailVerificationHint: '仅开放注册模式生效；开启后用户点击邮件链接后才会创建并激活账号。',
+    smtpHost: 'SMTP 主机',
+    smtpPort: 'SMTP 端口',
+    smtpUsername: 'SMTP 用户名',
+    smtpPassword: 'SMTP 密码或授权码',
+    smtpPasswordUnchanged: '已配置，留空表示保持不变',
+    smtpFrom: '发件人地址',
     saved: '平台设置已保存'
   },
   userManagement: {
@@ -280,7 +295,24 @@ const zhCN: TranslationTree = {
     newEmail: '新用户邮箱',
     currentPassword: '当前密码',
     saveEmail: '更新邮箱',
-    emailChanged: '用户邮箱已更新'
+    emailChanged: '用户邮箱已更新',
+    emailPendingVerification: '新邮箱待验证',
+    emailVerificationSent: '验证邮件已发送，请查收新邮箱'
+  },
+  verification: {
+    failedTitle: '邮箱验证失败',
+    successTitle: '邮箱验证成功',
+    successSubtitle: '账号 {{username}} 已激活，可以登录。'
+  },
+  passwordReset: {
+    requestSubtitle: '输入用户名，我们会向已绑定邮箱发送重置链接。',
+    requestSubmit: '发送重置邮件',
+    requestSentTitle: '请求已受理',
+    requestSentSubtitle: '如果账号符合条件，重置链接将发送到绑定邮箱，请查收邮件。',
+    backToLogin: '返回登录',
+    submit: '重置密码',
+    successTitle: '密码已重置',
+    passwordMismatch: '请填写新密码，并确保两次输入一致'
   },
   dashboard: {
     totalOrganizations: '组织总数',
@@ -445,6 +477,8 @@ const enUS: TranslationTree = {
     username: 'Username',
     password: 'Password',
     credentialsRequired: 'Enter a username and password',
+    usernameRequired: 'Enter a username',
+    forgotPassword: 'Forgot password?',
     registerLink: 'No account? Register a personal account'
   },
   registration: {
@@ -461,6 +495,9 @@ const enUS: TranslationTree = {
     passwordsDoNotMatch: 'The two passwords do not match',
     pendingTitle: 'Registration submitted and awaiting approval',
     pendingSubtitle: 'Account {{username}} was created and requires approval before sign-in.',
+    emailVerificationPendingTitle: 'Check your email to verify the account',
+    emailVerificationPendingSubtitle: 'A verification link was sent to the registration email. Account {{username}} will activate after verification.',
+    resendVerification: 'Resend verification email',
     successTitle: 'Registration succeeded',
     successSubtitle: 'Account {{username}} can sign in; personal namespace @{{username}} is ready.',
     goToLogin: 'Go to sign in',
@@ -674,6 +711,16 @@ const enUS: TranslationTree = {
     memberAdditionMode: 'Member addition mode',
     directAddition: 'Direct addition (join immediately)',
     invitationMode: 'Invitation required (join after acceptance)',
+    emailVerification: 'Registration email verification',
+    emailVerificationOff: 'Off',
+    emailVerificationOn: 'On',
+    emailVerificationHint: 'Applies only to open registration; the account is created and activated after the email link is opened.',
+    smtpHost: 'SMTP host',
+    smtpPort: 'SMTP port',
+    smtpUsername: 'SMTP username',
+    smtpPassword: 'SMTP password or authorization code',
+    smtpPasswordUnchanged: 'Configured; leave blank to keep it',
+    smtpFrom: 'From address',
     saved: 'Platform settings saved'
   },
   userManagement: {
@@ -700,7 +747,24 @@ const enUS: TranslationTree = {
     newEmail: 'New Skill User Email',
     currentPassword: 'Current password',
     saveEmail: 'Update email',
-    emailChanged: 'Skill User Email updated'
+    emailChanged: 'Skill User Email updated',
+    emailPendingVerification: 'New email pending verification',
+    emailVerificationSent: 'Verification email sent; check the new mailbox'
+  },
+  verification: {
+    failedTitle: 'Email verification failed',
+    successTitle: 'Email verified',
+    successSubtitle: 'Account {{username}} is active and ready to sign in.'
+  },
+  passwordReset: {
+    requestSubtitle: 'Enter your username and we will send a reset link to the account email.',
+    requestSubmit: 'Send reset email',
+    requestSentTitle: 'Request accepted',
+    requestSentSubtitle: 'If the account is eligible, a reset link will be sent to its email address.',
+    backToLogin: 'Back to sign in',
+    submit: 'Reset password',
+    successTitle: 'Password reset',
+    passwordMismatch: 'Enter a new password and make both entries match'
   },
   dashboard: {
     totalOrganizations: 'Total organizations',

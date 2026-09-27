@@ -87,6 +87,17 @@ describe('server config', () => {
     expect(config.passwordMinLength).toBe(16);
   });
 
+  it('loads the email action secret without inventing a default in config', () => {
+    const config = loadServerConfig({
+      DATABASE_PATH: '/tmp/esl.db',
+      GITEA_URL: 'http://gitea:3000',
+      GITEA_ADMIN_TOKEN: 'admin-token',
+      ESL_EMAIL_ACTION_SECRET: 'test-email-action-secret'
+    } as NodeJS.ProcessEnv);
+
+    expect(config.emailActionSecret).toBe('test-email-action-secret');
+  });
+
   
   it('loads the configured Gitea admin token file and preserves direct token precedence', () => {
     const config = loadServerConfig({

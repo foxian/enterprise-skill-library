@@ -20,6 +20,9 @@
           {{ t('auth.login') }}
         </el-button>
       </el-form>
+      <router-link to="/admin/forgot-password" class="auth-link" data-test="forgot-password-link">
+        {{ t('auth.forgotPassword') }}
+      </router-link>
       <!-- 登录页只留账号注册：组织不属于登录前的上下文。组织申请是已登录
            Skill User 在个人控制台「我的组织」里做的事（ADR-0032/0035）——
           `POST /api/orgs/applications` 需要 token，匿名访客点进来必然 401。 -->

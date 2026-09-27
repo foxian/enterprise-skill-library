@@ -11,7 +11,8 @@ import type {
   AdminRepository,
   OrgApplicationRepository,
   PlatformSettingsRepository,
-  UserRegistrationRepository
+  UserRegistrationRepository,
+  EmailActionRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import { findSkillUserEmailConflict } from '../services/skill-user-email.js';
@@ -24,6 +25,7 @@ export interface UserAdminRouteOptions {
   platformSettingsRepository: PlatformSettingsRepository;
   userRegistrationRepository: UserRegistrationRepository;
   passwordMinLength?: number;
+  emailActionRepository: EmailActionRepository;
 }
 
 export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdminRouteOptions): void {
@@ -99,6 +101,9 @@ export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdmin
     }
     const email = emailValidation.data;
 
+    if (options.emailActionRepository.getPending('register', username)) {
+      return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
+    }
     if (options.userRegistrationRepository.getByUsername(username)?.status === 'pending') {
       return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
     }
@@ -111,7 +116,8 @@ export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdmin
     const emailConflict = await findSkillUserEmailConflict(
       giteaService,
       options.userRegistrationRepository,
-      email
+      email,
+      { emailActionRepository: options.emailActionRepository }
     );
     if (emailConflict === 'pending-registration') {
       return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
@@ -191,7 +197,7 @@ export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdmin
       giteaService,
       options.userRegistrationRepository,
       email,
-      { exceptUsername: username }
+      { exceptUsername: username, emailActionRepository: options.emailActionRepository }
     );
     if (conflict === 'pending-registration') {
       return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));

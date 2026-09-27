@@ -13,6 +13,7 @@ import {
   SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from './db/database.js';
+import { EmailActionRepository } from './db/database.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerOrgRoutes } from './routes/orgs.js';
@@ -28,6 +29,8 @@ import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
 import { readPlatformInfo } from './services/platform-config.js';
 import { logEvent, logTaskFinished, logTaskStarted, taskLogger } from './logging.js';
 import { STATUS_CODES } from 'node:http';
+import crypto from 'node:crypto';
+import { SmtpMailer, type Mailer } from './services/mailer.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -41,6 +44,8 @@ export interface AppOptions {
   // 诊断日志出口（ADR-0045）。生产传 createLogger() 的结果；测试注入可捕获的
   // logger；不传则完全关闭，普通测试输出不被生产日志污染。
   logger?: FastifyServerOptions['logger'];
+  mailer?: Mailer;
+  emailActionSecret?: string;
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -112,6 +117,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const adminRepository = new AdminRepository(db);
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
+  const emailActionRepository = new EmailActionRepository(db);
+  const mailer = options.mailer ?? new SmtpMailer(platformSettingsRepository);
+  // 生产环境应设置 ESL_EMAIL_ACTION_SECRET 以便重启后仍能处理已发出的链接。
+  // 未设置时只使用进程级随机值，避免固定默认密钥让不同部署共享可预测密钥。
+  const emailActionSecret =
+    options.emailActionSecret ??
+    process.env.ESL_EMAIL_ACTION_SECRET ??
+    crypto.randomBytes(32).toString('hex');
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   expireStalePendingApplications();
@@ -216,20 +229,27 @@ export function buildApp(options: AppOptions): FastifyInstance {
     giteaService: options.giteaService,
     platformSettingsRepository,
     userRegistrationRepository: new UserRegistrationRepository(db),
-    passwordMinLength: options.passwordMinLength
+    passwordMinLength: options.passwordMinLength,
+    emailActionRepository,
+    mailer,
+    emailActionSecret
   });
   registerUserRoutes(app, {
     giteaService: options.giteaService,
     platformSettingsRepository,
     userRegistrationRepository: new UserRegistrationRepository(db),
     orgApplicationRepository,
-    passwordMinLength: options.passwordMinLength
+    passwordMinLength: options.passwordMinLength,
+    emailActionRepository,
+    mailer,
+    emailActionSecret
   });
   registerOrgRoutes(app, {
     giteaService: options.giteaService,
     orgApplicationRepository,
     platformSettingsRepository,
-    tenantOrganizationRepository
+    tenantOrganizationRepository,
+    emailActionRepository
   });
   registerOrgAdminRoutes(app, {
     giteaService: options.giteaService,
@@ -245,7 +265,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     orgApplicationRepository,
     platformSettingsRepository,
     userRegistrationRepository: new UserRegistrationRepository(db),
-    passwordMinLength: options.passwordMinLength
+    passwordMinLength: options.passwordMinLength,
+    emailActionRepository
   });
   registerOrgConsoleRoutes(app, {
     giteaService: options.giteaService,
