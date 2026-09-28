@@ -6,7 +6,7 @@ import { executeInfo } from './info.js';
 import type { NetworkCommandOptions } from './network-options.js';
 import { notify } from '../output.js';
 import { confirm, isInteractive } from '../prompt.js';
-import { fileExists } from '@esl/core';
+import { ensureGitAvailable, fileExists } from '@esl/core';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -30,6 +30,8 @@ export interface ResetSourceResult {
 export async function executeResetSource(options: ResetSourceOptions = {}): Promise<ResetSourceResult> {
   const directory = options.directory ?? process.cwd();
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  // ADR-0053：git 缺失时 fail-fast。
+  await ensureGitAvailable();
 
   let remoteUrl: string;
   try {

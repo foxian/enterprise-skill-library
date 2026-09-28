@@ -30,7 +30,8 @@ import {
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
-  preparePublishedSkillPackage
+  preparePublishedSkillPackage,
+  ensureGitAvailable
   } from '@esl/core';
 import { requireOkResponse } from '../api-error.js';
 import {
@@ -223,6 +224,9 @@ async function installFromServer(
   }
 
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
+
+  // ADR-0053：已发布包走 HTTP 下载不依赖 git；仅 clone 路径 fail-fast 探测。
+  await ensureGitAvailable();
 
   if (options.global || !projectRoot) {
     const globalRoot = resolveLocalStorePaths(options).root;

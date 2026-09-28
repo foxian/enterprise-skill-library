@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  ensureGitAvailable,
   highestStableVersion,
   isBuiltinIdentity,
   loadBuiltinPackageOrThrow,
@@ -37,6 +38,8 @@ async function readSkillMdFromLocal(sourcePath: string): Promise<string> {
 
 async function readSkillMdFromServer(name: string, options: UseOptions): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  // ADR-0053：远程路径才依赖 git；本地路径与 built-in 不探测。
+  await ensureGitAvailable();
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');

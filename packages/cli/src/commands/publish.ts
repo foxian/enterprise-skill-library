@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import semver from 'semver';
 import {
+  ensureGitAvailable,
   fileExists,
   highestStableVersion,
   isBuiltinIdentity,
@@ -40,6 +41,8 @@ export interface PublishOptions extends NetworkCommandOptions {
 
 export async function executePublish(options: PublishOptions = {}): Promise<unknown> {
   const directory = options.directory ?? process.cwd();
+  // ADR-0053：git 缺失时 fail-fast。
+  await ensureGitAvailable();
   const skillJsonPath = path.join(directory, 'skill.json');
   if (await fileExists(skillJsonPath)) {
     const raw = await fs.readFile(skillJsonPath, 'utf8');

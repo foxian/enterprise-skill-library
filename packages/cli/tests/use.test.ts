@@ -114,4 +114,21 @@ describe('esl use', () => {
     expect(checkedOut).toEqual(['1.2.0']);
     await fs.rm(homeDir, { recursive: true });
   });
+
+  it('reads SKILL.md from a local directory even when git is unavailable on PATH', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-use-'));
+    const emptyPathDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-empty-path-'));
+    const skillContent = '---\nname: test-skill\ndescription: A test skill.\n---\n\n# Test Skill\n';
+    await fs.writeFile(path.join(tmpDir, 'SKILL.md'), skillContent);
+    const originalPath = process.env.PATH;
+    process.env.PATH = emptyPathDir;
+    try {
+      const result = await executeUse(tmpDir);
+      expect(result).toBe(skillContent);
+    } finally {
+      process.env.PATH = originalPath;
+      await fs.rm(tmpDir, { recursive: true });
+      await fs.rm(emptyPathDir, { recursive: true });
+    }
+  });
 });

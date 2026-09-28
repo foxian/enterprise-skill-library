@@ -9,6 +9,7 @@ export * from './org/account-policy.js';
 export * from './schema/skill-json.js';
 export * from './schema/release-manifest.js';
 export * from './schema/compatibility.js';
+export * from './git.js';
 export * from './schema/validation-result.js';
 export * from './skill/builtin-package.js';
 export * from './skill/directory-validator.js';

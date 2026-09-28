@@ -122,6 +122,9 @@ export const apiErrorMessages = {
   organizationsAreCreatedInstantlyOnThisPlatformCreateOneDirectlyInstead: 'Organizations are created instantly on this platform; create one directly instead',
   validationFailed: 'Validation failed: {detail}',
   internalError: 'Internal error: {detail}',
+  // CLI 本地环境错误（非服务端响应），显式登记以复用错误码翻译机制（ADR-0053）。
+  cliGitMissing:
+    'Git is required for this command. Install git (on Windows: https://git-scm.com/download/win) and make sure it is on your PATH.',
 } as const;
 
 export type ApiErrorCode = keyof typeof apiErrorMessages;
@@ -247,4 +250,6 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   passwordResetRequestReceived: '如果账号符合条件，密码重置邮件已发送',
   newPasswordIsRequired: '需要提供新密码',
   emailVerificationPending: '邮箱验证待完成',
+  cliGitMissing:
+    '该命令需要 git。请安装 Git（Windows 可从 https://git-scm.com/download/win 下载）并确认其在 PATH 中。',
 };

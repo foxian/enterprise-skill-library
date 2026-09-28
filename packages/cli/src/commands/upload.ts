@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
+import { ensureGitAvailable, fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -45,6 +45,8 @@ export interface UploadedSkill {
 export async function executeUpload(options: UploadOptions = {}): Promise<UploadedSkill> {
   const directory = options.directory ?? process.cwd();
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  // ADR-0053：git 缺失时 fail-fast，不在半初始化的目录里留下 ENOENT 堆栈。
+  await ensureGitAvailable();
   const skillJsonPath = path.join(directory, 'skill.json');
   if (await fileExists(skillJsonPath)) {
     const raw = await fs.readFile(skillJsonPath, 'utf8');

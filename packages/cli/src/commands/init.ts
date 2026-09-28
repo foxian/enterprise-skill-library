@@ -6,6 +6,7 @@ import {
   AgentInteractionRequiredError,
   createAgentInteractionRequest,
   createMinimalReleaseManifest,
+  ensureGitAvailable,
   loadConfig,
   titleCaseDisplayName,
   validateSkillMd,
@@ -307,6 +308,9 @@ Write concise agent instructions here. Move long reference material into referen
   }
 
   if (runGitInit) {
+    // ADR-0053：仅在确实要执行 git 操作时探测 git，缺失时 fail-fast
+    // （避免脚手架写完后在 git init 处才爆 ENOENT）。
+    await ensureGitAvailable();
     // 目标已在 git 仓库内（含父级仓库）时静默跳过，避免覆盖既有的仓库状态。
     let alreadyRepo = false;
     try {

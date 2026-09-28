@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ensureGitAvailable } from '@esl/core';
 import {
   gitAuthHeaderConfig,
   requireFreshToken,
@@ -28,6 +29,8 @@ export async function executeStatus(options: StatusOptions = {}): Promise<Source
   const directory = options.directory ?? process.cwd();
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
 
+  // ADR-0053：git 缺失时 fail-fast，避免把 ENOENT 误读成「不是 git 仓库」。
+  await ensureGitAvailable();
   if (!(await isInsideWorkTree(execFileAsync, directory))) {
     return { serverHosted: false, clean: true, ahead: 0, behind: 0 };
   }

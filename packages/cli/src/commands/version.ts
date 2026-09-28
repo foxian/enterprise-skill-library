@@ -1,4 +1,4 @@
-import { isBuiltinIdentity, validateReleaseManifest, type ReleaseManifest } from '@esl/core';
+import { ensureGitAvailable, isBuiltinIdentity, validateReleaseManifest, type ReleaseManifest } from '@esl/core';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -162,6 +162,8 @@ export async function executeVersion(
   options: { cwd?: string; execFile?: typeof execFileAsync } = {}
 ): Promise<string> {
   const directory = options.cwd ?? process.cwd();
+  // ADR-0053：git 缺失时 fail-fast。
+  await ensureGitAvailable();
   const inspection = await readVersionInspection(directory);
 
   let newVersion: string;

@@ -142,4 +142,18 @@ describe('esl status', () => {
       stderrSpy.mockRestore();
     }
   });
+
+  it('fails fast with an actionable error when git is unavailable on PATH', async () => {
+    const emptyPathDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-empty-path-'));
+    const originalPath = process.env.PATH;
+    process.env.PATH = emptyPathDir;
+    try {
+      await expect(executeStatus({ directory: skillDir, homeDir })).rejects.toThrow(
+        /git is required/i
+      );
+    } finally {
+      process.env.PATH = originalPath;
+      fs.rmSync(emptyPathDir, { recursive: true, force: true });
+    }
+  });
 });

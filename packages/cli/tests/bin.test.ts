@@ -439,6 +439,18 @@ describe('esl program', () => {
     expect(formatErrorMessage(error, 'zh-CN')).toContain('Error: 未认证：凭据无效');
   });
 
+  it('localizes the missing-git error in the requested locale', () => {
+    const error = Object.assign(
+      new Error(
+        'Git is required for this command. Install git (on Windows: https://git-scm.com/download/win) and make sure it is on your PATH.'
+      ),
+      { code: 'cliGitMissing', params: {} }
+    );
+
+    expect(formatErrorMessage(error, 'zh-CN')).toContain('Error: 该命令需要 git');
+    expect(formatErrorMessage(error, 'zh-CN')).toContain('https://git-scm.com/download/win');
+  });
+
   it('reports the CLI version from the package manifest', () => {
     const expectedVersion = JSON.parse(
       fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')

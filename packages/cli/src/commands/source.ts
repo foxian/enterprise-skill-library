@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parseSkillName, isBuiltinIdentity } from '@esl/core';
+import { ensureGitAvailable, parseSkillName, isBuiltinIdentity } from '@esl/core';
 import {
   gitAuthHeaderConfig,
   fetchWithTimeout,
@@ -25,6 +25,8 @@ export async function executeSource(name: string, options: SourceOptions = {}): 
   if (isBuiltinIdentity(name)) {
     throw new Error(`Unknown built-in skill: ${name}; built-in skills have no source repository`);
   }
+  // ADR-0053：git 缺失时 fail-fast。
+  await ensureGitAvailable();
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
   const authToken = await requireFreshToken(options);
   const info = await executeInfo(name, options);
