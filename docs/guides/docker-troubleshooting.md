@@ -8,7 +8,7 @@ Desktop, proxy, image-pull, and backend recovery issues only.
 
 - Windows 10/11
 - Docker Desktop
-- Node.js 18+
+- Node.js 24（推荐；完整仓库需要 ≥22。官方镜像为 node:24-bookworm-slim）
 - npm
 - Git for Windows
 

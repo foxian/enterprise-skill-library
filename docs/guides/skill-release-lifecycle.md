@@ -15,7 +15,7 @@ organization's Namespace).
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24（推荐；完整仓库 / Server 需要 ≥22。只使用 CLI 时可为 20.17.x、22.x ≥22.13 或 24.x）
 - npm
 - Docker Desktop
 - Git for Windows
