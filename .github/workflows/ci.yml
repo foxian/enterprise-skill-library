@@ -9,13 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  # ADR-0053：CLI 三平台 T1——ubuntu 保留 Node 20.17/22/24 三轴，
+  # windows 与 macOS 各一个 Node 24 job（平台破坏主要来自 OS 而非 Node 小版本）。
   cli:
-    name: CLI (Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    name: CLI (${{ matrix.os }}, Node ${{ matrix.node-version }})
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['20.17', '22', '24']
+        include:
+          - os: ubuntu-latest
+            node-version: '20.17'
+          - os: ubuntu-latest
+            node-version: '22'
+          - os: ubuntu-latest
+            node-version: '24'
+          - os: windows-latest
+            node-version: '24'
+          - os: macos-latest
+            node-version: '24'
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,8 +35,8 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @esl/cli
-      - run: npx vitest run packages/cli packages/core packages/i18n
+      - run: npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @foxian/esl
+      - run: npx vitest run packages/cli packages/core packages/i18n tests/ci-workflow.test.mjs
 
   server:
     name: Server (Node ${{ matrix.node-version }})
