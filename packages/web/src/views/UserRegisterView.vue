@@ -16,6 +16,20 @@
         :sub-title="t('registration.pendingSubtitle', { username: pending })"
       />
       <el-result
+        v-else-if="pendingEmailVerification"
+        data-test="register-email-pending"
+        icon="info"
+        :title="t('registration.emailVerificationPendingTitle')"
+        :sub-title="t('registration.emailVerificationPendingSubtitle', pendingEmailVerification)"
+      >
+        <template #extra>
+          <el-button :loading="resending" data-test="resend-verification" @click="resendVerification">
+            {{ t('registration.resendVerification') }}
+          </el-button>
+          <router-link to="/admin/login" class="auth-link">{{ t('registration.goToLogin') }}</router-link>
+        </template>
+      </el-result>
+      <el-result
         v-else-if="registered"
         data-test="register-success"
         icon="success"
@@ -71,6 +85,8 @@ const loading = ref(false);
 const errorMessage = ref('');
 const registered = ref('');
 const pending = ref('');
+const pendingEmailVerification = ref<{ username: string; email: string } | null>(null);
+const resending = ref(false);
 const { t } = useLocaleState();
 
 onMounted(() => {
@@ -94,7 +110,12 @@ async function submit(): Promise<void> {
       method: 'POST',
       body: { username: username.value.trim(), email: email.value.trim(), password: password.value }
     });
-    if (result.status === 'pending') {
+    if (result.status === 'pending_email_verification') {
+      pendingEmailVerification.value = {
+        username: result.username,
+        email: email.value.trim()
+      };
+    } else if (result.status === 'pending') {
       pending.value = result.username;
     } else {
       registered.value = result.username;
@@ -103,6 +124,22 @@ async function submit(): Promise<void> {
     errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
+  }
+}
+
+async function resendVerification(): Promise<void> {
+  if (!pendingEmailVerification.value) return;
+  resending.value = true;
+  errorMessage.value = '';
+  try {
+    await apiRequest('/api/auth/verify-email/resend', {
+      method: 'POST',
+      body: { username: pendingEmailVerification.value.username, purpose: 'register' }
+    });
+  } catch (error) {
+    errorMessage.value = formatRequestError(error);
+  } finally {
+    resending.value = false;
   }
 }
 </script>

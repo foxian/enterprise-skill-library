@@ -81,6 +81,7 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
     ensureColumn(db, "applicant_username", "TEXT NOT NULL DEFAULT ''", 'org_applications');
     ensureColumn(db, 'locale', 'TEXT', 'admin_users');
     ensureColumn(db, 'email', 'TEXT', 'user_registrations');
+    ensureColumn(db, 'claimed_at', 'DATETIME', 'email_actions');
     db.exec(`
       UPDATE skills
       SET created_by = author
@@ -92,7 +93,8 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
         ('org_registration_mode', 'auto'),
         ('registration_mode', 'open'),
         ('member_add_mode', 'direct'),
-        ('admin_provisioned_password_change_policy', 'force')
+        ('admin_provisioned_password_change_policy', 'force'),
+        ('email_verification', 'off')
     `);
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS user_registrations_pending_email_unique
@@ -952,6 +954,10 @@ export class AdminRepository {
     return Boolean(stmt.get(hashToken(token)));
   }
 
+  revokeUserTokens(username: string): void {
+    this.db.prepare('UPDATE admin_tokens SET revoked = 1 WHERE username = ?').run(username);
+  }
+
   private ensureBootstrapAdmin(): void {
     const stmt = this.db.prepare(`
       INSERT INTO admin_users (username, disabled, platform_admin)
@@ -1522,6 +1528,273 @@ export class PlatformSettingsRepository {
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
     `).run(key, value);
   }
+}
+
+export class PendingEmailActionExistsError extends Error {
+  constructor() {
+    super('Pending email action already exists');
+    this.name = 'PendingEmailActionExistsError';
+  }
+}
+
+function isSqliteConstraintError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT');
+}
+
+export type EmailActionPurpose = 'register' | 'email_change' | 'password_reset';
+
+export interface EmailActionRecord {
+  id: number;
+  purpose: EmailActionPurpose;
+  username: string;
+  email: string;
+  passwordCiphertext: string | null;
+  previousEmail: string | null;
+  expiresAt: string;
+  consumedAt: string | null;
+  claimedAt: string | null;
+  supersededAt: string | null;
+  createdAt: string;
+}
+
+// 邮件动作只保存 token 哈希；重发通过作废旧动作并创建新动作实现。
+export class EmailActionRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  expireStale(now = new Date().toISOString()): void {
+    this.db.prepare(`
+      UPDATE email_actions
+      SET superseded_at = CURRENT_TIMESTAMP
+      WHERE consumed_at IS NULL AND superseded_at IS NULL AND expires_at <= ?
+    `).run(now);
+  }
+
+  create(
+    input: {
+      purpose: EmailActionPurpose;
+      username: string;
+      email: string;
+      tokenHash: string;
+      expiresAt: string;
+      passwordCiphertext?: string;
+      previousEmail?: string;
+    },
+    options: { replacePending?: boolean } = {}
+  ): EmailActionRecord {
+    const replacePending = options.replacePending !== false;
+    const insert = this.db.transaction(() => {
+      this.expireStale();
+      if (replacePending) {
+        this.supersedePending(input.purpose, input.username);
+      } else if (this.getPending(input.purpose, input.username)) {
+        throw new PendingEmailActionExistsError();
+      }
+      try {
+        this.db.prepare(`
+          INSERT INTO email_actions (
+            purpose, username, email, token_hash, password_ciphertext,
+            previous_email, expires_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          input.purpose,
+          input.username,
+          input.email,
+          input.tokenHash,
+          input.passwordCiphertext ?? null,
+          input.previousEmail ?? null,
+          input.expiresAt
+        );
+      } catch (error) {
+        if (isSqliteConstraintError(error)) {
+          throw new PendingEmailActionExistsError();
+        }
+        throw error;
+      }
+      const id = (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+      return this.getById(id)!;
+    });
+    return insert();
+  }
+
+  getById(id: number): EmailActionRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT id, purpose, username, email, password_ciphertext, previous_email,
+        expires_at, claimed_at, consumed_at, superseded_at, created_at
+      FROM email_actions WHERE id = ?
+    `).get(id) as EmailActionRow | undefined;
+    return row ? deserializeEmailAction(row) : undefined;
+  }
+
+  getValid(tokenHash: string, purpose?: EmailActionPurpose): EmailActionRecord | undefined {
+    this.expireStale();
+    const now = new Date().toISOString();
+    const row = this.db.prepare(`
+      SELECT id, purpose, username, email, password_ciphertext, previous_email,
+        expires_at, claimed_at, consumed_at, superseded_at, created_at
+      FROM email_actions
+      WHERE token_hash = ?
+        AND (? IS NULL OR purpose = ?)
+        AND claimed_at IS NULL AND consumed_at IS NULL AND superseded_at IS NULL
+        AND expires_at > ?
+    `).get(tokenHash, purpose ?? null, purpose ?? null, now) as EmailActionRow | undefined;
+    return row ? deserializeEmailAction(row) : undefined;
+  }
+
+  consume(id: number): boolean {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      UPDATE email_actions SET consumed_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND claimed_at IS NOT NULL AND consumed_at IS NULL AND superseded_at IS NULL
+        AND expires_at > ?
+    `).run(id, now);
+    return result.changes === 1;
+  }
+
+  getPending(purpose: EmailActionPurpose, username: string): EmailActionRecord | undefined {
+    this.expireStale();
+    const now = new Date().toISOString();
+    const row = this.db.prepare(`
+      SELECT id, purpose, username, email, password_ciphertext, previous_email,
+        expires_at, claimed_at, consumed_at, superseded_at, created_at
+      FROM email_actions
+      WHERE purpose = ? AND username = ?
+        AND claimed_at IS NULL AND consumed_at IS NULL AND superseded_at IS NULL
+        AND expires_at > ?
+      ORDER BY id DESC LIMIT 1
+    `).get(purpose, username, now) as EmailActionRow | undefined;
+    return row ? deserializeEmailAction(row) : undefined;
+  }
+
+  getPendingByEmail(email: string): EmailActionRecord | undefined {
+    this.expireStale();
+    const now = new Date().toISOString();
+    const row = this.db.prepare(`
+      SELECT id, purpose, username, email, password_ciphertext, previous_email,
+        expires_at, claimed_at, consumed_at, superseded_at, created_at
+      FROM email_actions
+      WHERE email = ? AND purpose IN ('register', 'email_change')
+        AND claimed_at IS NULL AND consumed_at IS NULL AND superseded_at IS NULL
+        AND expires_at > ?
+      ORDER BY id DESC LIMIT 1
+    `).get(email, now) as EmailActionRow | undefined;
+    return row ? deserializeEmailAction(row) : undefined;
+  }
+
+  private supersedePending(purpose: EmailActionPurpose, username: string): void {
+    this.db.prepare(`
+      UPDATE email_actions SET superseded_at = CURRENT_TIMESTAMP
+      WHERE purpose = ? AND username = ? AND consumed_at IS NULL AND superseded_at IS NULL
+    `).run(purpose, username);
+  }
+
+  claim(id: number): boolean {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`
+      UPDATE email_actions SET claimed_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND claimed_at IS NULL AND consumed_at IS NULL AND superseded_at IS NULL
+        AND expires_at > ?
+    `).run(id, now);
+    return result.changes === 1;
+  }
+
+  release(id: number): void {
+    this.db.prepare('UPDATE email_actions SET claimed_at = NULL WHERE id = ? AND consumed_at IS NULL').run(id);
+  }
+
+  // 发信失败时作废刚创建的动作，避免占用用户名/邮箱却永远收不到邮件。
+  supersede(id: number): boolean {
+    const result = this.db.prepare(`
+      UPDATE email_actions SET superseded_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND consumed_at IS NULL AND superseded_at IS NULL
+    `).run(id);
+    return result.changes === 1;
+  }
+
+  // 创建替代动作时记录旧动作，SMTP 发信失败可恢复旧链接。
+  createReplacement(
+    input: {
+      purpose: EmailActionPurpose;
+      username: string;
+      email: string;
+      tokenHash: string;
+      expiresAt: string;
+      passwordCiphertext?: string;
+      previousEmail?: string;
+    }
+  ): { action: EmailActionRecord; previousAction: EmailActionRecord | null } {
+    const replacement = this.db.transaction(() => {
+      this.expireStale();
+      const previousAction = this.getPending(input.purpose, input.username) ?? null;
+      this.supersedePending(input.purpose, input.username);
+      this.db.prepare(`
+        INSERT INTO email_actions (
+          purpose, username, email, token_hash, password_ciphertext,
+          previous_email, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.purpose,
+        input.username,
+        input.email,
+        input.tokenHash,
+        input.passwordCiphertext ?? null,
+        input.previousEmail ?? null,
+        input.expiresAt
+      );
+      const id = (this.db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id;
+      return { action: this.getById(id)!, previousAction };
+    });
+    return replacement();
+  }
+
+  rollbackReplacement(actionId: number, previousActionId?: number): void {
+    const rollback = this.db.transaction(() => {
+      this.supersede(actionId);
+      if (previousActionId !== undefined) this.restore(previousActionId);
+    });
+    rollback();
+  }
+
+  private restore(id: number): boolean {
+    const result = this.db.prepare(`
+      UPDATE email_actions SET superseded_at = NULL
+      WHERE id = ?
+        AND claimed_at IS NULL
+        AND consumed_at IS NULL
+        AND superseded_at IS NOT NULL
+    `).run(id);
+    return result.changes === 1;
+  }
+}
+
+interface EmailActionRow {
+  id: number;
+  purpose: EmailActionPurpose;
+  username: string;
+  email: string;
+  password_ciphertext: string | null;
+  previous_email: string | null;
+  expires_at: string;
+  claimed_at: string | null;
+  consumed_at: string | null;
+  superseded_at: string | null;
+  created_at: string;
+}
+
+function deserializeEmailAction(row: EmailActionRow): EmailActionRecord {
+  return {
+    id: row.id,
+    purpose: row.purpose,
+    username: row.username,
+    email: row.email,
+    passwordCiphertext: row.password_ciphertext,
+    previousEmail: row.previous_email,
+    expiresAt: row.expires_at,
+    claimedAt: row.claimed_at,
+    consumedAt: row.consumed_at,
+    supersededAt: row.superseded_at,
+    createdAt: row.created_at
+  };
 }
 
 function hashToken(token: string): string {

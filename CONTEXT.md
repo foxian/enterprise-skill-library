@@ -596,9 +596,10 @@ maintain skills according to their permissions. 身份全局唯一（即 Gitea �
 
 Skill User 的必填联系属性，全局唯一。它不是登录标识，也不属于 Skill User
 Credential；登录仍使用用户名与密码。它同时作为该账号在 Git Backend 中的提交
-匹配邮箱（author email 与之对应）。由用户注册或用户建号写入；之后 Skill
-User 可修改自己的用户邮箱，Super Administrator 可修改任意 Skill User 的用户邮箱。
-存量账号若仍持有历史上的合成邮箱，处于邮箱待补全，不视为已满足本属性的合格形态。
+匹配邮箱（author email 与之对应），并作为出站邮件的收件地址（邮箱验证、密码重置等）。
+由用户注册或用户建号写入；之后 Skill User 可修改自己的用户邮箱，Super Administrator
+可修改任意 Skill User 的用户邮箱。存量账号若仍持有历史上的合成邮箱，处于邮箱待补全，
+不视为已满足本属性的合格形态。
 _Avoid_: 登录邮箱（当指用 email 登录时）；合成邮箱、Gitea email（当指已由用户邮箱承接的联系与匹配属性时）。
 
 ## 邮箱待补全 (Email Pending Completion)
@@ -607,12 +608,44 @@ _Avoid_: 登录邮箱（当指用 email 登录时）；合成邮箱、Gitea emai
 个人资料与 Super Administrator 用户管理中标记/提醒；本人或 Super Administrator
 补全唯一的用户邮箱后，该状态消除。新用户注册与用户建号不得进入此状态（ADR-0046）。
 
+## 出站邮件 (Outbound Email)
+
+ESL Server 向用户邮箱投递事务性邮件的平台能力（如邮箱验证、密码重置）。由
+Super Administrator 配置 SMTP 投递参数与平台发件地址（From）；SMTP 登录凭据与 From
+分开配置（二者可以相同，但不是同一个配置项）。未正确配置时，依赖出站邮件的策略不得
+开启或须给出可行动错误。发件身份属于平台，不属于某个 Skill User，也不复用 Gitea
+超管的合成邮箱。邮件通道由 ESL Server 自管，不经 Git Backend mailer。它不是登录通道，
+也不替代 Skill User Credential。
+_Avoid_: 通知中心；营销邮件；Gitea 邮件；登录邮箱。
+
+## 邮箱验证 (Email Verification)
+
+通过出站邮件中的一次性链接，证明某地址确为该操作者可接收的用户邮箱。用于：
+`open` 模式下开启注册邮箱验证策略时的用户注册，以及 Skill User 本人的用户邮箱变更。
+用户建号与 Super Administrator 改邮不要求邮箱验证。
+_Avoid_: 账号激活（当仅指超管审批时）；邮箱待补全。
+
+## 注册邮箱验证策略 (Registration Email Verification Policy)
+
+平台设置：当 `registration_mode=open` 时，自助用户注册是否必须先完成邮箱验证
+才创建 Skill User。由 Super Administrator 配置，出厂默认关闭；`approval` 模式下该策略不生效。
+开启本策略的前提是出站邮件已正确配置。
+
+## 邮箱验证待验 (Pending Email Verification)
+
+`open` + 注册邮箱验证策略开启时，用户注册提交后、验证链接兑现前的占用态：
+仅有待验申请记录，尚未创建 Skill User 与个人命名空间落地账号；同时占用用户名与
+用户邮箱。验证成功后创建账号；过期、取消或失败后释放占用。
+_Avoid_: 待审申请（`approval` 下的用户注册审批占用）。
+
 ## 用户注册 (User Registration)
 
 Skill User 自助创建全局账号的入口（服务端经 Git Backend 管理员 API 创建
 账号，用户自设密码并填写用户邮箱）。模式由平台设置 `registration_mode` 决定：`open`
 （默认）注册即用；`approval` 需 Super Administrator 审批激活（ADR-0032）。
 `approval` 下待审申请同时占用用户名与用户邮箱；拒绝或完成后释放未采纳的占用。
+当 `registration_mode=open` 且注册邮箱验证策略开启时，提交后先进入邮箱验证待验，
+点验证链接成功后才创建 Skill User；`approval` 开启时忽略该邮验策略（人审已覆盖准入）。
 
 ## 用户建号 (Admin User Provisioning)
 
@@ -637,7 +670,8 @@ Super Administrator 解除用户禁用、恢复 Skill User 登录能力的治理
 
 平台设置：用户建号时是否要求该 Skill User 首次登录修改密码。出厂默认强制，可由
 Super Administrator 关闭。策略在建号当时快照到该账号，之后更改平台设置只影响
-此后新建立的号，不回溯已有账号（ADR-0046）。
+此后新建立的号，不回溯已有账号（ADR-0046）。若该账号完成密码重置，清除其尚未兑现的
+首登改密要求（重置已让用户设下自选密码）。
 
 ## Skill User Credential
 
@@ -649,13 +683,29 @@ itself. 用户邮箱不是 Credential 的一部分。
 
 Skill User 修改自己的用户邮箱，或 Super Administrator 修改某一 Skill User
 用户邮箱的操作。新邮箱必须全局唯一；补全合格邮箱后消除邮箱待补全。Skill User
-本人变更时必须验证当前密码；Super Administrator 变更不消费目标用户密码。
+本人变更时必须验证当前密码，且新邮箱须完成邮箱验证后才替换生效——验证成功前旧邮箱
+仍为当前用户邮箱，待验新邮箱同时占用全局唯一邮箱池；放弃或过期后释放占用。
+Super Administrator 变更不消费目标用户密码，也不要求邮箱验证。
 
 ## Skill User Password Change
 
-The Skill User's self-service action to replace their own password. It requires
-the current password and takes effect in Gitea.
-_Avoid_: password reset
+Skill User 在已登录且记得当前密码时，自助替换自己的密码；必须提供当前密码，
+最终在 Git Backend 生效。
+_Avoid_: 密码重置（Password Reset）。
+
+## 密码重置 (Password Reset)
+
+Skill User 在忘记当前密码时，通过出站邮件中的一次性链接设置新密码的自助恢复操作。
+仅面向 Skill User，不适用于 Super Administrator / ESL Administrator Account。
+发起时只提交用户名（不接受以用户邮箱定位，以免滑向「邮箱登录」）；向该账号当前
+用户邮箱投递重置信。响应须防枚举：无论账号是否存在，对外表述一致。
+发起时须已具备合格用户邮箱；处于邮箱待补全则拒绝自助重置，改由 Super Administrator 处理。
+不要求该邮箱曾经完成过邮箱验证（用户建号写入的合格邮箱亦可）。
+用户禁用期间不得完成密码重置（不可用邮箱通道绕过治理门闩）。
+重置成功后立即失效该用户全部既有 Skill User Token 与浏览器登录态，并清除尚未兑现的
+建号首登改密要求。邮箱验证待验、改邮待验与密码重置链接均会过期；过期释放相关占用，
+重发作废旧链接并刷新过期时间。
+_Avoid_: Skill User Password Change（记得当前密码时的改密）。
 
 ## Bootstrap
 

@@ -19,7 +19,6 @@ import {
 import { validateOrgName, validatePassword } from '@esl/core';
 import { logEvent, taskLogger } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
-
 // 审批类治理事件（ADR-0045）：操作者是做出决定的管理员，资源是申请/注册记录。
 // 状态流转是"关键业务事件"，普通查询（列表、详情）不记。
 function logGovernanceEvent(
@@ -174,7 +173,13 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       orgRegistrationMode: getRegistrationMode(),
       registrationMode: getUserRegistrationMode(),
       memberAddMode: getMemberAddMode(),
-      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy()
+      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy(),
+      emailVerification: getEmailVerification(),
+      smtpHost: platformSettingsRepository.getSetting('smtp_host') ?? '',
+      smtpPort: Number(platformSettingsRepository.getSetting('smtp_port') ?? '587'),
+      smtpUsername: platformSettingsRepository.getSetting('smtp_username') ?? '',
+      smtpFrom: platformSettingsRepository.getSetting('smtp_from') ?? '',
+      smtpPasswordSet: Boolean(platformSettingsRepository.getSetting('smtp_password'))
     };
   });
 
@@ -185,6 +190,12 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       registrationMode?: string;
       memberAddMode?: string;
       adminProvisionedPasswordChangePolicy?: string;
+      emailVerification?: string;
+      smtpHost?: string;
+      smtpPort?: number;
+      smtpUsername?: string;
+      smtpPassword?: string;
+      smtpFrom?: string;
     };
 
     if (body.orgRegistrationMode !== undefined) {
@@ -211,6 +222,27 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       }
     }
 
+    if (body.emailVerification !== undefined && body.emailVerification !== 'off' && body.emailVerification !== 'on') {
+      return reply.status(400).send(apiError('emailVerificationMustBeOffOrOn'));
+    }
+    if (body.smtpPort !== undefined && (!Number.isInteger(body.smtpPort) || body.smtpPort <= 0 || body.smtpPort > 65535)) {
+      return reply.status(400).send(apiError('validationFailed', { detail: 'smtpPort must be between 1 and 65535' }));
+    }
+
+    const nextRegistrationMode = body.registrationMode ?? getUserRegistrationMode();
+    const nextEmailVerification = body.emailVerification ?? getEmailVerification();
+    if (nextRegistrationMode === 'open' && nextEmailVerification === 'on') {
+      const nextHasSmtp =
+        (body.smtpHost ?? platformSettingsRepository.getSetting('smtp_host') ?? '').trim() !== '' &&
+        Number(body.smtpPort ?? platformSettingsRepository.getSetting('smtp_port') ?? 0) > 0 &&
+        (body.smtpUsername ?? platformSettingsRepository.getSetting('smtp_username') ?? '').trim() !== '' &&
+        (body.smtpFrom ?? platformSettingsRepository.getSetting('smtp_from') ?? '').trim() !== '' &&
+        ((body.smtpPassword !== undefined && body.smtpPassword.length > 0) || Boolean(platformSettingsRepository.getSetting('smtp_password')));
+      if (!nextHasSmtp) {
+        return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
+      }
+    }
+
     if (body.orgRegistrationMode !== undefined) {
       platformSettingsRepository.setSetting('org_registration_mode', body.orgRegistrationMode);
     }
@@ -226,11 +258,27 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
         body.adminProvisionedPasswordChangePolicy
       );
     }
+    if (body.emailVerification !== undefined) {
+      platformSettingsRepository.setSetting('email_verification', body.emailVerification);
+    }
+    if (body.smtpHost !== undefined) platformSettingsRepository.setSetting('smtp_host', body.smtpHost.trim());
+    if (body.smtpPort !== undefined) platformSettingsRepository.setSetting('smtp_port', String(body.smtpPort));
+    if (body.smtpUsername !== undefined) platformSettingsRepository.setSetting('smtp_username', body.smtpUsername.trim());
+    if (body.smtpPassword !== undefined && body.smtpPassword.length > 0) {
+      platformSettingsRepository.setSetting('smtp_password', body.smtpPassword);
+    }
+    if (body.smtpFrom !== undefined) platformSettingsRepository.setSetting('smtp_from', body.smtpFrom.trim());
     return {
       orgRegistrationMode: getRegistrationMode(),
       registrationMode: getUserRegistrationMode(),
       memberAddMode: getMemberAddMode(),
-      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy()
+      adminProvisionedPasswordChangePolicy: getAdminProvisionedPasswordChangePolicy(),
+      emailVerification: getEmailVerification(),
+      smtpHost: platformSettingsRepository.getSetting('smtp_host') ?? '',
+      smtpPort: Number(platformSettingsRepository.getSetting('smtp_port') ?? '587'),
+      smtpUsername: platformSettingsRepository.getSetting('smtp_username') ?? '',
+      smtpFrom: platformSettingsRepository.getSetting('smtp_from') ?? '',
+      smtpPasswordSet: Boolean(platformSettingsRepository.getSetting('smtp_password'))
     };
   });
 
@@ -450,6 +498,10 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     return (
       platformSettingsRepository.getSetting('admin_provisioned_password_change_policy') ?? 'force'
     );
+  }
+
+  function getEmailVerification(): 'off' | 'on' {
+    return platformSettingsRepository.getSetting('email_verification') === 'on' ? 'on' : 'off';
   }
 }
 function toApplicationView(application: {

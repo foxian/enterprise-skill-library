@@ -4,7 +4,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   OrgApplicationRepository,
   PlatformSettingsRepository,
-  TenantOrganizationRepository
+  TenantOrganizationRepository,
+  EmailActionRepository
 } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import { initializeOrganization } from '../services/org-init.js';
@@ -17,6 +18,7 @@ export interface OrgRouteOptions {
   orgApplicationRepository: OrgApplicationRepository;
   platformSettingsRepository: PlatformSettingsRepository;
   tenantOrganizationRepository: TenantOrganizationRepository;
+  emailActionRepository: EmailActionRepository;
 }
 
 // 组织治理的对外结果事件（ADR-0045）：只在名称占用/状态流转等业务状态变化时
@@ -74,7 +76,13 @@ function logOrganizationApplication(
 // org_registration_mode 决定——auto 同步即时创建；manual 提交申请、超管批准后
 // 同步开通。申请提交时即按扁平命名池查重，冲突不会到达审批环节。
 export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions): void {
-  const { giteaService, orgApplicationRepository, platformSettingsRepository, tenantOrganizationRepository } = options;
+  const {
+    giteaService,
+    orgApplicationRepository,
+    platformSettingsRepository,
+    tenantOrganizationRepository,
+    emailActionRepository
+  } = options;
 
   async function requireSkillUser(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
     const authorization = request.headers.authorization;
@@ -106,6 +114,9 @@ export function registerOrgRoutes(app: FastifyInstance, options: OrgRouteOptions
       return reject('organizationNameIsAlreadyTaken');
     }
     if (await giteaService.getUser(orgName)) {
+      return reject('organizationNameCollidesWithAnExistingUser');
+    }
+    if (emailActionRepository.getPending('register', orgName)) {
       return reject('organizationNameCollidesWithAnExistingUser');
     }
     if (orgApplicationRepository.getApplication(orgName)?.status === 'pending') {

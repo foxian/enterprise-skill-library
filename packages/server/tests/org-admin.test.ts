@@ -285,7 +285,13 @@ describe('super administrator org console API', () => {
       orgRegistrationMode: 'auto',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
 
     const updated = await app.inject({
@@ -299,7 +305,13 @@ describe('super administrator org console API', () => {
       orgRegistrationMode: 'manual',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
 
     const reread = await app.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers });
@@ -307,7 +319,13 @@ describe('super administrator org console API', () => {
       orgRegistrationMode: 'manual',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
 
     const invalid = await app.inject({

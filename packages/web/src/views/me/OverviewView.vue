@@ -76,14 +76,14 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('profile.emailTitle') }}</span>
-          <el-tag v-if="profile.emailPendingCompletion" type="warning" size="small" data-test="email-pending-reminder">
-            {{ t('userManagement.emailPendingCompletion') }}
+          <el-tag v-if="profile.emailPendingVerification || profile.emailPendingCompletion" type="warning" size="small" data-test="email-pending-reminder">
+            {{ profile.emailPendingVerification ? t('profile.emailPendingVerification') : t('userManagement.emailPendingCompletion') }}
           </el-tag>
         </div>
       </template>
       <p class="profile-email" data-test="profile-email">{{ profile.email }}</p>
       <el-alert
-        v-if="profile.emailPendingCompletion"
+        v-if="profile.emailPendingVerification || profile.emailPendingCompletion"
         type="warning"
         :title="t('profile.emailPendingHint')"
         :closable="false"
@@ -141,6 +141,7 @@ interface AccountProfile {
   username: string;
   email: string;
   emailPendingCompletion: boolean;
+  emailPendingVerification?: boolean;
 }
 
 const router = useRouter();
@@ -187,7 +188,7 @@ async function changeEmail(): Promise<void> {
       }
     });
     currentPassword.value = '';
-    ElMessage.success(t('profile.emailChanged'));
+    ElMessage.success(profile.value.emailPendingVerification ? t('profile.emailVerificationSent') : t('profile.emailChanged'));
   } catch (error) {
     errorMessage.value = formatRequestError(error);
   } finally {

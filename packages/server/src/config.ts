@@ -16,6 +16,8 @@ export interface ServerConfig {
   autoSeed: boolean;
   // Diagnostic log verbosity (LOG_LEVEL). Defaults to info.
   logLevel: LogLevel;
+  // 用于保护邮件动作中暂存密码的密钥；未配置时由应用生成进程级随机值。
+  emailActionSecret?: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -62,6 +64,7 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     repoOwner: 'esl-skills',
     passwordMinLength,
     autoSeed,
-    logLevel: logLevelRaw
+    logLevel: logLevelRaw,
+    ...(env.ESL_EMAIL_ACTION_SECRET ? { emailActionSecret: env.ESL_EMAIL_ACTION_SECRET } : {})
   };
 }

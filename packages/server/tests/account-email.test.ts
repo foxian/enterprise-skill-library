@@ -47,7 +47,8 @@ describe('Skill User email settings', () => {
     expect(profile.json()).toEqual({
       username: 'alice',
       email: 'alice@example.com',
-      emailPendingCompletion: false
+      emailPendingCompletion: false,
+      emailPendingVerification: false
     });
   });
 

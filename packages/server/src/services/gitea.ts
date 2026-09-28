@@ -381,14 +381,18 @@ export class GiteaService {
     }
   }
 
-  async changeUserPassword(username: string, password: string): Promise<void> {
+  async changeUserPassword(username: string, password: string, options: { mustChangePassword?: boolean } = {}): Promise<void> {
     const res = await this.request('changeUserPassword', `${this.baseUrl}/api/v1/admin/users/${username}`, {
       method: 'PATCH',
       headers: {
         Authorization: `token ${this.adminToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ login_name: username, password })
+      body: JSON.stringify({
+        login_name: username,
+        password,
+        ...(options.mustChangePassword === undefined ? {} : { must_change_password: options.mustChangePassword })
+      })
     });
 
     if (!res.ok) {

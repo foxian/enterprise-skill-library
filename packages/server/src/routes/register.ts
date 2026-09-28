@@ -6,12 +6,21 @@ import {
   validatePassword,
   validateSkillUserEmail
 } from '@esl/core';
-import type { OrgApplicationRepository, UserRegistrationRepository } from '../db/database.js';
+import { PendingEmailActionExistsError, type EmailActionRepository, type OrgApplicationRepository, type UserRegistrationRepository } from '../db/database.js';
 import type { GiteaService } from '../services/gitea.js';
 import type { PlatformSettingsRepository } from '../db/database.js';
 import { logEvent } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
 import { findSkillUserEmailConflict } from '../services/skill-user-email.js';
+import {
+  createActionToken,
+  EMAIL_ACTION_TTL_MS,
+  encryptSecret,
+  hashActionToken,
+  resolveRequestOrigin,
+  type Mailer
+} from '../services/mailer.js';
+import { buildOutboundEmail } from '../services/email-templates.js';
 
 // 用户注册的状态变化事件（ADR-0045）。注册者本人就是操作者：这里不记密码，
 // 只记用户名与结果。
@@ -42,13 +51,23 @@ export interface RegisterRouteOptions {
   userRegistrationRepository: UserRegistrationRepository;
   orgApplicationRepository: OrgApplicationRepository;
   passwordMinLength?: number;
+  emailActionRepository: EmailActionRepository;
+  mailer: Mailer;
+  emailActionSecret: string;
 }
 
 // 用户自助注册（ADR-0032）：全局账号 + 个人命名空间。注册模式为平台设置
 // registration_mode = open（注册即用）| approval（账号先建后禁用，审批激活，
 // 拒绝删除账号并释放名字）。
 export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteOptions): void {
-  const { giteaService, platformSettingsRepository, userRegistrationRepository, orgApplicationRepository } = options;
+  const {
+    giteaService,
+    platformSettingsRepository,
+    userRegistrationRepository,
+    orgApplicationRepository,
+    emailActionRepository,
+    mailer
+  } = options;
 
   app.post('/api/auth/register', async (request, reply) => {
     const { username: rawUsername, password, email: rawEmail } = (request.body ?? {}) as {
@@ -85,6 +104,10 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
 
     // 扁平命名池查重（先到先得）：待审注册 / 待审组织申请 / 用户名 /
     // 组织名（Gitea 同一命名空间），任何一类占用都在提交时当场拒绝。
+    if (emailActionRepository.getPending('register', username)) {
+      logRegistration(request, username, 'failed', 'usernameHasPendingRegistration');
+      return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
+    }
     if (userRegistrationRepository.getByUsername(username)?.status === 'pending') {
       logRegistration(request, username, 'failed', 'usernameHasPendingRegistration');
       return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
@@ -103,7 +126,9 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
       logRegistration(request, username, 'failed', 'usernameAlreadyTaken');
       return reply.status(409).send(apiError('usernameAlreadyTaken', { username }));
     }
-    const emailConflict = await findSkillUserEmailConflict(giteaService, userRegistrationRepository, email);
+    const emailConflict = await findSkillUserEmailConflict(giteaService, userRegistrationRepository, email, {
+      emailActionRepository
+    });
     if (emailConflict === 'pending-registration') {
       logRegistration(request, username, 'failed', 'emailHasPendingRegistration');
       return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
@@ -125,6 +150,51 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
         username: registration.username,
         registrationId: registration.id
       });
+    }
+
+    if (platformSettingsRepository.getSetting('email_verification') === 'on') {
+      if (!mailer.isConfigured()) {
+        return reply.status(409).send(apiError('outboundEmailIsNotConfigured'));
+      }
+      const token = createActionToken();
+      let actionId: number | undefined;
+      try {
+        const action = emailActionRepository.create({
+          purpose: 'register',
+          username,
+          email,
+          tokenHash: hashActionToken(token),
+          expiresAt: new Date(Date.now() + EMAIL_ACTION_TTL_MS).toISOString(),
+          passwordCiphertext: encryptSecret(password, options.emailActionSecret)
+        }, { replacePending: false });
+        actionId = action.id;
+      } catch (error) {
+        if (error instanceof PendingEmailActionExistsError) {
+          if (emailActionRepository.getPending('register', username)) {
+            logRegistration(request, username, 'failed', 'usernameHasPendingRegistration');
+            return reply.status(409).send(apiError('usernameHasPendingRegistration', { username }));
+          }
+          logRegistration(request, username, 'failed', 'emailHasPendingRegistration');
+          return reply.status(409).send(apiError('emailHasPendingRegistration', { email }));
+        }
+        throw error;
+      }
+      try {
+        const verifyUrl = `${resolveRequestOrigin(request)}/admin/verify-email?token=${encodeURIComponent(token)}`;
+        const emailContent = buildOutboundEmail('register_verify', verifyUrl);
+        await mailer.send({
+          to: email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html
+        });
+      } catch (error) {
+        if (actionId !== undefined) emailActionRepository.supersede(actionId);
+        logRegistration(request, username, 'failed', 'outboundEmailDeliveryFailed');
+        return reply.status(502).send(apiError('outboundEmailDeliveryFailed'));
+      }
+      logRegistration(request, username, 'succeeded');
+      return reply.status(202).send({ status: 'pending_email_verification', username });
     }
 
     await giteaService.createUser(username, password, { email });

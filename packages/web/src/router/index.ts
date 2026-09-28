@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginView from '../views/LoginView.vue';
 import UserRegisterView from '../views/UserRegisterView.vue';
+import VerifyEmailView from '../views/VerifyEmailView.vue';
+import ForgotPasswordView from '../views/ForgotPasswordView.vue';
+import ResetPasswordView from '../views/ResetPasswordView.vue';
 import SuperLayout from '../views/super/SuperLayout.vue';
 import SuperDashboard from '../views/super/DashboardView.vue';
 import SuperOrgs from '../views/super/OrgsView.vue';
@@ -43,6 +46,9 @@ export const router = createRouter({
     // 公开路由只有账号注册。组织注册申请没有公开入口：它是已登录 Skill User
     // 在个人控制台内的动作（ADR-0032/0035），匿名提交连 token 都拿不出来。
     { path: '/admin/register-user', name: 'register-user', component: UserRegisterView, meta: { public: true } },
+    { path: '/admin/verify-email', name: 'verify-email', component: VerifyEmailView, meta: { public: true } },
+    { path: '/admin/forgot-password', name: 'forgot-password', component: ForgotPasswordView, meta: { public: true } },
+    { path: '/admin/reset-password', name: 'reset-password', component: ResetPasswordView, meta: { public: true } },
     {
       path: '/admin/super',
       component: SuperLayout,

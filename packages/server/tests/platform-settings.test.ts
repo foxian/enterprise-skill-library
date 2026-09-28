@@ -67,7 +67,13 @@ describe('platform settings', () => {
       orgRegistrationMode: 'auto',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
 
     const updated = await app!.inject({
@@ -80,7 +86,13 @@ describe('platform settings', () => {
       orgRegistrationMode: 'manual',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
 
     const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
@@ -88,7 +100,13 @@ describe('platform settings', () => {
       orgRegistrationMode: 'manual',
       registrationMode: 'open',
       memberAddMode: 'direct',
-      adminProvisionedPasswordChangePolicy: 'force'
+      adminProvisionedPasswordChangePolicy: 'force',
+      emailVerification: 'off',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpUsername: '',
+      smtpFrom: '',
+      smtpPasswordSet: false
     });
   });
 
@@ -131,5 +149,54 @@ describe('platform settings', () => {
       payload: { adminProvisionedPasswordChangePolicy: 'sometimes' }
     });
     expect(passwordPolicy.statusCode).toBe(400);
+  });
+
+  it('configures SMTP without echoing the password and gates email verification', async () => {
+    const missingSmtp = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: headers(),
+      payload: { emailVerification: 'on' }
+    });
+    expect(missingSmtp.statusCode).toBe(409);
+    expect(missingSmtp.json().code).toBe('outboundEmailIsNotConfigured');
+
+    const updated = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: headers(),
+      payload: {
+        emailVerification: 'on',
+        smtpHost: 'smtp.test',
+        smtpPort: 587,
+        smtpUsername: 'noreply@example.com',
+        smtpPassword: 'test-only-password',
+        smtpFrom: 'noreply@example.com'
+      }
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      emailVerification: 'on',
+      smtpHost: 'smtp.test',
+      smtpPort: 587,
+      smtpUsername: 'noreply@example.com',
+      smtpFrom: 'noreply@example.com',
+      smtpPasswordSet: true
+    });
+    expect(updated.json()).not.toHaveProperty('smtpPassword');
+
+    const reread = await app!.inject({ method: 'GET', url: '/api/admin/orgs/settings', headers: headers() });
+    expect(reread.statusCode).toBe(200);
+    expect(reread.json()).toMatchObject({ emailVerification: 'on', smtpPasswordSet: true });
+    expect(reread.json()).not.toHaveProperty('smtpPassword');
+
+    const clearedHost = await app!.inject({
+      method: 'PUT',
+      url: '/api/admin/orgs/settings',
+      headers: headers(),
+      payload: { smtpHost: '' }
+    });
+    expect(clearedHost.statusCode).toBe(409);
+    expect(clearedHost.json().code).toBe('outboundEmailIsNotConfigured');
   });
 });

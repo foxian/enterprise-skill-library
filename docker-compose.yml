@@ -54,6 +54,8 @@ services:
       GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD}
       # Seed sample skill metadata at startup (development only)
       ESL_AUTO_SEED: ${ESL_AUTO_SEED:-false}
+      # Email action encryption secret; keep stable across API restarts
+      ESL_EMAIL_ACTION_SECRET: ${ESL_EMAIL_ACTION_SECRET:-}
     # 日志进 stdout(JSON Lines),由部署层采集。这里只约束单文件大小与文件数,
     # 防止开发环境长时间运行占满磁盘;按日期归档与保留天数由采集器/logrotate 负责。
     logging:
