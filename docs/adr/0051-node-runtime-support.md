@@ -8,7 +8,7 @@ Status: accepted
 
 - **支持契约**：没进 CI matrix 的版本不承诺。不在运行时按 Node 版本硬退出，不设 `engine-strict`。能装上、能跑只表示未拦，不表示官方支持。
 - **推荐版本**：整个项目推荐 **Node.js 24**（Active LTS）。官方 Docker 镜像与完整仓库开发默认跟 24；不钉 patch。
-- **CLI**（终端用户）：官方支持 **20.17.x、22.x（≥22.13）、24.x**。`@esl/cli` 的 `engines.node` 跟 Inquirer v8：`>=23.5.0 || ^22.13.0 || ^20.17.0`。不为 Node 18 降级 Inquirer。Node 26 安装可能不告警，但 **Current 不算支持**。
+- **CLI**（终端用户）：官方支持 **20.17.x、22.x（≥22.13）、24.x**。`@foxian/esl` 的 `engines.node` 跟 Inquirer v8：`>=23.5.0 || ^22.13.0 || ^20.17.0`。不为 Node 18 降级 Inquirer。Node 26 安装可能不告警，但 **Current 不算支持**。
 - **Server**：官方支持 **22.x、24.x**。`@esl/server` 与仓库根的 `engines.node` 为 `>=22`。`packages/server/Dockerfile` 与 `docker/web.Dockerfile` 构建阶段使用浮动标签 `node:24-bookworm-slim`（不钉 patch/digest；web 运行阶段仍是 nginx）。
 - **共享包**：`@esl/core` / `@esl/i18n` 下限 `>=20.17.0`；`@esl/web` 不写运行时 `engines`。
 - **CI**：本仓库 GitHub Actions 在 `pull_request` 与 `push` 到 `master` 上跑。CLI job：`20.17` / `22` / `24`。Server job：`22` / `24`。不测 18、不测 26。
@@ -24,6 +24,6 @@ Status: accepted
 
 ## 后果
 
-- 贡献者开发完整仓库需要 Node ≥22（推荐 24）。只发布/使用 `@esl/cli` 的终端用户可留在 20.17+。
+- 贡献者开发完整仓库需要 Node ≥22（推荐 24）。只发布/使用 `@foxian/esl` 的终端用户可留在 20.17+。
 - 生产镜像 Node 大版本随 `node:24-bookworm-slim` 浮动；原生模块（`better-sqlite3`）继续走 glibc/bookworm，不用 Node Alpine。
 - `docs/qa-strategy.md` 中「当前无 CI」不再成立。版本数字不写入 `CONTEXT.md`。

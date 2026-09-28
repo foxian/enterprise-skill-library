@@ -10,7 +10,7 @@ Server-hosted Skill。其唯一可编辑源码位于 `skills/esl-operator/`，CL
 Skill Package，不出现在服务器搜索结果中，也不可 upload、publish、source、rename
 或 version。
 
-Built-in Skill Package 的 `skill.json` 版本必须等于 `@esl/cli` 的完整 SemVer，
+Built-in Skill Package 的 `skill.json` 版本必须等于 `@foxian/esl` 的完整 SemVer，
 包括 prerelease 标识。构建和 npm 发布前必须校验内置包内容、版本一致性、checksum
 和 npm 包包含性。全局安装的内置技能由 CLI 的 npm lifecycle 在 CLI 升级或降级后
 自动同步，并只修改 ESL 管理的全局安装记录和 Adapt Manifest 输出；首次全局安装、

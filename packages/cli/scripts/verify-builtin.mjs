@@ -13,11 +13,13 @@ if (!entry) {
 }
 if (entry.version !== cliPkg.version) {
   throw new Error(
-    `Built-in skill package version ${entry.version} does not match @esl/cli version ${cliPkg.version}`
+    `Built-in skill package version ${entry.version} does not match @foxian/esl version ${cliPkg.version}`
   );
 }
 if (!entry.checksum || !entry.checksum.startsWith('sha256-')) {
   throw new Error(`Built-in skill package is missing a valid checksum: ${entry.checksum}`);
 }
 
-console.log(`Verified built-in skill package @builtin/esl-operator@${entry.version} matches @esl/cli@${cliPkg.version}`);
+console.log(
+  `Verified built-in skill package @builtin/esl-operator@${entry.version} matches @foxian/esl@${cliPkg.version}`
+);

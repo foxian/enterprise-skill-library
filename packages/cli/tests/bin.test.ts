@@ -440,9 +440,12 @@ describe('esl program', () => {
   });
 
   it('reports the CLI version from the package manifest', () => {
-    expect(readCliVersion()).toBe('0.1.0');
+    const expectedVersion = JSON.parse(
+      fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+    ).version as string;
+    expect(readCliVersion()).toBe(expectedVersion);
     const program = createProgram();
-    expect(program.version()).toBe('0.1.0');
+    expect(program.version()).toBe(expectedVersion);
   });
 
   it('includes an example in every command help', () => {

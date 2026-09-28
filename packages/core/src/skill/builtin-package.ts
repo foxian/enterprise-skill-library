@@ -54,7 +54,7 @@ export async function buildBuiltinPackage(
     throw new Error(`Built-in skill identity must use the builtin scope: ${options.identity}`);
   }
   if (!SemVerSchema.safeParse(options.cliVersion).success) {
-    throw new Error(`Built-in skill version must be a valid SemVer matching @esl/cli: ${options.cliVersion}`);
+    throw new Error(`Built-in skill version must be a valid SemVer matching @foxian/esl: ${options.cliVersion}`);
   }
 
   const skillMdContent = await fs.readFile(path.join(options.sourceDir, 'SKILL.md'), 'utf8');
@@ -74,7 +74,7 @@ export async function buildBuiltinPackage(
     name: options.identity,
     version: options.cliVersion,
     description: skillMdValidation.data.description,
-    author: options.author ?? '@esl/cli',
+    author: options.author ?? '@foxian/esl',
     keywords: []
   };
   await fs.writeFile(path.join(packageDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');

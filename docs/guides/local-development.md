@@ -125,7 +125,7 @@ npm run reload:dev
 | `packages/server` | `docker compose build api && docker compose up -d api`（代码被打包进 `api` 镜像） |
 | `packages/web` | `npm run build --workspace @esl/web`，然后刷新浏览器（`dist` 是 bind mount） |
 | `packages/core` | 先重新构建它（`npm run build --workspace @esl/core`），然后按照上面的 server / web 行操作 |
-| `packages/cli` | `npm run build --workspace @esl/cli`（本地 `esl` 符号链接指向此仓库） |
+| `packages/cli` | `npm run build --workspace @foxian/esl`（本地 `esl` 符号链接指向此仓库） |
 | `docker/nginx.conf` / `docker-compose.yml` / 挂载 | `docker compose up -d server`（重新创建会重新读取配置） |
 
 `npm run reload:dev` 一次性覆盖以上所有情况，是日常使用的命令。

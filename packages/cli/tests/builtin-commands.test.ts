@@ -48,7 +48,7 @@ describe('built-in readonly commands and forbiddance', () => {
         name: '@builtin/esl-operator',
         version: '0.1.0',
         description: 'Operate the ESL CLI.',
-        author: '@esl/cli'
+        author: '@foxian/esl'
       })
     );
     fs.writeFileSync(

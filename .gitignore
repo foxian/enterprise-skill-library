@@ -39,3 +39,7 @@ packages/*/src/**/*.d.ts
 .claude/skills/
 .agents/skills/
 .trae/skills/
+
+# npm pack 产物
+*.tgz
+

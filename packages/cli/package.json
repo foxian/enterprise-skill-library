@@ -1,7 +1,22 @@
 {
-  "name": "@esl/cli",
-  "version": "0.1.0",
+  "name": "@foxian/esl",
+  "version": "0.1.1",
+  "description": "Enterprise Skill Library (ESL) command-line client",
   "type": "module",
+  "license": "MIT",
+  "author": "foxian",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/foxian/enterprise-skill-library.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/foxian/enterprise-skill-library#readme",
+  "bugs": {
+    "url": "https://github.com/foxian/enterprise-skill-library/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=23.5.0 || ^22.13.0 || ^20.17.0"
   },
@@ -9,19 +24,22 @@
     "esl": "./dist/bin/esl.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/build-builtin.mjs",
-    "prepack": "node scripts/verify-builtin.mjs",
-    "postinstall": "node scripts/postinstall.mjs"
+    "build": "tsc && node scripts/build-builtin.mjs && node scripts/bundle.mjs",
+    "prepack": "node scripts/verify-builtin.mjs && node scripts/verify-pack.mjs",
+    "postinstall": "node ./dist/postinstall.js"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "LICENSE",
+    "README.md"
   ],
   "dependencies": {
-    "@esl/core": "*",
-    "@esl/i18n": "*",
     "@inquirer/prompts": "^8.7.2",
     "commander": "^11.1.0",
-    "semver": "^7.6.0"
+    "i18next": "^26.4.2",
+    "semver": "^7.6.0",
+    "yaml": "^2.3.4",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/semver": "^7.5.8"

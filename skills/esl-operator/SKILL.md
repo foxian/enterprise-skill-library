@@ -59,7 +59,7 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 ## 命令找不到 / 服务不通
 
-- `esl: command not found`：别重试。告诉用户获取 CLI——本仓库可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`），或全局装 `@esl/cli`；装好再继续。
+- `esl: command not found`：别重试。告诉用户获取 CLI——本仓库可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`），或全局装 `@foxian/esl`；装好再继续。
 - Server 不可达或连接失败：提示检查 `esl config set-server <url>`（本地默认 `http://localhost:3000`）；本地开发环境指向 `docs/guides/local-development.md` 用 Docker 起 Server。
 
 现在，按上面的路由表读对应 reference。

@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @esl/server && npm run build --workspace @esl/cli && npm run build --workspace @esl/web",
+    "build": "npm run build --workspace @esl/core && npm run build --workspace @esl/i18n && npm run build --workspace @esl/server && npm run build --workspace @foxian/esl && npm run build --workspace @esl/web",
     "deploy:web": "npm run build --workspace @esl/web && docker compose up -d server",
     "deploy:prod": "bash scripts/prod/deploy.sh",
     "backup:prod": "bash scripts/prod/backup.sh",

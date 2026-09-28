@@ -24,6 +24,21 @@ Public/Private 设置（见技能可见性）。在 `@acme/code-review` 中，Na
 不带 scope 的 `name` 即指个人命名空间，显式写 `@自己的用户名/...` 与之
 等价（ADR-0032）。
 
+## npm Scope
+
+npm 包名 `@scope/name` 的 scope 段。它与 Namespace 同形（例如都可写
+`foxian`），但属于不同名字空间：前者标识 npm 包，后者标识技能归属。二者
+字符串相同不表示同一实体。
+_Avoid_: Namespace（当指 npm 包 scope 时）；个人命名空间（当指 npm scope 时）
+
+## ESL CLI 发行包 (ESL CLI Distribution Package)
+
+公开发布到 npm 的 ESL CLI 安装包，包名为 `@foxian/esl`。它携带 `esl`
+可执行文件与 Client-coupled Built-in Skill，并把运行所需的客户端库一并捆绑进
+该包；不内置默认 ESL Server URL（由用户配置、登录参数或环境变量提供）。它不是
+Published Skill Package，也不等于任何 ESL Namespace（ADR-0052）。
+_Avoid_: @esl/cli（当指公开安装名时）；npm 客户端；CLI npm 包
+
 ## Skill Source Lifecycle
 
 ## Skill ID
@@ -474,7 +489,7 @@ ESL CLI 构建时从 Built-in Skill 源码生成并随 npm 包发布的本地安
 `SKILL.md`、支持文件、由 CLI 版本生成的 `skill.json` 和内容校验元数据。它不
 属于 Published Skill Package，安装身份为 `@builtin/<skill-name>`，并在
 锁文件中以 `source: "builtin"` 与 `builtin:<skill-name>` 标识。
-`skill.json` 的 SemVer（含 prerelease 标识）必须严格等于当前 `@esl/cli`
+`skill.json` 的 SemVer（含 prerelease 标识）必须严格等于当前 `@foxian/esl`
 的版本，构建与 npm 发布前校验。
 
 ## Local Skill Source
