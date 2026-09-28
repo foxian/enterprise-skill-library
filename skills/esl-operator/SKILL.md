@@ -14,6 +14,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 | 用户说了类似这些 | 读 |
 |---|---|
+| 没装 esl / 安装 CLI / command not found | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装 / 更新、升级 / 卸载 / unlink 源码 / 看哪些工具装了哪些技能 / 解除部分工具 link / 同步到工具 | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验 / 上传源码 / 发布 / 改版本号 / 拉别人源码、二次开发 | `references/author.md` |
@@ -59,7 +60,12 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 ## 命令找不到 / 服务不通
 
-- `esl: command not found`：别重试。告诉用户获取 CLI——本仓库可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`），或全局装 `@foxian/esl`；装好再继续。
-- Server 不可达或连接失败：提示检查 `esl config set-server <url>`（本地默认 `http://localhost:3000`）；本地开发环境指向 `docs/guides/local-development.md` 用 Docker 起 Server。
+- `esl: command not found` / 无法执行 `esl`：别重试同一条业务命令。先做**最短失败卡**（你可代跑只读检查）：
+  1. `node -v`、`npm -v`——需在支持范围（`20.17.x` / `22.x≥22.13` / `24.x`，推荐 24）。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
+  2. 指引用户执行 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。
+  3. 人类完整步骤（前置、PATH、注册、登录）：仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md
+  4. 若用户正在本仓库做开发而非消费已发布包：可 `npm run build` 后使用 `packages/cli/dist/bin/esl.js` / 仓库文档中的 `npm exec -- esl` 方式。
+  5. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
+- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
 
 现在，按上面的路由表读对应 reference。

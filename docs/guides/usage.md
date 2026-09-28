@@ -21,6 +21,8 @@ Enterprise Skill Library (ESL) 是一个企业级 AI Agent 技能注册与管理
 
 ## 二、 环境配置与登录 (Setup & Login)
 
+本机还没有 `esl` 时，先按 [CLI 安装指南](cli-install.md) 完成 Node/npm、安装 `@foxian/esl` 与首次登录。
+
 ### 1. 本地服务启动 (仅本地开发环境)
 
 本地运行 ESL Server 的环境准备、Docker 启动和管理员初始化，请参阅
@@ -29,55 +31,64 @@ Gitea 是内部 Git Backend，不需要直接配置或登录。
 
 ### 2. 登录认证 (Login)
 
+全局身份模型（ADR-0032）：一条 Skill User 凭据走遍**个人命名空间**与所有已加入的
+Organization；登录时**不再输入组织**。还没有账号时，见 [CLI 安装指南](cli-install.md)
+的最小注册路径（`{server}/admin/register-user`）；**CLI 不能注册用户**。
+
 #### 配置 ESL Server 地址（只需一次）
 ESL CLI 从本地配置读取 Server 地址，所有命令（含登录）都默认使用该地址。
 首次使用前设置一次即可，之后不再需要 `--server`：
 
 ```powershell
-esl config set-server http://localhost:3000
+esl config set-server https://your-esl-server.example
 ```
 
-默认本地 Docker 地址是 `http://localhost:3000`。
+`@foxian/esl` **不内置**出厂默认 Server URL。本地按 [本地开发指南](local-development.md)
+用 Docker 起 Server 时，常见地址是 `http://localhost:3000`。也可用环境变量
+`ESL_SERVER` 做临时覆盖。
 
 #### 交互式登录（推荐）
-`esl login` 会依次提示输入 `Organization:`、`Username:` 与 `Password:`
-（**组织必填**，密码隐藏显示）。登录成功后凭据写入本地，后续命令无需再传
-账号与地址：
+`esl login` 会依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后
+token 写入本机所有者只读凭据文件，后续命令无需再传账号与地址：
 
 ```powershell
 esl login
 ```
 
 #### 指定账号 / 非交互登录
-也可以显式传 `--org` / `--username` / `--server`，或使用文件提供凭据。
-ESL CLI 只服务组织内成员，组织账号由服务端解析为 `<org>_<username>` 并校验
-归属；组织管理员的用户名为 `admin`：
+可显式传 `--username` / `--server`，或用文件提供凭据（适合脚本 / CI）。
+**不要**在命令行写明文密码或 token；CLI 也不接受命令行明文凭据：
 
 ```powershell
-# 指定组织与账号交互登录
-esl login --org acme --username alice
+# 指定用户名（仍会交互提示密码）
+esl login --username alice
 
-# 用密码文件登录（脚本 / CI）
-esl login --org acme --username alice --password-file ./pw.txt
+# 覆盖本次 Server
+esl login --server https://your-esl-server.example --username alice
 
-# 用用户 token 文件登录
-esl login --org acme --username alice --token-file ./user-token.txt
+# 用密码文件登录
+esl login --username alice --password-file ./pw.txt
+
+# 用用户 token 文件登录（离线换取身份；组织列表可能为空）
+esl login --username alice --token-file ./user-token.txt
 ```
 
-平台管理员不通过 CLI 登录：打开管理后台（`http://<server>/admin/`），使用
-`GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。
+平台管理员（ESL Administrator Account）不通过 CLI 登录：打开管理后台
+（`http://<server>/admin/`），使用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）
+与密码登录。
 
-登录后的 token 默认 30 天有效，过期后需重新登录；可通过环境变量
-`ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。
+登录后的 token 默认 30 天有效，过期后需重新 `esl login`；可通过环境变量
+`ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。登出使用 `esl logout`（清除本机
+凭据，保留已配置的 Server 等）。
 
 #### 查看当前登录状态
 ```powershell
 esl whoami
 ```
 
-输出当前登录的用户名、所属组织、角色（organization administrator /
-member）、Server、登录时间、过期时间与状态（`active` / `expired` /
-`Not logged in`）。
+输出当前用户名、Organization memberships（组织成员关系列表）、Server、登录时间、
+过期时间与状态（`active` / `expired` / `Not logged in`）。若配置仍带旧版
+`org`/`role` 字段，会提示重新登录以迁移到全局身份。
 
 CLI 不支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的
 凭据文件（仅所有者可读），不会写入 `config.json`。
@@ -87,13 +98,14 @@ CLI 不支持在命令行明文传 token/密码。登录成功后 token 会写�
 
 ### 3. 平台管理员操作 (Admin)
 
-平台管理员的治理操作（组织审批、组织管理、平台设置、管理员改密）全部在
-**管理后台**（`/admin/`）完成；ESL CLI 不提供平台管理员登录，只面向
-组织内成员与组织管理员。
+平台管理员的治理操作（用户注册审批、组织管理、平台设置、管理员改密等）全部在
+**管理后台**（`/admin/`）完成；ESL CLI **不**提供平台管理员登录，只服务
+Skill User。
 
 ### 4. 账户自助管理 (Account)
 
-组织成员可修改自己的登录密码。需要验证当前密码，新密码二次确认：
+Skill User 可修改自己的登录密码。需要验证当前密码，新密码二次确认：
+
 
 ```powershell
 esl account change-password

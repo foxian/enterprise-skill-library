@@ -12,6 +12,7 @@ sharing, and using AI Agent skills across teams.
 
 ## Documentation
 
+- [CLI install guide](docs/guides/cli-install.md) (Windows / macOS / Ubuntu)
 - [Usage guide](docs/guides/usage.md)
 - [Local development](docs/guides/local-development.md)
 - [Server logging](docs/guides/logging.md)

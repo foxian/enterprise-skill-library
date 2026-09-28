@@ -1,11 +1,15 @@
 # 登录与环境准备
 
+## CLI 尚未安装
+
+若终端报 `esl: command not found`（或同类「无法执行 esl」），先回到 `SKILL.md` 的「命令找不到 / 服务不通」最短失败卡：检查 `node`/`npm` → `npm install -g @foxian/esl` → `esl --version`。人类分平台详版见 `docs/guides/cli-install.md`（https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md）。**不要**在未装上 CLI 时继续本页的 login / set-server 步骤。
+
 ## 配置 Server 地址（一次性）
 
 ## 语言偏好
 登录响应会把账户的 `locale` 保存到本机 CLI 配置；后续命令默认按该语言输出。任意命令可用 `--locale zh-CN` 或 `--locale en-US` 做单次覆盖，但不会写回账户偏好。账户偏好本身在 Web 设置中管理。
 
-`esl config set-server <url>` —— 设 ESL Server 地址。本地 Docker 默认 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
+`esl config set-server <url>` —— 设 ESL Server 地址。发行包**无**出厂默认 URL；本地 Docker 开发常见 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
 
 ## Server Origin 迁移（服务器换地址）
 ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release 原样保留）时，改完 `esl config set-server <新地址>` 后：
