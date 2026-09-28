@@ -3,6 +3,18 @@
 Enterprise Skill Library (ESL) is an enterprise platform for discovering,
 sharing, and using AI Agent skills across teams.
 
+## Requirements
+
+- Node.js 20.17+ / 22.13+ / 23.5+ / 24.x for the CLI (`@foxian/esl`); 22+
+  (recommend 24) for developing this repository. Node 25/26 are not
+  supported.
+- `git` on PATH (Git for Windows on Windows) — required by the CLI's
+  install/use/upload/publish/source/status/init/version commands.
+- Docker and Docker Compose to run ESL Server. The ESL CLI works on Windows,
+  macOS, and Linux; the server is supported on Linux (T1) and via Docker
+  Desktop on Windows (T2). See the
+  [platform support matrix](docs/guides/platform-support.md).
+
 ## Quick Start
 
 1. Install dependencies with `npm install`.

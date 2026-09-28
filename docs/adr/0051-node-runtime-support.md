@@ -1,6 +1,6 @@
 # CLI 与 Server 分轨的 Node 运行时支持
 
-Status: accepted
+Status: accepted（支持契约 = CI matrix 的 OS 轴由 ADR-0053 扩展；`@foxian/esl` 的 `engines.node` 区间已按本篇支持名单收紧，不再隐性放行 Node 25/26）
 
 此前文档写 Node.js 18+，但 CLI 已依赖 `@inquirer/prompts` v8（不支持 18），Server 镜像仍停在已 EOL 的 Node 20。我们把「支持」定义成文档 + `engines` + CI matrix，并让 CLI 尽量宽、Server 与官方镜像跟 Active LTS。
 

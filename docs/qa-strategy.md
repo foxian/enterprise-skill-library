@@ -69,7 +69,7 @@
 
 ## 7. CI Scaling Levers
 
-GitHub Actions 已落地（ADR-0051）：`pull_request` 与 `push` 到 `master`。CLI job matrix 为 Node 20.17 / 22 / 24（core / i18n / cli）；Server job matrix 为 Node 22 / 24（server + web）。不测 Node 18 与 26。本地门禁仍是 `npm test`。缩放时衡量 `CI-minutes-per-PR`；E2E 与单元分 job，避免长尾拖慢反馈。进一步分片按包而非按用例——包边界即依赖边界，改动只触发受影响包（借助 workspace 依赖图）。
+GitHub Actions 已落地（ADR-0051）：`pull_request` 与 `push` 到 `master`。CLI job matrix 为 ubuntu × Node 20.17 / 22 / 24 加 windows-latest 与 macos-latest × Node 24（core / i18n / cli，ADR-0053 加 OS 轴）；Server job matrix 为 Node 22 / 24（server + web，ubuntu-only）。不测 Node 18 与 26。本地门禁仍是 `npm test`。缩放时衡量 `CI-minutes-per-PR`；E2E 与单元分 job，避免长尾拖慢反馈。进一步分片按包而非按用例——包边界即依赖边界，改动只触发受影响包（借助 workspace 依赖图）。
 
 ## 8. Entry/Exit Criteria
 
@@ -113,3 +113,4 @@ ESL 是一个权限敏感、强多租户隔离的自托管平台，质量主线 
 |------|------|------|-------|
 | 2026-09-08 | 1.0 | 初版：基于 ADR-0025 实现后的测试基线（server 321 / cli 221 / web 81） | cnfox |
 | 2026-09-28 | 1.1 | ADR-0051：GitHub Actions Node matrix 成为合入门禁（CLI 20.17/22/24，Server 22/24） | cnfox |
+| 2026-09-28 | 1.2 | ADR-0053：CI 加 OS 轴（CLI windows/macos × Node 24），`engines.node` 收紧不放行 Node 25/26，git 缺失 fail-fast 可行动错误 | cnfox |
