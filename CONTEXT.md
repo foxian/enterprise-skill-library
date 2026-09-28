@@ -849,3 +849,12 @@ The internal or recovery web entry point for inspecting and maintaining the Git
 Backend. It is not the normal product surface for Skill Users.
 
 _Avoid_: Gitea backend address, Gitea user portal
+
+## 平台支持矩阵 (Platform Support Matrix)
+
+ESL 对 ESL CLI 与 ESL Server 在各操作系统上支持程度的分层承诺，分三档：
+T1 承诺级（CI 矩阵每次提交验证）、T2 验证级（发布前按成文检查单人工
+冒烟验证）、T3 尽力级（不承诺验证节奏）。每个端在每个平台的落位由 ADR
+决定、随平台支持文档维护；未列入矩阵的平台不承诺——能运行不代表支持
+（ADR-0053）。
+_Avoid_: 全平台支持；跨平台（当指代分档承诺时）。
