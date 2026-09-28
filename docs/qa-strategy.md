@@ -8,7 +8,7 @@
 
 **Objectives（截至 2026-Q4）:**
 1. 权限判定（canManageSkill / getAccessLevel）与 inventory 可见性过滤逻辑达到**分支全覆盖**——这是 CRITICAL 风险区（见 §4）。
-2. 建立可重复的合入门禁：`npm test` 三套全绿是合入前置（当前已是事实，落成文档 + 可选 CI）。
+2. 建立可重复的合入门禁：GitHub Actions 对 CLI（Node 20.17 / 22 / 24）与 Server（Node 22 / 24）跑对应测试；本地仍以 `npm test` 三套全绿为前置。
 3. 引入最小浏览器 E2E：覆盖 3 条关键旅程（超管技能总览、成员双 Tab、组织管理员代管权限），目标套件 <5min。
 4. 所有跨系统变更（Gitea 建仓/删除/权限）的失败与重试路径有测试锚定，防止孤儿资源回归。Operation/Provisioning 机器已在 ADR-0032 退役，相关用例随之删除。
 
@@ -65,25 +65,25 @@
 | 许可成本（5%） | 5 | 5 |
 | **加权** | **5.0** | **3.8** |
 
-**结论：** 保持 Vitest 为主力（三套已成熟、无 CI 约束下执行快）；Playwright 仅在需要全栈浏览器验证时引入，规模受控（§2 目标 ≤10 用例）。当前不引入契约测试、视觉、压测工具——solo 团队 ROI 不足。
+**结论：** 保持 Vitest 为主力（三套已成熟、CI matrix 下仍应执行快）；Playwright 仅在需要全栈浏览器验证时引入，规模受控（§2 目标 ≤10 用例）。当前不引入契约测试、视觉、压测工具——solo 团队 ROI 不足。
 
 ## 7. CI Scaling Levers
 
-当前无 CI。**先建立再谈缩放**：本地门禁（`npm test`）+ 可选 GitHub Actions 按包分片（server / cli / web 三 job 并行）。若引入 CI，衡量 `CI-minutes-per-PR`；E2E 与单元分 job，避免长尾拖慢反馈。分片策略：按包而非按用例——包边界即依赖边界，改动只触发受影响包（借助 workspace 依赖图）。
+GitHub Actions 已落地（ADR-0051）：`pull_request` 与 `push` 到 `master`。CLI job matrix 为 Node 20.17 / 22 / 24（core / i18n / cli）；Server job matrix 为 Node 22 / 24（server + web）。不测 Node 18 与 26。本地门禁仍是 `npm test`。缩放时衡量 `CI-minutes-per-PR`；E2E 与单元分 job，避免长尾拖慢反馈。进一步分片按包而非按用例——包边界即依赖边界，改动只触发受影响包（借助 workspace 依赖图）。
 
 ## 8. Entry/Exit Criteria
 
 - **API/集成（主层）** — Entry：路由/服务可编译、Gitea mock 齐备、临时 SQLite 建好。Exit：目标断言全绿、无跳过、权限/隔离负用例齐备。
 - **组件** — Entry：`useApiMock` 覆盖视图调用的端点。Exit：关键视图（成员双 Tab、超管总览、权限面板三档）有断言、403 降级被验证。
 - **E2E** — Entry：docker 全栈可启动、隔离测试账号就绪。Exit：3 条旅程全绿、无硬编码等待。
-- **Release/合入** — Entry：`npm test`（三套）全绿 + 变更对应测试已随行。Exit：E2E（若引入）全绿、无 CRITICAL/HIGH 缺陷、回滚路径清晰（`reset:dev`）。
+- **Release/合入** — Entry：`npm test`（三套）全绿 + 变更对应测试已随行；CI matrix 全绿。Exit：E2E（若引入）全绿、无 CRITICAL/HIGH 缺陷、回滚路径清晰（`reset:dev`）。
 
 ## 9. Quality Gates & Definition of Done
 
-- **PR/合入门禁（当前生效，落成文档）**：`npm test` 全绿；权限/隔离相关改动必须带正反用例；ADP（ADR）决策不改不回退测试。
+- **PR/合入门禁（当前生效）**：GitHub Actions CI matrix 全绿（本地等价于 `npm test` 全绿）；权限/隔离相关改动必须带正反用例；ADP（ADR）决策不改不回退测试。
 - **覆盖门禁**：CRITICAL 区（§4 前两行）相关函数改动，行覆盖不得下降；以本次 ADR-0025 测试（321→329）为基线。
 - **Nightly**：可选；引入 E2E 后跑关键旅程。
-- 门禁在 CI 落地前以文档 + 开发者自律执行——诚实标注：**当前无 CI 强制**，这是首要补齐项。
+- 合入门禁由 GitHub Actions 强制（ADR-0051 Node matrix）；本地开发仍以 `npm test` 为反馈环。
 
 ## 10. Metrics & KPIs
 
@@ -99,16 +99,17 @@
 ## 11. Timeline & Milestones
 
 - **Phase 1（W1-2）**：本策略落档；ADR-0025 权限/隔离覆盖补全（见 `docs/qa-test-plan.md` 第一迭代）。
-- **Phase 2（W3-6）**：权限判定抽纯函数 + 单元层起步；评估 CI（GitHub Actions 三 job）。
-- **Phase 3（W7-12）**：若引入 E2E，Playwright 覆盖 3 条关键旅程；CI 门禁落地（`npm test` 强制）。
+- **Phase 2（W3-6）**：权限判定抽纯函数 + 单元层起步。CI 已按 ADR-0051 以 Node matrix 落地，不再「评估是否引入」。
+- **Phase 3（W7-12）**：若引入 E2E，Playwright 覆盖 3 条关键旅程，并作为独立 CI job（不塞进 Node matrix 的每一格）。
 - **Ongoing**：每季度回顾策略；每次 ADR 决策对照 §4 风险矩阵更新测试对策。
 
 ## 12. Executive Summary
 
-ESL 是一个权限敏感、强多租户隔离的自托管平台，质量主线 = **权限正确性 + 隔离性 + 跨系统一致性**。当前已有扎实的 API 集成层（321 用例），但纯单元层与 E2E 缺失、无 CI 门禁。策略：以 CRITICAL 风险区为重心巩固集成层，补齐单元层与最小 E2E，并在合入前建立可重复的门禁。solo 团队执行，一切工具选择以 ROI 为先，不追逐全量自动化。
+ESL 是一个权限敏感、强多租户隔离的自托管平台，质量主线 = **权限正确性 + 隔离性 + 跨系统一致性**。当前已有扎实的 API 集成层（321 用例）与 GitHub Actions Node matrix 合入门禁，但纯单元层与 E2E 仍缺失。策略：以 CRITICAL 风险区为重心巩固集成层，补齐单元层与最小 E2E。solo 团队执行，一切工具选择以 ROI 为先，不追逐全量自动化。
 
 ## 13. Revision History
 
 | 日期 | 版本 | 变更 | Owner |
 |------|------|------|-------|
 | 2026-09-08 | 1.0 | 初版：基于 ADR-0025 实现后的测试基线（server 321 / cli 221 / web 81） | cnfox |
+| 2026-09-28 | 1.1 | ADR-0051：GitHub Actions Node matrix 成为合入门禁（CLI 20.17/22/24，Server 22/24） | cnfox |

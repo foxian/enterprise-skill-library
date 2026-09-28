@@ -2,6 +2,9 @@
   "name": "@esl/cli",
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=23.5.0 || ^22.13.0 || ^20.17.0"
+  },
   "bin": {
     "esl": "./dist/bin/esl.js"
   },
