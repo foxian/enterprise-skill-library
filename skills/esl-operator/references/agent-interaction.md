@@ -8,7 +8,7 @@
 
 本技能由 AI 驱动，默认对已支持协议的 CLI 命令添加：
 
-```bash
+```shell
 esl <command> --agent-interaction --agent-tool <tool>
 ```
 
@@ -66,13 +66,13 @@ stdout 直接输出与 Claude Code `AskUserQuestion` 工具输入一致的 JSON�
 
 固定字段优先使用命令自己的 flag：
 
-```bash
+```shell
 esl init ./my-skill --description "代码审查技能" --license MIT
 ```
 
 多个或嵌套参数使用 `--params-json`：
 
-```bash
+```shell
 esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"display-name":"代码审查","namespace":"personal"}'
 ```
 
@@ -81,7 +81,7 @@ esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"des
 
 裸 `esl version` 的 Agent 回答示例：
 
-```bash
+```shell
 esl version --agent-interaction --agent-tool <tool> --params-json '{"release":"patch"}'
 esl version --agent-interaction --agent-tool <tool> --params-json '{"release":"1.4.2"}'
 ```

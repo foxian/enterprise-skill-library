@@ -20,7 +20,7 @@ Codex、Trae 国际版和 Trae 国内版分别传 `claude-code`、`codex`、`tra
 `--agent-tool` 时输出同一格式。简单字段优先用专用旗标，多个结构化字段可用
 一次 `--params-json`：
 
-```bash
+```shell
 esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
 ```
 

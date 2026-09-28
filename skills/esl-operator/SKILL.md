@@ -6,7 +6,7 @@ description: >
 
 # esl operator
 
-ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）听懂用户的自然语言意图后，用 bash 真跑 `esl` 命令——不重新实现 CLI 逻辑，只做"意图 → 命令 → 分级执行"的翻译。用户说"搜个 code-review 技能""把我写的技能发出去"，你就知道跑哪条命令。
+ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）听懂用户的自然语言意图后，在终端里真跑 `esl` 命令——Windows 的 PowerShell、macOS/Linux 的 bash 或 zsh 均可，不重新实现 CLI 逻辑，只做"意图 → 命令 → 分级执行"的翻译。用户说"搜个 code-review 技能""把我写的技能发出去"，你就知道跑哪条命令。
 
 ## 怎么用这个技能
 
@@ -44,6 +44,7 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 - 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`search`/`info`/`list`/`tools list` 支持），你直接解析结构化数据。`search` 面向人类有 TTY 发现会话；Agent 一律用 `--json`。
 - 给用户看时用人类可读的默认输出。
 - `esl use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl use @ns/name | <agent>`。
+- 跨平台执行：示例块标 `bash` 只是 shell 高亮，命令本身在 PowerShell/CMD 与 bash/zsh 下等价。PowerShell 中含 `$`、反引号或 `!` 的参数文本（如提交说明、弃用提示）建议改用单引号包裹，避免被当作变量插值。
 
 ## Agent 交互
 
@@ -60,12 +61,12 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 
 ## 命令找不到 / 服务不通
 
-- `esl: command not found` / 无法执行 `esl`：别重试同一条业务命令。先做**最短失败卡**（你可代跑只读检查）：
+- `esl: command not found` / 无法执行 `esl`（bash 报 `command not found`，PowerShell 报「无法将"esl"项识别为 cmdlet」）：别重试同一条业务命令。先做**最短失败卡**（你可代跑只读检查）：
   1. `node -v`、`npm -v`——需在支持范围（`20.17.x` / `22.x≥22.13` / `24.x`，推荐 24）。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
-  2. 指引用户执行 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。
+  2. 指引用户执行 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。本仓库开发场景可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`）或用仓库文档中的 `npm exec -- esl` 方式。
   3. 人类完整步骤（前置、PATH、注册、登录）：仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md
-  4. 若用户正在本仓库做开发而非消费已发布包：可 `npm run build` 后使用 `packages/cli/dist/bin/esl.js` / 仓库文档中的 `npm exec -- esl` 方式。
-  5. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
+  4. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
+- 报「该命令需要 git」（`install`/`use` 远程技能、`upload`/`publish`/`source`/`status`/`init`/`version` 等）：PATH 里没有 git。提示用户安装 git（Windows 装 [Git for Windows](https://git-scm.com/download/win)）并确认其在 PATH 后重试；不要绕过或改跑别的命令。`use`/`install` 本地路径与内置技能不依赖 git，可照常执行。
 - Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
 
 现在，按上面的路由表读对应 reference。
