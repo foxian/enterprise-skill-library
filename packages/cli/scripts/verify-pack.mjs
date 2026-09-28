@@ -23,7 +23,8 @@ const requiredFiles = [
   'dist/vendor/core/index.js',
   'dist/vendor/i18n/index.js',
   'LICENSE',
-  'README.md'
+  'README.md',
+  'postinstall.mjs'
 ];
 
 for (const rel of requiredFiles) {

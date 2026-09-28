@@ -26,12 +26,13 @@
   "scripts": {
     "build": "tsc && node scripts/build-builtin.mjs && node scripts/bundle.mjs",
     "prepack": "node scripts/verify-builtin.mjs && node scripts/verify-pack.mjs",
-    "postinstall": "node ./dist/postinstall.js"
+    "postinstall": "node ./postinstall.mjs"
   },
   "files": [
     "dist/",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "postinstall.mjs"
   ],
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",

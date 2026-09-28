@@ -18,7 +18,7 @@ describe('@foxian/esl package publish surface', () => {
     expect(pkg.name).toBe('@foxian/esl');
     expect(pkg.license).toBe('MIT');
     expect(pkg.bin?.esl).toBe('./dist/bin/esl.js');
-    expect(pkg.scripts?.postinstall).toBe('node ./dist/postinstall.js');
+    expect(pkg.scripts?.postinstall).toBe('node ./postinstall.mjs');
   });
 
   it('does not declare unpublished @esl/* runtime dependencies', () => {
@@ -27,6 +27,6 @@ describe('@foxian/esl package publish surface', () => {
   });
 
   it('publishes the built dist surface and license', () => {
-    expect(pkg.files).toEqual(['dist/', 'LICENSE', 'README.md']);
+    expect(pkg.files).toEqual(['dist/', 'LICENSE', 'README.md', 'postinstall.mjs']);
   });
 });

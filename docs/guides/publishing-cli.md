@@ -10,8 +10,8 @@
   `@foxian/*` 发布 public 包。
 - 本机可访问 GitHub 仓库 `foxian/enterprise-skill-library`（`gh auth status` 正常）。
 - 工作区干净：待发布版本的代码已合并，`CHANGELOG.md` 已写好该版本说明。
-- 已完成单包捆绑构建相关改动（包名 `@foxian/esl`、`postinstall` 位于 `dist/`、
-  发布依赖不含 `@esl/*`）。
+- 已完成单包捆绑构建相关改动（包名 `@foxian/esl`、包根 `postinstall.mjs` 入口委托
+  到 `dist/postinstall.js`、发布依赖不含 `@esl/*`）。
 
 ## 发布步骤
 
@@ -32,7 +32,7 @@
    npm pack --workspace @foxian/esl --dry-run
    ```
    或实际 `npm pack --workspace @foxian/esl` 后检查 tarball：
-   - 含 `dist/postinstall.*` 与 builtin 产物
+   - 含包根 `postinstall.mjs`、`dist/postinstall.*` 与 builtin 产物
    - `package.json` 的 `name` 为 `@foxian/esl`，`license` 为 `MIT`
    - 含面向用户的英文 `README.md`（npm 包页会展示；中文说明见仓库 `docs/guides/cli-package-readme.zh-CN.md`，不打进 tarball）
    - `dependencies` 中**没有** `@esl/core` / `@esl/i18n` 等未发布 workspace 包
@@ -63,8 +63,9 @@
 ## 失败与注意
 
 - **版本已存在**：npm 与 ESL 技能发布一样，同一版本不可覆盖；应 bump 后再发。
-- **postinstall 失败**：不得阻断安装（ADR-0008）；若同步异常，检查 tarball 是否
-  包含 `dist/postinstall.*` 及 `dist/commands/sync-builtin.js`。
+- **postinstall 失败**：不得阻断安装（ADR-0008）；包根 `postinstall.mjs` 在 `dist/`
+  缺失（如源码检出尚未构建）时静默跳过。若安装后同步异常，检查 tarball 是否
+  包含包根 `postinstall.mjs`、`dist/postinstall.*` 及 `dist/commands/sync-builtin.js`。
 - **不要**把 npm classic token 长期写入仓库或非必要 CI secret；当前流程为
   交互式 `npm login`。若改为 CI 发版，另开决策评估 Trusted Publishing。
 - Client-coupled 技能文案（`skills/esl-operator/`）中的安装包名必须是

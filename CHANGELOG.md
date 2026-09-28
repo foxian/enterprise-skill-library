@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 新增包根 `postinstall.mjs` 入口：`dist/` 尚未构建（源码全新克隆）时跳过同步，避免 `npm install` 被 postinstall 阻断（ADR-0008）。
+
 ## [0.1.1] - 2026-09-28
 
 ### Added
