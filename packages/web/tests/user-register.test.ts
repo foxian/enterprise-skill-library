@@ -85,6 +85,29 @@ describe('UserRegisterView', () => {
     expect(wrapper.find('[data-test="register-success"]').text()).toContain('dave');
   });
 
+  it('开放注册开启邮箱验证时展示待验邮箱地址', async () => {
+    const fetchMock = mockFetch(
+      { registrationMode: 'open' },
+      202,
+      { status: 'pending_email_verification', username: 'frank' }
+    );
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
+    await flushPromises();
+
+    await setField(wrapper, '[data-test="register-username"]', 'frank');
+    await setField(wrapper, '[data-test="register-email"]', 'frank@example.com');
+    await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
+    await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await flushPromises();
+
+    const pending = wrapper.find('[data-test="register-email-pending"]');
+    expect(pending.exists()).toBe(true);
+    expect(pending.text()).toContain('frank@example.com');
+    expect(pending.text()).toContain('frank');
+  });
+
   it('approval 模式：注册后展示待审批状态', async () => {
     const fetchMock = mockFetch(
       { registrationMode: 'approval' },

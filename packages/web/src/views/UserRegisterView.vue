@@ -20,7 +20,7 @@
         data-test="register-email-pending"
         icon="info"
         :title="t('registration.emailVerificationPendingTitle')"
-        :sub-title="t('registration.emailVerificationPendingSubtitle', { username: pendingEmailVerification })"
+        :sub-title="t('registration.emailVerificationPendingSubtitle', pendingEmailVerification)"
       >
         <template #extra>
           <el-button :loading="resending" data-test="resend-verification" @click="resendVerification">
@@ -85,7 +85,7 @@ const loading = ref(false);
 const errorMessage = ref('');
 const registered = ref('');
 const pending = ref('');
-const pendingEmailVerification = ref('');
+const pendingEmailVerification = ref<{ username: string; email: string } | null>(null);
 const resending = ref(false);
 const { t } = useLocaleState();
 
@@ -111,7 +111,10 @@ async function submit(): Promise<void> {
       body: { username: username.value.trim(), email: email.value.trim(), password: password.value }
     });
     if (result.status === 'pending_email_verification') {
-      pendingEmailVerification.value = result.username;
+      pendingEmailVerification.value = {
+        username: result.username,
+        email: email.value.trim()
+      };
     } else if (result.status === 'pending') {
       pending.value = result.username;
     } else {
@@ -131,7 +134,7 @@ async function resendVerification(): Promise<void> {
   try {
     await apiRequest('/api/auth/verify-email/resend', {
       method: 'POST',
-      body: { username: pendingEmailVerification.value, purpose: 'register' }
+      body: { username: pendingEmailVerification.value.username, purpose: 'register' }
     });
   } catch (error) {
     errorMessage.value = formatRequestError(error);
