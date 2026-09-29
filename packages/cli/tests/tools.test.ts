@@ -48,6 +48,59 @@ describe('esl tools', () => {
     expect(parseToolsOption('claude-code')).toEqual(['claude']);
   });
 
+  it('rejects an empty --tools list', () => {
+    expect(() => parseToolsOption('')).toThrow(/at least one tool/i);
+    expect(() => parseToolsOption('   ')).toThrow(/at least one tool/i);
+  });
+
+  it('reconciles --tools as an expected set, removing links outside it', async () => {
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude', 'cursor']
+    });
+
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude']
+    });
+
+    expect(
+      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill')).isSymbolicLink()
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(projectDir, '.cursor', 'skills', 'myorg_my-local-skill'))
+    ).toBe(false);
+    const manifest = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
+    expect(manifest.links.map((record) => record.tool)).toEqual(['claude']);
+  });
+
+  it('keeps existing links and fails when an expected link conflicts during reconciliation', async () => {
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude']
+    });
+    const blockedTarget = path.join(projectDir, '.codex', 'skills', 'myorg_my-local-skill');
+    fs.mkdirSync(path.dirname(blockedTarget), { recursive: true });
+    fs.mkdirSync(blockedTarget);
+
+    await expect(
+      executeInstall(localSkillDir, {
+        projectRoot: projectDir,
+        homeDir,
+        tools: ['claude', 'codex']
+      })
+    ).rejects.toThrow(/tool link failed/i);
+
+    expect(
+      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill')).isSymbolicLink()
+    ).toBe(true);
+    const manifest = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
+    expect(manifest.links.map((record) => record.tool)).toEqual(['claude']);
+  });
+
   it('renders tool display names in the human-readable tools list', async () => {
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,

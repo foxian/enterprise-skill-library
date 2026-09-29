@@ -652,6 +652,136 @@ describe('esl program', () => {
     expect(list?.options.map((option) => option.long)).toContain('--project');
   });
 
+  it('emits an agent tools multiselect for install when --tools is missing', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    process.exitCode = undefined;
+    try {
+      vi.mocked(executeInstall).mockClear();
+      await run(['node', 'esl', 'install', '@acme/review', '--agent-interaction']);
+
+      expect(process.exitCode).toBe(2);
+      expect(executeInstall).not.toHaveBeenCalled();
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{
+          question: string;
+          options: Array<{ label: string; description?: string }>;
+          multiSelect: boolean;
+        }>;
+      };
+      expect(payload.questions).toHaveLength(1);
+      expect(payload.questions[0].multiSelect).toBe(true);
+      expect(payload.questions[0].question).toContain('First tool mount');
+      expect(payload.questions[0].options[0]).toEqual({ label: 'Claude Code', description: 'id: claude' });
+    } finally {
+      stdoutSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('completes agent install with --tools without any confirm', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'registry')
+      });
+      vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/installed');
+
+      await run(['node', 'esl', 'install', '@acme/review', '--agent-interaction', '--tools', 'claude']);
+
+      expect(process.exitCode).toBeUndefined();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(checkboxMock).not.toHaveBeenCalled();
+      expect(executeInstall).toHaveBeenCalledWith(
+        '@acme/review',
+        expect.objectContaining({ tools: ['claude'] })
+      );
+    } finally {
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('refuses agent install over a Skill Source Link without --force', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    const stderrSpy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      stderr.push(args.map(String).join(' '));
+    });
+    process.exitCode = undefined;
+    try {
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'link')
+      });
+      vi.mocked(executeInstall).mockClear();
+
+      await run(['node', 'esl', 'install', '@acme/review', '--agent-interaction', '--tools', 'claude']);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('')).toContain('Skill Source Link');
+      expect(stdout.join('')).not.toContain('questions');
+      expect(executeInstall).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('emits an agent tools multiselect for link when --tools is missing', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-agent-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    process.exitCode = undefined;
+    try {
+      vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
+      vi.mocked(executeLink).mockClear();
+
+      await run(['node', 'esl', 'link', './my-skill', '--agent-interaction']);
+
+      expect(process.exitCode).toBe(2);
+      expect(executeLink).not.toHaveBeenCalled();
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{ multiSelect: boolean; question: string }>;
+      };
+      expect(payload.questions[0].multiSelect).toBe(true);
+    } finally {
+      stdoutSpy.mockRestore();
+      homedirSpy.mockRestore();
+      process.exitCode = undefined;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
   it('registers tools sync and drops update --tools/--force', () => {
     const program = createProgram();
     const tools = program.commands.find((command) => command.name() === 'tools');

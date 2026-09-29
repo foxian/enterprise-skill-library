@@ -102,6 +102,29 @@ describe('esl unlink', () => {
     expect(fs.existsSync(path.join(sourceDir, 'skill.json'))).toBe(false);
   });
 
+  it('reconciles link --tools as an expected set, removing links outside it', async () => {
+    const sourceDir = path.join(projectDir, 'linked-skill-source');
+    writeSkillSource(sourceDir, '@myorg/linked-skill', '# Live source');
+
+    await executeLink(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude', 'cursor']
+    });
+    await executeLink(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude']
+    });
+
+    expect(
+      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'myorg_linked-skill')).isSymbolicLink()
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(projectDir, '.cursor', 'skills', 'myorg_linked-skill'))
+    ).toBe(false);
+  });
+
   it('restores the staged installation when unlinking a force-linked skill', async () => {
     const originalDir = path.join(projectDir, 'linked-skill');
     const sourceDir = path.join(projectDir, 'linked-skill-source');

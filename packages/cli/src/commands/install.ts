@@ -9,8 +9,8 @@ import {
   addSkillDependency,
   loadConfig,
   loadInstallManifest,
+  reconcileToolLinks,
   resolveProjectStorePaths,
-  syncToolLinks,
   SUPPORTED_TOOLS,
   type ToolName,
   copySkillDirectory,
@@ -537,28 +537,29 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
           installedIdentities.add(identity);
         }
       }
-      const results = await syncToolLinks({
-        storeRoot,
-        level: options.global ? 'global' : 'project',
-        tools,
-        identities: [...installedIdentities],
-        projectRoot,
-        homeDir: options.homeDir,
-        force: options.force
-      });
-      failedLinks.push(
-        ...results
-          .filter((result) => result.status === 'conflict' || result.status === 'failed')
-          .map((result) => {
-            const detail =
-              result.status === 'conflict'
-                ? `: ${result.error ?? 'conflict'}`
-                : result.error
-                  ? `: ${result.error}`
-                  : '';
+      // --tools 与交互勾选同为期望 Tool Link 集合（ADR-0054）：补齐集合内、
+      // 删除集合外 ESL 管理项；集合内有失败则保留旧项并让命令失败。
+      const level = options.global ? 'global' : 'project';
+      for (const identity of installedIdentities) {
+        const reconciliation = await reconcileToolLinks({
+          storeRoot,
+          level,
+          tools,
+          identity,
+          projectRoot,
+          homeDir: options.homeDir,
+          force: options.force
+        });
+        for (const removed of reconciliation.removed) {
+          notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+        }
+        failedLinks.push(
+          ...reconciliation.failures.map((result) => {
+            const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
             return `${result.tool} (${result.targetDir})${detail}`;
           })
-      );
+        );
+      }
     }
   }
 

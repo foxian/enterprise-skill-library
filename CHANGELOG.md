@@ -8,6 +8,8 @@
 
 ### Changed
 
+- `install` / `link` 的 `--tools` 与交互勾选改为**期望 Tool Link 集合**语义（ADR-0054）：补齐集合内 link，删除集合外 ESL 管理项；空 `--tools` 被拒绝。TTY 交互每次弹勾选：预勾已有 link，首次工具挂载预勾本机常用工具并说明；覆盖安装与安装模式转换先确认。
+- Agent Interaction（`--agent-interaction`）扩展到 `install` / `link`：只发出工具多选题（选项用展示名、提交规范 id），覆盖静默、模式转换无 `--force` 报错；用同一个 `--tools` 重跑完成。
 - `esl tools sync` 取代 `esl adapt`：只修复已记录的 Tool Link，不再按项目/全局工具配置给已装技能批量新建 link，也不裁剪任何 link。
 - 项目 `.skills.json` 不再声明 AI 工具：读取时忽略遗留 `tools` 字段，写入时不再输出。
 - `esl update` 移除 `--tools` 与 `--force`：升级版本后已有正确 Tool Link 自动看到新内容；损坏或冲突的 link 会报告，请用 `esl tools sync` 修复。

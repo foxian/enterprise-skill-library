@@ -9,11 +9,11 @@ import {
   loadSkillsJson,
   loadSkillsLock,
   parseSkillName,
+  reconcileToolLinks,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   saveInstallManifest,
   skillSourceRelativeDir,
-  syncToolLinks,
   validateReleaseManifest,
   validateSkillMd,
   type InstallManifestSkill,
@@ -26,6 +26,7 @@ import {
   type NetworkCommandOptions
 } from './network-options.js';
 import { resolveDefaultInstallTools } from './install.js';
+import { notify } from '../output.js';
 
 export interface LinkOptions extends NetworkCommandOptions {
   identity?: string;
@@ -227,27 +228,25 @@ async function syncSelectedTools(
     return;
   }
 
-  const results = await syncToolLinks({
+  // 期望 Tool Link 集合对账（ADR-0054）：补齐集合内、删除集合外 ESL 管理项。
+  const reconciliation = await reconcileToolLinks({
     storeRoot,
     level: options.global ? 'global' : 'project',
     tools,
-    identities: [identity],
+    identity,
     projectRoot,
     homeDir: options.homeDir,
     force: options.force
   });
 
-  const failedLinks = results
-    .filter((result) => result.status === 'conflict' || result.status === 'failed')
-    .map((result) => {
-      const detail =
-        result.status === 'conflict'
-          ? `: ${result.error ?? 'conflict'}`
-          : result.error
-            ? `: ${result.error}`
-            : '';
-      return `${result.tool} (${result.targetDir})${detail}`;
-    });
+  for (const removed of reconciliation.removed) {
+    notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+  }
+
+  const failedLinks = reconciliation.failures.map((result) => {
+    const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
+    return `${result.tool} (${result.targetDir})${detail}`;
+  });
 
   if (failedLinks.length > 0) {
     throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);

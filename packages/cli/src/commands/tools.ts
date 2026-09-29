@@ -132,10 +132,14 @@ export function formatToolSyncResults(results: ToolLinkOperationResult[]): strin
 }
 
 export function parseToolsOption(value: string | undefined): ToolName[] {
-  if (!value) {
+  if (value === undefined) {
     return [];
   }
-  return parseToolSelection(value);
+  const tools = parseToolSelection(value);
+  if (tools.length === 0) {
+    throw new Error('--tools requires at least one tool name');
+  }
+  return tools;
 }
 
 export function formatToolsList(entries: ToolLinkEntry[]): string[] {

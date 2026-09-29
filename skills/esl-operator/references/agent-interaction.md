@@ -16,7 +16,7 @@ esl <command> --agent-interaction --agent-tool <tool>
 `claude`；Codex 用 `codex`，其余见 `--help`）。无论是否带
 `--agent-tool`，stdout 都输出 AskUserQuestion 风格 JSON。只在该模式下处理
 结构化交互请求，不要等用户明确说“需要选择框”才添加。普通终端保持现有交互
-方式。当前 `init` 与裸 `esl version` 已接入该协议；其他命令先查看其
+方式。当前 `init`、裸 `esl version`、`install` 与 `link` 已接入该协议；其他命令先查看其
 reference 或 `--help`。
 
 ## 判断结果
@@ -55,6 +55,22 @@ stdout 直接输出与 Claude Code `AskUserQuestion` 工具输入一致的 JSON�
 - `confirm`：`options` 固定为 `yes` / `no`。
 - `text` / `textarea` / `path`：把默认值作为唯一快捷选项（`description` 标记
   “默认值”），自定义文本由用户走 Other 输入；没有默认值时不臆造选项。
+
+## install / link：只问工具多选
+
+Agent 模式下 `install` / `link` 不会发覆盖安装或模式转换的 y/n 题：覆盖静默进行；
+把普通安装改成 Skill Source Link（或反向）必须由用户明确同意后带 `--force` 重跑，
+否则 CLI 以普通错误退出（退出码 1）。
+
+当未传 `--tools` 且不是 `--no-tools` 时，CLI 以退出码 `2` 发出一个 `multiSelect`
+工具题：
+
+- 选项标签是展示名（Claude Code、Trae International…），description 里的
+  `id: <tool>` 是提交值。
+- 问题文案含「First tool mount」时表示这是该技能的首次工具挂载，预选的是
+  本机常用工具，而不是已有 link。
+- 收集答案后用**同一个** `--tools` 旗标重跑，提交规范 id（逗号分隔）：
+  `esl install @acme/review --agent-interaction --tools claude,codex`。
 
 答案以 `question` 文本为键返回。对 `init`，问题按顺序对应参数
 `description`、`license`、`keywords`、`namespace`：单选取所选 `label`；多选

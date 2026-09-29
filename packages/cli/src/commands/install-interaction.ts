@@ -9,6 +9,7 @@ import {
   SUPPORTED_TOOLS,
   toolDisplayName,
   validateSkillMd,
+  type AgentInteractionField,
   type ToolLevel,
   type ToolName
 } from '@esl/core';
@@ -127,6 +128,33 @@ export async function promptExpectedTools(options: ExpectedToolsPromptOptions): 
     );
   }
   return selected;
+}
+
+/**
+ * Agent Interaction 多选题：与 TTY 勾选同一套语义（预勾已有 link，首次挂载预勾
+ * 常用工具并在问题文案中说明）。选项标签用展示名，description 携带规范 id，
+ * Agent 收集后用同一个 `--tools` 提交规范 id（ADR-0054）。
+ */
+export function agentToolsField(options: {
+  identity: string;
+  existing: ToolName[];
+  preferred: ToolName[];
+}): AgentInteractionField {
+  const firstMount = options.existing.length === 0;
+  const preselected = firstMount ? options.preferred : options.existing;
+  return {
+    id: 'tools',
+    kind: 'multiselect',
+    label: firstMount
+      ? `First tool mount for ${options.identity}: the preselected tools are your preferred tools, not existing links. Select AI tools`
+      : `Select AI tools for ${options.identity}`,
+    required: true,
+    default: preselected,
+    options: SUPPORTED_TOOLS.map((tool) => ({
+      label: toolDisplayName(tool),
+      description: `id: ${tool}`
+    }))
+  };
 }
 
 export async function confirmOverwriteInstall(

@@ -29,7 +29,7 @@
 - 每个被选工具得到单技能目录 link，link 名使用 `<scope>_<skill>`，指向 `.eslib` 中的 `@<scope>/<skill>` 源；不复制技能，也不链接整个工具 skills 根目录。
 - `--tools all` 选择全部九个工具；`--tools claude-code,codex` 选择指定工具；`--no-tools` 只装源、不建 link；`--force` 只能替换 ESL 记录的异常 link，不能覆盖非 ESL 内容。
 - 未传 `--tools` 时：TTY 交互每次都弹工具勾选（预勾该技能已有 link；首次挂载预勾本机常用工具并说明），至少选一个，空选拒绝；非交互环境或 `--no-input` 使用全局配置的 `tools`，没有则报错而不要等待输入。项目 `.skills.json` 不再声明工具，遗留 `tools` 字段被忽略。
-- 重复安装是幂等的：正确 link 保持；冲突报告且不覆盖。（`--tools` 与勾选的期望集合对账语义见 ADR-0054，由后续 CLI 版本落地。）
+- `--tools` 与交互勾选都是该技能在该 Skill Store 上的**期望 Tool Link 集合**（ADR-0054）：补齐集合内，删除集合外 ESL 管理 link；集合内有冲突则保留旧项并失败。`--tools` 至少写一个工具名；`--no-tools` 不新建也不删除。
 - 部分工具发生冲突或 link 创建失败时，已经写入的源和其他成功 link 保留，但命令以失败状态结束并给出冲突详情。
 - 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护。让用户切换到维护账号后重登，不要盲目重试。
 

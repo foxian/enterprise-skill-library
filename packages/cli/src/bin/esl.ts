@@ -24,6 +24,7 @@ import {
   type ToolName
 } from '@esl/core';
 import {
+  agentToolsField,
   confirmInstallToSourceLink,
   confirmOverwriteInstall,
   confirmSourceLinkToInstall,
@@ -327,7 +328,8 @@ export async function installSkill(
 ): Promise<void> {
   const skipToolLinks = options.tools === false || options.adapt === false;
   let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
-  const interactive = program.opts().input !== false && isInteractive();
+  const agentMode = program.opts().agentInteraction === true;
+  const interactive = !agentMode && program.opts().input !== false && isInteractive();
   const projectRoot = process.cwd();
   const storeRoot = options.global
     ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -361,8 +363,19 @@ export async function installSkill(
   }
 
   if (!skipToolLinks && tools.length === 0) {
+    const existing = await loadExistingManagedTools(storeRoot, identity, level);
+    if (agentMode) {
+      // Agent Interaction：只问工具；重跑时用同一个 --tools 提交规范 id（ADR-0054）。
+      throw new AgentInteractionRequiredError(
+        createAgentInteractionRequest({
+          command: 'install',
+          fields: [
+            agentToolsField({ identity, existing, preferred: await loadPreferredTools() })
+          ]
+        })
+      );
+    }
     if (interactive) {
-      const existing = await loadExistingManagedTools(storeRoot, identity, level);
       tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
     } else {
       const configured = await resolveDefaultInstallTools(projectRoot, {
@@ -434,7 +447,7 @@ function versionAgentFields(inspection: VersionInspection): AgentInteractionFiel
 
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version']);
+const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version', 'install', 'link']);
 let activeLocale: Locale = DEFAULT_LOCALE;
 
 export function createProgram(): Command {
@@ -920,7 +933,8 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       const sourcePath = skillPath ?? '.';
       const skipToolLinks = options.tools === false;
       let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
-      const interactive = program.opts().input !== false && isInteractive();
+      const agentMode = program.opts().agentInteraction === true;
+      const interactive = !agentMode && program.opts().input !== false && isInteractive();
       const projectRoot = process.cwd();
       const storeRoot = options.global
         ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -948,8 +962,19 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
 
       if (!skipToolLinks && tools.length === 0) {
+        const existing = await loadExistingManagedTools(storeRoot, identity, level);
+        if (agentMode) {
+          // Agent Interaction：只问工具；重跑时用同一个 --tools 提交规范 id（ADR-0054）。
+          throw new AgentInteractionRequiredError(
+            createAgentInteractionRequest({
+              command: 'link',
+              fields: [
+                agentToolsField({ identity, existing, preferred: await loadPreferredTools() })
+              ]
+            })
+          );
+        }
         if (interactive) {
-          const existing = await loadExistingManagedTools(storeRoot, identity, level);
           tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
         } else {
           const configured = await resolveDefaultInstallTools(projectRoot, {
