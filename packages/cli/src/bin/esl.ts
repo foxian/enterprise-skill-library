@@ -31,6 +31,7 @@ import {
   inspectInstallTarget,
   loadExistingManagedTools,
   promptExpectedTools,
+  recordPreferredToolUsage,
   resolveInstallIdentityHint,
   resolvePreferredTools
 } from '../commands/install-interaction.js';
@@ -67,7 +68,7 @@ import { executeSearch, type SkillSearchFilters, type SkillSearchResult } from '
 import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
-import { executeToolsList, executeToolsRemove, executeToolsSync, formatToolSyncResults, formatToolsList, parseToolsOption } from '../commands/tools.js';
+import { executeToolsList, executeToolsPreferred, executeToolsRemove, executeToolsSync, formatToolSyncResults, formatToolsList, parseToolsOption } from '../commands/tools.js';
 import { executeValidate } from '../commands/validate.js';
 import {
   executeVersion,
@@ -330,6 +331,9 @@ export async function installSkill(
   let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
   const agentMode = program.opts().agentInteraction === true;
   const interactive = !agentMode && program.opts().input !== false && isInteractive();
+  // 计次规则（ADR-0054）：TTY 勾选成功与 Agent 带 --tools 的重跑成功计入常用工具；
+  // 裸 --tools、--no-tools 与默认配置回退不计。
+  let countSelection = false;
   const projectRoot = process.cwd();
   const storeRoot = options.global
     ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -377,6 +381,7 @@ export async function installSkill(
     }
     if (interactive) {
       tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
+      countSelection = true;
     } else {
       const configured = await resolveDefaultInstallTools(projectRoot, {
         ...options,
@@ -388,6 +393,8 @@ export async function installSkill(
       }
       tools = configured;
     }
+  } else if (agentMode && typeof options.tools === 'string') {
+    countSelection = true;
   }
 
   const targetDir = await executeInstall(nameOrPath, {
@@ -395,6 +402,9 @@ export async function installSkill(
     tools,
     noAdapt: skipToolLinks
   });
+  if (countSelection && tools.length > 0) {
+    await recordPreferredToolUsage(tools, {});
+  }
   console.log(`Skill installed at ${targetDir}`);
 }
 
@@ -935,6 +945,8 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
       const agentMode = program.opts().agentInteraction === true;
       const interactive = !agentMode && program.opts().input !== false && isInteractive();
+      // 计次规则同 install（ADR-0054）。
+      let countSelection = false;
       const projectRoot = process.cwd();
       const storeRoot = options.global
         ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -976,6 +988,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         }
         if (interactive) {
           tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
+          countSelection = true;
         } else {
           const configured = await resolveDefaultInstallTools(projectRoot, {
             ...options,
@@ -989,11 +1002,17 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         }
       }
 
+      if (!skipToolLinks && agentMode && typeof options.tools === 'string') {
+        countSelection = true;
+      }
       const targetDir = await executeLink(sourcePath, {
         ...options,
         tools,
         noTools: skipToolLinks
       });
+      if (countSelection && tools.length > 0) {
+        await recordPreferredToolUsage(tools, {});
+      }
       console.log('Linked skill at ' + targetDir);
     });
 
@@ -1066,8 +1085,34 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     });
 
   toolsCommand
+    .command('preferred')
+    .description('View or edit your local preferred AI tools (first tool mount preselection)')
+    .option('--add <tools>', 'add tools, comma-separated')
+    .option('--remove <tools>', 'remove tools, comma-separated')
+    .option('--json', 'output as JSON')
+    .addHelpText('after', example('$ esl tools preferred --add claude,codex'))
+    .action(async (options: { add?: string; remove?: string; json?: boolean }) => {
+      const interactive =
+        program.opts().input !== false &&
+        options.add === undefined &&
+        options.remove === undefined &&
+        isInteractive();
+      const result = await executeToolsPreferred({ ...options, interactive });
+      if (options.json) {
+        console.log(JSON.stringify(result.tools, null, 2));
+        return;
+      }
+      if (result.tools.length === 0) {
+        console.log('No preferred tools configured.');
+        return;
+      }
+      for (const tool of result.tools) {
+        console.log(`${toolDisplayName(tool)} (${tool})`);
+      }
+    });
 
-
+  toolsCommand
+    .command('remove')
     .description('Remove ESL-managed links for a skill')
     .argument('<skill-name>', 'skill identity, e.g. @acme/review')
     .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')

@@ -93,6 +93,8 @@ export interface EslConfig extends ConfigIdentity {
   locale?: string | null;
   organizations: OrganizationMembership[] | null;
   tools: string[];
+  /** 本机常用工具的选中次数（ADR-0054）：按工具累计，只存这台机器。 */
+  toolSelectionCounts?: Record<string, number>;
 }
 
 export async function loadConfig(options: LocalStoreOptions = {}): Promise<EslConfig> {

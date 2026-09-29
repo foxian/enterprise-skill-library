@@ -8,6 +8,7 @@
 
 ### Changed
 
+- 新增 `esl tools preferred`：查看/编辑本机常用工具（`--add` / `--remove` / `--json`，TTY 无旗标时勾选编辑，允许清空）。常用工具只存本机客户端配置；本机交互式 `install` / `link` 成功提交（TTY 勾选或 Agent 带 `--tools` 重跑）中某工具被选中满两次后自动加入，脚本裸 `--tools` 与 `tools` 子命令不计次。
 - `install` / `link` 的 `--tools` 与交互勾选改为**期望 Tool Link 集合**语义（ADR-0054）：补齐集合内 link，删除集合外 ESL 管理项；空 `--tools` 被拒绝。TTY 交互每次弹勾选：预勾已有 link，首次工具挂载预勾本机常用工具并说明；覆盖安装与安装模式转换先确认。
 - Agent Interaction（`--agent-interaction`）扩展到 `install` / `link`：只发出工具多选题（选项用展示名、提交规范 id），覆盖静默、模式转换无 `--force` 报错；用同一个 `--tools` 重跑完成。
 - `esl tools sync` 取代 `esl adapt`：只修复已记录的 Tool Link，不再按项目/全局工具配置给已装技能批量新建 link，也不裁剪任何 link。

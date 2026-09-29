@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   inspectInstallTarget,
   loadExistingManagedTools,
-  promptExpectedTools
+  PREFERRED_TOOL_THRESHOLD,
+  promptExpectedTools,
+  recordPreferredToolUsage
 } from '../src/commands/install-interaction.js';
-import { SUPPORTED_TOOLS } from '@esl/core';
+import { SUPPORTED_TOOLS, loadConfig } from '@esl/core';
 
 describe('install interaction helpers', () => {
   let storeRoot: string;
@@ -93,6 +95,67 @@ describe('install interaction helpers', () => {
 
     it('returns an empty list when nothing is linked', async () => {
       await expect(loadExistingManagedTools(storeRoot, '@acme/review', 'project')).resolves.toEqual([]);
+    });
+  });
+
+  describe('recordPreferredToolUsage', () => {
+    let homeDir: string;
+
+    beforeEach(() => {
+      homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-usage-home-'));
+      fs.mkdirSync(path.join(homeDir, '.eslib'), { recursive: true });
+      fs.writeFileSync(
+        path.join(homeDir, '.eslib', 'config.json'),
+        JSON.stringify({ server: null, username: null, organizations: null, tools: [] })
+      );
+    });
+
+    afterEach(() => {
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    });
+
+    it('is 2 selections before a tool becomes preferred', () => {
+      expect(PREFERRED_TOOL_THRESHOLD).toBe(2);
+    });
+
+    it('counts selections and adds a tool to the preferred list at the threshold', async () => {
+      await recordPreferredToolUsage(['claude'], { homeDir });
+      let config = await loadConfig({ homeDir });
+      expect(config.tools).toEqual([]);
+      expect(config.toolSelectionCounts).toEqual({ claude: 1 });
+
+      await recordPreferredToolUsage(['claude'], { homeDir });
+      config = await loadConfig({ homeDir });
+      expect(config.tools).toEqual(['claude']);
+      expect(config.toolSelectionCounts).toEqual({ claude: 2 });
+
+      // 已在常用列表中的工具不再重复添加，但计数继续累计。
+      await recordPreferredToolUsage(['claude'], { homeDir });
+      config = await loadConfig({ homeDir });
+      expect(config.tools).toEqual(['claude']);
+      expect(config.toolSelectionCounts).toEqual({ claude: 3 });
+    });
+
+    it('accumulates counts per tool without ever auto-removing', async () => {
+      await recordPreferredToolUsage(['codex'], { homeDir });
+      await recordPreferredToolUsage(['codex'], { homeDir });
+      await recordPreferredToolUsage(['hermes'], { homeDir });
+
+      const config = await loadConfig({ homeDir });
+      expect(config.tools).toEqual(['codex']);
+      expect(config.toolSelectionCounts).toEqual({ codex: 2, hermes: 1 });
+    });
+
+    it('tolerates a missing client config', async () => {
+      const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-usage-empty-'));
+      try {
+        await recordPreferredToolUsage(['claude', 'claude'], { homeDir: emptyHome });
+        const config = await loadConfig({ homeDir: emptyHome });
+        expect(config.tools).toEqual(['claude']);
+        expect(config.toolSelectionCounts).toEqual({ claude: 2 });
+      } finally {
+        fs.rmSync(emptyHome, { recursive: true, force: true });
+      }
     });
   });
 

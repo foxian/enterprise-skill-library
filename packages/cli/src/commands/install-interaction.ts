@@ -3,13 +3,19 @@ import path from 'node:path';
 import { checkbox, confirm } from '@inquirer/prompts';
 import {
   isBuiltinIdentity,
+  initializeLocalStore,
+  loadConfig,
   loadInstallManifest,
   loadToolLinkManifest,
   resolveToolName,
+  saveConfig,
   SUPPORTED_TOOLS,
   toolDisplayName,
   validateSkillMd,
   type AgentInteractionField,
+  type EslConfig,
+  type LocalStoreOptions,
+  type OrganizationMembership,
   type ToolLevel,
   type ToolName
 } from '@esl/core';
@@ -99,6 +105,46 @@ export function resolvePreferredTools(tools: string[]): ToolName[] {
     }
     return resolved;
   });
+}
+
+/** 某工具被成功交互提交选中多少次后，自动加入本机常用工具（ADR-0054）。 */
+export const PREFERRED_TOOL_THRESHOLD = 2;
+
+async function loadConfigOrEphemeral(options: LocalStoreOptions): Promise<EslConfig> {
+  try {
+    return await loadConfig(options);
+  } catch {
+    // 新机器还没有客户端配置：先落一个默认骨架再继续。
+    await initializeLocalStore(options);
+    return loadConfig(options);
+  }
+}
+
+/**
+ * Count a successful interactive tool selection toward the local preferred
+ * tools. Only TTY checkbox submissions and Agent reruns with `--tools` call
+ * this; bare `--tools`, `--no-tools`, and the `tools` commands never do.
+ * Counts are per tool on this machine only; reaching the threshold adds the
+ * tool to the preferred list — automatically adding only, never removing.
+ */
+export async function recordPreferredToolUsage(
+  tools: ToolName[],
+  options: LocalStoreOptions = {}
+): Promise<void> {
+  const config = await loadConfigOrEphemeral(options);
+  const counts: Record<string, number> = { ...(config.toolSelectionCounts ?? {}) };
+  const preferred = new Set(config.tools);
+  for (const tool of tools) {
+    const count = (counts[tool] ?? 0) + 1;
+    counts[tool] = count;
+    if (count >= PREFERRED_TOOL_THRESHOLD) {
+      preferred.add(tool);
+    }
+  }
+  await saveConfig(
+    { ...config, tools: [...preferred], toolSelectionCounts: counts },
+    options
+  );
 }
 
 /**

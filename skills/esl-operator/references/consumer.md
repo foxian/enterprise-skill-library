@@ -1,7 +1,7 @@
 # 消费者工作流：找 / 装 / 链 / 看 / 更 / 卸
 
 只读命令（直接跑）：`search` `info` `use` `list` `tools list`。
-写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove`。
+写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove` `tools preferred`。
 
 ## 搜索
 `esl search [query] [--namespace <org>] [--keyword <text>] [--visibility public|private] [--limit <n>] [--json]` —— 列出或查询 ESL Server 上**已发布且当前可安装**的技能。
@@ -69,6 +69,8 @@
 - 这个命令只读，直接运行；删除未管理内容仍必须由用户手工处理，ESL 不提供对应删除命令。
 
 ## 手动建立或检查 link
+`esl tools preferred [--add <tools>] [--remove <tools>] [--json]` —— 查看/编辑**本机常用工具**：只存本机客户端配置，不进项目依赖、不上服务器。TTY 无旗标时用勾选编辑（允许清空）；`--add` / `--remove` 增量修改；`--json` 或非交互无旗标时列出（展示名 + 规范 id）。本机交互式 `install` / `link` 成功提交（TTY 勾选或 Agent 带 `--tools` 重跑）中某工具被选中满 2 次会自动加入；脚本裸 `--tools` 与 `tools` 子命令本身不计次；取消勾选不会把它移出常用列表。
+
 `esl tools sync [--global|-g]` —— 只修复 Tool Link Manifest 中**已记录**的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。它不按配置给未记录的技能批量新建 link，也不裁剪任何 link。
 
 工具标识与目录：

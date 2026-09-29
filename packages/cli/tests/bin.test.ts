@@ -3,7 +3,7 @@ import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelectio
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
 import { executeLink, resolveLinkIdentity } from '../src/commands/link.js';
-import { SUPPORTED_TOOLS } from '@esl/core';
+import { SUPPORTED_TOOLS, initializeLocalStore } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
 import { executeToolsRemove } from '../src/commands/tools.js';
@@ -777,6 +777,78 @@ describe('esl program', () => {
       stdoutSpy.mockRestore();
       homedirSpy.mockRestore();
       process.exitCode = undefined;
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('counts interactive install selections toward preferred tools', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-count-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      await initializeLocalStore({ homeDir });
+      vi.mocked(isInteractive).mockReturnValue(true);
+      checkboxMock.mockResolvedValue(['claude']);
+      vi.mocked(executeInstall).mockResolvedValue('/tmp/installed');
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(homeDir, '.eslib', 'config.json'), 'utf8')
+      );
+      expect(config.tools).toContain('claude');
+      expect(config.toolSelectionCounts).toMatchObject({ claude: 2 });
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('does not count bare --tools installs toward preferred tools', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-count-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      await initializeLocalStore({ homeDir });
+      vi.mocked(executeInstall).mockResolvedValue('/tmp/installed');
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review', '--tools', 'claude'], { from: 'user' });
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(homeDir, '.eslib', 'config.json'), 'utf8')
+      );
+      expect(config.tools).toEqual([]);
+      expect(config.toolSelectionCounts).toBeUndefined();
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('counts agent reruns with --tools toward preferred tools', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-count-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      await initializeLocalStore({ homeDir });
+      vi.mocked(executeInstall).mockResolvedValue('/tmp/installed');
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review', '--agent-interaction', '--tools', 'codex'], { from: 'user' });
+      await program.parseAsync(['install', '@acme/review', '--agent-interaction', '--tools', 'codex'], { from: 'user' });
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(homeDir, '.eslib', 'config.json'), 'utf8')
+      );
+      expect(config.tools).toContain('codex');
+    } finally {
+      homedirSpy.mockRestore();
       fs.rmSync(homeDir, { recursive: true, force: true });
       tmp.restore();
     }

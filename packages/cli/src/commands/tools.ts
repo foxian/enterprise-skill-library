@@ -1,11 +1,14 @@
+import { checkbox } from '@inquirer/prompts';
 import {
   listToolLinks,
+  loadConfig,
   parseToolSelection,
   removeToolLinks,
   repairRecordedToolLinks,
   resolveToolName,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
+  saveConfig,
   SUPPORTED_TOOLS,
   toolDisplayName,
   type LocalStoreOptions,
@@ -129,6 +132,82 @@ export function formatToolSyncResults(results: ToolLinkOperationResult[]): strin
     const detail = result.error ? `: ${result.error}` : '';
     return `${toolDisplayName(result.tool)} (${result.identity}): ${result.status} ${result.targetDir}${detail}`;
   });
+}
+
+export interface ToolsPreferredOptions extends LocalStoreOptions {
+  add?: string;
+  remove?: string;
+  interactive?: boolean;
+  selectTools?: typeof checkbox;
+}
+
+export interface ToolsPreferredResult {
+  tools: ToolName[];
+  changed: boolean;
+}
+
+function toSupportedTool(value: string): ToolName {
+  const resolved = resolveToolName(value);
+  if (resolved === undefined) {
+    throw new Error(`Unknown tool: ${value}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
+  }
+  return resolved;
+}
+
+function sortByToolOrder(tools: Iterable<ToolName>): ToolName[] {
+  const order = new Map(SUPPORTED_TOOLS.map((tool, index) => [tool, index]));
+  return [...tools].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+}
+
+/**
+ * View or edit the local preferred tools (ADR-0054): machine-local only, never
+ * project-side, never synced to the server. `--add` / `--remove` change the
+ * set incrementally; interactively a checkbox edits the whole set and allows
+ * clearing it. Listing and editing never count toward tool usage stats.
+ */
+export async function executeToolsPreferred(
+  options: ToolsPreferredOptions = {}
+): Promise<ToolsPreferredResult> {
+  const config = await loadConfig({ homeDir: options.homeDir });
+  const current = new Set(
+    config.tools.map((tool) => {
+      const resolved = resolveToolName(tool);
+      if (resolved === undefined) {
+        throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
+      }
+      return resolved;
+    })
+  );
+
+  if (options.add === undefined && options.remove === undefined) {
+    if (options.interactive) {
+      const selected = await (options.selectTools ?? checkbox)<ToolName>({
+        message: 'Select your preferred AI tools (used to preselect your first tool mount)',
+        choices: SUPPORTED_TOOLS.map((tool) => ({
+          name: toolDisplayName(tool),
+          value: tool,
+          checked: current.has(tool)
+        })),
+        required: false
+      });
+      await saveConfig({ tools: [...selected] }, { homeDir: options.homeDir });
+      return { tools: sortByToolOrder(selected), changed: true };
+    }
+    return { tools: sortByToolOrder(current), changed: false };
+  }
+
+  if (options.add !== undefined) {
+    for (const tool of parseToolSelection(options.add)) {
+      current.add(tool);
+    }
+  }
+  if (options.remove !== undefined) {
+    for (const tool of parseToolSelection(options.remove)) {
+      current.delete(tool);
+    }
+  }
+  await saveConfig({ tools: [...current] }, { homeDir: options.homeDir });
+  return { tools: sortByToolOrder(current), changed: true };
 }
 
 export function parseToolsOption(value: string | undefined): ToolName[] {
