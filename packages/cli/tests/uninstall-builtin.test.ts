@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildBuiltinPackage, initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 import { executeUninstall } from '../src/commands/uninstall.js';
-import { executeAdapt } from '../src/commands/adapt.js';
+import { executeToolsSync } from '../src/commands/tools.js';
 
 describe('esl built-in uninstall and adapt', () => {
   let homeDir: string;
@@ -62,19 +62,19 @@ describe('esl built-in uninstall and adapt', () => {
     expect(fs.existsSync(linkPath)).toBe(false);
   });
 
-  it('links an installed built-in skill during esl adapt', async () => {
+  it('repairs the recorded link of an installed built-in skill during tools sync', async () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
       builtinDir: builtinRoot,
-      noAdapt: true
+      tools: ['claude']
     });
+    const linkPath = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
+    fs.rmSync(linkPath, { recursive: true, force: true });
 
-    const results = await executeAdapt({ directory: projectDir, homeDir });
+    const results = await executeToolsSync({ directory: projectDir, homeDir });
 
-    expect(
-      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator')).isSymbolicLink()
-    ).toBe(true);
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(results.some((result) => result.tool === 'claude')).toBe(true);
   });
 

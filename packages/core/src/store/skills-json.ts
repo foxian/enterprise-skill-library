@@ -11,7 +11,6 @@ import {
 
 export interface SkillsJson {
   skills: Record<string, string>;
-  tools?: string[];
 }
 
 export interface SkillsLockEntry {
@@ -91,9 +90,9 @@ export async function loadSkillsJson(root: string): Promise<SkillsJson> {
   return readJsonFile(path.join(root, SKILLS_JSON_FILE), defaultSkillsJson());
 }
 
+// 项目依赖只声明技能，不再声明 AI 工具（ADR-0054）；遗留 tools 字段随正常写入消失。
 export async function saveSkillsJson(root: string, data: SkillsJson): Promise<void> {
   await writeJsonFile(path.join(root, SKILLS_JSON_FILE), {
-    ...(data.tools === undefined ? {} : { tools: data.tools }),
     skills: { ...data.skills }
   });
 }

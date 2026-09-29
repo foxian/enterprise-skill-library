@@ -34,7 +34,7 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 账号是全局的：注册后即拥有个人命名空间 `@用户名`，被拉入组织后同样一份凭据即可访问组织命名空间，无需按组织分别登录。平台管理员不通过 CLI 登录——打开管理后台（`http://<server>/admin/`），用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。
 
 ## 登出
-`esl logout` —— 清除本机凭据（token 与登录时间戳），保留 server / 组织 / 工具配置。幂等：未登录时执行也成功。登出后 `esl whoami` 显示 `Not logged in`，需要登录态的命令（install/update/upload 等）会提示先 `esl login`；离线命令（`adapt`/`list`/`validate`）与已安装技能的本地使用不受影响。用户想在共享机器上清除凭据、或要换一个组织账号登录时，提议它。写命令，先回显再执行。
+`esl logout` —— 清除本机凭据（token 与登录时间戳），保留 server / 组织 / 工具配置。幂等：未登录时执行也成功。登出后 `esl whoami` 显示 `Not logged in`，需要登录态的命令（install/update/upload 等）会提示先 `esl login`；离线命令（`tools sync`/`list`/`validate`）与已安装技能的本地使用不受影响。用户想在共享机器上清除凭据、或要换一个组织账号登录时，提议它。写命令，先回显再执行。
 
 ## AI 行为（重要）
 - **交互式密码登录让用户自己跑**：`esl login` 会在它自己的终端提示输入密码，你替它跑反而会卡住或把密码暴露给会话。引导用户在自己的终端执行。

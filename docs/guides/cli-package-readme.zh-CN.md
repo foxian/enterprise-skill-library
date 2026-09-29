@@ -54,7 +54,7 @@ esl install @scope/skill-name
 | --- | --- |
 | `esl search` / `esl info` | 发现与查看技能 |
 | `esl install` / `esl update` / `esl uninstall` | 安装、更新、卸载 |
-| `esl link` / `esl adapt` / `esl tools list` | 链接到 Claude Code、Codex 等工具目录 |
+| `esl link` / `esl tools sync` / `esl tools list` | 链接到 Claude Code、Codex 等工具目录 |
 | `esl init` / `esl upload` / `esl publish` | 创作并发布技能 |
 | `esl --help` | 完整命令帮助 |
 

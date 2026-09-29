@@ -3,8 +3,6 @@ import path from 'node:path';
 import semver from 'semver';
 import {
   resolveProjectStorePaths,
-  syncToolLinks,
-  type ToolName,
   BUILTIN_SPECIFIER_PREFIX,
   highestStableVersion,
   isBuiltinIdentity,
@@ -29,9 +27,6 @@ export interface UpdateOptions extends NetworkCommandOptions {
   projectRoot?: string;
   skillName?: string;
   global?: boolean;
-  noAdapt?: boolean;
-  tools?: ToolName[];
-  force?: boolean;
 }
 
 export interface UpdateResultEntry {
@@ -44,6 +39,12 @@ export interface UpdateResultEntry {
 export type UpdateResult = UpdateResultEntry[];
 
 export async function executeUpdate(options: UpdateOptions = {}): Promise<UpdateResult> {
+  // update 只升级版本；工具选择归 install/link，修链归 tools sync（ADR-0054）。
+  if ('tools' in options || 'force' in options) {
+    throw new Error(
+      'esl update no longer accepts --tools or --force; tool selection belongs to install/link and link repair to: esl tools sync'
+    );
+  }
   const dependencyRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? process.cwd();
   const storeRoot = options.global ? dependencyRoot : resolveProjectStorePaths(dependencyRoot).root;
   const skillsJson = await loadSkillsJson(dependencyRoot);
@@ -171,49 +172,24 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     return results;
   }
 
-  if (options.tools && options.tools.length > 0) {
-    const linkResults = await syncToolLinks({
-      storeRoot,
-      level: options.global ? 'global' : 'project',
-      tools: options.tools,
-      identities: [...targetIdentities],
-      projectRoot: dependencyRoot,
-      homeDir: options.homeDir,
-      force: options.force
-    });
-    const failedLinks = linkResults
-      .filter((result) => result.status === 'conflict' || result.status === 'failed')
-      .map((result) => {
-        const detail =
-          result.status === 'conflict'
-            ? `: ${result.error ?? 'conflict'}`
-            : result.error
-              ? `: ${result.error}`
-              : '';
-        return `${result.tool} (${result.targetDir})${detail}`;
-      });
-    if (failedLinks.length > 0) {
-      throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);
-    }
-  } else {
-    const linkEntries = await listToolLinks({
-      storeRoot,
-      level: options.global ? 'global' : 'project',
-      projectRoot: dependencyRoot,
-      homeDir: options.homeDir
-    });
-    const issues = linkEntries.filter(
-      (entry) =>
-        targetIdentities.has(entry.identity) &&
-        (entry.status === 'broken' || entry.status === 'conflict')
+  // 升级后已有正确 Tool Link 自动看到新内容；损坏/冲突的链在此报告而不修复。
+  const linkEntries = await listToolLinks({
+    storeRoot,
+    level: options.global ? 'global' : 'project',
+    projectRoot: dependencyRoot,
+    homeDir: options.homeDir
+  });
+  const issues = linkEntries.filter(
+    (entry) =>
+      targetIdentities.has(entry.identity) &&
+      (entry.status === 'broken' || entry.status === 'conflict')
+  );
+  if (issues.length > 0) {
+    throw new Error(
+      `Tool link issue: ${issues
+        .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status})`)
+        .join(', ')}`
     );
-    if (issues.length > 0) {
-      throw new Error(
-        `Tool link issue: ${issues
-          .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status})`)
-          .join(', ')}`
-      );
-    }
   }
 
   return results;

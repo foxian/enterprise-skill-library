@@ -1,7 +1,7 @@
 # 消费者工作流：找 / 装 / 链 / 看 / 更 / 卸
 
 只读命令（直接跑）：`search` `info` `use` `list` `tools list`。
-写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `adapt` `tools remove`。
+写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove`。
 
 ## 搜索
 `esl search [query] [--namespace <org>] [--keyword <text>] [--visibility public|private] [--limit <n>] [--json]` —— 列出或查询 ESL Server 上**已发布且当前可安装**的技能。
@@ -28,8 +28,8 @@
 - 项目根 `.skills.json` 是直接依赖声明；`.skills-lock.json` 是完整依赖图和精确版本锁。`.eslib/` 是本机状态，应保持 gitignore。
 - 每个被选工具得到单技能目录 link，link 名使用 `<scope>_<skill>`，指向 `.eslib` 中的 `@<scope>/<skill>` 源；不复制技能，也不链接整个工具 skills 根目录。
 - `--tools all` 选择全部九个工具；`--tools claude-code,codex` 选择指定工具；`--no-tools` 只装源、不建 link；`--force` 只能替换 ESL 记录的异常 link，不能覆盖非 ESL 内容。
-- 未传 `--tools` 时优先级是：项目 `.skills.json` 的 `tools` > 全局配置的 `tools` > 交互 checkbox（至少选择一个工具）。非交互环境或 `--no-input` 没有可用选择时，命令必须报错而不要等待输入。
-- 重复安装是幂等的：正确 link 保持；缺少的补齐；冲突报告且不覆盖；未列出的已有工具 link 不删除。
+- 未传 `--tools` 时：TTY 交互每次都弹工具勾选（预勾该技能已有 link；首次挂载预勾本机常用工具并说明），至少选一个，空选拒绝；非交互环境或 `--no-input` 使用全局配置的 `tools`，没有则报错而不要等待输入。项目 `.skills.json` 不再声明工具，遗留 `tools` 字段被忽略。
+- 重复安装是幂等的：正确 link 保持；冲突报告且不覆盖。（`--tools` 与勾选的期望集合对账语义见 ADR-0054，由后续 CLI 版本落地。）
 - 部分工具发生冲突或 link 创建失败时，已经写入的源和其他成功 link 保留，但命令以失败状态结束并给出冲突详情。
 - 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护。让用户切换到维护账号后重登，不要盲目重试。
 
@@ -42,7 +42,7 @@
 - `link` 不读取、不写入、不生成源码目录里的 `skill.json`；link 元数据记录在安装状态中。
 - Store 中已有普通安装副本时默认拒绝；`--force` 把原副本移入 `.eslib/link-staging/` 再指向源码。源码修改后，所有已链接工具立即看到。
 - 同一源重复 link 是幂等的；换成另一个源必须 `--force`。
-- 未传 `--tools` 时按默认配置或交互 checkbox 选择；非交互环境或 `--no-input` 必须显式传 `--tools` 或 `--no-tools`。
+- 未传 `--tools` 时与 `install` 相同：TTY 每次勾选，非交互用全局配置 `tools` 或报错。
 
 `esl unlink [@scope/skill-name|./path] [--global|-g]`
 
@@ -69,7 +69,7 @@
 - 这个命令只读，直接运行；删除未管理内容仍必须由用户手工处理，ESL 不提供对应删除命令。
 
 ## 手动建立或检查 link
-`esl adapt [--global|-g]` —— 根据工具配置检查并建立已安装技能的 link。它只处理 Skill Store 中已安装的技能，遇到非 ESL 内容报告冲突。
+`esl tools sync [--global|-g]` —— 只修复 Tool Link Manifest 中**已记录**的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。它不按配置给未记录的技能批量新建 link，也不裁剪任何 link。
 
 工具标识与目录：
 

@@ -42,7 +42,6 @@ import {
 } from '@esl/i18n';
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
-import { executeAdapt, formatAdaptResults } from '../commands/adapt.js';
 import { executeSource } from '../commands/source.js';
 import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
@@ -67,7 +66,7 @@ import { executeSearch, type SkillSearchFilters, type SkillSearchResult } from '
 import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
-import { executeToolsList, executeToolsRemove, formatToolsList, parseToolsOption } from '../commands/tools.js';
+import { executeToolsList, executeToolsRemove, executeToolsSync, formatToolSyncResults, formatToolsList, parseToolsOption } from '../commands/tools.js';
 import { executeValidate } from '../commands/validate.js';
 import {
   executeVersion,
@@ -974,19 +973,6 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     });
 
   program
-    .command('adapt')
-    .description('Ensure Tool Links for installed skills')
-    .argument('[path]', 'project directory (defaults to --cd or the current directory)')
-    .option('-g, --global', 'Ensure global Tool Links instead of project links')
-    .addHelpText('after', example('$ esl adapt'))
-    .action(async (skillPath: string | undefined, options: { global?: boolean }) => {
-      const results = await executeAdapt({ ...options, directory: skillPath });
-      for (const line of formatAdaptResults(results)) {
-        console.log(line);
-      }
-    });
-
-  program
     .command('list')
     .alias('ls')
     .description('List installed skills')
@@ -1039,7 +1025,24 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     });
 
   toolsCommand
-    .command('remove')
+    .command('sync')
+    .description('Repair recorded Tool Links for installed skills')
+    .option('-g, --global', 'repair global links instead of project links')
+    .addHelpText('after', example('$ esl tools sync'))
+    .action(async (options: { global?: boolean }) => {
+      const results = await executeToolsSync(options);
+      if (results.length === 0) {
+        console.log('No recorded Tool Links to repair.');
+        return;
+      }
+      for (const line of formatToolSyncResults(results)) {
+        console.log(line);
+      }
+    });
+
+  toolsCommand
+
+
     .description('Remove ESL-managed links for a skill')
     .argument('<skill-name>', 'skill identity, e.g. @acme/review')
     .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')
@@ -1093,15 +1096,12 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Update installed skills to latest versions')
     .argument('[skill-name]', 'specific skill to update')
     .option('-g, --global', 'Update global skills')
-    .option('--tools <tools>', 'Ensure links for these AI tools after updating')
-    .option('-f, --force', 'Replace ESL-owned stale links')
     .option('--server <url>', 'ESL Server URL')
     .addHelpText('after', example('$ esl update'))
-    .action(async (skillName: string | undefined, options: { global?: boolean; tools?: string; force?: boolean; server?: string }) => {
+    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
       const results = await executeUpdate({
         ...options,
-        skillName,
-        tools: parseToolsOption(options.tools)
+        skillName
       });
       if (results.length === 0) {
         console.log('All skills are up to date');

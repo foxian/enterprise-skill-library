@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `esl tools sync` 取代 `esl adapt`：只修复已记录的 Tool Link，不再按项目/全局工具配置给已装技能批量新建 link，也不裁剪任何 link。
+- 项目 `.skills.json` 不再声明 AI 工具：读取时忽略遗留 `tools` 字段，写入时不再输出。
+- `esl update` 移除 `--tools` 与 `--force`：升级版本后已有正确 Tool Link 自动看到新内容；损坏或冲突的 link 会报告，请用 `esl tools sync` 修复。
+- 工具勾选与人类可读输出改用展示名（Claude Code、Trae International 等）；内部 id 与 CLI 参数不变。
+
 ### Fixed
 
 - 新增包根 `postinstall.mjs` 入口：`dist/` 尚未构建（源码全新克隆）时跳过同步，避免 `npm install` 被 postinstall 阻断（ADR-0008）。

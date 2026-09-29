@@ -8,7 +8,7 @@ import {
   saveConfig
 } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
-import { executeToolsList, executeToolsRemove, formatToolsList, parseToolsOption } from '../src/commands/tools.js';
+import { executeToolsList, executeToolsRemove, executeToolsSync, formatToolsList, parseToolsOption } from '../src/commands/tools.js';
 import { executeUpdate } from '../src/commands/update.js';
 
 describe('esl tools', () => {
@@ -222,24 +222,22 @@ describe('esl tools', () => {
     expect(fs.existsSync(path.join(projectDir, '.codex', 'skills', 'myorg_my-local-skill'))).toBe(false);
   });
 
-  it('ensures requested tools are linked during update', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
+  it('rejects update with tools since tool selection moved to install/link', async () => {
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
       tools: ['claude']
     });
 
-    await executeUpdate({
-      projectRoot: projectDir,
-      homeDir,
-      skillName: '@myorg/my-local-skill',
-      tools: ['codex']
-    });
-
-    const codexLink = path.join(projectDir, '.codex', 'skills', 'myorg_my-local-skill');
-    expect(fs.lstatSync(codexLink).isSymbolicLink()).toBe(true);
-    expect(path.resolve(fs.readlinkSync(codexLink))).toBe(sourceDir);
+    await expect(
+      executeUpdate({
+        projectRoot: projectDir,
+        homeDir,
+        skillName: '@myorg/my-local-skill',
+        // Cast keeps the legacy call shape; the command no longer accepts it.
+        tools: ['codex'] as never
+      })
+    ).rejects.toThrow(/--tools/);
   });
 
   it('lists unmanaged content and supports tool and management filters', async () => {
@@ -375,7 +373,7 @@ describe('esl tools', () => {
     ]);
   });
 
-  it('replaces ESL-owned stale links with force', async () => {
+  it('repairs stale ESL-owned links through tools sync instead of update --force', async () => {
     const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
@@ -392,36 +390,26 @@ describe('esl tools', () => {
       process.platform === 'win32' ? 'junction' : 'dir'
     );
 
-    await executeUpdate({
-      projectRoot: projectDir,
-      homeDir,
-      skillName: '@myorg/my-local-skill',
-      tools: ['claude'],
-      force: true
-    });
+    const results = await executeToolsSync({ projectRoot: projectDir, homeDir });
 
+    expect(results.map((result) => result.status)).toEqual(['created']);
     expect(path.resolve(fs.readlinkSync(linkPath))).toBe(sourceDir);
   });
 
-  it('does not let force overwrite an unmanaged directory', async () => {
+  it('keeps unmanaged content occupying a recorded target during tools sync', async () => {
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
-      noAdapt: true
+      tools: ['claude']
     });
     const manualDir = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
+    fs.rmSync(manualDir, { recursive: true, force: true });
     fs.mkdirSync(manualDir, { recursive: true });
     fs.writeFileSync(path.join(manualDir, 'SKILL.md'), '# Manual\n');
 
-    await expect(
-      executeUpdate({
-        projectRoot: projectDir,
-        homeDir,
-        skillName: '@myorg/my-local-skill',
-        tools: ['claude'],
-        force: true
-      })
-    ).rejects.toThrow(/tool link failed/i);
+    const results = await executeToolsSync({ projectRoot: projectDir, homeDir });
+
+    expect(results.map((result) => result.status)).toEqual(['conflict']);
     expect(fs.readFileSync(path.join(manualDir, 'SKILL.md'), 'utf8')).toBe('# Manual\n');
   });
 
@@ -452,7 +440,7 @@ describe('esl tools', () => {
     ).toContain('# Updated');
   });
 
-  it('updates only the requested skill when ensuring tool links', async () => {
+  it('update no longer creates tool links and ignores conflicts of other skills', async () => {
     const conflictingSkillDir = path.join(projectDir, 'conflicting-skill');
     fs.mkdirSync(conflictingSkillDir);
     fs.writeFileSync(
@@ -491,13 +479,10 @@ describe('esl tools', () => {
     await executeUpdate({
       projectRoot: projectDir,
       homeDir,
-      skillName: '@myorg/my-local-skill',
-      tools: ['codex']
+      skillName: '@myorg/my-local-skill'
     });
 
-    expect(
-      fs.lstatSync(path.join(projectDir, '.codex', 'skills', 'myorg_my-local-skill')).isSymbolicLink()
-    ).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, '.codex', 'skills', 'myorg_my-local-skill'))).toBe(false);
     expect(fs.existsSync(conflictingTarget)).toBe(true);
   });
 
@@ -541,7 +526,7 @@ describe('esl tools', () => {
     expect(gitignore).not.toContain('.skills/');
   });
 
-  it('uses project .skills.json tools before global config defaults', async () => {
+  it('ignores legacy tools declared in project .skills.json', async () => {
     fs.writeFileSync(
       path.join(projectDir, '.skills.json'),
       JSON.stringify({ skills: {}, tools: ['cursor'] })
@@ -552,11 +537,13 @@ describe('esl tools', () => {
       homeDir
     });
 
-    expect(
-      fs.existsSync(path.join(projectDir, '.cursor', 'skills', 'myorg_my-local-skill'))
-    ).toBe(true);
+    // Only the global client config tools apply; project-side tool
+    // declarations are legacy state (ADR-0054).
     expect(
       fs.existsSync(path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill'))
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(projectDir, '.cursor', 'skills', 'myorg_my-local-skill'))
     ).toBe(false);
   });
 

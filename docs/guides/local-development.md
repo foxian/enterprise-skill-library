@@ -162,7 +162,7 @@ npm exec -- esl login --org acme --username alice
 npm exec -- esl init @local/my-skill
 npm exec -- esl validate .\my-skill
 npm exec -- esl install .\my-skill
-npm exec -- esl adapt
+npm exec -- esl tools sync
 ```
 
 `@local/*` 技能可以在本地创建、安装和适配，但不能发布到共享服务器。

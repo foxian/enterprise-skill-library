@@ -220,9 +220,10 @@ _Avoid_: backup（当指这个暂存区时）。
 
 ## Skill Dependency Manifest
 
-The consumer project's declaration of the skills it directly uses and its
-default tool selection, stored as `.skills.json`. It is project-side state and
-is separate from a skill's own Release Manifest.
+The consumer project's declaration of the skills it directly uses, stored as
+`.skills.json`. It is project-side state and is separate from a skill's own
+Release Manifest. It no longer declares AI tools (ADR-0054); a legacy `tools`
+field is ignored on read and dropped on write.
 
 _Avoid_: release.json, when referring to project dependencies.
 

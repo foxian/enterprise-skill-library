@@ -2,6 +2,7 @@ import {
   listToolLinks,
   parseToolSelection,
   removeToolLinks,
+  repairRecordedToolLinks,
   resolveToolName,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
@@ -10,6 +11,7 @@ import {
   type LocalStoreOptions,
   type RemovedToolLinkResult,
   type ToolLinkEntry,
+  type ToolLinkOperationResult,
   type ToolName
 } from '@esl/core';
 
@@ -95,6 +97,37 @@ export async function executeToolsRemove(
     identity: skillName,
     tools: options.tools,
     level: options.global ? 'global' : 'project'
+  });
+}
+
+export interface ToolsSyncOptions extends LocalStoreOptions {
+  projectRoot?: string;
+  global?: boolean;
+  directory?: string;
+}
+
+/**
+ * Repair recorded Tool Links only (ADR-0054): missing or stale ESL-owned links
+ * are recreated, conflicts are reported, and nothing is created for skills or
+ * tools without a record.
+ */
+export async function executeToolsSync(options: ToolsSyncOptions = {}): Promise<ToolLinkOperationResult[]> {
+  const projectRoot = options.directory ?? options.projectRoot ?? process.cwd();
+  const storeRoot = options.global
+    ? resolveLocalStorePaths({ homeDir: options.homeDir }).root
+    : resolveProjectStorePaths(projectRoot).root;
+  return repairRecordedToolLinks({
+    storeRoot,
+    level: options.global ? 'global' : 'project',
+    projectRoot,
+    homeDir: options.homeDir
+  });
+}
+
+export function formatToolSyncResults(results: ToolLinkOperationResult[]): string[] {
+  return results.map((result) => {
+    const detail = result.error ? `: ${result.error}` : '';
+    return `${toolDisplayName(result.tool)} (${result.identity}): ${result.status} ${result.targetDir}${detail}`;
   });
 }
 

@@ -9,7 +9,6 @@ import {
   addSkillDependency,
   loadConfig,
   loadInstallManifest,
-  loadSkillsJson,
   resolveProjectStorePaths,
   syncToolLinks,
   SUPPORTED_TOOLS,
@@ -488,24 +487,16 @@ async function installPublishedDependencies(
   }
 }
 
+/**
+ * Non-interactive fallback tool set for install/link: only the local client
+ * config's preferred tools. Project `.skills.json` no longer declares tools
+ * (ADR-0054); legacy `tools` fields there are ignored.
+ */
 export async function resolveDefaultInstallTools(
   projectRoot: string,
   options: InstallOptions
 ): Promise<ToolName[]> {
-  const dependencyRoot = options.global
-    ? resolveLocalStorePaths(options).root
-    : projectRoot;
-  const skillsJson = await loadSkillsJson(dependencyRoot);
-  if (skillsJson.tools && skillsJson.tools.length > 0) {
-    return skillsJson.tools.map((tool) => {
-      const resolved = resolveToolName(tool);
-      if (resolved === undefined) {
-        throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
-      }
-      return resolved;
-    });
-  }
-
+  void projectRoot;
   const config = await loadConfig(options);
   return config.tools.map((tool) => {
     const resolved = resolveToolName(tool);

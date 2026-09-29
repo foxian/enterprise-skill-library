@@ -237,10 +237,10 @@ esl list --json
 按当前工具配置检查并建立已安装技能的 Tool Link：
 ```bash
 # 检查并建立当前项目的 Tool Link
-esl adapt
+esl tools sync
 
 # 检查并建立全局 Tool Link
-esl adapt -g
+esl tools sync -g
 ```
 
 ### 8. 查看与删除 Tool Link
@@ -411,7 +411,7 @@ esl source @cnfox/code-review ./custom-dir
 
 ## 六、 多 Agent 工具配置与目录映射 (Tool Link Reference)
 
-当运行 `esl adapt` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
+当运行 `esl tools sync` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |

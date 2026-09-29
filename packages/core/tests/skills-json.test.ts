@@ -31,13 +31,28 @@ describe('skills-json', () => {
     expect(lock).toEqual({ lockfileVersion: 1, skills: {} });
   });
 
-  it('saves and loads .skills.json', async () => {
-    const data = { skills: { '@scope/skill-a': '^1.0.0' }, tools: ['claude'] };
+  it('saves and loads .skills.json without a tools field', async () => {
+    const data = { skills: { '@scope/skill-a': '^1.0.0' } };
     await saveSkillsJson(tmpDir, data);
 
     expect(fs.existsSync(path.join(tmpDir, '.skills.json'))).toBe(true);
     const loaded = await loadSkillsJson(tmpDir);
     expect(loaded).toEqual(data);
+    expect(fs.readFileSync(path.join(tmpDir, '.skills.json'), 'utf8')).not.toContain('"tools"');
+  });
+
+  it('drops a legacy tools field on the next write', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.skills.json'),
+      JSON.stringify({ skills: { '@scope/skill-a': '^1.0.0' }, tools: ['claude'] }, null, 2)
+    );
+
+    await addSkillDependency(tmpDir, '@scope/skill-b', '^2.0.0');
+
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tmpDir, '.skills.json'), 'utf8'));
+    expect(onDisk).toEqual({
+      skills: { '@scope/skill-a': '^1.0.0', '@scope/skill-b': '^2.0.0' }
+    });
   });
 
   it('adds a skill dependency', async () => {

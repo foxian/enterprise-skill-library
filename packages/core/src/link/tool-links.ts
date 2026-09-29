@@ -526,6 +526,60 @@ export async function reconcileToolLinks(
   };
 }
 
+export interface RepairToolLinksOptions {
+  storeRoot: string;
+  level: ToolLevel;
+  projectRoot?: string;
+  homeDir?: string;
+}
+
+/**
+ * Repair-only pass over the Tool Link Manifest: re-ensure every recorded link
+ * at the given level (missing or stale ESL-owned links are recreated; targets
+ * occupied by unmanaged content are reported as conflicts and never
+ * overwritten). Never creates links for skills or tools without a record, and
+ * never removes anything.
+ */
+export async function repairRecordedToolLinks(
+  options: RepairToolLinksOptions
+): Promise<ToolLinkOperationResult[]> {
+  const manifest = await loadToolLinkManifest(options.storeRoot);
+  const results: ToolLinkOperationResult[] = [];
+  const seen = new Set<string>();
+  for (const record of manifest.links) {
+    if (record.level !== options.level) {
+      continue;
+    }
+    const key = `${record.identity}\n${record.tool}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    try {
+      results.push(
+        await createToolLink({
+          identity: record.identity,
+          tool: record.tool,
+          level: record.level,
+          storeRoot: options.storeRoot,
+          projectRoot: options.projectRoot,
+          homeDir: options.homeDir,
+          force: true
+        })
+      );
+    } catch (error) {
+      results.push({
+        identity: record.identity,
+        tool: record.tool,
+        targetDir: path.resolve(record.targetDir),
+        status: 'failed',
+        error: (error as Error).message
+      });
+    }
+  }
+  return results;
+}
+
 export interface ListToolLinksOptions {
   storeRoot: string;
   level: ToolLevel;

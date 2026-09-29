@@ -321,7 +321,6 @@ describe('esl program', () => {
         'validate',
         'version',
         'install',
-        'adapt',
         'list',
         'use',
         'source',
@@ -651,6 +650,15 @@ describe('esl program', () => {
     const list = tools?.commands.find((command) => command.name() === 'list');
 
     expect(list?.options.map((option) => option.long)).toContain('--project');
+  });
+
+  it('registers tools sync and drops update --tools/--force', () => {
+    const program = createProgram();
+    const tools = program.commands.find((command) => command.name() === 'tools');
+    expect(tools?.commands.map((command) => command.name())).toContain('sync');
+    const update = program.commands.find((command) => command.name() === 'update');
+    expect(update?.options.map((option) => option.long)).not.toContain('--tools');
+    expect(update?.options.map((option) => option.long)).not.toContain('--force');
   });
 
   it('registers the release tag repair command', () => {
