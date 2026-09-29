@@ -130,6 +130,19 @@ async function resolveSourceSkill(
   };
 }
 
+/**
+ * Resolve the identity a link command would use, without touching the store.
+ * Lets the CLI run conversion confirmations before Link Staging happens.
+ */
+export async function resolveLinkIdentity(
+  sourcePath: string,
+  requestedIdentity?: string
+): Promise<{ identity: string }> {
+  const resolved = path.resolve(sourcePath);
+  const source = await resolveSourceSkill(resolved, requestedIdentity);
+  return { identity: source.identity };
+}
+
 export async function executeLink(sourcePath: string, options: LinkOptions = {}): Promise<string> {
   const projectRoot = options.projectRoot ?? process.cwd();
   const resolved = path.resolve(sourcePath);

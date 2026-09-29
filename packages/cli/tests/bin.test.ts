@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelection, run } from '../src/bin/esl.js';
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
-import { executeLink } from '../src/commands/link.js';
+import { executeLink, resolveLinkIdentity } from '../src/commands/link.js';
 import { SUPPORTED_TOOLS } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
@@ -37,7 +37,10 @@ vi.mock('../src/prompt.js', async (importOriginal) => {
 });
 vi.mock('../src/commands/upload.js', () => ({ executeUpload: vi.fn() }));
 vi.mock('../src/commands/publish.js', () => ({ executePublish: vi.fn() }));
-vi.mock('../src/commands/link.js', () => ({ executeLink: vi.fn() }));
+vi.mock('../src/commands/link.js', () => ({
+  executeLink: vi.fn(),
+  resolveLinkIdentity: vi.fn()
+}));
 vi.mock('../src/commands/tools.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/commands/tools.js')>();
   return { ...actual, executeToolsRemove: vi.fn() };
@@ -48,8 +51,41 @@ vi.mock('../src/commands/install.js', () => ({
 }));
 
 describe('esl program', () => {
+  function withTempCwd(): { root: string; restore: () => void } {
+    const originalCwd = process.cwd();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cwd-'));
+    process.chdir(root);
+    return {
+      root,
+      restore: () => {
+        process.chdir(originalCwd);
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    };
+  }
+
+  function writeStoreManifests(root: string, skills: Record<string, unknown>): void {
+    fs.mkdirSync(path.join(root, '.eslib'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.eslib', '.esl-install-manifest.json'),
+      `${JSON.stringify({ version: 1, skills }, null, 2)}\n`
+    );
+  }
+
+  function installManifestEntry(identity: string, source: string): Record<string, unknown> {
+    return {
+      identity,
+      version: '1.0.0',
+      source,
+      specifier: '^1.0.0',
+      sourceDir: `skills/${identity.replace('@', '').replace('/', '/')}`,
+      installedAt: '2026-01-01T00:00:00.000Z'
+    };
+  }
+
   beforeEach(() => {
     vi.mocked(isInteractive).mockReturnValue(false);
+    vi.mocked(resolveLinkIdentity).mockReset();
     checkboxMock.mockReset();
     confirmMock.mockReset();
     executeSearchMock.mockReset();
@@ -81,16 +117,185 @@ describe('esl program', () => {
   });
 
   it('passes configured default tools to link instead of an empty list', async () => {
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['claude', 'codex']);
-    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked-target');
-    const program = createProgram();
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
+      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['claude', 'codex']);
+      vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked-target');
+      const program = createProgram();
 
-    await program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' });
+      await program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' });
 
-    expect(executeLink).toHaveBeenCalledWith(
-      './my-skill',
-      expect.objectContaining({ tools: ['claude', 'codex'] })
-    );
+      expect(executeLink).toHaveBeenCalledWith(
+        './my-skill',
+        expect.objectContaining({ tools: ['claude', 'codex'] })
+      );
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('prompts the tool checkbox on interactive install even when default tools are configured', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['cursor']);
+      vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/installed');
+      checkboxMock.mockResolvedValueOnce(['claude']);
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+
+      expect(checkboxMock).toHaveBeenCalledTimes(1);
+      expect(executeInstall).toHaveBeenCalledWith(
+        '@acme/review',
+        expect.objectContaining({ tools: ['claude'] })
+      );
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('confirms overwriting an existing install and aborts when declined', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'registry')
+      });
+      confirmMock.mockResolvedValueOnce(false);
+      vi.mocked(executeInstall).mockClear();
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(confirmMock.mock.calls[0][0]).toMatchObject({
+        message: expect.stringContaining('already installed')
+      });
+      expect(executeInstall).not.toHaveBeenCalled();
+      expect(checkboxMock).not.toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('overwrites and continues to tool selection when the overwrite confirmation is accepted', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'registry')
+      });
+      confirmMock.mockResolvedValueOnce(true);
+      checkboxMock.mockResolvedValueOnce(['claude']);
+      vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/installed');
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+
+      expect(executeInstall).toHaveBeenCalledWith(
+        '@acme/review',
+        expect.objectContaining({ tools: ['claude'] })
+      );
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('confirms the Skill Source Link conversion before tool selection on install', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'link')
+      });
+      confirmMock.mockResolvedValueOnce(true);
+      checkboxMock.mockResolvedValueOnce(['claude']);
+      vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/installed');
+      const program = createProgram();
+
+      await program.parseAsync(['install', '@acme/review'], { from: 'user' });
+
+      expect(confirmMock.mock.calls[0][0]).toMatchObject({
+        message: expect.stringContaining('Skill Source Link')
+      });
+      expect(confirmMock.mock.invocationCallOrder[0]).toBeLessThan(
+        checkboxMock.mock.invocationCallOrder[0]
+      );
+      expect(executeInstall).toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('rejects replacing a Skill Source Link without --force when not interactive', async () => {
+    const tmp = withTempCwd();
+    try {
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'link')
+      });
+      vi.mocked(executeInstall).mockClear();
+      const program = createProgram();
+
+      await expect(
+        program.parseAsync(['install', '@acme/review', '--no-input'], { from: 'user' })
+      ).rejects.toThrow(/Skill Source Link/);
+
+      expect(executeInstall).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('confirms replacing a plain install with a Skill Source Link and aborts when declined', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'registry')
+      });
+      confirmMock.mockResolvedValueOnce(false);
+      vi.mocked(executeLink).mockClear();
+      const program = createProgram();
+
+      await program.parseAsync(['link', './my-skill'], { from: 'user' });
+
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(confirmMock.mock.calls[0][0]).toMatchObject({
+        message: expect.stringContaining('Skill Source Link')
+      });
+      expect(executeLink).not.toHaveBeenCalled();
+      expect(checkboxMock).not.toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
+  });
+
+  it('enters link staging after the conversion confirmation and prompts tool selection', async () => {
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
+      writeStoreManifests(tmp.root, {
+        '@acme/review': installManifestEntry('@acme/review', 'registry')
+      });
+      confirmMock.mockResolvedValueOnce(true);
+      checkboxMock.mockResolvedValueOnce(['claude']);
+      vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked-target');
+      const program = createProgram();
+
+      await program.parseAsync(['link', './my-skill'], { from: 'user' });
+
+      expect(executeLink).toHaveBeenCalledWith(
+        './my-skill',
+        expect.objectContaining({ force: true, tools: ['claude'] })
+      );
+    } finally {
+      tmp.restore();
+    }
   });
 
   it('rejects an empty checkbox selection', async () => {
@@ -187,6 +392,7 @@ describe('esl program', () => {
     selectMock.mockResolvedValueOnce('@acme/tool');
     selectMock.mockResolvedValueOnce('install');
     confirmMock.mockResolvedValueOnce(true);
+    checkboxMock.mockResolvedValueOnce(['claude']);
     const logs: string[] = [];
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
       logs.push(args.map(String).join(' '));
@@ -218,6 +424,7 @@ describe('esl program', () => {
     selectMock.mockResolvedValueOnce('@acme/tool');
     selectMock.mockResolvedValueOnce('install');
     confirmMock.mockResolvedValueOnce(true);
+    checkboxMock.mockResolvedValueOnce(['claude']);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     try {
@@ -373,31 +580,42 @@ describe('esl program', () => {
   });
 
   it('does not prompt for install under --no-input', async () => {
-    vi.mocked(isInteractive).mockReturnValue(true);
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
-    vi.mocked(executeInstall).mockClear();
-    const program = createProgram();
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
+      vi.mocked(executeInstall).mockClear();
+      const program = createProgram();
 
-    await expect(
-      program.parseAsync(['install', '@acme/review', '--no-input'], { from: 'user' })
-    ).rejects.toThrow('No tools configured');
+      await expect(
+        program.parseAsync(['install', '@acme/review', '--no-input'], { from: 'user' })
+      ).rejects.toThrow('No tools configured');
 
-    expect(checkboxMock).not.toHaveBeenCalled();
-    expect(executeInstall).not.toHaveBeenCalled();
+      expect(checkboxMock).not.toHaveBeenCalled();
+      expect(executeInstall).not.toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
   });
 
   it('does not prompt for link under --no-input', async () => {
-    vi.mocked(isInteractive).mockReturnValue(true);
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
-    vi.mocked(executeLink).mockClear();
-    const program = createProgram();
+    const tmp = withTempCwd();
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
+      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
+      vi.mocked(executeLink).mockClear();
+      const program = createProgram();
 
-    await expect(
-      program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' })
-    ).rejects.toThrow('No tools configured');
+      await expect(
+        program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' })
+      ).rejects.toThrow('No tools configured');
 
-    expect(checkboxMock).not.toHaveBeenCalled();
-    expect(executeLink).not.toHaveBeenCalled();
+      expect(checkboxMock).not.toHaveBeenCalled();
+      expect(executeLink).not.toHaveBeenCalled();
+    } finally {
+      tmp.restore();
+    }
   });
 
   it('does not prompt for tools remove under --no-input', async () => {

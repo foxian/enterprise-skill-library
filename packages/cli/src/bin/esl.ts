@@ -8,6 +8,8 @@ import { readHidden, readStdinText, readText, isInteractive } from '../prompt.js
 import {
   AgentInteractionRequiredError,
   loadConfig,
+  resolveLocalStorePaths,
+  resolveProjectStorePaths,
   SUPPORTED_TOOLS,
   assertNoDuplicateCommandParams,
   createAgentInteractionRequest,
@@ -18,8 +20,19 @@ import {
   toAskUserQuestionPayload,
   toolDisplayName,
   type AgentInteractionField,
+  type ToolLevel,
   type ToolName
 } from '@esl/core';
+import {
+  confirmInstallToSourceLink,
+  confirmOverwriteInstall,
+  confirmSourceLinkToInstall,
+  inspectInstallTarget,
+  loadExistingManagedTools,
+  promptExpectedTools,
+  resolveInstallIdentityHint,
+  resolvePreferredTools
+} from '../commands/install-interaction.js';
 import {
   DEFAULT_LOCALE,
   resolveLocale,
@@ -35,7 +48,7 @@ import { executeList } from '../commands/list.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
-import { executeLink } from '../commands/link.js';
+import { executeLink, resolveLinkIdentity } from '../commands/link.js';
 import { executeUnlink } from '../commands/unlink.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
@@ -296,7 +309,18 @@ export interface InstallCommandOptions {
   ignoreCompatibility?: boolean;
 }
 
+// 本机常用工具（首次工具挂载预勾选，ADR-0054）：客户端配置缺失时视为空集。
+export async function loadPreferredTools(): Promise<ToolName[]> {
+  try {
+    const config = await loadConfig({ homeDir: undefined });
+    return resolvePreferredTools(config.tools);
+  } catch {
+    return [];
+  }
+}
+
 // install 命令主体：search TTY 会话确认后也走同一条安装路径（含 tools 选择）。
+// TTY 确认顺序（ADR-0054）：模式转换 → 覆盖安装 → 工具勾选。
 export async function installSkill(
   program: Command,
   nameOrPath: string,
@@ -304,18 +328,52 @@ export async function installSkill(
 ): Promise<void> {
   const skipToolLinks = options.tools === false || options.adapt === false;
   let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+  const interactive = program.opts().input !== false && isInteractive();
+  const projectRoot = process.cwd();
+  const storeRoot = options.global
+    ? resolveLocalStorePaths({ homeDir: undefined }).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const level: ToolLevel = options.global ? 'global' : 'project';
+  const identity = await resolveInstallIdentityHint(nameOrPath);
+
+  if (identity) {
+    const target = await inspectInstallTarget(storeRoot, identity);
+    if (target.isSourceLink) {
+      if (!interactive) {
+        if (!options.force) {
+          throw new Error(
+            `${identity} is currently a Skill Source Link; replacing it with a regular installed copy requires --force`
+          );
+        }
+      } else {
+        const proceed = await confirmSourceLinkToInstall(identity);
+        if (!proceed) {
+          console.log('Install aborted; the Skill Source Link is unchanged.');
+          return;
+        }
+      }
+    } else if (target.installed && interactive) {
+      const proceed = await confirmOverwriteInstall(identity);
+      if (!proceed) {
+        console.log('Install aborted; the original install is unchanged.');
+        return;
+      }
+    }
+  }
+
   if (!skipToolLinks && tools.length === 0) {
-    const configured = await resolveDefaultInstallTools(process.cwd(), {
-      ...options,
-      tools: undefined,
-      global: options.global
-    });
-    if (configured.length === 0) {
-      if (program.opts().input === false || !isInteractive()) {
+    if (interactive) {
+      const existing = await loadExistingManagedTools(storeRoot, identity, level);
+      tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
+    } else {
+      const configured = await resolveDefaultInstallTools(projectRoot, {
+        ...options,
+        tools: undefined,
+        global: options.global
+      });
+      if (configured.length === 0) {
         throw new Error('No tools configured; pass --tools or run interactively');
       }
-      tools = await promptToolSelection();
-    } else {
       tools = configured;
     }
   }
@@ -859,22 +917,50 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--identity <identity>', 'Namespace or full identity for a bare release.json name')
     .option('-f, --force', 'Replace existing directory or stale link at the target')
     .addHelpText('after', example('$ esl link ./my-skill -g\\n  $ esl link ../draft-skill'))
-    .action(async (skillPath: string | undefined, options: { global?: boolean; tools?: string | boolean; force?: boolean }) => {
+    .action(async (skillPath: string | undefined, options: { global?: boolean; identity?: string; tools?: string | boolean; force?: boolean }) => {
       const sourcePath = skillPath ?? '.';
       const skipToolLinks = options.tools === false;
       let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+      const interactive = program.opts().input !== false && isInteractive();
+      const projectRoot = process.cwd();
+      const storeRoot = options.global
+        ? resolveLocalStorePaths({ homeDir: undefined }).root
+        : resolveProjectStorePaths(projectRoot).root;
+      const level: ToolLevel = options.global ? 'global' : 'project';
+      const { identity } = await resolveLinkIdentity(sourcePath, options.identity);
+
+      // 模式转换确认（ADR-0054）：普通安装副本 → Skill Source Link。
+      const target = await inspectInstallTarget(storeRoot, identity);
+      if (target.installed && !target.isSourceLink) {
+        if (!interactive) {
+          if (!options.force) {
+            throw new Error(
+              `${identity} is already installed as a regular copy; replacing it with a Skill Source Link requires --force`
+            );
+          }
+        } else {
+          const proceed = await confirmInstallToSourceLink(identity);
+          if (!proceed) {
+            console.log('Link aborted; the original install is unchanged.');
+            return;
+          }
+          options.force = true;
+        }
+      }
+
       if (!skipToolLinks && tools.length === 0) {
-        const configured = await resolveDefaultInstallTools(process.cwd(), {
-          ...options,
-          tools: undefined,
-          global: options.global
-        });
-        if (configured.length === 0) {
-          if (program.opts().input === false || !isInteractive()) {
+        if (interactive) {
+          const existing = await loadExistingManagedTools(storeRoot, identity, level);
+          tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
+        } else {
+          const configured = await resolveDefaultInstallTools(projectRoot, {
+            ...options,
+            tools: undefined,
+            global: options.global
+          });
+          if (configured.length === 0) {
             throw new Error('No tools configured; pass --tools or run interactively');
           }
-          tools = await promptToolSelection();
-        } else {
           tools = configured;
         }
       }
