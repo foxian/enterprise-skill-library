@@ -31,6 +31,7 @@
 - 未传 `--tools` 时：TTY 交互每次都弹工具勾选（预勾该技能已有 link；首次挂载预勾本机常用工具并说明），至少选一个，空选拒绝；非交互环境或 `--no-input` 使用全局配置的 `tools`，没有则报错而不要等待输入。项目 `.skills.json` 不再声明工具，遗留 `tools` 字段被忽略。
 - `--tools` 与交互勾选都是该技能在该 Skill Store 上的**期望 Tool Link 集合**（ADR-0054）：补齐集合内，删除集合外 ESL 管理 link；集合内有冲突则保留旧项并失败。`--tools` 至少写一个工具名；`--no-tools` 不新建也不删除。
 - 部分工具发生冲突或 link 创建失败时，已经写入的源和其他成功 link 保留，但命令以失败状态结束并给出冲突详情。
+- TTY 覆盖确认顺序：模式转换（如把 Skill Source Link 换成正式副本）→ 覆盖安装 → 工具勾选。覆盖确认选否则中止并保持原安装；非交互与 Agent 模式覆盖静默进行。
 - 安装报 403（`Forbidden: read access required`）时：说明该 private 技能可能由**其他账号/组织**维护。让用户切换到维护账号后重登，不要盲目重试。
 
 ## 本地源码开发链接
@@ -40,7 +41,7 @@
 - 把本地技能源码目录链入 Skill Store：Store 位置指向源码，已有 Tool Link 继续指向 Store，形成“工具目录 → Skill Store → 本地源码”的两层链路。
 - 身份来自 `release.json`：完整 `@scope/name` 原样使用；裸短名默认 `@local/<name>`；`--identity` 只能补 namespace 或给出短名一致的完整身份。
 - `link` 不读取、不写入、不生成源码目录里的 `skill.json`；link 元数据记录在安装状态中。
-- Store 中已有普通安装副本时默认拒绝；`--force` 把原副本移入 `.eslib/link-staging/` 再指向源码。源码修改后，所有已链接工具立即看到。
+- Store 中已有普通安装副本（改安装模式）：TTY 会先说明会把副本换成 Skill Source Link 并确认，同意后原副本移入 `.eslib/link-staging/`；非交互/Agent 无 `--force` 时报错，须带 `--force` 重跑。源码修改后，所有已链接工具立即看到。
 - 同一源重复 link 是幂等的；换成另一个源必须 `--force`。
 - 未传 `--tools` 时与 `install` 相同：TTY 每次勾选，非交互用全局配置 `tools` 或报错。
 
@@ -68,7 +69,7 @@
 - `--tool` 和 `--skill` 支持逗号分隔列表；`--status` 支持 `linked,broken,conflict,source-only,unmanaged`。
 - 这个命令只读，直接运行；删除未管理内容仍必须由用户手工处理，ESL 不提供对应删除命令。
 
-## 手动建立或检查 link
+## 常用工具与 link 修复
 `esl tools preferred [--add <tools>] [--remove <tools>] [--json]` —— 查看/编辑**本机常用工具**：只存本机客户端配置，不进项目依赖、不上服务器。TTY 无旗标时用勾选编辑（允许清空）；`--add` / `--remove` 增量修改；`--json` 或非交互无旗标时列出（展示名 + 规范 id）。本机交互式 `install` / `link` 成功提交（TTY 勾选或 Agent 带 `--tools` 重跑）中某工具被选中满 2 次会自动加入；脚本裸 `--tools` 与 `tools` 子命令本身不计次；取消勾选不会把它移出常用列表。
 
 `esl tools sync [--global|-g]` —— 只修复 Tool Link Manifest 中**已记录**的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。它不按配置给未记录的技能批量新建 link，也不裁剪任何 link。
@@ -90,11 +91,10 @@
 `trae` 是旧标识，不要在新命令中使用；规范标识是 `trae-intl`。
 
 ## 更新
-`esl update [@scope/skill-name] [--global|-g] [--tools <工具列表>] [--force]`
+`esl update [@scope/skill-name] [--global|-g]`
 
-- 默认更新 Skill Store 中的源和锁文件；已有正确 link 自动看到新内容，不复制、不重建。Skill Source Link 不被 registry 版本替换，输出为 linked (skipped)。
-- 默认不新增工具 link。传 `--tools` 时才确保指定工具存在正确 link。
-- `--force` 只能替换 ESL 记录的旧 link；断链、错误链接或非 ESL 目录默认只报告。
+- `update` 只升级版本：已有正确 Tool Link 自动看到新内容，不复制、不重建。Skill Source Link 不被 registry 版本替换，输出为 linked (skipped)。
+- `update` 不再接受 `--tools` / `--force`：选工具归 `install` / `link`，修链归 `esl tools sync`。更新目标存在 broken/conflict link 时报错，请先 `tools sync` 或处理冲突。
 - 不指定技能名则更新当前作用域全部已装技能。
 - 某项报 403 时，update 会跳过它继续更新其余技能并逐项报告失败原因；已安装源和其他工具 link 不受影响。
 

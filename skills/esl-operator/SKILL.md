@@ -16,16 +16,21 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 |---|---|
 | 没装 esl / 安装 CLI / command not found | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
-| 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装 / 更新、升级 / 卸载 / unlink 源码 / 看哪些工具装了哪些技能 / 解除部分工具 link / 同步到工具 | `references/consumer.md` |
+| 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装 / 更新、升级 / 卸载 / unlink 源码 / 看哪些工具装了哪些技能 / 解除部分工具 link / 修复 link、同步到工具 / 我的常用工具、偏好工具 | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验 / 上传源码 / 发布 / 改版本号 / 拉别人源码、二次开发 | `references/author.md` |
 | 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
-**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init`，或执行不带版本参数的 `esl version` 时，命令一律追加
+**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init`、裸 `esl version`、`install` 或 `link` 时，命令一律追加
 `--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
 Claude Code 传 `claude-code`、Codex 传 `codex`、Trae 国际版传 `trae-intl`、
 Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 `references/agent-interaction.md`。不要等用户明确要求选择框或输入框。
+
+Agent 模式下的确认边界：再次安装覆盖已有副本**不必问**；把普通安装改成
+Skill Source Link（或反向）属于改安装模式，必须先征得用户同意，再带
+`--force` 重跑；缺工具勾选时 CLI 会返回工具多选题，收集后用同一个
+`--tools` 重跑即可。
 
 ## 三条不可妥协的规则
 

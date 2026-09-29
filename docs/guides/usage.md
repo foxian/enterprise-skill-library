@@ -192,7 +192,7 @@ esl install @cnfox/code-review --tools claude-code,codex,trae-intl
 # 只安装源，不创建 Tool Link
 esl install @cnfox/code-review --no-tools
 ```
-> **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。未传 `--tools` 时，按项目 `.skills.json`、全局配置、交互选择的顺序解析默认工具。
+> **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。`--tools` 与交互勾选都是该技能的**期望 Tool Link 集合**：补齐集合内、删除集合外 ESL 管理 link。TTY 未传 `--tools` 时每次都会弹勾选（预勾已有 link；首次挂载预勾本机常用工具并说明）；非交互用全局配置的 `tools` 或报错。项目 `.skills.json` 不再声明工具。
 
 ### 5. 本地源码开发链接 (Link)
 在持续开发本地技能时，把源码目录链入 Skill Store，避免每次修改都重新安装：
@@ -233,14 +233,17 @@ esl list -g
 esl list --json
 ```
 
-### 7. 手动同步 Tool Link (Adapt)
-按当前工具配置检查并建立已安装技能的 Tool Link：
+### 7. 修复已记录的 Tool Link
+只修复 Tool Link Manifest 中已记录的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。不按配置给未记录的技能批量新建，也不裁剪任何 link：
 ```bash
-# 检查并建立当前项目的 Tool Link
+# 修复当前项目已记录的 Tool Link
 esl tools sync
 
-# 检查并建立全局 Tool Link
+# 修复全局已记录的 Tool Link
 esl tools sync -g
+
+# 查看/编辑本机常用工具（首次工具挂载的预勾选）
+esl tools preferred --add claude,codex
 ```
 
 ### 8. 查看与删除 Tool Link
@@ -411,7 +414,7 @@ esl source @cnfox/code-review ./custom-dir
 
 ## 六、 多 Agent 工具配置与目录映射 (Tool Link Reference)
 
-当运行 `esl tools sync` 或 `esl install` 时，系统按配置在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
+当运行 `esl install` / `esl link`（勾选或 `--tools`）时，系统在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录；勾选与人类可读输出使用展示名（Claude Code、Trae International 等），CLI 参数与清单仍用规范 id。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |
