@@ -16,6 +16,7 @@ import {
   readOptionalStringParam,
   resolveToolName,
   toAskUserQuestionPayload,
+  toolDisplayName,
   type AgentInteractionField,
   type ToolName
 } from '@esl/core';
@@ -79,7 +80,7 @@ export async function promptToolSelection(
 ): Promise<ToolName[]> {
   const selected = await selectTools<ToolName>({
     message: 'Select AI tools',
-    choices: SUPPORTED_TOOLS.map((tool) => ({ name: tool, value: tool })),
+    choices: SUPPORTED_TOOLS.map((tool) => ({ name: toolDisplayName(tool), value: tool })),
     required: true
   });
   if (selected.length === 0) {
@@ -873,6 +874,8 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
             throw new Error('No tools configured; pass --tools or run interactively');
           }
           tools = await promptToolSelection();
+        } else {
+          tools = configured;
         }
       }
 

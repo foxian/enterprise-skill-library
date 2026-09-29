@@ -6,6 +6,7 @@ import {
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   SUPPORTED_TOOLS,
+  toolDisplayName,
   type LocalStoreOptions,
   type RemovedToolLinkResult,
   type ToolLinkEntry,
@@ -111,6 +112,7 @@ export function formatToolsList(entries: ToolLinkEntry[]): string[] {
 
   return entries.map((entry) => {
     const target = entry.targetDir ? ` -> ${entry.targetDir}` : '';
-    return `${entry.tool.padEnd(10)} ${entry.identity.padEnd(32)} ${entry.level.padEnd(7)} ${entry.status.padEnd(11)} ${entry.managed ? 'managed' : 'unmanaged'}${target}`;
+    const tool = entry.tool === 'source' ? 'source' : toolDisplayName(entry.tool);
+    return `${tool.padEnd(17)} ${entry.identity.padEnd(32)} ${entry.level.padEnd(7)} ${entry.status.padEnd(11)} ${entry.managed ? 'managed' : 'unmanaged'}${target}`;
   });
 }

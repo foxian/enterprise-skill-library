@@ -150,6 +150,22 @@ export function toolDirectory(
   }
 }
 
+export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  cursor: 'Cursor',
+  'trae-intl': 'Trae International',
+  'trae-cn': 'Trae CN',
+  workbuddy: 'WorkBuddy',
+  opencode: 'OpenCode',
+  openclaw: 'OpenClaw',
+  hermes: 'Hermes'
+};
+
+export function toolDisplayName(tool: ToolName): string {
+  return TOOL_DISPLAY_NAMES[tool];
+}
+
 export function toolLinkManifestPath(storeRoot: string): string {
   return path.join(storeRoot, TOOL_LINK_MANIFEST_FILE);
 }
@@ -407,6 +423,107 @@ export async function removeToolLinks(options: RemoveToolLinksOptions): Promise<
 
   await saveToolLinkManifest(options.storeRoot, { version: 1, links: remaining });
   return results;
+}
+
+export interface ReconcileToolLinksOptions {
+  storeRoot: string;
+  identity: string;
+  level: ToolLevel;
+  tools: ToolName[];
+  projectRoot?: string;
+  homeDir?: string;
+  force?: boolean;
+}
+
+export interface ReconcileToolLinksResult {
+  status: 'reconciled' | 'failed';
+  ensured: ToolLinkOperationResult[];
+  removed: RemovedToolLinkResult[];
+  failures: Array<ToolLinkOperationResult | RemovedToolLinkResult>;
+}
+
+/**
+ * Reconcile the ESL-managed Tool Links for one skill on one Skill Store toward
+ * the expected tool set: create missing in-set links first; only when every
+ * in-set link is ensured, remove ESL-managed links outside the set. Unmanaged
+ * tool-directory content is never touched. Any in-set failure keeps the old
+ * links and fails the operation.
+ */
+export async function reconcileToolLinks(
+  options: ReconcileToolLinksOptions
+): Promise<ReconcileToolLinksResult> {
+  const ensured: ToolLinkOperationResult[] = [];
+  const failures: ToolLinkOperationResult[] = [];
+  for (const tool of options.tools) {
+    let result: ToolLinkOperationResult;
+    try {
+      result = await createToolLink({
+        identity: options.identity,
+        tool,
+        level: options.level,
+        storeRoot: options.storeRoot,
+        projectRoot: options.projectRoot,
+        homeDir: options.homeDir,
+        force: options.force
+      });
+    } catch (error) {
+      result = {
+        identity: options.identity,
+        tool,
+        targetDir: path.resolve(
+          toolDirectory(tool, options.level, options),
+          skillDirectoryName(options.identity)
+        ),
+        status: 'failed',
+        error: (error as Error).message
+      };
+    }
+    ensured.push(result);
+    if (result.status === 'conflict' || result.status === 'failed') {
+      failures.push(result);
+    }
+  }
+
+  if (failures.length > 0) {
+    return { status: 'failed', ensured, removed: [], failures };
+  }
+
+  const manifest = await loadToolLinkManifest(options.storeRoot);
+  const expected = new Set(options.tools);
+  const outsideTools = new Set(
+    manifest.links
+      .filter(
+        (record) =>
+          record.identity === options.identity &&
+          record.level === options.level &&
+          !expected.has(record.tool)
+      )
+      .map((record) => record.tool)
+  );
+
+  const removed: RemovedToolLinkResult[] = [];
+  const failuresAfterRemoval: RemovedToolLinkResult[] = [];
+  if (outsideTools.size > 0) {
+    const removals = await removeToolLinks({
+      storeRoot: options.storeRoot,
+      identity: options.identity,
+      tools: Array.from(outsideTools),
+      level: options.level
+    });
+    removed.push(...removals);
+    for (const removal of removals) {
+      if (removal.status === 'conflict') {
+        failuresAfterRemoval.push(removal);
+      }
+    }
+  }
+
+  return {
+    status: failuresAfterRemoval.length > 0 ? 'failed' : 'reconciled',
+    ensured,
+    removed,
+    failures: failuresAfterRemoval
+  };
 }
 
 export interface ListToolLinksOptions {

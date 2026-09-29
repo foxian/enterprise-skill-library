@@ -8,7 +8,7 @@ import {
   saveConfig
 } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
-import { executeToolsList, executeToolsRemove, parseToolsOption } from '../src/commands/tools.js';
+import { executeToolsList, executeToolsRemove, formatToolsList, parseToolsOption } from '../src/commands/tools.js';
 import { executeUpdate } from '../src/commands/update.js';
 
 describe('esl tools', () => {
@@ -46,6 +46,21 @@ describe('esl tools', () => {
 
   it('normalizes claude-code to the claude tool link', () => {
     expect(parseToolsOption('claude-code')).toEqual(['claude']);
+  });
+
+  it('renders tool display names in the human-readable tools list', async () => {
+    await executeInstall(localSkillDir, {
+      projectRoot: projectDir,
+      homeDir,
+      tools: ['claude', 'trae-intl']
+    });
+
+    const entries = await executeToolsList({ projectRoot: projectDir, homeDir });
+    const lines = formatToolsList(entries).join('\n');
+
+    expect(lines).toContain('Claude Code');
+    expect(lines).toContain('Trae International');
+    expect(lines.split('\n').some((line) => line.startsWith('trae-intl '))).toBe(false);
   });
 
   it('filters tool links by the claude-code alias', async () => {

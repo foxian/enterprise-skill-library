@@ -65,6 +65,34 @@ describe('esl program', () => {
     await expect(promptToolSelection(selectTools)).resolves.toEqual(['claude', 'codex']);
   });
 
+  it('labels checkbox choices with tool display names while keeping canonical ids', async () => {
+    const selectTools = vi.fn().mockResolvedValue(['claude']);
+
+    await promptToolSelection(selectTools);
+
+    expect(selectTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        choices: expect.arrayContaining([
+          expect.objectContaining({ name: 'Claude Code', value: 'claude' }),
+          expect.objectContaining({ name: 'Trae International', value: 'trae-intl' })
+        ])
+      })
+    );
+  });
+
+  it('passes configured default tools to link instead of an empty list', async () => {
+    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['claude', 'codex']);
+    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked-target');
+    const program = createProgram();
+
+    await program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' });
+
+    expect(executeLink).toHaveBeenCalledWith(
+      './my-skill',
+      expect.objectContaining({ tools: ['claude', 'codex'] })
+    );
+  });
+
   it('rejects an empty checkbox selection', async () => {
     const selectTools = vi.fn().mockResolvedValue([]);
 

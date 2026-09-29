@@ -561,6 +561,16 @@ unmanaged and must not be overwritten or deleted.
 
 _Avoid_: Adapt Manifest, `.esl-adapt-manifest.json`.
 
+## 期望 Tool Link 集合 (Expected Tool Link Set)
+
+`esl install` / `esl link` 的交互勾选或 `--tools` 所表达的目标状态：该技能在
+该 Skill Store 上应存在的 ESL 管理 Tool Link 全集。对账时先补齐集合内缺失
+link，集合内全部成功后才删除集合外的 ESL 管理项；unmanaged 内容不在对账范围
+内（ADR-0054）。它不是增量追加名单，也与 `tools remove` 的删除名单语义相反。
+
+_Avoid_: 增量名单（当指期望集合时）；`--tools-set`（提交期望集合复用
+`--tools`）。
+
 ## Created By
 
 The user who first created the skill. This is audit metadata, not the namespace
