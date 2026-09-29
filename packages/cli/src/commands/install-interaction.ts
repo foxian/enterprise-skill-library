@@ -110,7 +110,7 @@ export function resolvePreferredTools(tools: string[]): ToolName[] {
 /** 某工具被成功交互提交选中多少次后，自动加入本机常用工具（ADR-0054）。 */
 export const PREFERRED_TOOL_THRESHOLD = 2;
 
-async function loadConfigOrEphemeral(options: LocalStoreOptions): Promise<EslConfig> {
+export async function loadConfigOrEphemeral(options: LocalStoreOptions): Promise<EslConfig> {
   try {
     return await loadConfig(options);
   } catch {

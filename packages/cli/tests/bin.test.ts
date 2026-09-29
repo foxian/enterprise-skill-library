@@ -3,7 +3,7 @@ import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelectio
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
 import { executeLink, resolveLinkIdentity } from '../src/commands/link.js';
-import { SUPPORTED_TOOLS, initializeLocalStore } from '@esl/core';
+import { SUPPORTED_TOOLS, initializeLocalStore, saveConfig } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
 import { executeToolsRemove } from '../src/commands/tools.js';
@@ -848,6 +848,31 @@ describe('esl program', () => {
       );
       expect(config.tools).toContain('codex');
     } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+      tmp.restore();
+    }
+  });
+
+  it('lists preferred tools as JSON without prompting even in a TTY', async () => {
+    const tmp = withTempCwd();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-preferred-home-'));
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      stdout.push(args.map(String).join(' '));
+    });
+    try {
+      await initializeLocalStore({ homeDir });
+      await saveConfig({ tools: ['claude'] }, { homeDir });
+      vi.mocked(isInteractive).mockReturnValue(true);
+
+      await run(['node', 'esl', 'tools', 'preferred', '--json']);
+
+      expect(JSON.parse(stdout.join(''))).toEqual(['claude']);
+      expect(checkboxMock).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
       homedirSpy.mockRestore();
       fs.rmSync(homeDir, { recursive: true, force: true });
       tmp.restore();

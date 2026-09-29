@@ -310,14 +310,69 @@ export interface InstallCommandOptions {
   ignoreCompatibility?: boolean;
 }
 
-// 本机常用工具（首次工具挂载预勾选，ADR-0054）：客户端配置缺失时视为空集。
+// 本机常用工具（首次工具挂载预勾选，ADR-0054）：配置缺失视为空集；
+// 其他读取错误（如 JSON 损坏）给出警告而不是静默降级。
 export async function loadPreferredTools(): Promise<ToolName[]> {
   try {
     const config = await loadConfig({ homeDir: undefined });
     return resolvePreferredTools(config.tools);
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    console.error(`Warning: could not read preferred tools: ${(error as Error).message}`);
     return [];
   }
+}
+
+// 期望工具集合解析（ADR-0054），install 与 link 共用：
+// Agent 只问工具；TTY 每次勾选；非交互回退全局配置的 tools（或报错）。
+// 返回 countSelection 表示该次成功提交是否计入本机常用工具。
+async function resolveExpectedTools(options: {
+  command: string;
+  agentMode: boolean;
+  interactive: boolean;
+  skipToolLinks: boolean;
+  selectedTools: ToolName[];
+  toolsFlag: string | boolean | undefined;
+  storeRoot: string;
+  level: ToolLevel;
+  identity: string;
+}): Promise<{ tools: ToolName[]; countSelection: boolean }> {
+  if (options.skipToolLinks || options.selectedTools.length > 0) {
+    return {
+      tools: options.selectedTools,
+      countSelection:
+        !options.skipToolLinks && options.agentMode && typeof options.toolsFlag === 'string'
+    };
+  }
+  const existing = await loadExistingManagedTools(options.storeRoot, options.identity, options.level);
+  if (options.agentMode) {
+    // Agent Interaction：只问工具；重跑时用同一个 --tools 提交规范 id（ADR-0054）。
+    throw new AgentInteractionRequiredError(
+      createAgentInteractionRequest({
+        command: options.command,
+        fields: [
+          agentToolsField({ identity: options.identity, existing, preferred: await loadPreferredTools() })
+        ]
+      })
+    );
+  }
+  if (options.interactive) {
+    return {
+      tools: await promptExpectedTools({
+        identity: options.identity,
+        existing,
+        preferred: await loadPreferredTools()
+      }),
+      countSelection: true
+    };
+  }
+  const configured = await resolveDefaultInstallTools();
+  if (configured.length === 0) {
+    throw new Error('No tools configured; pass --tools or run interactively');
+  }
+  return { tools: configured, countSelection: false };
 }
 
 // install 命令主体：search TTY 会话确认后也走同一条安装路径（含 tools 选择）。
@@ -328,12 +383,11 @@ export async function installSkill(
   options: InstallCommandOptions
 ): Promise<void> {
   const skipToolLinks = options.tools === false || options.adapt === false;
-  let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+  const selectedTools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
   const agentMode = program.opts().agentInteraction === true;
   const interactive = !agentMode && program.opts().input !== false && isInteractive();
   // 计次规则（ADR-0054）：TTY 勾选成功与 Agent 带 --tools 的重跑成功计入常用工具；
   // 裸 --tools、--no-tools 与默认配置回退不计。
-  let countSelection = false;
   const projectRoot = process.cwd();
   const storeRoot = options.global
     ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -366,44 +420,31 @@ export async function installSkill(
     }
   }
 
-  if (!skipToolLinks && tools.length === 0) {
-    const existing = await loadExistingManagedTools(storeRoot, identity, level);
-    if (agentMode) {
-      // Agent Interaction：只问工具；重跑时用同一个 --tools 提交规范 id（ADR-0054）。
-      throw new AgentInteractionRequiredError(
-        createAgentInteractionRequest({
-          command: 'install',
-          fields: [
-            agentToolsField({ identity, existing, preferred: await loadPreferredTools() })
-          ]
-        })
-      );
-    }
-    if (interactive) {
-      tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
-      countSelection = true;
-    } else {
-      const configured = await resolveDefaultInstallTools(projectRoot, {
-        ...options,
-        tools: undefined,
-        global: options.global
-      });
-      if (configured.length === 0) {
-        throw new Error('No tools configured; pass --tools or run interactively');
-      }
-      tools = configured;
-    }
-  } else if (agentMode && typeof options.tools === 'string') {
-    countSelection = true;
-  }
+  const resolution = await resolveExpectedTools({
+    command: 'install',
+    agentMode,
+    interactive,
+    skipToolLinks,
+    selectedTools,
+    toolsFlag: options.tools,
+    storeRoot,
+    level,
+    identity
+  });
+  const countSelection = resolution.countSelection;
 
   const targetDir = await executeInstall(nameOrPath, {
     ...options,
-    tools,
+    tools: resolution.tools,
     noAdapt: skipToolLinks
   });
-  if (countSelection && tools.length > 0) {
-    await recordPreferredToolUsage(tools, {});
+  if (countSelection && resolution.tools.length > 0) {
+    // 计次失败不掩盖已成功的安装。
+    try {
+      await recordPreferredToolUsage(resolution.tools, {});
+    } catch (error) {
+      console.error(`Warning: failed to record preferred tool usage: ${(error as Error).message}`);
+    }
   }
   console.log(`Skill installed at ${targetDir}`);
 }
@@ -942,11 +983,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .action(async (skillPath: string | undefined, options: { global?: boolean; identity?: string; tools?: string | boolean; force?: boolean }) => {
       const sourcePath = skillPath ?? '.';
       const skipToolLinks = options.tools === false;
-      let tools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
+      const selectedTools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
       const agentMode = program.opts().agentInteraction === true;
       const interactive = !agentMode && program.opts().input !== false && isInteractive();
-      // 计次规则同 install（ADR-0054）。
-      let countSelection = false;
       const projectRoot = process.cwd();
       const storeRoot = options.global
         ? resolveLocalStorePaths({ homeDir: undefined }).root
@@ -973,45 +1012,30 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         }
       }
 
-      if (!skipToolLinks && tools.length === 0) {
-        const existing = await loadExistingManagedTools(storeRoot, identity, level);
-        if (agentMode) {
-          // Agent Interaction：只问工具；重跑时用同一个 --tools 提交规范 id（ADR-0054）。
-          throw new AgentInteractionRequiredError(
-            createAgentInteractionRequest({
-              command: 'link',
-              fields: [
-                agentToolsField({ identity, existing, preferred: await loadPreferredTools() })
-              ]
-            })
-          );
-        }
-        if (interactive) {
-          tools = await promptExpectedTools({ identity, existing, preferred: await loadPreferredTools() });
-          countSelection = true;
-        } else {
-          const configured = await resolveDefaultInstallTools(projectRoot, {
-            ...options,
-            tools: undefined,
-            global: options.global
-          });
-          if (configured.length === 0) {
-            throw new Error('No tools configured; pass --tools or run interactively');
-          }
-          tools = configured;
-        }
-      }
+      const resolution = await resolveExpectedTools({
+        command: 'link',
+        agentMode,
+        interactive,
+        skipToolLinks,
+        selectedTools,
+        toolsFlag: options.tools,
+        storeRoot,
+        level,
+        identity
+      });
 
-      if (!skipToolLinks && agentMode && typeof options.tools === 'string') {
-        countSelection = true;
-      }
       const targetDir = await executeLink(sourcePath, {
         ...options,
-        tools,
+        tools: resolution.tools,
         noTools: skipToolLinks
       });
-      if (countSelection && tools.length > 0) {
-        await recordPreferredToolUsage(tools, {});
+      if (resolution.countSelection && resolution.tools.length > 0) {
+        // 计次失败不掩盖已成功的 link。
+        try {
+          await recordPreferredToolUsage(resolution.tools, {});
+        } catch (error) {
+          console.error(`Warning: failed to record preferred tool usage: ${(error as Error).message}`);
+        }
       }
       console.log('Linked skill at ' + targetDir);
     });
@@ -1094,6 +1118,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .action(async (options: { add?: string; remove?: string; json?: boolean }) => {
       const interactive =
         program.opts().input !== false &&
+        options.json !== true &&
         options.add === undefined &&
         options.remove === undefined &&
         isInteractive();

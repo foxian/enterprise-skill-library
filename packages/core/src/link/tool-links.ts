@@ -433,6 +433,12 @@ export interface ReconcileToolLinksOptions {
   projectRoot?: string;
   homeDir?: string;
   force?: boolean;
+  /**
+   * Delete ESL-managed links outside the expected set after ensuring (the
+   * default). Set to false for ensure-only reconciliation on identities the
+   * user did not explicitly target, so their existing links are never pruned.
+   */
+  prune?: boolean;
 }
 
 export interface ReconcileToolLinksResult {
@@ -486,6 +492,10 @@ export async function reconcileToolLinks(
 
   if (failures.length > 0) {
     return { status: 'failed', ensured, removed: [], failures };
+  }
+
+  if (options.prune === false) {
+    return { status: 'reconciled', ensured, removed: [], failures: [] };
   }
 
   const manifest = await loadToolLinkManifest(options.storeRoot);

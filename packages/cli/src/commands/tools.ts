@@ -1,7 +1,7 @@
 import { checkbox } from '@inquirer/prompts';
+import { loadConfigOrEphemeral } from './install-interaction.js';
 import {
   listToolLinks,
-  loadConfig,
   parseToolSelection,
   removeToolLinks,
   repairRecordedToolLinks,
@@ -146,14 +146,6 @@ export interface ToolsPreferredResult {
   changed: boolean;
 }
 
-function toSupportedTool(value: string): ToolName {
-  const resolved = resolveToolName(value);
-  if (resolved === undefined) {
-    throw new Error(`Unknown tool: ${value}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
-  }
-  return resolved;
-}
-
 function sortByToolOrder(tools: Iterable<ToolName>): ToolName[] {
   const order = new Map(SUPPORTED_TOOLS.map((tool, index) => [tool, index]));
   return [...tools].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
@@ -168,7 +160,7 @@ function sortByToolOrder(tools: Iterable<ToolName>): ToolName[] {
 export async function executeToolsPreferred(
   options: ToolsPreferredOptions = {}
 ): Promise<ToolsPreferredResult> {
-  const config = await loadConfig({ homeDir: options.homeDir });
+  const config = await loadConfigOrEphemeral({ homeDir: options.homeDir });
   const current = new Set(
     config.tools.map((tool) => {
       const resolved = resolveToolName(tool);

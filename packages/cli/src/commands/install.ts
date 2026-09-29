@@ -46,6 +46,7 @@ import {
   publishedProjectSkillsDir,
   type NetworkCommandOptions
 } from './network-options.js';
+import type { LocalStoreOptions } from '@esl/core';
 import { executeInfo } from './info.js';
 import { notify } from '../output.js';
 import { resolveBuiltinDir } from '../builtin-dir.js';
@@ -493,10 +494,8 @@ async function installPublishedDependencies(
  * (ADR-0054); legacy `tools` fields there are ignored.
  */
 export async function resolveDefaultInstallTools(
-  projectRoot: string,
-  options: InstallOptions
+  options: LocalStoreOptions = {}
 ): Promise<ToolName[]> {
-  void projectRoot;
   const config = await loadConfig(options);
   return config.tools.map((tool) => {
     const resolved = resolveToolName(tool);
@@ -522,25 +521,31 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
       : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
 
   if (!options.noAdapt) {
-    const tools = options.tools ?? await resolveDefaultInstallTools(projectRoot, options);
+    const tools = options.tools ?? await resolveDefaultInstallTools(options);
     if (tools.length > 0) {
       const installManifest = await loadInstallManifest(storeRoot);
       const targetPath = path.resolve(targetDir);
-      const installedIdentities = new Set<string>();
+      // 期望集合对账的裁剪只作用于本次安装的主角（被安装技能本身）与本次
+      // 新装的依赖；既有技能（仅版本变化）只补缺、绝不裁剪——否则一次无关
+      // 的 install 会按本技能的工具期望裁掉用户显式挂在这些技能上的 link。
+      const ensureIdentities = new Set<string>();
+      const pruneIdentities = new Set<string>();
       for (const [identity, entry] of Object.entries(installManifest.skills)) {
         const previouslyInstalled = beforeManifest.skills[identity];
         if (
           path.resolve(storeRoot, entry.sourceDir) === targetPath ||
-          !previouslyInstalled ||
-          JSON.stringify(previouslyInstalled) !== JSON.stringify(entry)
+          !previouslyInstalled
         ) {
-          installedIdentities.add(identity);
+          ensureIdentities.add(identity);
+          pruneIdentities.add(identity);
+        } else if (JSON.stringify(previouslyInstalled) !== JSON.stringify(entry)) {
+          ensureIdentities.add(identity);
         }
       }
       // --tools 与交互勾选同为期望 Tool Link 集合（ADR-0054）：补齐集合内、
       // 删除集合外 ESL 管理项；集合内有失败则保留旧项并让命令失败。
       const level = options.global ? 'global' : 'project';
-      for (const identity of installedIdentities) {
+      for (const identity of ensureIdentities) {
         const reconciliation = await reconcileToolLinks({
           storeRoot,
           level,
@@ -548,7 +553,8 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
           identity,
           projectRoot,
           homeDir: options.homeDir,
-          force: options.force
+          force: options.force,
+          prune: pruneIdentities.has(identity)
         });
         for (const removed of reconciliation.removed) {
           notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);

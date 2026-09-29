@@ -96,6 +96,29 @@ describe('reconcileToolLinks', () => {
     expect(tools).toEqual(['claude', 'codex']);
   });
 
+  it('supports ensure-only reconciliation (prune: false) keeping out-of-set links', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'cursor', level: 'project', storeRoot, projectRoot, homeDir });
+    await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
+
+    const result = await reconcileToolLinks({
+      storeRoot,
+      identity: IDENTITY,
+      level: 'project',
+      tools: ['claude'],
+      projectRoot,
+      homeDir,
+      prune: false
+    });
+
+    expect(result.status).toBe('reconciled');
+    expect(result.removed).toEqual([]);
+    expect(fs.existsSync(linkTarget('cursor'))).toBe(true);
+    const manifest = await loadToolLinkManifest(storeRoot);
+    expect(
+      manifest.links.filter((record) => record.identity === IDENTITY).map((record) => record.tool).sort()
+    ).toEqual(['claude', 'cursor']);
+  });
+
   it('is idempotent when the expected set already matches the manifest', async () => {
     await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
 

@@ -223,7 +223,7 @@ async function syncSelectedTools(
     return;
   }
 
-  const tools = options.tools ?? await resolveDefaultInstallTools(projectRoot, options);
+  const tools = options.tools ?? await resolveDefaultInstallTools({ homeDir: options.homeDir });
   if (tools.length === 0) {
     return;
   }

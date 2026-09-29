@@ -54,7 +54,7 @@ No account yet? Open `{server}/admin/register-user` in a browser (CLI cannot reg
 | --- | --- |
 | `esl search` / `esl info` | Discover and inspect skills |
 | `esl install` / `esl update` / `esl uninstall` | Install, update, uninstall |
-| `esl link` / `esl adapt` / `esl tools list` | Link into Claude Code, Codex, and other tool directories |
+| `esl link` / `esl tools sync` / `esl tools list` | Link into Claude Code, Codex, and other tool directories |
 | `esl init` / `esl upload` / `esl publish` | Author and publish skills |
 | `esl --help` | Full command help |
 
