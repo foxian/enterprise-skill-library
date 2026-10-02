@@ -8,6 +8,7 @@ import {
   skillSourceRelativeDir,
   type InstallManifestSkill
 } from './skill-store.js';
+import { listToolLinks, type ToolLinkStatus, type ToolLevel, type ToolName } from '../link/tool-links.js';
 
 export interface SkillsJson {
   skills: Record<string, string>;
@@ -207,19 +208,79 @@ export async function renameSkillState(
   ]);
 }
 
+export interface SkillToolSummary {
+  tool: ToolName;
+  status: ToolLinkStatus;
+  managed: boolean;
+}
+
 export interface SkillListEntry {
   name: string;
   version: string;
   source: 'registry' | 'local' | 'builtin' | 'link';
+  displayName?: string;
+  tools?: SkillToolSummary[];
+  linkSourcePath?: string;
 }
 
-export async function listSkills(root: string): Promise<SkillListEntry[]> {
+export interface ListSkillsOptions {
+  /** 传入时按该作用域汇总每个技能的 Tool Link（本机查询，不访问网络）。 */
+  level?: ToolLevel;
+  projectRoot?: string;
+  homeDir?: string;
+}
+
+// 显示名只从本机已装内容尽力解析（Store 副本里的 release.json）；缺失或损坏时
+// 由展示层回退到短名/Identity，不调用远程 info（ADR-0055）。
+async function readLocalDisplayName(storeRoot: string, entry: InstallManifestSkill): Promise<string | undefined> {
+  try {
+    const parsed = JSON.parse(
+      await fs.readFile(path.join(storeRoot, entry.sourceDir, 'release.json'), 'utf8')
+    ) as { displayName?: unknown };
+    if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+      return parsed.displayName.trim();
+    }
+  } catch {
+    // 本机读取失败不阻断 list；显示名是可选字段。
+  }
+  return undefined;
+}
+
+export async function listSkills(
+  root: string,
+  options: ListSkillsOptions = {}
+): Promise<SkillListEntry[]> {
   const manifest = await loadInstallManifest(root);
-  return Object.entries(manifest.skills).map(([name, entry]) => ({
-    name,
-    version: entry.version,
-    source: entry.source
-  }));
+  const toolEntries = options.level
+    ? await listToolLinks({
+        storeRoot: root,
+        level: options.level,
+        projectRoot: options.projectRoot,
+        homeDir: options.homeDir
+      })
+    : [];
+
+  return Promise.all(
+    Object.entries(manifest.skills).map(async ([name, entry]) => {
+      const listEntry: SkillListEntry = { name, version: entry.version, source: entry.source };
+      const displayName = await readLocalDisplayName(root, entry);
+      if (displayName) {
+        listEntry.displayName = displayName;
+      }
+      if (options.level) {
+        listEntry.tools = toolEntries
+          .filter(
+            (link): link is typeof link & { tool: ToolName } =>
+              link.identity === name && link.tool !== 'source'
+          )
+          .map((link) => ({ tool: link.tool, status: link.status, managed: link.managed }));
+      }
+      if (entry.source === 'link' && typeof entry.resolved === 'string' && entry.resolved.length > 0) {
+        listEntry.linkSourcePath = entry.resolved;
+      }
+      return listEntry;
+    })
+  );
 }
 
 export { defaultInstallManifest, loadInstallManifest, saveInstallManifest } from './skill-store.js';

@@ -1026,6 +1026,51 @@ describe('esl program', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('enters the interactive list session on a TTY and keeps tool names out of level 1', async () => {
+    const tmp = withTempCwd();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    writeStoreManifests(process.cwd(), { '@acme/review': installManifestEntry('@acme/review', 'registry') });
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('@acme/review');
+      selectMock.mockResolvedValueOnce('__exit__');
+      const program = createProgram();
+
+      await program.parseAsync(['list'], { from: 'user' });
+
+      expect(selectMock).toHaveBeenCalled();
+      const [level1] = selectMock.mock.calls[0] as [{ message: string; choices: Array<{ name: string; value: string }> }];
+      expect(level1.message).toBe('Select a skill to manage');
+      const labels = level1.choices.map((choice) => choice.name).join('\n');
+      expect(labels).toContain('@acme/review');
+      expect(labels).not.toContain('Claude Code');
+      expect(logSpy.mock.calls.map((call) => call.join(' ')).join('\n')).toContain('Store path:');
+    } finally {
+      logSpy.mockRestore();
+      tmp.restore();
+    }
+  });
+
+  it('stays read-only for list under --no-input even on a TTY', async () => {
+    const tmp = withTempCwd();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    writeStoreManifests(process.cwd(), { '@acme/review': installManifestEntry('@acme/review', 'registry') });
+    try {
+      vi.mocked(isInteractive).mockReturnValue(true);
+      const program = createProgram();
+
+      await program.parseAsync(['list', '--no-input'], { from: 'user' });
+
+      expect(selectMock).not.toHaveBeenCalled();
+      const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('@acme/review');
+      expect(output).toContain('tools: no tool links');
+    } finally {
+      logSpy.mockRestore();
+      tmp.restore();
+    }
+  });
 });
 
 describe('agent interaction', () => {

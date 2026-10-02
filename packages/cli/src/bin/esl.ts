@@ -45,7 +45,8 @@ import {
 import { executeInfo, formatSkillInfo } from '../commands/info.js';
 import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeSource } from '../commands/source.js';
-import { executeList } from '../commands/list.js';
+import { executeList, formatSkillListLine } from '../commands/list.js';
+import { runListSession } from '../commands/list-interaction.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
@@ -1043,11 +1044,16 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   program
     .command('list')
     .alias('ls')
-    .description('List installed skills')
+    .description('List installed skills and manage them (interactive console on a TTY)')
     .option('-g, --global', 'List global skills instead of project skills')
     .option('--json', 'Output as JSON')
-    .addHelpText('after', example('$ esl list'))
+    .addHelpText('after', example('$ esl list\n  $ esl list --json'))
     .action(async (options: { global?: boolean; json?: boolean }) => {
+      // ADR-0055：TTY 且未禁用输入时进入两级交互管理台；--json / --no-input / 非 TTY 只读。
+      if (program.opts().input !== false && !options.json && isInteractive()) {
+        await runListSession({ global: options.global });
+        return;
+      }
       const skills = await executeList(options);
       if (options.json) {
         console.log(JSON.stringify(skills, null, 2));
@@ -1060,8 +1066,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       const label = options.global ? 'Global' : 'Project';
       console.log(`${label} skills (${skills.length} installed):`);
       for (const skill of skills) {
-        const name = skill.name.padEnd(30);
-        console.log(`  ${name} v${skill.version}   (${skill.source})`);
+        console.log(formatSkillListLine(skill));
       }
     });
 
