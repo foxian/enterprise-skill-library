@@ -8,6 +8,8 @@
 
 ### Changed
 
+- `esl list`（及 `esl ls`）升级为当前 Skill Store 的本机交互管理入口（ADR-0055）：TTY 且未禁用输入时进入两级管理台（选技能 → 详情与动作），详情展示 Identity、version、source、安装时间、Store 内路径与逐条 Tool Link 状态，`source=link` 必显 Skill Source Link 源路径；确认后可执行单技能 `update`、期望 Tool Link 集合对账（语义同 install/link，ADR-0054，先展示将增/将删再确认）、`unlink` / `uninstall`（按 source 分流，builtin 等隐藏不适用动作）。`--json` / `--no-input` / 非 TTY 保持只读；`--json` 在 name/version/source 之上新增可选 displayName、tools（tool/status/managed）与 linkSourcePath，全部本机读取、不访问网络；人类只读输出每行附带已链接工具摘要。`list` 管理流第一版不接入 Agent Interaction，Agent 请 `list --json` 后改调专用写命令；`esl tools *` 的定位与旗标不变。
+
 - 新增 `esl tools preferred`：查看/编辑本机常用工具（`--add` / `--remove` / `--json`，TTY 无旗标时勾选编辑，允许清空）。常用工具只存本机客户端配置；本机交互式 `install` / `link` 成功提交（TTY 勾选或 Agent 带 `--tools` 重跑）中某工具被选中满两次后自动加入，脚本裸 `--tools` 与 `tools` 子命令不计次。
 - `install` / `link` 的 `--tools` 与交互勾选改为**期望 Tool Link 集合**语义（ADR-0054）：补齐集合内 link，删除集合外 ESL 管理项；空 `--tools` 被拒绝。TTY 交互每次弹勾选：预勾已有 link，首次工具挂载预勾本机常用工具并说明；覆盖安装与安装模式转换先确认。
 - Agent Interaction（`--agent-interaction`）扩展到 `install` / `link`：只发出工具多选题（选项用展示名、提交规范 id），覆盖静默、模式转换无 `--force` 报错；用同一个 `--tools` 重跑完成。

@@ -1,6 +1,6 @@
 # 消费者工作流：找 / 装 / 链 / 看 / 更 / 卸
 
-只读命令（直接跑）：`search` `info` `use` `list` `tools list`。
+只读命令（直接跑）：`search` `info` `use` `tools list`。`list` 在 TTY 会进入交互管理台（ADR-0055），AI 调用时一律加 `--json`（或 `--no-input`）保持只读。
 写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove` `tools preferred`。
 
 ## 搜索
@@ -56,7 +56,17 @@
 - 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 只改工作目录 / 项目根，位置路径决定读哪个技能目录）。
 
 `esl uninstall` 对 link 技能只删除 Skill Store link、记录、Tool Link 和 staging，不会递归删除本地源码目录；`esl update` 会跳过 link 技能并报告 skipped。
-`esl list` / `esl ls [--global|-g] [--json]` —— 当前项目或全局 Skill Store 中已安装的技能。
+`esl list` / `esl ls [--global|-g] [--json] [--no-input]` —— 当前项目或全局 Skill Store 的本机管理入口（ADR-0055）。
+
+- **TTY 且未禁用输入**（人类裸跑）：进入两级交互管理台。第一级按技能选择（显示名 + Identity + version + source，不堆工具名）；详情展示本机字段（Identity、version、source、安装时间、Store 内路径），`source=link` 必显 Skill Source Link 源路径，并逐条列出该技能的 Tool Link（展示名、规范 id、status、是否 managed）；不展示 ESL Server 根地址，默认不请求远程 info。
+- **详情动作**（全部先确认，复用既有命令语义，不另起第三套模型）：
+  - `update`：单技能更新到适用新版本；Skill Source Link 按既有规则跳过并说明。成功后留在详情并刷新。
+  - `Adjust tool links…`：按**期望 Tool Link 集合**勾选并对账（语义同 install/link，ADR-0054）；确认前展示将新增与将删除的 ESL-managed 项；unmanaged 内容不动。允许清空集合（删光 ESL-managed link）。
+  - `unlink`（仅 `source=link`）：解除 Skill Source Link；有 Link Staging 时纯本地恢复原副本。成功后回第一级刷新。
+  - `uninstall`：link 安装声明**不删除源码目录**；非 link 安装删除 Store 副本。成功后回第一级刷新。
+- **只读例外**：`--json`（含 name、version、source、可选 displayName、tools[tool/status/managed]、link 时的 linkSourcePath；不访问网络）、`--no-input`、非 TTY（管道/CI）都保持只读，人类可读输出每行附带已链接工具摘要。**AI/Agent 调用一律加 `--json`**，需要变更时改调 `uninstall` / `unlink` / `update` / `tools` 等专用命令并遵守确认规则；`list` 管理流第一版不接入 Agent Interaction 协议。
+- 空 Store 提示区分项目（No skills installed in this project.）与全局（No global skills installed.）。
+- `list` 管理台不取代 `esl tools *`：按工具过滤、managed/unmanaged/status 排障与 `tools sync` 仍归 Tool Link 专用命令。
 
 ## 查看工具 link
 `esl tools list [--tool <列表>] [--skill <列表>] [--global|-g|--project] [--managed|--unmanaged] [--status <状态列表>] [--json]`

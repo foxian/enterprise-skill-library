@@ -34,9 +34,9 @@ Skill Source Link（或反向）属于改安装模式，必须先征得用户同
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `list/ls` `tools list` `whoami` `validate`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。会改状态或写盘的命令——`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove` `init` `upload` `publish` `deprecate` `notes` `release-delete` `share` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`search` `info` `use` `tools list` `whoami` `validate`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list/ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0055：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove` `init` `upload` `publish` `deprecate` `notes` `release-delete` `share` `version` `source` `reset-source` `login` `logout` `config set-server`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
-为什么：`install` 会把远端内容拉进项目、`publish` 把东西推到全公司共享的服务器、`uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。
+为什么：`install` 会把远端内容拉进项目、`publish` 把东西推到全公司共享的服务器、`uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作没有 Agent Interaction 协议，AI 无法替用户应答确认框。
 
 **2. 登录不碰密码。** ESL 的认证靠 `esl login` 拿 token。如果你跑 `esl whoami` 看到 `Not logged in`，或某条命令报 401/认证失败：把用户引到 `references/setup.md`。交互式 `esl login` 会提示输入密码——这步让用户自己跑，你不要替它键入密码。只有当用户已备好凭据文件时，你才可以执行 `esl login --username X --token-file ./f` 或 `--password-file ./f`。绝不在命令行里写明文密码或 token。状态不明就先跑 `esl whoami`。
 

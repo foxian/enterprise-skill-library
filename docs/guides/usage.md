@@ -218,20 +218,24 @@ esl unlink @local/my-skill
 
 有 staging 时 `unlink` 纯本地恢复原副本、依赖、锁文件和安装记录；无 staging 时移除 link 和记录。`uninstall` 链接技能时会保留本地源码目录。
 
-### 6. 查看已安装技能 (List)
-查看当前项目或全局已安装的技能清单：
+### 6. 查看与管理已安装技能 (List)
+`esl list` 是当前 Skill Store 的本机管理入口（ADR-0055）：在交互式终端（TTY）且未禁用输入时，进入两级管理台——先选技能，再在详情里查看本机字段（Identity、version、source、安装时间、Store 内路径、Skill Source Link 源路径）与逐条 Tool Link 状态，并可在确认后执行单技能 `update`、按期望 Tool Link 集合对账（语义同 install/link，ADR-0054）、`unlink` / `uninstall`。
 ```bash
-# 查看当前项目安装的技能
+# 查看当前项目安装的技能（TTY 下进入交互管理台）
 esl list
 # 或简写
 esl ls
 
-# 查看全局安装的技能
+# 管理全局安装的技能
 esl list -g
 
-# 输出 JSON 结构化数据
+# 输出 JSON 结构化数据（含 displayName、tools[tool/status/managed]、link 时的 linkSourcePath；永不进入交互）
 esl list --json
+
+# 禁用交互（脚本/自动化），保持只读人类输出（每行附带已链接工具摘要）
+esl list --no-input
 ```
+非 TTY（管道、CI）自动只读。`--json`、`--no-input`、非 TTY 三种情况都不会进入管理台。变更动作执行前一律确认；按技能轴的快捷操作不取代 `esl tools *`：按工具过滤、managed/unmanaged 排障与 `tools sync` 仍归 Tool Link 专用命令。
 
 ### 7. 修复已记录的 Tool Link
 只修复 Tool Link Manifest 中已记录的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。不按配置给未记录的技能批量新建，也不裁剪任何 link：
