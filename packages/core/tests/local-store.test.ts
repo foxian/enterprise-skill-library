@@ -72,6 +72,21 @@ describe('local store', () => {
     expect(mode).toBe(0o600);
   });
 
+  it.runIf(process.platform !== 'win32')('tightens credentials permissions when overwriting a pre-existing loose file', async () => {
+    // 旧版本 initializeLocalStore 先以默认权限建过 credentials.json；writeFile
+    // 的 mode 只在创建时生效，所以重写必须显式收紧（chmod）。
+    const credentialsPath = resolveLocalStorePaths({ homeDir }).credentialsJson;
+    fs.mkdirSync(path.dirname(credentialsPath), { recursive: true });
+    fs.writeFileSync(credentialsPath, JSON.stringify({ token: null, loginAt: null }), {
+      encoding: 'utf8',
+      mode: 0o664
+    });
+
+    await saveCredentials({ token: 'secret_token_123' }, { homeDir });
+
+    expect(fs.statSync(credentialsPath).mode & 0o777).toBe(0o600);
+  });
+
   it('saves and loads ESL Server configuration', async () => {
     await initializeLocalStore({ homeDir });
     const config = {

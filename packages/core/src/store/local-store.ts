@@ -39,12 +39,16 @@ export function resolveProjectStorePaths(projectRoot: string): ProjectStorePaths
   };
 }
 
-async function writeJsonIfMissing(filePath: string, value: unknown): Promise<void> {
+async function writeJsonIfMissing(filePath: string, value: unknown, mode?: number): Promise<void> {
   try {
     await fs.access(filePath);
   } catch {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode });
+    if (mode !== undefined) {
+      // 若文件已存在，writeFile 不会改变其权限；这里只对新建路径生效。
+      await fs.chmod(filePath, mode);
+    }
   }
 }
 
@@ -62,7 +66,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await writeJsonIfMissing(paths.credentialsJson, {
     token: null,
     loginAt: null
-  });
+  }, 0o600);
 
   return paths;
 }
@@ -156,6 +160,9 @@ export async function saveCredentials(
     encoding: 'utf8',
     mode: 0o600
   });
+  // writeFile 的 mode 只在创建文件时生效；initializeLocalStore 可能先以默认权限
+  // 建过该文件，重写时必须显式收紧，保证 token 文件始终 owner-only。
+  await fs.chmod(paths.credentialsJson, 0o600);
   return updated;
 }
 
@@ -167,5 +174,6 @@ export async function clearCredentials(options: LocalStoreOptions = {}): Promise
     encoding: 'utf8',
     mode: 0o600
   });
+  await fs.chmod(paths.credentialsJson, 0o600);
   return cleared;
 }

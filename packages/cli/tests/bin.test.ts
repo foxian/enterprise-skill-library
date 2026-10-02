@@ -1002,7 +1002,9 @@ describe('esl program', () => {
     expect(captureHelp('release-delete')).not.toMatch(/-f,\s*--force/);
   });
 
-  it('detects direct execution from Windows paths', () => {
+  // file:///D:/… → D:\… 的 URL→路径语义只在 Windows 上成立；Linux 的
+  // fileURLToPath 会把它解析成 /D:/…，跨平台模拟没有意义。
+  it.runIf(process.platform === 'win32')('detects direct execution from Windows paths', () => {
     expect(isDirectCliEntry('file:///D:/DevProjects/esl/packages/cli/dist/bin/esl.js', 'D:\\DevProjects\\esl\\packages\\cli\\dist\\bin\\esl.js')).toBe(true);
   });
 
