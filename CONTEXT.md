@@ -194,6 +194,17 @@ declaration.
 
 _Avoid_: `.skills`, `.skill-library`, when referring to the new scoped store.
 
+## Install Manifest
+
+每个 Skill Store 内登记「本机已装技能」的权威清单（`.esl-install-manifest.json`）。
+它按 Skill Identity 记录 version、source（`registry` / `local` / `builtin` /
+`link`）、specifier、可选 resolved/integrity/skillId、Store 内源路径与安装时间，
+供 `list`、`update`、`uninstall`、`unlink` 等本机消费链路读取。它不是项目依赖
+声明（那是 Skill Dependency Manifest），也不是 Tool Link Manifest。
+
+_Avoid_: skills-lock（当指 Install Manifest 时）；技能列表页（当指本机 CLI
+`esl list` 所依据的清单时）。
+
 ## Tool Link
 
 A single tool-specific directory link from an AI tool's skills directory to one
@@ -451,7 +462,8 @@ _Avoid_: 技能权限页面、权限页（旧称）。
 空间与所有所在组织——并以命名空间筛选（个人命名空间排在最前）。组织详情页的
 「技能」页签是同一个列表锁定到该组织命名空间的视图，内容与权限判定同源，仅入
 口与预设筛选不同。
-_Avoid_: 我的技能、个人技能（当指该跨命名空间列表时）。
+_Avoid_: 我的技能、个人技能（当指该跨命名空间列表时）；`esl list` / 本机已装
+技能清单（当指 CLI 对本机 Skill Store 的列举或管理台时）。
 
 ## Local Scope
 
