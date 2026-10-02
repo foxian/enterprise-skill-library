@@ -1,7 +1,6 @@
 import { checkbox, confirm, select } from '@inquirer/prompts';
 import {
   loadInstallManifest,
-  parseSkillIdentity,
   reconcileToolLinks,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
@@ -13,7 +12,8 @@ import {
   type SkillListEntry,
   type ToolName
 } from '@esl/core';
-import { executeList } from './list.js';
+import path from 'node:path';
+import { executeList, skillListTitle } from './list.js';
 import { executeUpdate, type UpdateResult } from './update.js';
 import { executeUninstall, type UninstallResult } from './uninstall.js';
 import { executeUnlink, type UnlinkResult } from './unlink.js';
@@ -60,13 +60,6 @@ interface ResolvedDeps {
   reconcile: NonNullable<ListSessionDeps['reconcile']>;
 }
 
-export function skillListTitle(entry: SkillListEntry): string {
-  if (entry.displayName && entry.displayName.length > 0) {
-    return entry.displayName;
-  }
-  return parseSkillIdentity(entry.name)?.shortName ?? entry.name;
-}
-
 function level1ChoiceLabel(entry: SkillListEntry): string {
   return `${skillListTitle(entry)}  ${entry.name}  v${entry.version}  (${entry.source})`;
 }
@@ -77,7 +70,7 @@ function storeRootFor(options: ListSessionOptions): string {
     : resolveProjectStorePaths(process.cwd()).root;
 }
 
-function printSkillDetail(entry: SkillListEntry, manifest: InstallManifest): void {
+function printSkillDetail(entry: SkillListEntry, manifest: InstallManifest, storeRoot: string): void {
   const manifestEntry = manifest.skills[entry.name];
   console.log('');
   console.log(
@@ -92,7 +85,8 @@ function printSkillDetail(entry: SkillListEntry, manifest: InstallManifest): voi
     console.log(`Installed at: ${manifestEntry.installedAt}`);
   }
   if (manifestEntry?.sourceDir) {
-    console.log(`Store path: ${manifestEntry.sourceDir}`);
+    // Store 内路径打绝对路径，用户可以直接 cd 过去核对。
+    console.log(`Store path: ${path.join(storeRoot, manifestEntry.sourceDir)}`);
   }
   if (entry.source === 'link') {
     console.log(`Link source: ${entry.linkSourcePath ?? '(unknown; the manifest has no resolved path)'}`);
@@ -209,11 +203,14 @@ async function runDetailTools(
     }
     return;
   }
-  console.log(`Tool link reconciliation failed for ${entry.name}; existing links are kept.`);
+  console.log(`Tool link reconciliation failed for ${entry.name}.`);
   for (const failure of result.failures) {
     const detail = 'error' in failure && failure.error ? `: ${failure.error}` : '';
     console.log(`  ${toolDisplayName(failure.tool)}: ${failure.status}${detail}`);
   }
+  // 既有对账语义（ADR-0054）：集合内有失败时不裁剪集合外项，但已确保成功的
+  // 集合内 link 已落盘，所以不能声称「什么都没改」。
+  console.log('Already-ensured in-set links stay in place; fix the conflicts, then adjust tool links again (esl tools sync repairs ESL-owned links).');
 }
 
 async function runDetailUnlink(
@@ -317,7 +314,7 @@ async function runSkillDetail(
       return 'back';
     }
     const manifest = await deps.loadManifest(storeRootFor(options));
-    printSkillDetail(entry, manifest);
+    printSkillDetail(entry, manifest, storeRootFor(options));
 
     const action = await deps.selectPrompt({
       message: `${entry.name} — choose an action`,
@@ -333,28 +330,29 @@ async function runSkillDetail(
     if (action === ACTION_EXIT) {
       return 'exit';
     }
-    if (action === ACTION_UPDATE) {
-      // update 成功后留在详情并刷新；取消也不离开。
-      await runDetailUpdate(entry, options, deps);
-      continue;
-    }
-    if (action === ACTION_TOOLS) {
-      await runDetailTools(entry, options, deps);
-      continue;
-    }
-    if (action === ACTION_UNLINK) {
-      const done = await runDetailUnlink(entry, options, deps);
-      if (done) {
-        return 'back';
+
+    try {
+      if (action === ACTION_UPDATE) {
+        // update 成功后留在详情并刷新；取消也不离开。
+        await runDetailUpdate(entry, options, deps);
+      } else if (action === ACTION_TOOLS) {
+        await runDetailTools(entry, options, deps);
+      } else if (action === ACTION_UNLINK) {
+        if (await runDetailUnlink(entry, options, deps)) {
+          return 'back';
+        }
+      } else if (action === ACTION_UNINSTALL) {
+        if (await runDetailUninstall(entry, options, deps)) {
+          return 'back';
+        }
       }
-      continue;
-    }
-    if (action === ACTION_UNINSTALL) {
-      const done = await runDetailUninstall(entry, options, deps);
-      if (done) {
-        return 'back';
+    } catch (error) {
+      // 单个动作失败（如离线时 update）不拆掉整个管理台：报告后留在详情。
+      // Ctrl+C 的取消仍是取消，照常上抛交给顶层退出处理。
+      if (error instanceof Error && error.name === 'ExitPromptError') {
+        throw error;
       }
-      continue;
+      console.error(`Error: ${(error as Error).message}`);
     }
   }
 }

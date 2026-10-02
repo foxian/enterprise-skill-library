@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
 import { runListSession } from '../src/commands/list-interaction.js';
 import type { InstallManifest, SkillListEntry } from '@esl/core';
 
@@ -140,7 +141,7 @@ describe('esl list interactive session (read-only browsing)', () => {
     expect(detail).toContain('Version: 1.0.0');
     expect(detail).toContain('Source: registry');
     expect(detail).toContain('Installed at: 2026-01-01T00:00:00.000Z');
-    expect(detail).toContain('Store path: skills/@alice/code-review');
+    expect(detail).toContain(`Store path: ${path.join(process.cwd(), '.eslib', 'skills', '@alice', 'code-review')}`);
     expect(detail).toContain('Claude Code (claude): linked (managed)');
     expect(detail).not.toMatch(/[Ss]erver/);
     expect(detail).not.toContain('package URL');
@@ -386,7 +387,7 @@ describe('esl list detail: expected tool link set adjustment', () => {
 
     const logs = harness.logs.join('\n');
     expect(logs).toContain('Tool link reconciliation failed');
-    expect(logs).toContain('existing links are kept');
+    expect(logs).toContain('Already-ensured in-set links stay in place');
     expect(logs).toContain('Codex: conflict');
   });
 
@@ -399,5 +400,33 @@ describe('esl list detail: expected tool link set adjustment', () => {
 
     const calls = selectCalls(harness.select);
     expect(calls[2].message).toContain('@alice/code-review');
+  });
+});
+
+describe('esl list detail: action error resilience', () => {
+  it('reports an action failure and stays in the detail instead of tearing down the session', async () => {
+    const harness = makeHarness();
+    harness.confirm.mockResolvedValue(true);
+    harness.update.mockRejectedValue(new Error('Missing server; run `esl config set-server <url>` or `esl login`'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await runListSession({}, deps(harness, ['@alice/code-review', 'update', 'back', '__exit__']));
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Missing server'));
+    expect(selectCalls(harness.select)[2].message).toContain('@alice/code-review');
+    errorSpy.mockRestore();
+  });
+
+  it('keeps the session alive when uninstall fails mid-action', async () => {
+    const harness = makeHarness();
+    harness.confirm.mockResolvedValue(true);
+    harness.uninstall.mockRejectedValue(new Error('Tool link conflict; content was not removed: claude (/x)'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await runListSession({}, deps(harness, ['@alice/code-review', 'uninstall', 'back', '__exit__']));
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Tool link conflict'));
+    expect(selectCalls(harness.select)[2].message).toContain('@alice/code-review');
+    errorSpy.mockRestore();
   });
 });

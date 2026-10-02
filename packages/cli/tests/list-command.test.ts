@@ -74,9 +74,9 @@ describe('esl list read-only output', () => {
     await createProgram().parseAsync(['node', 'esl', 'list']);
 
     const lines = logSpy.mock.calls.map((call) => call.join(' '));
-    expect(lines.some((line) => line.includes('@alice/code-review — Code Review'))).toBe(true);
+    expect(lines.some((line) => line.includes('Code Review (@alice/code-review)'))).toBe(true);
     expect(lines.some((line) => line.includes('v1.0.0') && line.includes('(registry)') && line.includes('tools: Claude Code'))).toBe(true);
-    expect(lines.some((line) => line.includes('@local/my-helper') && line.includes('tools: Codex (broken)'))).toBe(true);
+    expect(lines.some((line) => line.includes('my-helper (@local/my-helper)') && line.includes('tools: Codex (broken)'))).toBe(true);
     expect(selectMock).not.toHaveBeenCalled();
   });
 

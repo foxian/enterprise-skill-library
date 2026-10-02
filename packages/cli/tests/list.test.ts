@@ -165,6 +165,41 @@ describe('esl list', () => {
     await fs.rm(tmpDir, { recursive: true });
   });
 
+  it('attributes unmanaged tool-directory content back to the skill via the ESL directory name', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-list-'));
+    const storeRoot = path.join(tmpDir, '.eslib');
+    const skillSource = path.join(storeRoot, 'skills', '@alice', 'code-review');
+    await fs.mkdir(skillSource, { recursive: true });
+    // 手工创建的目录（非 ESL 记录、非 symlink）：应作为 unmanaged 挂到该技能名下。
+    // ESL 的 link 目录命名是 <scope>_<skill>（无 @ 前缀）。
+    const handMade = path.join(tmpDir, '.claude', 'skills', 'alice_code-review');
+    await fs.mkdir(handMade, { recursive: true });
+    await fs.writeFile(path.join(handMade, 'SKILL.md'), 'stub');
+    await fs.writeFile(
+      path.join(storeRoot, '.esl-install-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        skills: {
+          '@alice/code-review': {
+            identity: '@alice/code-review',
+            version: '1.0.0',
+            source: 'registry',
+            specifier: '^1.0.0',
+            sourceDir: 'skills/@alice/code-review',
+            installedAt: '2026-01-01T00:00:00.000Z'
+          }
+        }
+      })
+    );
+
+    const results = await listSkills(storeRoot, { level: 'project', projectRoot: tmpDir });
+
+    expect(results[0].tools).toEqual([
+      { tool: 'claude', status: 'unmanaged', managed: false }
+    ]);
+    await fs.rm(tmpDir, { recursive: true });
+  });
+
   it('does not treat .skills.json as an installed source', async () => {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'esl-list-'));
     await fs.writeFile(

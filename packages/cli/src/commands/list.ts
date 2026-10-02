@@ -1,5 +1,6 @@
 import {
   listSkills,
+  parseSkillIdentity,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   toolDisplayName,
@@ -25,6 +26,15 @@ export async function executeList(options: ListOptions = {}): Promise<SkillListE
   });
 }
 
+// 展示标题的唯一派生规则（ADR-0055）：显示名优先；缺失回退 Identity 短名，
+// 解析不出再回退完整 Identity。只读输出与交互管理台共用，避免两套回退漂移。
+export function skillListTitle(entry: SkillListEntry): string {
+  if (entry.displayName && entry.displayName.length > 0) {
+    return entry.displayName;
+  }
+  return parseSkillIdentity(entry.name)?.shortName ?? entry.name;
+}
+
 // 只读人类输出的行级工具摘要（ADR-0055）：没有详情页可点，挂载情况要一眼可见。
 export function skillToolSummary(entry: SkillListEntry): string {
   if (!entry.tools || entry.tools.length === 0) {
@@ -39,9 +49,6 @@ export function skillToolSummary(entry: SkillListEntry): string {
 }
 
 export function formatSkillListLine(entry: SkillListEntry): string {
-  const title =
-    entry.displayName && entry.displayName !== entry.name
-      ? `${entry.name} — ${entry.displayName}`
-      : entry.name;
+  const title = `${skillListTitle(entry)} (${entry.name})`;
   return `  ${title.padEnd(40)} v${entry.version.padEnd(8)} (${entry.source})  tools: ${skillToolSummary(entry)}`;
 }

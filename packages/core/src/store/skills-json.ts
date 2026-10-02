@@ -5,6 +5,7 @@ import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
 import {
   loadInstallManifest,
   saveInstallManifest,
+  skillDirectoryName,
   skillSourceRelativeDir,
   type InstallManifestSkill
 } from './skill-store.js';
@@ -268,10 +269,14 @@ export async function listSkills(
         listEntry.displayName = displayName;
       }
       if (options.level) {
+        // managed 记录的 identity 就是 Skill Identity；unmanaged 条目的 identity
+        // 是工具目录里的目录名，按 ESL 的目录命名规则归属回技能（ADR-0055：
+        // 详情/列表要能看到挂在该技能名下但不受 ESL 管理的内容）。
         listEntry.tools = toolEntries
           .filter(
             (link): link is typeof link & { tool: ToolName } =>
-              link.identity === name && link.tool !== 'source'
+              (link.identity === name || link.identity === skillDirectoryName(name)) &&
+              link.tool !== 'source'
           )
           .map((link) => ({ tool: link.tool, status: link.status, managed: link.managed }));
       }
