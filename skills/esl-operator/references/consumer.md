@@ -96,12 +96,19 @@
 `esl update [@scope/skill-name] [--global|-g]`
 
 - `update` 只升级版本：已有正确 Tool Link 自动看到新内容，不复制、不重建。Skill Source Link 不被 registry 版本替换，输出为 linked (skipped)。
+- 升级根技能时按其新 Skill Release 的锁重装/合并传递依赖，并**回收**新图不再需要的旧传递依赖（从 Store、锁、安装清单移除并拆 ESL 管理 link）——不需要单独 `esl prune`，那命令不存在。
 - `update` 不再接受 `--tools` / `--force`：选工具归 `install` / `link`，修链归 `esl tools sync`。更新目标存在 broken/conflict link 时报错，请先 `tools sync` 或处理冲突。
 - 不指定技能名则更新当前作用域全部已装技能。
 - 某项报 403 时，update 会跳过它继续更新其余技能并逐项报告失败原因；已安装源和其他工具 link 不受影响。
 
 ## 卸载
 `esl uninstall @scope/skill-name [--global|-g]` —— 删除该作用域的技能源、依赖/锁/安装记录，以及该技能的全部 ESL 管理 link。普通安装删除 Store 副本；Skill Source Link 删除 Store 链接、记录和 staging，但保留本地源码目录。未管理内容不会被删除。
+
+- **会回收传递依赖**：卸掉一个根后，不再被任何剩余根需要（既不直接依赖、也不在任何剩余根的发布依赖图里）的传递依赖从 Store、Skill Dependency Lock、安装清单移除，并拆掉这些身份上的 ESL 管理 Tool Link——同样不需要 `esl prune`。
+- 某个传递依赖仍被另一个剩余根直接使用或经发布依赖图需要时**保留**。共享基础技能不会因为卸掉一个根而消失。
+- 卸载一个既是直接依赖、又被其他根当传递依赖的身份时，只把它从 `.skills.json` 降成传递依赖并保留副本。
+- 对仍被剩余图需要、且不在 `.skills.json` 里的传递依赖执行 uninstall 会**失败并指出谁还需要它**——先卸需要它的那个根。
+- 回收范围只作用于所选作用域的 Store（项目或全局），unmanaged 工具目录内容不动。
 
 ## 只解除部分工具 link
 `esl tools remove @scope/skill-name --tools claude-code,cursor [--global|-g]`
