@@ -23,9 +23,15 @@ import {
 import {
   installTargetDir,
   projectSkillsDir,
+  requireFreshToken,
   type NetworkCommandOptions
 } from './network-options.js';
-import { resolveDefaultInstallTools } from './install.js';
+import {
+  installLocalSourceDependencies,
+  resolveDefaultInstallTools,
+  rollbackSwaps,
+  type PackageSwap
+} from './install.js';
 import { notify } from '../output.js';
 
 export interface LinkOptions extends NetworkCommandOptions {
@@ -41,6 +47,7 @@ interface ResolvedSourceSkill {
   identity: string;
   version: string;
   shortName: string;
+  dependencies: Record<string, string>;
 }
 
 async function readSourceVersion(directory: string): Promise<string | null> {
@@ -98,6 +105,7 @@ async function resolveSourceSkill(
   const version = await readSourceVersion(sourceDir);
   const shortName = skillMd.data.name;
   let releaseIdentity: string | null = null;
+  let dependencies: Record<string, string> = {};
   if (version !== null) {
     const release = validateReleaseManifest(
       JSON.parse(await fs.readFile(path.join(sourceDir, 'release.json'), 'utf8'))
@@ -106,6 +114,7 @@ async function resolveSourceSkill(
       throw new Error(`Invalid release.json: ${release.errors.join(', ')}`);
     }
     releaseIdentity = release.data.name;
+    dependencies = release.data.dependencies;
   }
 
   if (releaseIdentity?.includes('/')) {
@@ -115,7 +124,7 @@ async function resolveSourceSkill(
       );
     }
     parseSkillName(releaseIdentity);
-    return { identity: releaseIdentity, version: version ?? '0.1.0', shortName };
+    return { identity: releaseIdentity, version: version ?? '0.1.0', shortName, dependencies };
   }
 
   const sourceShortName = releaseIdentity ?? shortName;
@@ -127,7 +136,8 @@ async function resolveSourceSkill(
   return {
     identity: completeBareIdentity(shortName, requestedIdentity),
     version: version ?? '0.1.0',
-    shortName
+    shortName,
+    dependencies
   };
 }
 
@@ -187,7 +197,30 @@ export async function executeLink(sourcePath: string, options: LinkOptions = {})
   await addSkillDependency(dependencyRoot, identity, specifier);
   await addLockEntry(dependencyRoot, identity, lockEntry);
   await recordLinkInstallState(storeRoot, identity, lockEntry, specifier);
-  await finishLink(identity, projectRoot, storeRoot, targetDir, options);
+
+  // 开发态也让宿主看到被依赖的已发布基础技能：按即将发布的规则拉已发布依赖，
+  // 根源码仍是 Skill Source Link，传递依赖只进 Store/锁/安装清单。
+  let dependencyIdentities: string[] = [];
+  if (Object.keys(source.dependencies).length > 0) {
+    const authToken = await requireFreshToken(options);
+    const committed: Array<PackageSwap> = [];
+    try {
+      dependencyIdentities = await installLocalSourceDependencies({
+        dependencies: source.dependencies,
+        storeRoot,
+        dependencyRoot,
+        rootVisibility: undefined,
+        options,
+        authToken,
+        committed
+      });
+    } catch (error) {
+      await rollbackSwaps(committed);
+      throw error;
+    }
+  }
+
+  await finishLink(identity, projectRoot, storeRoot, targetDir, options, dependencyIdentities);
   return targetDir;
 }
 
@@ -214,7 +247,7 @@ async function recordLinkInstallState(
 }
 
 async function syncSelectedTools(
-  identity: string,
+  identities: string[],
   projectRoot: string,
   storeRoot: string,
   options: LinkOptions
@@ -228,25 +261,31 @@ async function syncSelectedTools(
     return;
   }
 
+  const failedLinks: string[] = [];
   // 期望 Tool Link 集合对账（ADR-0054）：补齐集合内、删除集合外 ESL 管理项。
-  const reconciliation = await reconcileToolLinks({
-    storeRoot,
-    level: options.global ? 'global' : 'project',
-    tools,
-    identity,
-    projectRoot,
-    homeDir: options.homeDir,
-    force: options.force
-  });
+  // 根源码与本次新拉的传递依赖都按这次集合建立 Link，宿主才看得见整条图。
+  for (const identity of identities) {
+    const reconciliation = await reconcileToolLinks({
+      storeRoot,
+      level: options.global ? 'global' : 'project',
+      tools,
+      identity,
+      projectRoot,
+      homeDir: options.homeDir,
+      force: options.force
+    });
 
-  for (const removed of reconciliation.removed) {
-    notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+    for (const removed of reconciliation.removed) {
+      notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+    }
+
+    failedLinks.push(
+      ...reconciliation.failures.map((result) => {
+        const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
+        return `${result.tool} (${result.targetDir})${detail}`;
+      })
+    );
   }
-
-  const failedLinks = reconciliation.failures.map((result) => {
-    const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
-    return `${result.tool} (${result.targetDir})${detail}`;
-  });
 
   if (failedLinks.length > 0) {
     throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);
@@ -258,9 +297,10 @@ async function finishLink(
   projectRoot: string,
   storeRoot: string,
   targetDir: string,
-  options: LinkOptions
+  options: LinkOptions,
+  dependencyIdentities: string[] = []
 ): Promise<string> {
-  await syncSelectedTools(identity, projectRoot, storeRoot, options);
+  await syncSelectedTools([identity, ...dependencyIdentities], projectRoot, storeRoot, options);
   if (!options.global) {
     const { ensureGitignore } = await import('./uninstall.js');
     await ensureGitignore(projectRoot);

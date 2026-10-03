@@ -16,6 +16,10 @@ describe('Skill Release API', () => {
     deleteReleaseTag: ReturnType<typeof vi.fn>;
     validateAdminUserToken: ReturnType<typeof vi.fn>;
     readSourceTree?: ReturnType<typeof vi.fn>;
+    listRepoTeams: ReturnType<typeof vi.fn>;
+    isTeamMember: ReturnType<typeof vi.fn>;
+    isCollaborator: ReturnType<typeof vi.fn>;
+    getCollaboratorPermission: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -26,7 +30,12 @@ describe('Skill Release API', () => {
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
       getReleaseTag: vi.fn().mockResolvedValue(null),
       deleteReleaseTag: vi.fn().mockResolvedValue(undefined),
-      validateAdminUserToken: vi.fn().mockResolvedValue(null)
+      validateAdminUserToken: vi.fn().mockResolvedValue(null),
+      // 默认无任何团队/协作者授权：Public 技能仍可读，Private 技能对外不可读。
+      listRepoTeams: vi.fn().mockResolvedValue([]),
+      isTeamMember: vi.fn().mockResolvedValue(false),
+      isCollaborator: vi.fn().mockResolvedValue(false),
+      getCollaboratorPermission: vi.fn().mockResolvedValue(null)
     };
     const db = initDatabase(path.join(tmpDir, 'test.db'));
     new TenantOrganizationRepository(db).create({ orgName: 'platform-ai', status: 'active' });
@@ -102,6 +111,10 @@ describe('Skill Release API', () => {
     });
   }
 
+  const SKILL_FILES = {
+    'SKILL.md': '---\nname: reviewer\ndescription: Review code\n---\n'
+  };
+
   async function publish(target: string, version: string, dependencies: Record<string, string> = {}) {
     const manifest = {
       schemaVersion: 3,
@@ -121,9 +134,45 @@ describe('Skill Release API', () => {
         sourceCommit: `commit-${version}`,
         releaseManifest: manifest,
         files: {
-          'SKILL.md': '---\nname: reviewer\ndescription: Review code\n---\n',
+          ...SKILL_FILES,
           'release.json': JSON.stringify(manifest)
         }
+      }
+    });
+  }
+
+  async function setVisibility(target: string, visibility: 'public' | 'private') {
+    return app.inject({
+      method: 'POST',
+      url: `/api/skills/${target}/visibility`,
+      headers: { authorization: 'token alice-token' },
+      payload: { visibility }
+    });
+  }
+
+  async function dryRunPublish(target: string, dependencies: Record<string, string>) {
+    const manifest = {
+      schemaVersion: 3,
+      name: target,
+      version: '0.1.0',
+      license: 'MIT',
+      keywords: [],
+      compatibility: {},
+      dependencies
+    };
+    return app.inject({
+      method: 'POST',
+      url: `/api/skills/${target}/releases`,
+      headers: { authorization: 'token alice-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'unpushed-commit',
+        releaseManifest: manifest,
+        files: {
+          ...SKILL_FILES,
+          'release.json': JSON.stringify(manifest)
+        },
+        dryRun: true
       }
     });
   }
@@ -775,5 +824,197 @@ describe('Skill Release API', () => {
     });
 
     expect(update.statusCode).toBe(403);
+  });
+
+  it('freezes a transitive diamond once, at the highest version in the intersection', async () => {
+    await upload('d');
+    await publish('@alice/d', '1.2.0');
+    await publish('@alice/d', '1.3.0');
+    await publish('@alice/d', '1.4.0');
+    await upload('b');
+    await publish('@alice/b', '1.0.0', { '@alice/d': '^1.2.0' });
+    await upload('c');
+    await publish('@alice/c', '1.0.0', { '@alice/d': '~1.3.0' });
+    await upload('reviewer');
+
+    const response = await publish('@alice/reviewer', '1.0.0', {
+      '@alice/b': '^1.0.0',
+      '@alice/c': '^1.0.0'
+    });
+
+    expect(response.statusCode).toBe(201);
+    const lock = response.json().dependencyLock;
+    expect(Object.keys(lock).filter((key: string) => key === '@alice/d')).toHaveLength(1);
+    expect(lock['@alice/d']).toMatchObject({
+      skillId: expect.stringMatching(/^sk_/),
+      version: '1.3.0',
+      checksum: expect.stringMatching(/^sha256-/)
+    });
+  });
+
+  it('rejects dependency ranges with no intersection using a stable error code', async () => {
+    // 沿发布时间线：d 1.0.0 让 b 冻锁成功；d 2.0.0 让 c 冻锁成功；根汇合时冲突。
+    await upload('d');
+    await publish('@alice/d', '1.0.0');
+    await upload('b');
+    await publish('@alice/b', '1.0.0', { '@alice/d': '^1.0.0' });
+    await publish('@alice/d', '2.0.0');
+    await upload('c');
+    await publish('@alice/c', '1.0.0', { '@alice/d': '^2.0.0' });
+    await upload('reviewer');
+
+    const response = await publish('@alice/reviewer', '1.0.0', {
+      '@alice/b': '^1.0.0',
+      '@alice/c': '^1.0.0'
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().code).toBe('releaseDependencyRangesDoNotIntersect');
+  });
+
+  it('rejects a dependency cycle, including self-dependency', async () => {
+    // 环只能沿发布时间线形成：a@1 先无边发布；b@1 依赖 a；a@2 再依赖 b。
+    await upload('a');
+    await publish('@alice/a', '1.0.0');
+    await upload('b');
+    await publish('@alice/b', '1.0.0', { '@alice/a': '^1.0.0' });
+
+    const cyclic = await publish('@alice/a', '2.0.0', { '@alice/b': '^1.0.0' });
+    expect(cyclic.statusCode).toBe(409);
+    expect(cyclic.json().code).toBe('releaseDependencyCycle');
+
+    const selfCycle = await publish('@alice/a', '3.0.0', { '@alice/a': '^1.0.0' });
+    expect(selfCycle.statusCode).toBe(409);
+    expect(selfCycle.json().code).toBe('releaseDependencyCycle');
+  });
+
+  it('rejects reserved-scope and file targets even when hand-edited into the manifest', async () => {
+    await upload('reviewer');
+    for (const target of ['@builtin/foo', '@local/foo', 'file:./foo']) {
+      const response = await publish('@alice/reviewer', '1.0.0', { [target]: '^1.0.0' });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('releaseDependencyTargetInvalid');
+    }
+  });
+
+  it('rejects a target with no published release, or no version satisfying the range', async () => {
+    await upload('reviewer');
+    const missing = await publish('@alice/reviewer', '1.0.0', { '@alice/ghost': '^1.0.0' });
+    expect(missing.statusCode).toBe(409);
+    expect(missing.json().code).toBe('releaseDependencyNoRelease');
+
+    await upload('dep');
+    await publish('@alice/dep', '1.0.0');
+    await publish('@alice/dep', '2.0.0');
+    const unsatisfiable = await publish('@alice/reviewer', '1.1.0', { '@alice/dep': '~1.5.0' });
+    expect(unsatisfiable.statusCode).toBe(409);
+    expect(unsatisfiable.json().code).toBe('releaseDependencyNoSatisfyingVersion');
+  });
+
+  it('rejects publishing when the publisher cannot read a dependency', async () => {
+    await upload('dep');
+    await publish('@alice/dep', '1.0.0');
+    await setVisibility('@alice/dep', 'private');
+
+    // Bob 发布自己的根，读不到 alice 的私有依赖。
+    gitea.validateToken.mockResolvedValue({ username: 'bob' });
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token bob-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/skills/@bob/reviewer/releases',
+      headers: { authorization: 'token bob-token' },
+      payload: {
+        version: '1.0.0',
+        sourceCommit: 'commit-1.0.0',
+        releaseManifest: {
+          schemaVersion: 3,
+          name: '@bob/reviewer',
+          version: '0.1.0',
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: { '@alice/dep': '^1.0.0' }
+        },
+        files: {
+          ...SKILL_FILES,
+          'release.json': JSON.stringify({
+            schemaVersion: 3,
+            name: '@bob/reviewer',
+            version: '0.1.0',
+            license: 'MIT',
+            keywords: [],
+            compatibility: {},
+            dependencies: { '@alice/dep': '^1.0.0' }
+          })
+        }
+      }
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().code).toBe('releaseDependencyNotVisible');
+  });
+
+  it('rejects a public root depending on a private skill, but allows it for a private root', async () => {
+    await upload('dep');
+    await publish('@alice/dep', '1.0.0');
+    await setVisibility('@alice/dep', 'private');
+
+    await upload('public-root');
+    await setVisibility('@alice/public-root', 'public');
+    const publicRoot = await publish('@alice/public-root', '1.0.0', { '@alice/dep': '^1.0.0' });
+    expect(publicRoot.statusCode).toBe(409);
+    expect(publicRoot.json().code).toBe('releaseDependencyPublicChainMustBePublic');
+
+    await upload('private-root');
+    await setVisibility('@alice/private-root', 'private');
+    const privateRoot = await publish('@alice/private-root', '1.0.0', { '@alice/dep': '^1.0.0' });
+    expect(privateRoot.statusCode).toBe(201);
+    expect(privateRoot.json().dependencyLock['@alice/dep'].version).toBe('1.0.0');
+  });
+
+  it('runs the same freeze checks on --dry-run without creating a release', async () => {
+    await upload('dep');
+    await publish('@alice/dep', '1.0.0');
+    await upload('reviewer');
+
+    const response = await dryRunPublish('@alice/reviewer', { '@alice/dep': '^1.0.0' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      dryRun: true,
+      dependencyLock: { '@alice/dep': { version: '1.0.0' } }
+    });
+
+    // 没有创建 Skill Release，也没有写新包目录。
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@alice/reviewer',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(info.json().releases).toEqual([]);
+
+    const badGraph = await dryRunPublish('@alice/reviewer', { '@alice/ghost': '^1.0.0' });
+    expect(badGraph.statusCode).toBe(409);
+    expect(badGraph.json().code).toBe('releaseDependencyNoRelease');
+  });
+
+  it('uses the request files in --dry-run when the unpushed commit is not on the server', async () => {
+    gitea.readSourceTree = vi.fn().mockRejectedValue(new Error('unknown commit'));
+    await app.inject({
+      method: 'POST',
+      url: '/api/skills/upload',
+      headers: { authorization: 'token alice-token' },
+      payload: { name: 'reviewer', description: 'Review code' }
+    });
+
+    const response = await dryRunPublish('@alice/reviewer', {});
+
+    expect(response.statusCode).toBe(200);
+    expect(gitea.readSourceTree).toHaveBeenCalledWith('alice', 'reviewer', 'unpushed-commit');
   });
 });

@@ -434,8 +434,15 @@ description: Use when reviewing code changes.
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('validates and previews the release in --dry-run without touching the server', async () => {
-    const fetchImpl = vi.fn();
+  it('previews the release in --dry-run via the server freeze checks without pushing', async () => {
+    const preview = {
+      dryRun: true,
+      name: SKILL_NAME,
+      version: '1.0.0',
+      sourceCommit: HEAD,
+      dependencyLock: { '@alice/base': { skillId: 'sk_base', version: '1.2.0', checksum: 'sha256-x' } }
+    };
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => preview });
     const execFileAsync = createGitMock();
 
     const result = await executePublish({
@@ -448,13 +455,11 @@ description: Use when reviewing code changes.
       execFileAsync: execFileAsync as any
     });
 
-    expect(result).toMatchObject({
-      dryRun: true,
-      name: SKILL_NAME,
-      version: '1.0.0',
-      sourceCommit: HEAD
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ dryRun: true, dependencyLock: preview.dependencyLock });
+    // 调了发布接口且请求体带 dryRun，服务器不创建 Release。
+    const [, init] = fetchImpl.mock.calls[0] as [string, { body: string }];
+    expect(JSON.parse(init.body)).toMatchObject({ dryRun: true });
+    // 没有 push 源码。
     expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('push'))).toBe(false);
   });
 

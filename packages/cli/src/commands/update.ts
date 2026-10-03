@@ -16,6 +16,8 @@ import {
 } from '@esl/core';
 import { executeInfo } from './info.js';
 import { executeInstall } from './install.js';
+import { removeInstalledIdentity } from './uninstall.js';
+import { computeRequiredIdentities } from './dependency-graph.js';
 import {
   publishedInstallTargetDir,
   publishedProjectSkillsDir,
@@ -190,6 +192,21 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
         .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status})`)
         .join(', ')}`
     );
+  }
+
+  // 回收更新后不再被任何剩余根需要（直接或经发布依赖图）的旧传递依赖，
+  // 与 uninstall 同一套「需要图」规则，不另做 prune。
+  const required = await computeRequiredIdentities(dependencyRoot, storeRoot);
+  const remainingManifest = await loadInstallManifest(storeRoot);
+  for (const [identity, installedEntry] of Object.entries(remainingManifest.skills)) {
+    if (required.has(identity)) continue;
+    await removeInstalledIdentity(identity, installedEntry, {
+      storeRoot,
+      dependencyRoot,
+      level: options.global ? 'global' : 'project',
+      projectRoot: dependencyRoot,
+      homeDir: options.homeDir
+    });
   }
 
   return results;
