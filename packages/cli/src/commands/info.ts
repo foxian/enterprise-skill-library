@@ -14,6 +14,8 @@ import { ApiError } from '../api-error.js';
 
 export interface SkillInfo {
   name: string;
+  /** 逐技能可见性（public/private），多根安装的全链 Public 校验消费它。 */
+  visibility?: string;
   /** 对外当前显示名（ADR-0048）：曾发布取最近 Release 快照，否则取 upload 同步值。 */
   displayName?: string;
   description?: string;

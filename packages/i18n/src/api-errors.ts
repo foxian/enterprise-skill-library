@@ -131,6 +131,8 @@ export const apiErrorMessages = {
   releaseDependencyNotVisible: 'Release dependency {identity} is not visible to you',
   releaseDependencyPublicChainMustBePublic:
     'A public root cannot depend on a non-public skill: {identity}',
+  installedDependencyRangesConflict:
+    'Installed and incoming locks for {identity} cannot both satisfy the declared ranges',
   validationFailed: 'Validation failed: {detail}',
   internalError: 'Internal error: {detail}',
   // CLI 本地环境错误（非服务端响应），显式登记以复用错误码翻译机制（ADR-0053）。
@@ -251,6 +253,8 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   releaseDependencyNotVisible: '发布依赖 {identity} 对你不可见',
   releaseDependencyPublicChainMustBePublic:
     'Public 根不能依赖非 Public 技能：{identity}',
+  installedDependencyRangesConflict:
+    '{identity} 的已装版本与新锁无法同时满足各方声明的范围',
   validationFailed: '校验失败：{detail}',
   internalError: '内部错误：{detail}',
   identityNotATeamGrant: '该团队承载组织身份，不是技能授权；请改为调整成员身份',

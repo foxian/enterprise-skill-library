@@ -331,6 +331,7 @@ describe('esl install (project-level)', () => {
         json: async () => ({
           name: '@platform-ai/reviewer',
           skillId: 'sk_top',
+          visibility: 'public',
           versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_top/1.0.0/${topChecksum}.json`
         })
@@ -339,18 +340,19 @@ describe('esl install (project-level)', () => {
         ok: true,
         arrayBuffer: async () => topBytes
       })
+      // 传递依赖按根包的冻锁直接取包，再查一次 info 拿可见性。
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => dependencyBytes
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           name: '@platform-ai/style-guide',
           skillId: 'sk_dep',
-          versions: ['1.0.0'],
-          packageUrl: `/api/packages/sk_dep/1.0.0/${dependencyChecksum}.json`
+          visibility: 'public',
+          versions: ['1.0.0']
         })
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        arrayBuffer: async () => dependencyBytes
       });
 
     await executeInstall('@platform-ai/reviewer', {

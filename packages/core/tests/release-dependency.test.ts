@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ReleaseGraphError,
+  chooseMergedVersion,
   highestSatisfyingAllRanges,
   rangesIntersect,
   resolveReleaseGraph,
@@ -8,6 +9,23 @@ import {
   type ReleaseGraphNode,
   type ReleaseGraphSource
 } from '../src/index.js';
+
+describe('chooseMergedVersion', () => {
+  it('takes the higher version when it still satisfies every declared range', () => {
+    expect(
+      chooseMergedVersion({ existingVersion: '1.2.0', incomingVersion: '1.3.0', ranges: ['^1.0.0'] })
+    ).toEqual({ version: '1.3.0' });
+    expect(
+      chooseMergedVersion({ existingVersion: '1.3.0', incomingVersion: '1.2.0', ranges: ['^1.0.0'] })
+    ).toEqual({ version: '1.3.0' });
+  });
+
+  it('reports a conflict when the higher version breaks a range', () => {
+    expect(
+      chooseMergedVersion({ existingVersion: '1.2.0', incomingVersion: '2.0.0', ranges: ['~1.2.0'] })
+    ).toEqual({ conflict: true });
+  });
+});
 
 describe('validateReleaseDependencyTarget', () => {
   it('accepts a published server-hosted identity', () => {

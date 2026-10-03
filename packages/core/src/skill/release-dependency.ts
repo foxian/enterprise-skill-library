@@ -14,6 +14,25 @@ export function validateReleaseDependencyTarget(identity: string): 'releaseDepen
 }
 
 /**
+ * 消费端多根合并（ADR-0056）：同一身份已装版本与入图版本不一致时取其中
+ * 更高者，前提是它满足各方 Release Manifest 声明的全部范围；不满足即冲突，
+ * 调用方放弃整次安装、已有图保持原状。
+ */
+export function chooseMergedVersion(input: {
+  existingVersion: string;
+  incomingVersion: string;
+  ranges: readonly string[];
+}): { version: string } | { conflict: true } {
+  const candidate = semver.gt(input.incomingVersion, input.existingVersion)
+    ? input.incomingVersion
+    : input.existingVersion;
+  if (input.ranges.every((range) => semver.satisfies(candidate, range))) {
+    return { version: candidate };
+  }
+  return { conflict: true };
+}
+
+/**
  * 多条 SemVer 范围是否有公共可满足区间。node-semver 不提供交集运算，这里用
  * 「见证版本」判定：各范围的比较器版本（及其 patch/minor/major、prerelease
  * 递进）覆盖了所有区间边界——若存在交集，某个见证版本会同时满足全部范围。
