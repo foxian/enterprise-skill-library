@@ -256,6 +256,51 @@ describe('consumer project root discovery', () => {
     ).rejects.toMatchObject({ code: 'consumerProjectRootRequired' });
   });
 
+  it('fails with a weak-evidence error that lists the tool directories', async () => {
+    const farm = path.join(root, 'farm');
+    const skillDir = path.join(farm, 'draft-skill');
+    writeSkillSource(skillDir);
+    fs.mkdirSync(path.join(farm, '.codex'));
+
+    await expect(
+      resolveConsumerProjectRoot({
+        command: 'link',
+        cwd: skillDir,
+        candidateDir: skillDir,
+        interactive: false,
+        agentMode: false
+      })
+    ).rejects.toMatchObject({ code: 'consumerProjectRootWeakEvidenceRequired' });
+    await expect(
+      resolveConsumerProjectRoot({
+        command: 'link',
+        cwd: skillDir,
+        candidateDir: skillDir,
+        interactive: false,
+        agentMode: false
+      })
+    ).rejects.toThrow(/\.codex/);
+  });
+
+  it('accepts the agent label as the no-evidence choice', async () => {
+    const farm = path.join(root, 'farm');
+    const skillDir = path.join(farm, 'draft-skill');
+    writeSkillSource(skillDir);
+
+    const result = await resolveConsumerProjectRoot({
+      command: 'link',
+      cwd: skillDir,
+      candidateDir: skillDir,
+      interactive: false,
+      agentMode: false,
+      params: {
+        projectRootChoice: 'Use the global Skill Store instead'
+      }
+    });
+
+    expect(result).toEqual({ kind: 'global' });
+  });
+
   it('emits an agent interaction request for weak evidence and no evidence', async () => {
     const farm = path.join(root, 'farm');
     const skillDir = path.join(farm, 'draft-skill');

@@ -243,6 +243,23 @@ const NO_EVIDENCE_CHOICE_OPTIONS = [
   }
 ] as const;
 
+type NoEvidenceChoice = (typeof NO_EVIDENCE_CHOICE_OPTIONS)[number]['value'];
+
+const NO_EVIDENCE_CHOICE_VALUES = new Set<string>(
+  NO_EVIDENCE_CHOICE_OPTIONS.map((option) => option.value)
+);
+
+/**
+ * Agent 宿主按 `label` 回传，TTY 用 `value`；两者都接受。
+ * 见 references/agent-interaction.md（单选取所选 label）。
+ */
+function resolveNoEvidenceChoice(value: string): NoEvidenceChoice | undefined {
+  if (NO_EVIDENCE_CHOICE_VALUES.has(value)) {
+    return value as NoEvidenceChoice;
+  }
+  return NO_EVIDENCE_CHOICE_OPTIONS.find((option) => option.label === value)?.value;
+}
+
 function noEvidenceMessage(parent: string): string {
   return (
     `This directory is a Local Skill Source and its parent ${parent} has no .skills.json or .eslib, ` +
@@ -251,14 +268,31 @@ function noEvidenceMessage(parent: string): string {
   );
 }
 
-function consumerProjectRootRequiredError(parent: string): Error {
-  const error = new Error(noEvidenceMessage(parent)) as Error & {
-    code?: string;
-    params?: Record<string, string>;
-  };
-  error.code = 'consumerProjectRootRequired';
-  error.params = { directory: parent };
+function weakEvidenceRequiredMessage(parent: string, toolDirs: string[]): string {
+  return (
+    `This directory is a Local Skill Source with no .skills.json or .eslib; found ESL project tool ` +
+    `directories next to ${parent}: ${toolDirsList(toolDirs)}. Use ${parent} as the Consumer Project ` +
+    'Root (default), initialize it as a Consumer Project Root, use another directory, or pass --global.'
+  );
+}
+
+function errorWithCode(message: string, code: string, params: Record<string, string>): Error {
+  const error = new Error(message) as Error & { code?: string; params?: Record<string, string> };
+  error.code = code;
+  error.params = params;
   return error;
+}
+
+function consumerProjectRootRequiredError(parent: string): Error {
+  return errorWithCode(noEvidenceMessage(parent), 'consumerProjectRootRequired', { directory: parent });
+}
+
+function weakEvidenceRequiredError(parent: string, toolDirs: string[]): Error {
+  return errorWithCode(
+    weakEvidenceRequiredMessage(parent, toolDirs),
+    'consumerProjectRootWeakEvidenceRequired',
+    { directory: parent }
+  );
 }
 
 function projectRootChoiceField(parent: string) {
@@ -267,7 +301,8 @@ function projectRootChoiceField(parent: string) {
     kind: 'select' as const,
     label: noEvidenceMessage(parent),
     required: true,
-    default: 'init',
+    // Agent 宿主按 label 回传，TTY 用 value；两者都能被 applyNoEvidenceChoice 识别。
+    default: NO_EVIDENCE_CHOICE_OPTIONS[0].label,
     options: NO_EVIDENCE_CHOICE_OPTIONS.map((option) => ({
       label: option.label,
       description: `choice: ${option.value}`
@@ -300,7 +335,11 @@ async function chooseNoEvidence(
 ): Promise<ConsumerProjectRootResolution> {
   const suppliedChoice = options.params?.projectRootChoice;
   if (suppliedChoice !== undefined) {
-    return applyNoEvidenceChoice(options, parent, suppliedChoice, options.params?.projectRootPath);
+    const choice = resolveNoEvidenceChoice(suppliedChoice);
+    if (!choice) {
+      throw new Error(`Unknown Consumer Project Root choice: ${suppliedChoice}`);
+    }
+    return applyNoEvidenceChoice(options, parent, choice, options.params?.projectRootPath);
   }
 
   if (options.agentMode) {
@@ -314,7 +353,7 @@ async function chooseNoEvidence(
   }
 
   if (options.interactive) {
-    const choice = await select<string>({
+    const choice = await select<NoEvidenceChoice>({
       message: noEvidenceMessage(parent),
       choices: NO_EVIDENCE_CHOICE_OPTIONS.map((option) => ({
         name: option.label,
@@ -334,7 +373,7 @@ async function chooseNoEvidence(
 async function applyNoEvidenceChoice(
   options: ResolveConsumerProjectRootOptions,
   parent: string,
-  choice: string,
+  choice: NoEvidenceChoice,
   directory: string | undefined
 ): Promise<ConsumerProjectRootResolution> {
   switch (choice) {
@@ -349,8 +388,6 @@ async function applyNoEvidenceChoice(
     }
     case 'global':
       return { kind: 'global' };
-    default:
-      throw new Error(`Unknown Consumer Project Root choice: ${choice}`);
   }
 }
 
@@ -390,7 +427,7 @@ export async function resolveConsumerProjectRoot(
       }
       return chooseNoEvidence(options, inspection.parent);
     }
-    throw consumerProjectRootRequiredError(inspection.parent);
+    throw weakEvidenceRequiredError(inspection.parent, inspection.toolDirs);
   }
 
   return chooseNoEvidence(options, inspection.parent);

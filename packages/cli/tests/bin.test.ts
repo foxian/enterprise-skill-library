@@ -2139,8 +2139,21 @@ describe('consumer project root discovery (bin)', () => {
     const program = createProgram();
     await expect(
       program.parseAsync(['link', '--no-input', '--no-tools'], { from: 'user' })
-    ).rejects.toThrow(/Consumer Project Root|--global/i);
+    ).rejects.toThrow(/best-effort|confirm|--global|Consumer Project Root/i);
     expect(executeLink).not.toHaveBeenCalled();
+  });
+
+  it('does not write a parent store when the identity cannot be resolved', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockRejectedValueOnce(new Error('Skill source requires SKILL.md'));
+
+    const program = createProgram();
+    await expect(
+      program.parseAsync(['link', '--no-input', '--no-tools'], { from: 'user' })
+    ).rejects.toThrow(/SKILL\.md/);
+    expect(fs.existsSync(path.join(root, '.skills.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.eslib'))).toBe(false);
   });
 
   it('asks the agent to confirm weak evidence and shows the tool directories', async () => {
@@ -2148,6 +2161,7 @@ describe('consumer project root discovery (bin)', () => {
     fs.mkdirSync(path.join(root, '.codex'));
     fs.mkdirSync(path.join(root, '.cursor'));
     process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
     const stdout: string[] = [];
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
       stdout.push(String(chunk));
@@ -2173,6 +2187,19 @@ describe('consumer project root discovery (bin)', () => {
 
   it('asks the agent to choose a project root when there is no evidence', async () => {
     writeSkill(path.join(root, 'draft-skill'));
+    // unlink resolves identity from release.json; give the skill one.
+    fs.writeFileSync(
+      path.join(root, 'draft-skill', 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@local/draft-skill',
+        version: '0.2.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      })
+    );
     process.chdir(path.join(root, 'draft-skill'));
     const stdout: string[] = [];
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {

@@ -90,6 +90,7 @@ export async function executeUnlink(
 
   if (!entry || entry.source !== 'link') {
     let message = `Skill ${name} is not linked by ESL`;
+    // 站在技能目录里、上一级才是 Consumer Project Root 时提示去那里或 -C。
     const hint = await consumerProjectRootHint({ global: options.global, cwd });
     if (hint) {
       message += `. ${hint}`;

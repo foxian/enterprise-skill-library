@@ -16,7 +16,7 @@ esl <command> --agent-interaction --agent-tool <tool>
 `claude`；Codex 用 `codex`，其余见 `--help`）。无论是否带
 `--agent-tool`，stdout 都输出 AskUserQuestion 风格 JSON。只在该模式下处理
 结构化交互请求，不要等用户明确说“需要选择框”才添加。普通终端保持现有交互
-方式。当前 `init`、裸 `esl version`、`install` 与 `link` 已接入该协议；其他命令先查看其
+方式。当前 `init`、裸 `esl version`、`install`、`link` 与 `unlink` 已接入该协议；其他命令先查看其
 reference 或 `--help`。
 
 ## 判断结果
@@ -71,6 +71,29 @@ Agent 模式下 `install` / `link` 不会发覆盖安装或模式转换的 y/n �
   本机常用工具，而不是已有 link。
 - 收集答案后用**同一个** `--tools` 旗标重跑，提交规范 id（逗号分隔）：
   `esl install @acme/review --agent-interaction --tools claude,codex`。
+
+## link / unlink：站在 Local Skill Source 里的项目根
+
+站在技能源码目录里做项目级 `link` / `unlink` 时，CLI 先判定上一级 Consumer
+Project Root（ADR-0057）：上一级已有 `.skills.json` / `.eslib` 静默采用；只有
+工具点目录时发一道 `confirm`（默认 Yes，问题文案列出发现的点目录）；都没有时发
+一道 `select`（初始化上一级 / 指定另一个目录 / 改全局）。选项的规范值在
+description 的 `choice: <值>`，Agent 用 `label` 或 `choice` 值都可交回。
+
+用 `--params-json` 重跑：
+
+```shell
+# 弱证据：采用上一级（Yes）
+esl link --agent-interaction --params-json '{"useParent":true}'
+# 弱证据选否 / 无证据：改用全局
+esl link --agent-interaction --params-json '{"useParent":false,"projectRootChoice":"global"}'
+# 初始化上一级 / 指定另一个目录
+esl link --agent-interaction --params-json '{"projectRootChoice":"init"}'
+esl link --agent-interaction --params-json '{"projectRootChoice":"directory","projectRootPath":"../my-app"}'
+```
+
+`--no-input` / 非交互在缺硬证据时以普通错误失败并列出可行动选项，不会猜一个项目
+根。项目根问完后才会继续问工具。
 
 答案以 `question` 文本为键返回。对 `init`，问题按顺序对应参数
 `description`、`license`、`keywords`、`namespace`：单选取所选 `label`；多选

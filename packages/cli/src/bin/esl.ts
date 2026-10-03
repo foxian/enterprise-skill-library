@@ -53,6 +53,7 @@ import { executeInit } from '../commands/init.js';
 import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
 import { executeLink, resolveLinkIdentity } from '../commands/link.js';
 import { executeUnlink } from '../commands/unlink.js';
+import { resolveUnlinkIdentity } from '../commands/resolve-unlink-identity.js';
 import {
   assertNotNestedConsumerStore,
   consumerProjectRootHint,
@@ -1100,7 +1101,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       const agentMode = program.opts().agentInteraction === true;
       const interactive = !agentMode && program.opts().input !== false && isInteractive();
       const cwd = process.cwd();
-      // ADR-0057：先发现 Consumer Project Root，再对发现后的 Store 检查模式转换与工具。
+      // 入口顺序（ADR-0057）：先解析源码路径与身份，再发现 Consumer Project Root，
+      // 最后才按发现后的 Store 做模式转换与工具选择。身份无效时不写任何东西。
+      const { identity } = await resolveLinkIdentity(sourcePath, options.identity);
       const consumerRoot = await resolveCommandConsumerProjectRoot({
         command: 'link',
         program,
@@ -1116,7 +1119,6 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         ? resolveLocalStorePaths({ homeDir: undefined }).root
         : resolveProjectStorePaths(projectRoot).root;
       const level: ToolLevel = global ? 'global' : 'project';
-      const { identity } = await resolveLinkIdentity(sourcePath, options.identity);
 
       // 模式转换确认（ADR-0054）：普通安装副本 → Skill Source Link。
       const target = await inspectInstallTarget(storeRoot, identity);
@@ -1212,7 +1214,15 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
   const toolsCommand = program
     .command('tools')
     .description('Manage AI tool skill links')
-    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'));
+    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'))
+    .action(async () => {
+      // 裸 `esl tools` 与 `tools list` 同样只读；站在技能目录里时给项目根 Hint。
+      const hint = await consumerProjectRootHint({});
+      if (hint) {
+        console.log(hint);
+      }
+      toolsCommand.help();
+    });
   toolsCommand
     .command('list')
     .description('List skills linked into AI tools')
@@ -1394,7 +1404,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       const cwd = process.cwd();
       const agentMode = program.opts().agentInteraction === true;
       const interactive = !agentMode && program.opts().input !== false && isInteractive();
-      // ADR-0057：目录形态的上一级是技能目录；@identity 形态用 cwd 作为技能目录。
+      // 入口顺序（ADR-0057）：先解析身份/目录，再发现 Consumer Project Root。
+      // 目录形态的上一级是技能目录；@identity 形态用 cwd 作为技能目录。
+      await resolveUnlinkIdentity(target, { cwd });
       const candidateDir = target && !target.startsWith('@') ? path.resolve(cwd, target) : cwd;
       const consumerRoot = await resolveCommandConsumerProjectRoot({
         command: 'unlink',
