@@ -28,7 +28,10 @@ import {
   removeDirectory,
   resolveLocalStorePaths,
   resolveToolName,
+  resolveReleaseGraph,
+  ReleaseGraphError,
   skillSourceRelativeDir,
+  type ReleaseGraphSource,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
@@ -107,6 +110,20 @@ async function readSourceVersion(directory: string): Promise<string> {
   return '0.1.0';
 }
 
+/** 本地源 `release.json.dependencies`：无清单或清单不可读时视为空。 */
+async function readSourceDependencies(directory: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(directory, 'release.json'), 'utf8')) as unknown;
+    const validation = validateReleaseManifest(parsed);
+    if (validation.success) {
+      return validation.data.dependencies;
+    }
+  } catch {
+    // 无清单或不可读：本地草稿不声明发布依赖。
+  }
+  return {};
+}
+
 async function installFromLocalPath(
   sourcePath: string,
   projectRoot: string,
@@ -146,29 +163,50 @@ async function installFromLocalPath(
     : resolveProjectStorePaths(projectRoot).root;
   const dependencyRoot = options.global ? storeRoot : projectRoot;
   const targetDir = options.global ? installTargetDir(identity, options) : projectSkillsDir(projectRoot, identity);
-  await copySkillDirectory(resolved, targetDir);
-  if (needsGeneratedSkillJson) {
-    const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
-    const skillJson = {
-      ...createMinimalSkillManifest({
-        name: identity,
-        description: generatedDescription,
-        author
-      }),
-      version
+
+  // 本地源按即将发布的规则拉已发布依赖：失败不回滚本地根源，但依赖图不留半套。
+  const dependencies = await readSourceDependencies(resolved);
+  const authToken = Object.keys(dependencies).length > 0 ? await requireFreshToken(options) : undefined;
+  const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
+  try {
+    await copySkillDirectory(resolved, targetDir);
+    if (needsGeneratedSkillJson) {
+      const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
+      const skillJson = {
+        ...createMinimalSkillManifest({
+          name: identity,
+          description: generatedDescription,
+          author
+        }),
+        version
+      };
+      await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+    }
+    const specifier = `file:${resolved}`;
+    const lockEntry = {
+      version,
+      resolved: specifier,
+      integrity: '',
+      source: 'local' as const
     };
-    await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+    await addSkillDependency(dependencyRoot, identity, specifier);
+    await addLockEntry(dependencyRoot, identity, lockEntry);
+    await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
+    if (authToken) {
+      await installLocalSourceDependencies({
+        dependencies,
+        storeRoot,
+        dependencyRoot,
+        rootVisibility: undefined,
+        options,
+        authToken,
+        committed
+      });
+    }
+  } catch (error) {
+    await rollbackSwaps(committed);
+    throw error;
   }
-  const specifier = `file:${resolved}`;
-  const lockEntry = {
-    version,
-    resolved: specifier,
-    integrity: '',
-    source: 'local' as const
-  };
-  await addSkillDependency(dependencyRoot, identity, specifier);
-  await addLockEntry(dependencyRoot, identity, lockEntry);
-  await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
 
   return targetDir;
 }
@@ -397,7 +435,7 @@ async function stagePackageSwap(
 }
 
 /** 回滚已提交的目录换入：无旧副本的新装直接删，有旧副本的移回。 */
-async function rollbackSwaps(
+export async function rollbackSwaps(
   committed: Array<{ targetDir: string; previousDir: string | null }>
 ): Promise<void> {
   for (const record of [...committed].reverse()) {
@@ -498,37 +536,22 @@ async function collectExistingRanges(
   return result;
 }
 
-async function installPublishedPackage(
-  name: string,
-  version: string,
-  packageUrl: string,
-  projectRoot: string | null,
-  options: InstallOptions,
-  authToken: string,
-  rootVisibility: string | undefined
-): Promise<string> {
-  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
-  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
-  const { integrity, data: rootData } = await downloadPublishedPackage(
-    resolvedPackageUrl,
-    name,
-    options,
-    authToken
-  );
-  await assertPackageCompatible(name, rootData, options);
+/**
+ * 把一批入图传递依赖落地：Public 全链校验 → 与已装图逐身份合并（更高且仍满足
+ * 各方 range 否则冲突）→ 换包 → 写锁与安装清单。失败的目录换入记进 committed，
+ * 由调用方统一回滚，保证「不留半套图」。传递依赖只进 Skill Dependency Lock 与
+ * 安装清单，不进 .skills.json。
+ */
+async function materializeDependencyGraph(input: {
+  nodes: Map<string, PlannedDependency>;
+  incomingRanges: Map<string, Set<string>>;
+  storeRoot: string;
+  dependencyRoot: string;
+  rootVisibility: string | undefined;
+  committed: Array<{ targetDir: string; previousDir: string | null }>;
+}): Promise<void> {
+  const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, committed } = input;
 
-  const targetDir = options.global || !projectRoot
-    ? publishedInstallTargetDir(name, options)
-    : publishedProjectSkillsDir(projectRoot, name);
-  const storeRoot = options.global || !projectRoot
-    ? resolveLocalStorePaths(options).root
-    : resolveProjectStorePaths(projectRoot).root;
-  const dependencyRoot = options.global || !projectRoot ? storeRoot : projectRoot;
-
-  // 1) 先下载整图：安装者读不到任一节点、坏包/不兼容在此失败，此时未写任何盘。
-  const { nodes, incomingRanges } = await planIncomingGraph(rootData, options, authToken);
-
-  // 2) Public 根全链 Public，即使安装者碰巧读得到私有节点。
   if (rootVisibility === 'public') {
     for (const node of nodes.values()) {
       if (node.visibility !== 'public') {
@@ -540,7 +563,6 @@ async function installPublishedPackage(
     }
   }
 
-  // 3) 与已装图逐身份合并：取更高且仍满足各方 range 的版本；冲突则整次失败。
   const existingManifest = await loadInstallManifest(storeRoot);
   const existingRanges = await collectExistingRanges(dependencyRoot, storeRoot);
   const actions: Array<{ node: PlannedDependency; targetVersion: string }> = [];
@@ -572,21 +594,177 @@ async function installPublishedPackage(
     }
   }
 
-  // 4) 执行换包：先根后依赖；任一失败回滚本轮已换目录，已有安装保持原状。
+  for (const action of actions) {
+    const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(action.node.identity));
+    committed.push(await stagePackageSwap(
+      action.node.identity,
+      action.targetVersion,
+      action.node.data,
+      dependencyTargetDir
+    ));
+  }
+  for (const action of actions) {
+    const specifier = `^${action.targetVersion}`;
+    const lockEntry = {
+      skillId: action.node.data.skillId,
+      identity: action.node.identity,
+      version: action.targetVersion,
+      resolved: action.node.packageUrl,
+      integrity: action.node.integrity,
+      source: 'registry' as const
+    };
+    await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
+    await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
+  }
+}
+
+/** 本地源按即将发布的规则解析已发布依赖：数据源直接读 Registry，并记录各身份可见性。 */
+function createHttpGraphSource(
+  options: InstallOptions,
+  visibility: Map<string, string>
+): ReleaseGraphSource {
+  return {
+    async listVersions(identity) {
+      try {
+        const info = await executeInfo(identity, options);
+        visibility.set(identity, info.visibility ?? 'private');
+        return info.versions ?? [];
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+          throw new ReleaseGraphError('releaseDependencyNotVisible', { identity });
+        }
+        if (error instanceof ApiError && error.status === 404) {
+          return [];
+        }
+        throw error;
+      }
+    },
+    async load(identity, version) {
+      const info = await executeInfo(identity, options);
+      const release = info.releases?.find((entry) => entry.version === version);
+      if (!release) {
+        throw new ReleaseGraphError('releaseDependencyNoRelease', { identity });
+      }
+      return {
+        identity,
+        skillId: release.skillId ?? info.skillId ?? '',
+        version,
+        checksum: release.checksum,
+        visibility: (info.visibility as 'public' | 'private') ?? 'private',
+        dependencies: release.releaseManifest?.dependencies ?? {}
+      };
+    }
+  };
+}
+
+function releaseGraphErrorToApiError(error: ReleaseGraphError): ApiError {
+  const status =
+    error.code === 'releaseDependencyTargetInvalid'
+      ? 400
+      : error.code === 'releaseDependencyNotVisible'
+        ? 403
+        : 409;
+  return new ApiError(status, error.code, { code: error.code, params: error.errorParams });
+}
+
+/**
+ * 本地源 `install` / `link` 拉取已发布依赖：未冻锁时按与即将发布相同的交集/最高
+ * 满足/可见性规则从 Registry 解析整图，下载后与已装图合并落地。真正的 Release
+ * Dependency Lock 只在 publish 冻结，这里不写回本地源清单。
+ */
+export async function installLocalSourceDependencies(input: {
+  dependencies: Record<string, string>;
+  storeRoot: string;
+  dependencyRoot: string;
+  rootVisibility: string | undefined;
+  options: InstallOptions;
+  authToken: string;
+  committed: Array<{ targetDir: string; previousDir: string | null }>;
+}): Promise<void> {
+  const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
+  if (Object.keys(dependencies).length === 0) return;
+  const visibility = new Map<string, string>();
+  let lock: Record<string, { skillId: string; version: string; checksum: string }>;
+  try {
+    lock = await resolveReleaseGraph(dependencies, createHttpGraphSource(options, visibility), {
+      rootVisibility: rootVisibility === 'public' ? 'public' : rootVisibility === 'private' ? 'private' : undefined
+    });
+  } catch (error) {
+    if (error instanceof ReleaseGraphError) throw releaseGraphErrorToApiError(error);
+    throw error;
+  }
+
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const nodes = new Map<string, PlannedDependency>();
+  const incomingRanges = new Map<string, Set<string>>();
+  addRanges(incomingRanges, dependencies);
+  for (const [identity, entry] of Object.entries(lock)) {
+    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
+    const { integrity, data } = await downloadPublishedPackage(packageUrl, identity, options, authToken);
+    await assertPackageCompatible(identity, data, options);
+    addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
+    nodes.set(identity, {
+      identity,
+      version: entry.version,
+      integrity,
+      packageUrl,
+      visibility: visibility.get(identity) ?? 'public',
+      data
+    });
+  }
+
+  await materializeDependencyGraph({
+    nodes,
+    incomingRanges,
+    storeRoot,
+    dependencyRoot,
+    rootVisibility,
+    committed
+  });
+}
+
+async function installPublishedPackage(
+  name: string,
+  version: string,
+  packageUrl: string,
+  projectRoot: string | null,
+  options: InstallOptions,
+  authToken: string,
+  rootVisibility: string | undefined
+): Promise<string> {
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
+  const { integrity, data: rootData } = await downloadPublishedPackage(
+    resolvedPackageUrl,
+    name,
+    options,
+    authToken
+  );
+  await assertPackageCompatible(name, rootData, options);
+
+  const targetDir = options.global || !projectRoot
+    ? publishedInstallTargetDir(name, options)
+    : publishedProjectSkillsDir(projectRoot, name);
+  const storeRoot = options.global || !projectRoot
+    ? resolveLocalStorePaths(options).root
+    : resolveProjectStorePaths(projectRoot).root;
+  const dependencyRoot = options.global || !projectRoot ? storeRoot : projectRoot;
+
+  // 先下载整图：安装者读不到任一节点、坏包/不兼容在此失败，此时未写任何盘。
+  const { nodes, incomingRanges } = await planIncomingGraph(rootData, options, authToken);
+
+  // 先根后依赖换包；任一失败回滚本轮已换目录，已有安装保持原状。
   const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
   try {
     committed.push(await stagePackageSwap(name, version, rootData, targetDir));
-    for (const action of actions) {
-      const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(action.node.identity));
-      committed.push(await stagePackageSwap(
-        action.node.identity,
-        action.targetVersion,
-        action.node.data,
-        dependencyTargetDir
-      ));
-    }
-
-    // 5) 写记录：根进 .skills.json；传递依赖只进 Skill Dependency Lock 与安装清单。
+    await materializeDependencyGraph({
+      nodes,
+      incomingRanges,
+      storeRoot,
+      dependencyRoot,
+      rootVisibility,
+      committed
+    });
     const rootSpecifier = `^${version}`;
     const rootLockEntry = {
       skillId: rootData.skillId,
@@ -599,19 +777,6 @@ async function installPublishedPackage(
     await addSkillDependency(dependencyRoot, name, rootSpecifier);
     await addLockEntry(dependencyRoot, name, rootLockEntry);
     await recordInstalledSkill(storeRoot, name, rootLockEntry, rootSpecifier);
-    for (const action of actions) {
-      const specifier = `^${action.targetVersion}`;
-      const lockEntry = {
-        skillId: action.node.data.skillId,
-        identity: action.node.identity,
-        version: action.targetVersion,
-        resolved: action.node.packageUrl,
-        integrity: action.node.integrity,
-        source: 'registry' as const
-      };
-      await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
-      await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
-    }
   } catch (error) {
     await rollbackSwaps(committed);
     throw error;

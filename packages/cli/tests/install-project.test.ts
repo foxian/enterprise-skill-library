@@ -388,6 +388,78 @@ describe('esl install (project-level)', () => {
     ).toBe(true);
   });
 
+  it('pulls published dependencies when installing a local source and keeps the root as file:', async () => {
+    const depBytes = Buffer.from(
+      JSON.stringify({
+        name: '@acme/base',
+        skillId: 'sk_base',
+        version: '1.2.0',
+        sourceCommit: 'dep123',
+        releaseManifest: { compatibility: {}, dependencies: {} },
+        files: {
+          'SKILL.md': '---\nname: acme:base\ndescription: Base\n---\n',
+          'skill.json': '{"name":"@acme/base","version":"1.2.0","dependencies":{}}\n'
+        }
+      })
+    );
+    const depChecksum = `sha256-${crypto.createHash('sha256').update(depBytes).digest('hex')}`;
+    const baseInfo = {
+      name: '@acme/base',
+      visibility: 'public',
+      versions: ['1.2.0'],
+      releases: [
+        {
+          version: '1.2.0',
+          checksum: depChecksum,
+          skillId: 'sk_base',
+          releaseManifest: { dependencies: {} }
+        }
+      ]
+    };
+    const fetchImpl = vi
+      .fn()
+      // resolveReleaseGraph：listVersions 与 load 各查一次 info。
+      .mockResolvedValueOnce({ ok: true, json: async () => baseInfo })
+      .mockResolvedValueOnce({ ok: true, json: async () => baseInfo })
+      .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => depBytes });
+
+    const localSource = path.join(projectDir, 'with-deps');
+    fs.mkdirSync(localSource);
+    fs.writeFileSync(path.join(localSource, 'SKILL.md'), '---\nname: with-deps\ndescription: x\n---\n');
+    fs.writeFileSync(
+      path.join(localSource, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 4,
+        name: 'with-deps',
+        version: '0.1.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: { '@acme/base': '^1.0.0' }
+      })
+    );
+
+    await executeInstall(localSource, {
+      projectRoot: projectDir,
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      execFileAsync: vi.fn() as any,
+      noAdapt: true
+    });
+
+    const skillsJson = await loadSkillsJson(projectDir);
+    // 只有本地根进项目清单，specifier 是 file:；传递的已发布依赖不进。
+    expect(Object.keys(skillsJson.skills)).toEqual(['@local/with-deps']);
+    expect(skillsJson.skills['@local/with-deps']).toBe(`file:${localSource}`);
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@acme/base'].version).toBe('1.2.0');
+    expect(lock.skills['@acme/base'].source).toBe('registry');
+    expect(
+      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@acme', 'base', 'SKILL.md'))
+    ).toBe(true);
+  });
+
   it('installs from server to global with --global', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,

@@ -32,7 +32,10 @@ export interface SkillInfo {
   releases?: Array<{
     version: string;
     checksum: string;
+    skillId?: string;
     packageUrl?: string;
+    /** 该 Release 的清单快照：多根/本地源按即将发布的规则解析时读它的 dependencies。 */
+    releaseManifest?: { dependencies?: Record<string, string> };
     /** Present when the release is deprecated: the warning shown on install. */
     deprecatedMessage?: string | null;
   }>;

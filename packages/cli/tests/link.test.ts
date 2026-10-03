@@ -1,13 +1,15 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   initializeLocalStore,
   loadInstallManifest,
   loadSkillsJson,
   loadSkillsLock,
-  saveConfig
+  saveConfig,
+  saveCredentials
 } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 import { executeLink } from '../src/commands/link.js';
@@ -437,5 +439,82 @@ describe('esl unlink', () => {
         cwd: sourceDir
       })
     ).rejects.toThrow(/project root|relative\/path|--global|@identity/i);
+  });
+});
+
+describe('esl link pulls published dependencies', () => {
+  let projectDir: string;
+  let homeDir: string;
+
+  beforeEach(async () => {
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-link-dep-'));
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-link-dep-home-'));
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ tools: [] }, { homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('installs the published dependency into the store while the root stays a link', async () => {
+    const depBytes = Buffer.from(
+      JSON.stringify({
+        name: '@acme/base',
+        skillId: 'sk_base',
+        version: '1.2.0',
+        sourceCommit: 'dep123',
+        releaseManifest: { compatibility: {}, dependencies: {} },
+        files: {
+          'SKILL.md': '---\nname: acme:base\ndescription: Base\n---\n',
+          'skill.json': '{"name":"@acme/base","version":"1.2.0","dependencies":{}}\n'
+        }
+      })
+    );
+    const depChecksum = `sha256-${crypto.createHash('sha256').update(depBytes).digest('hex')}`;
+    const baseInfo = {
+      name: '@acme/base',
+      visibility: 'public',
+      versions: ['1.2.0'],
+      releases: [{ version: '1.2.0', checksum: depChecksum, skillId: 'sk_base', releaseManifest: { dependencies: {} } }]
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => baseInfo })
+      .mockResolvedValueOnce({ ok: true, json: async () => baseInfo })
+      .mockResolvedValueOnce({ ok: true, arrayBuffer: async () => depBytes });
+
+    const sourceDir = path.join(projectDir, 'link-root');
+    writeSkillSource(sourceDir, '@acme/link-root', 'root');
+    fs.writeFileSync(
+      path.join(sourceDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 3,
+        name: '@acme/link-root',
+        version: '0.2.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: { '@acme/base': '^1.0.0' }
+      })
+    );
+
+    await executeLink(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      server: 'http://localhost:3000',
+      customFetch: fetchImpl as any,
+      noTools: true
+    });
+
+    const skillsJson = await loadSkillsJson(projectDir);
+    expect(skillsJson.skills['@acme/link-root']).toBe(`link:${sourceDir}`);
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@acme/base'].version).toBe('1.2.0');
+    expect(
+      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@acme', 'base', 'SKILL.md'))
+    ).toBe(true);
   });
 });

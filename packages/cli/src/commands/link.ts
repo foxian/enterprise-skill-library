@@ -23,9 +23,14 @@ import {
 import {
   installTargetDir,
   projectSkillsDir,
+  requireFreshToken,
   type NetworkCommandOptions
 } from './network-options.js';
-import { resolveDefaultInstallTools } from './install.js';
+import {
+  installLocalSourceDependencies,
+  resolveDefaultInstallTools,
+  rollbackSwaps
+} from './install.js';
 import { notify } from '../output.js';
 
 export interface LinkOptions extends NetworkCommandOptions {
@@ -41,6 +46,7 @@ interface ResolvedSourceSkill {
   identity: string;
   version: string;
   shortName: string;
+  dependencies: Record<string, string>;
 }
 
 async function readSourceVersion(directory: string): Promise<string | null> {
@@ -98,6 +104,7 @@ async function resolveSourceSkill(
   const version = await readSourceVersion(sourceDir);
   const shortName = skillMd.data.name;
   let releaseIdentity: string | null = null;
+  let dependencies: Record<string, string> = {};
   if (version !== null) {
     const release = validateReleaseManifest(
       JSON.parse(await fs.readFile(path.join(sourceDir, 'release.json'), 'utf8'))
@@ -106,6 +113,7 @@ async function resolveSourceSkill(
       throw new Error(`Invalid release.json: ${release.errors.join(', ')}`);
     }
     releaseIdentity = release.data.name;
+    dependencies = release.data.dependencies;
   }
 
   if (releaseIdentity?.includes('/')) {
@@ -115,7 +123,7 @@ async function resolveSourceSkill(
       );
     }
     parseSkillName(releaseIdentity);
-    return { identity: releaseIdentity, version: version ?? '0.1.0', shortName };
+    return { identity: releaseIdentity, version: version ?? '0.1.0', shortName, dependencies };
   }
 
   const sourceShortName = releaseIdentity ?? shortName;
@@ -127,7 +135,8 @@ async function resolveSourceSkill(
   return {
     identity: completeBareIdentity(shortName, requestedIdentity),
     version: version ?? '0.1.0',
-    shortName
+    shortName,
+    dependencies
   };
 }
 
@@ -187,6 +196,28 @@ export async function executeLink(sourcePath: string, options: LinkOptions = {})
   await addSkillDependency(dependencyRoot, identity, specifier);
   await addLockEntry(dependencyRoot, identity, lockEntry);
   await recordLinkInstallState(storeRoot, identity, lockEntry, specifier);
+
+  // 开发态也让宿主看到被依赖的已发布基础技能：按即将发布的规则拉已发布依赖，
+  // 根源码仍是 Skill Source Link，传递依赖只进 Store/锁/安装清单。
+  if (Object.keys(source.dependencies).length > 0) {
+    const authToken = await requireFreshToken(options);
+    const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
+    try {
+      await installLocalSourceDependencies({
+        dependencies: source.dependencies,
+        storeRoot,
+        dependencyRoot,
+        rootVisibility: undefined,
+        options,
+        authToken,
+        committed
+      });
+    } catch (error) {
+      await rollbackSwaps(committed);
+      throw error;
+    }
+  }
+
   await finishLink(identity, projectRoot, storeRoot, targetDir, options);
   return targetDir;
 }

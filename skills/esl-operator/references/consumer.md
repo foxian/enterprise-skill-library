@@ -23,7 +23,7 @@
 `esl install @scope/skill-name|./path [--version V] [--global|-g] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径。
-- **会拉发布依赖**：装根技能时按其 Skill Release 的 Release Dependency Lock 递归装整条安装图（ADR-0055/0056）。安装者读不到链上任一技能、Public 根的链上出现非 Public 技能、或与已装图版本对不上时整次失败、不留半套图。共享基础技能（被多个根钉住的 style-guide 等）在 Store 里按**一份身份一份副本**共存：两根钉了不同版本且更高者仍满足各方 range 时取更高那版，否则整次失败、已有图不动。
+- **会拉发布依赖**：装根技能时按其 Skill Release 的 Release Dependency Lock 递归装整条安装图；装本地 `./path` 时改按本地源 `release.json.dependencies` 从 Registry 实时解析（真正的锁只在 `publish` 冻结）。安装者读不到链上任一技能、Public 根的链上出现非 Public 技能、或与已装图版本对不上时整次失败、不留半套图。共享基础技能（被多个根钉住的 style-guide 等）在 Store 里按**一份身份一份副本**共存：两根钉了不同版本且更高者仍满足各方 range 时取更高那版，否则整次失败、已有图不动。
 - 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 Store 副本里补 `skill.json`，源目录不动。
 - 项目级技能源写入 `<project>/.eslib/skills/@<scope>/<skill>/`；全局级写入 `~/.eslib/skills/@<scope>/<skill>/`。
 - 项目根 `.skills.json` **只记直接依赖的 specifier**（Registry 根默认 `^<装上的版本>`）；`.skills-lock.json` 是完整依赖图和精确版本锁——**传递依赖只进锁、Skill Store、Tool Link，不进 `.skills.json`**，所以卸载根时项目清单只反映你直接使用的技能。`.eslib/` 是本机状态，应保持 gitignore。
@@ -40,6 +40,7 @@
 `esl link [./path] [--global|-g] [--identity @namespace] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 把本地技能源码目录链入 Skill Store：Store 位置指向源码，已有 Tool Link 继续指向 Store，形成“工具目录 → Skill Store → 本地源码”的两层链路。
+- **也会拉发布依赖**：本地源 `release.json.dependencies` 里的已发布技能按即将发布的同一套规则从 Registry 解析并装进 Store，所以开发态宿主经两层链接既能看到本地根源码、也能看到被依赖的基础技能。真正的 Release Dependency Lock 只在 `publish` 冻结，本地反复链接不会把它写死。
 - 身份来自 `release.json`：完整 `@scope/name` 原样使用；裸短名默认 `@local/<name>`；`--identity` 只能补 namespace 或给出短名一致的完整身份。
 - `link` 不读取、不写入、不生成源码目录里的 `skill.json`；link 元数据记录在安装状态中。
 - Store 中已有普通安装副本（改安装模式）：TTY 会先说明会把副本换成 Skill Source Link 并确认，同意后原副本移入 `.eslib/link-staging/`；非交互/Agent 无 `--force` 时报错，须带 `--force` 重跑。源码修改后，所有已链接工具立即看到。
