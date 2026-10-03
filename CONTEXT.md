@@ -185,10 +185,16 @@ owner / 创建者删除。删除前必须展示依赖方、填写原因并输入
 尚未产生任何 Skill Release 的 Server-hosted Skill Source。经授权的 Skill User
 可以下载和修改其源码，但不能将它作为技能安装。
 
+## Consumer Project Root
+
+拥有项目级 Skill Store 与 Skill Dependency Manifest 的目录。项目级 Skill Source Link 的落点是这里，不是 Local Skill Source。它与用户级全局 Skill Store 相对。
+
+_Avoid_: 把 Local Skill Source 叫成项目目录；技能项目（当指源码仓库时）。
+
 ## Skill Store
 
 A scope-local collection of installed skill sources owned by ESL. A project
-store lives under the project's `.eslib`; a global store lives under the user's
+store lives under the Consumer Project Root's `.eslib`; a global store lives under the user's
 `~/.eslib`. It is generated local state, not the project's dependency
 declaration. Each Skill Identity has exactly one installed copy in a given
 store.
