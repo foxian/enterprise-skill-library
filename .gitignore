@@ -23,8 +23,7 @@ blob-report/
 # 本地工具 / Agent 工作区(因人而异,不属于项目内容)
 .playwright-mcp/
 .agents/
-.claude/settings.local.json
-.claude/agents/
+.claude/
 .mcp.json
 
 # 本地 issue tracker / 工作区与 smoke 产物(可能含真实凭据),均不纳入版本控制
@@ -36,10 +35,8 @@ packages/*/src/**/*.d.ts
 .skills/
 .skills.json
 .skills-lock.json
-.claude/skills/
 .agents/skills/
 .trae/skills/
 
 # npm pack 产物
 *.tgz
-
