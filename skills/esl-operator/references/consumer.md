@@ -1,6 +1,6 @@
 # 消费者工作流：找 / 装 / 链 / 看 / 更 / 卸
 
-只读命令（直接跑）：`search` `info` `use` `tools list`。`list` 在 TTY 会进入交互管理台（ADR-0055），AI 调用时一律加 `--json`（或 `--no-input`）保持只读。
+只读命令（直接跑）：`search` `info` `use` `tools list`。`list` 在 TTY 会进入交互管理台（ADR-0058），AI 调用时一律加 `--json`（或 `--no-input`）保持只读。
 写命令（先回显、确认再跑）：`install` `link` `unlink` `update` `uninstall` `tools sync` `tools remove` `tools preferred`。
 
 ## 搜索
@@ -23,9 +23,10 @@
 `esl install @scope/skill-name|./path [--version V] [--global|-g] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 从 Server 装最新或指定版本；`./path` 装本地草稿。来源由参数自动判断：`@scope/name` 走 Server、`@builtin/*` 走内置、`./path` 走本地路径。
+- **会拉发布依赖**：装根技能时按其 Skill Release 的 Release Dependency Lock 递归装整条安装图；装本地 `./path` 时改按本地源 `release.json.dependencies` 从 Registry 实时解析（真正的锁只在 `publish` 冻结）。安装者读不到链上任一技能、Public 根的链上出现非 Public 技能、或与已装图版本对不上时整次失败、不留半套图。共享基础技能（被多个根钉住的 style-guide 等）在 Store 里按**一份身份一份副本**共存：两根钉了不同版本且更高者仍满足各方 range 时取更高那版，否则整次失败、已有图不动。
 - 本地 `./path` 的安装身份固定为 `@local/<name>`（保留 Scope，不可发布）；安装时在 Store 副本里补 `skill.json`，源目录不动。
 - 项目级技能源写入 `<project>/.eslib/skills/@<scope>/<skill>/`；全局级写入 `~/.eslib/skills/@<scope>/<skill>/`。
-- 项目根 `.skills.json` 是直接依赖声明；`.skills-lock.json` 是完整依赖图和精确版本锁。`.eslib/` 是本机状态，应保持 gitignore。
+- 项目根 `.skills.json` **只记直接依赖的 specifier**（Registry 根默认 `^<装上的版本>`）；`.skills-lock.json` 是完整依赖图和精确版本锁——**传递依赖只进锁、Skill Store、Tool Link，不进 `.skills.json`**，所以卸载根时项目清单只反映你直接使用的技能。`.eslib/` 是本机状态，应保持 gitignore。
 - 每个被选工具得到单技能目录 link，link 名使用 `<scope>_<skill>`，指向 `.eslib` 中的 `@<scope>/<skill>` 源；不复制技能，也不链接整个工具 skills 根目录。
 - `--tools all` 选择全部九个工具；`--tools claude-code,codex` 选择指定工具；`--no-tools` 只装源、不建 link；`--force` 只能替换 ESL 记录的异常 link，不能覆盖非 ESL 内容。
 - 未传 `--tools` 时：TTY 交互每次都弹工具勾选（预勾该技能已有 link；首次挂载预勾本机常用工具并说明），至少选一个，空选拒绝；非交互环境或 `--no-input` 使用全局配置的 `tools`，没有则报错而不要等待输入。项目 `.skills.json` 不再声明工具，遗留 `tools` 字段被忽略。
@@ -39,6 +40,7 @@
 `esl link [./path] [--global|-g] [--identity @namespace] [--tools all|工具列表] [--no-tools] [--force]`
 
 - 把本地技能源码目录链入 Skill Store：Store 位置指向源码，已有 Tool Link 继续指向 Store，形成“工具目录 → Skill Store → 本地源码”的两层链路。
+- **也会拉发布依赖**：本地源 `release.json.dependencies` 里的已发布技能按即将发布的同一套规则从 Registry 解析并装进 Store，所以开发态宿主经两层链接既能看到本地根源码、也能看到被依赖的基础技能。真正的 Release Dependency Lock 只在 `publish` 冻结，本地反复链接不会把它写死。
 - 身份来自 `release.json`：完整 `@scope/name` 原样使用；裸短名默认 `@local/<name>`；`--identity` 只能补 namespace 或给出短名一致的完整身份。
 - `link` 不读取、不写入、不生成源码目录里的 `skill.json`；link 元数据记录在安装状态中。
 - Store 中已有普通安装副本（改安装模式）：TTY 会先说明会把副本换成 Skill Source Link 并确认，同意后原副本移入 `.eslib/link-staging/`；非交互/Agent 无 `--force` 时报错，须带 `--force` 重跑。源码修改后，所有已链接工具立即看到。
@@ -56,7 +58,7 @@
 - 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 只改工作目录 / 项目根，位置路径决定读哪个技能目录）。
 
 `esl uninstall` 对 link 技能只删除 Skill Store link、记录、Tool Link 和 staging，不会递归删除本地源码目录；`esl update` 会跳过 link 技能并报告 skipped。
-`esl list` / `esl ls [--global|-g] [--json] [--no-input]` —— 当前项目或全局 Skill Store 的本机管理入口（ADR-0055）。
+`esl list` / `esl ls [--global|-g] [--json] [--no-input]` —— 当前项目或全局 Skill Store 的本机管理入口（ADR-0058）。
 
 - **TTY 且未禁用输入**（人类裸跑）：进入两级交互管理台。第一级按技能选择（显示名 + Identity + version + source，不堆工具名）；详情展示本机字段（Identity、version、source、安装时间、Store 内路径），`source=link` 必显 Skill Source Link 源路径，并逐条列出该技能的 Tool Link（展示名、规范 id、status、是否 managed）；不展示 ESL Server 根地址，默认不请求远程 info。
 - **详情动作**（全部先确认，复用既有命令语义，不另起第三套模型）：
@@ -104,12 +106,19 @@
 `esl update [@scope/skill-name] [--global|-g]`
 
 - `update` 只升级版本：已有正确 Tool Link 自动看到新内容，不复制、不重建。Skill Source Link 不被 registry 版本替换，输出为 linked (skipped)。
+- 升级根技能时按其新 Skill Release 的锁重装/合并传递依赖，并**回收**新图不再需要的旧传递依赖（从 Store、锁、安装清单移除并拆 ESL 管理 link）——不需要单独 `esl prune`，那命令不存在。
 - `update` 不再接受 `--tools` / `--force`：选工具归 `install` / `link`，修链归 `esl tools sync`。更新目标存在 broken/conflict link 时报错，请先 `tools sync` 或处理冲突。
 - 不指定技能名则更新当前作用域全部已装技能。
 - 某项报 403 时，update 会跳过它继续更新其余技能并逐项报告失败原因；已安装源和其他工具 link 不受影响。
 
 ## 卸载
 `esl uninstall @scope/skill-name [--global|-g]` —— 删除该作用域的技能源、依赖/锁/安装记录，以及该技能的全部 ESL 管理 link。普通安装删除 Store 副本；Skill Source Link 删除 Store 链接、记录和 staging，但保留本地源码目录。未管理内容不会被删除。
+
+- **会回收传递依赖**：卸掉一个根后，不再被任何剩余根需要（既不直接依赖、也不在任何剩余根的发布依赖图里）的传递依赖从 Store、Skill Dependency Lock、安装清单移除，并拆掉这些身份上的 ESL 管理 Tool Link——同样不需要 `esl prune`。
+- 某个传递依赖仍被另一个剩余根直接使用或经发布依赖图需要时**保留**。共享基础技能不会因为卸掉一个根而消失。
+- 卸载一个既是直接依赖、又被其他根当传递依赖的身份时，只把它从 `.skills.json` 降成传递依赖并保留副本。
+- 对仍被剩余图需要、且不在 `.skills.json` 里的传递依赖执行 uninstall 会**失败并指出谁还需要它**——先卸需要它的那个根。
+- 回收范围只作用于所选作用域的 Store（项目或全局），unmanaged 工具目录内容不动。
 
 ## 只解除部分工具 link
 `esl tools remove @scope/skill-name --tools claude-code,cursor [--global|-g]`

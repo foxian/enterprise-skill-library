@@ -18,7 +18,7 @@ import { executeUpdate, type UpdateResult } from './update.js';
 import { executeUninstall, type UninstallResult } from './uninstall.js';
 import { executeUnlink, type UnlinkResult } from './unlink.js';
 
-// `esl list` 交互管理台（ADR-0055）：两级浏览（列表 → 详情与动作）。模式判断与
+// `esl list` 交互管理台（ADR-0058）：两级浏览（列表 → 详情与动作）。模式判断与
 // 确认门闩归 CLI 交互层；uninstall / unlink / update / 期望 Tool Link 集合对账
 // 复用既有命令的执行路径，不另起第二套业务实现。依赖全部可注入，程序边界测试
 // 不耦合 Inquirer 内部实现。

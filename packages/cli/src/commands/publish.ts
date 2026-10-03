@@ -86,25 +86,19 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
   if (identity.startsWith('@local/')) {
     throw new Error('@local/* skills use the local namespace and must be renamed to a stable namespace before publishing');
   }
-  // A dry run stays entirely local: it validates the source and previews what
-  // would be released, without syncing the source or creating a Skill Release.
-  const head = options.dryRun
+  // dry-run 不同步源码，只取本地 HEAD；正式发布先把源码推到服务器。两种模式随后
+  // 都调发布接口：dry-run 由服务器跑同一套冻锁与可见性校验但不创建 Release
+  // （ADR-0056），避免本地预演看不到图解析失败。
+  const dryRun = options.dryRun === true;
+  const head = dryRun
     ? (await git(options, directory, ['rev-parse', 'HEAD'])).trim()
     : await syncSource(options, directory, await requireFreshToken(options));
   await verifyReleaseTag(options, directory, version, head);
   const notes = await resolveReleaseNotes(options, directory);
-  if (options.dryRun) {
-    return {
-      dryRun: true,
-      name: identity,
-      version,
-      sourceCommit: head,
-      files: Object.keys(await collectSourceFiles(directory)).sort(),
-      notes
-    };
+  if (!dryRun) {
+    await assertNotOlderThanPublished(options, identity, version);
+    await confirmPublish(options, identity, version);
   }
-  await assertNotOlderThanPublished(options, identity, version);
-  await confirmPublish(options, identity, version);
   const fetchImpl = options.customFetch ?? fetch;
   const { server } = await resolveNetworkConfig(options);
   const authToken = await requireFreshToken(options);
@@ -119,11 +113,12 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
       sourceCommit: head,
       releaseManifest: validation.data.releaseManifest,
       files: await collectSourceFiles(directory),
-      notes
+      notes,
+      dryRun
     })
   });
   if (!response.ok) {
-    await requireOkResponse(response, 'Failed to publish Skill Release');
+    await requireOkResponse(response, dryRun ? 'Failed to preview Skill Release' : 'Failed to publish Skill Release');
   }
   return response.json();
 }

@@ -232,7 +232,7 @@ export interface ListSkillsOptions {
 }
 
 // 显示名只从本机已装内容尽力解析（Store 副本里的 release.json）；缺失或损坏时
-// 由展示层回退到短名/Identity，不调用远程 info（ADR-0055）。
+// 由展示层回退到短名/Identity，不调用远程 info（ADR-0058）。
 async function readLocalDisplayName(storeRoot: string, entry: InstallManifestSkill): Promise<string | undefined> {
   try {
     const parsed = JSON.parse(
@@ -270,7 +270,7 @@ export async function listSkills(
       }
       if (options.level) {
         // managed 记录的 identity 就是 Skill Identity；unmanaged 条目的 identity
-        // 是工具目录里的目录名，按 ESL 的目录命名规则归属回技能（ADR-0055：
+        // 是工具目录里的目录名，按 ESL 的目录命名规则归属回技能（ADR-0058：
         // 详情/列表要能看到挂在该技能名下但不受 ESL 管理的内容）。
         listEntry.tools = toolEntries
           .filter(

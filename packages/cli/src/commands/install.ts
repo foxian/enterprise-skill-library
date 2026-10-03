@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -7,6 +8,7 @@ import { promisify } from 'node:util';
 import {
   addLockEntry,
   addSkillDependency,
+  chooseMergedVersion,
   loadConfig,
   loadInstallManifest,
   reconcileToolLinks,
@@ -19,20 +21,25 @@ import {
   fileExists,
   highestStableVersion,
   isBuiltinIdentity,
+  loadSkillsJson,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
   recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
   resolveToolName,
+  resolveReleaseGraph,
+  ReleaseGraphError,
+  releaseGraphErrorStatus,
   skillSourceRelativeDir,
+  type ReleaseGraphSource,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
   preparePublishedSkillPackage,
   ensureGitAvailable
   } from '@esl/core';
-import { requireOkResponse } from '../api-error.js';
+import { ApiError, requireOkResponse } from '../api-error.js';
 import {
   installTargetDir,
   gitAuthHeaderConfig,
@@ -104,6 +111,20 @@ async function readSourceVersion(directory: string): Promise<string> {
   return '0.1.0';
 }
 
+/** 本地源 `release.json.dependencies`：无清单或清单不可读时视为空。 */
+async function readSourceDependencies(directory: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.join(directory, 'release.json'), 'utf8')) as unknown;
+    const validation = validateReleaseManifest(parsed);
+    if (validation.success) {
+      return validation.data.dependencies;
+    }
+  } catch {
+    // 无清单或不可读：本地草稿不声明发布依赖。
+  }
+  return {};
+}
+
 async function installFromLocalPath(
   sourcePath: string,
   projectRoot: string,
@@ -143,29 +164,50 @@ async function installFromLocalPath(
     : resolveProjectStorePaths(projectRoot).root;
   const dependencyRoot = options.global ? storeRoot : projectRoot;
   const targetDir = options.global ? installTargetDir(identity, options) : projectSkillsDir(projectRoot, identity);
-  await copySkillDirectory(resolved, targetDir);
-  if (needsGeneratedSkillJson) {
-    const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
-    const skillJson = {
-      ...createMinimalSkillManifest({
-        name: identity,
-        description: generatedDescription,
-        author
-      }),
-      version
+
+  // 本地源按即将发布的规则拉已发布依赖：失败不回滚本地根源，但依赖图不留半套。
+  const dependencies = await readSourceDependencies(resolved);
+  const authToken = Object.keys(dependencies).length > 0 ? await requireFreshToken(options) : undefined;
+  const committed: Array<PackageSwap> = [];
+  try {
+    await copySkillDirectory(resolved, targetDir);
+    if (needsGeneratedSkillJson) {
+      const author = process.env.USER ?? process.env.USERNAME ?? 'anonymous';
+      const skillJson = {
+        ...createMinimalSkillManifest({
+          name: identity,
+          description: generatedDescription,
+          author
+        }),
+        version
+      };
+      await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+    }
+    const specifier = `file:${resolved}`;
+    const lockEntry = {
+      version,
+      resolved: specifier,
+      integrity: '',
+      source: 'local' as const
     };
-    await fs.writeFile(path.join(targetDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
+    await addSkillDependency(dependencyRoot, identity, specifier);
+    await addLockEntry(dependencyRoot, identity, lockEntry);
+    await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
+    if (authToken) {
+      await installLocalSourceDependencies({
+        dependencies,
+        storeRoot,
+        dependencyRoot,
+        rootVisibility: undefined,
+        options,
+        authToken,
+        committed
+      });
+    }
+  } catch (error) {
+    await rollbackSwaps(committed);
+    throw error;
   }
-  const specifier = `file:${resolved}`;
-  const lockEntry = {
-    version,
-    resolved: specifier,
-    integrity: '',
-    source: 'local' as const
-  };
-  await addSkillDependency(dependencyRoot, identity, specifier);
-  await addLockEntry(dependencyRoot, identity, lockEntry);
-  await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
 
   return targetDir;
 }
@@ -220,7 +262,15 @@ async function installFromServer(
   warnIfDeprecated(name, version, requestedRelease?.deprecatedMessage);
   const requestedPackageUrl = requestedRelease?.packageUrl ?? info.packageUrl;
   if (requestedPackageUrl) {
-    return installPublishedPackage(name, version, requestedPackageUrl, projectRoot, options, authToken);
+    return installPublishedPackage(
+      name,
+      version,
+      requestedPackageUrl,
+      projectRoot,
+      options,
+      authToken,
+      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined
+    );
   }
 
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
@@ -283,22 +333,54 @@ async function installFromServer(
   }
 }
 
-async function installPublishedPackage(
-  name: string,
-  version: string,
-  packageUrl: string,
-  projectRoot: string | null,
+interface ParsedPublishedPackage {
+  name: string;
+  skillId: string;
+  version: string;
+  sourceCommit: string;
+  releaseManifest: {
+    compatibility?: Record<string, unknown>;
+    dependencies?: Record<string, string>;
+  };
+  dependencyLock?: Record<string, LockedDependency>;
+  files: Record<string, string>;
+}
+
+interface PlannedDependency {
+  identity: string;
+  version: string;
+  integrity: string;
+  packageUrl: string;
+  visibility: Visibility;
+  data: ParsedPublishedPackage;
+}
+
+type Visibility = 'public' | 'private';
+
+/** 一次目录换入的记录：失败回滚时无旧副本则删、有旧副本则移回。 */
+export interface PackageSwap {
+  targetDir: string;
+  previousDir: string | null;
+}
+
+/** 下载 Published Skill Package：403 统一映射为 releaseDependencyNotVisible。 */
+async function downloadPublishedPackage(
+  resolvedPackageUrl: string,
+  identity: string,
   options: InstallOptions,
   authToken: string
-): Promise<string> {
+): Promise<{ integrity: string; data: ParsedPublishedPackage }> {
   const fetchImpl = options.customFetch ?? fetch;
-  const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
-  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
-  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${await serverUrl}${packageUrl}`;
   const response = await fetchWithTimeout(fetchImpl, resolvedPackageUrl, {
     headers: { Authorization: `token ${authToken}` }
   });
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new ApiError(403, 'dependency not visible', {
+        code: 'releaseDependencyNotVisible',
+        params: { identity }
+      });
+    }
     await requireOkResponse(response, 'Failed to download Published Skill Package');
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
@@ -307,185 +389,416 @@ async function installPublishedPackage(
   if (expectedIntegrity.startsWith('sha256-') && integrity !== expectedIntegrity) {
     throw new Error(`Published Skill Package checksum does not match Registry metadata: expected ${expectedIntegrity}, got ${integrity}`);
   }
-  const packageData = JSON.parse(packageBytes.toString('utf8')) as {
-    name: string;
-    skillId: string;
-    version: string;
-    sourceCommit: string;
-    checksum?: string;
-    releaseManifest: Record<string, unknown>;
-    dependencyLock?: Record<string, LockedDependency>;
-    files: Record<string, string>;
-  };
-  if (!options.ignoreCompatibility) {
-    const compatibility = await evaluateCompatibility(
-      packageData.releaseManifest.compatibility ?? {},
-      { execFileAsync }
-    );
-    if (!compatibility.compatible) {
-      const reasons = [
-        ...compatibility.missingTools.map((tool) => `missing tool ${tool}`),
-        ...compatibility.unsupportedLanguages.map((language) => `unsupported language ${language}`)
-      ];
-      throw new Error(`Published Skill Package is incompatible: ${reasons.join(', ')}`);
-    }
+  return { integrity, data: JSON.parse(packageBytes.toString('utf8')) as ParsedPublishedPackage };
+}
+
+async function assertPackageCompatible(
+  identity: string,
+  data: ParsedPublishedPackage,
+  options: InstallOptions
+): Promise<void> {
+  if (options.ignoreCompatibility) return;
+  const compatibility = await evaluateCompatibility(data.releaseManifest.compatibility ?? {}, {
+    execFileAsync: options.execFileAsync
+  });
+  if (!compatibility.compatible) {
+    const reasons = [
+      ...compatibility.missingTools.map((tool) => `missing tool ${tool}`),
+      ...compatibility.unsupportedLanguages.map((language) => `unsupported language ${language}`)
+    ];
+    throw new Error(`${identity} is incompatible: ${reasons.join(', ')}`);
   }
-  const targetDir = options.global || !projectRoot
-    ? publishedInstallTargetDir(name, options)
-    : publishedProjectSkillsDir(projectRoot, name);
+}
+
+/** 经 staging 把包文件原子换进目标目录，返回记录供失败时回滚。 */
+async function stagePackageSwap(
+  identity: string,
+  version: string,
+  data: ParsedPublishedPackage,
+  targetDir: string
+): Promise<PackageSwap> {
   const stagingDir = `${targetDir}.staging-${process.pid}-${Date.now()}`;
   await removeDirectory(stagingDir);
-  for (const [relativePath, content] of Object.entries(packageData.files ?? {})) {
+  for (const [relativePath, content] of Object.entries(data.files ?? {})) {
     const destination = path.join(stagingDir, relativePath);
     await fs.mkdir(path.dirname(destination), { recursive: true });
     await fs.writeFile(destination, content, 'utf8');
   }
-  if (packageData.version !== version || packageData.name !== name) {
+  if (data.version !== version || data.name !== identity) {
     await removeDirectory(stagingDir);
     throw new Error('Published Skill Package metadata does not match the requested Release');
   }
   const previousDir = `${targetDir}.previous-${process.pid}-${Date.now()}`;
+  let hadPrevious = true;
   try {
     await fs.rename(targetDir, previousDir);
   } catch {
+    hadPrevious = false;
     await removeDirectory(previousDir);
   }
   try {
     await fs.rename(stagingDir, targetDir);
   } catch (error) {
     await removeDirectory(stagingDir);
-    try {
-      await fs.rename(previousDir, targetDir);
-    } catch {
+    if (hadPrevious) {
+      try {
+        await fs.rename(previousDir, targetDir);
+      } catch {
+      }
     }
     throw error;
   }
-  await removeDirectory(previousDir);
+  return { targetDir, previousDir: hadPrevious ? previousDir : null };
+}
+
+/** 回滚已提交的目录换入：无旧副本的新装直接删，有旧副本的移回。 */
+export async function rollbackSwaps(
+  committed: Array<PackageSwap>
+): Promise<void> {
+  for (const record of [...committed].reverse()) {
+    await removeDirectory(record.targetDir);
+    if (record.previousDir) {
+      try {
+        await fs.rename(record.previousDir, record.targetDir);
+      } catch {
+      }
+    }
+  }
+}
+
+function addRanges(target: Map<string, Set<string>>, deps: Record<string, string>): void {
+  for (const [identity, range] of Object.entries(deps)) {
+    let set = target.get(identity);
+    if (!set) {
+      set = new Set();
+      target.set(identity, set);
+    }
+    set.add(range);
+  }
+}
+
+/**
+ * 按根包嵌入的 Release Dependency Lock 递归下载传递依赖（嵌套锁继续展开，
+ * 等同「中间技能按其被锁版本自己的 dependencies 继续展开」），同时收集入图
+ * 各方声明范围与各身份可见性。全程只下载、不写任何盘。
+ */
+async function planIncomingGraph(
+  rootData: ParsedPublishedPackage,
+  options: InstallOptions,
+  authToken: string
+): Promise<{ nodes: Map<string, PlannedDependency>; incomingRanges: Map<string, Set<string>> }> {
+  const nodes = new Map<string, PlannedDependency>();
+  const incomingRanges = new Map<string, Set<string>>();
+  addRanges(incomingRanges, rootData.releaseManifest.dependencies ?? {});
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const queue: Array<{ identity: string; entry: LockedDependency }> = Object.entries(
+    rootData.dependencyLock ?? {}
+  ).map(([identity, entry]) => ({ identity, entry }));
+
+  while (queue.length > 0) {
+    const { identity, entry } = queue.shift()!;
+    if (nodes.has(identity)) continue;
+    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
+    const { integrity, data } = await downloadPublishedPackage(packageUrl, identity, options, authToken);
+    if (data.skillId !== entry.skillId || data.version !== entry.version) {
+      throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
+    }
+    await assertPackageCompatible(identity, data, options);
+    nodes.set(identity, { identity, version: entry.version, integrity, packageUrl, visibility: 'public', data });
+    addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
+    for (const [dep, depEntry] of Object.entries(data.dependencyLock ?? {})) {
+      queue.push({ identity: dep, entry: depEntry});
+    }
+  }
+
+  // 各身份可见性：Public 根全链 Public 校验消费。
+  for (const [identity, node] of nodes) {
+    const info = await executeInfo(identity, options);
+    node.visibility = info.visibility === 'public' ? 'public' : 'private';
+  }
+  return { nodes, incomingRanges };
+}
+
+/** 已装图中各根 Release Manifest 声明的范围集合（从 .skills.json 根沿 skill.json 展开）。 */
+async function collectExistingRanges(
+  dependencyRoot: string,
+  storeRoot: string
+): Promise<Map<string, Set<string>>> {
+  const result = new Map<string, Set<string>>();
+  let skillsJson: { skills: Record<string, string> };
+  try {
+    skillsJson = await loadSkillsJson(dependencyRoot);
+  } catch {
+    return result;
+  }
+  const visited = new Set<string>();
+  const walk = (identity: string): void => {
+    if (visited.has(identity)) return;
+    visited.add(identity);
+    let parsed: { dependencies?: Record<string, string> };
+    try {
+      parsed = JSON.parse(fsSync.readFileSync(
+        path.join(storeRoot, skillSourceRelativeDir(identity), 'skill.json'),
+        'utf8'
+      ));
+    } catch {
+      return;
+    }
+    for (const [dep, range] of Object.entries(parsed.dependencies ?? {})) {
+      addRanges(result, { [dep]: range });
+      walk(dep);
+    }
+  };
+  for (const identity of Object.keys(skillsJson.skills)) walk(identity);
+  return result;
+}
+
+/**
+ * 把一批入图传递依赖落地：Public 全链校验 → 与已装图逐身份合并（更高且仍满足
+ * 各方 range 否则冲突）→ 换包 → 写锁与安装清单。失败的目录换入记进 committed，
+ * 由调用方统一回滚，保证「不留半套图」。传递依赖只进 Skill Dependency Lock 与
+ * 安装清单，不进 .skills.json。
+ */
+async function materializeDependencyGraph(input: {
+  nodes: Map<string, PlannedDependency>;
+  incomingRanges: Map<string, Set<string>>;
+  storeRoot: string;
+  dependencyRoot: string;
+  rootVisibility: Visibility | undefined;
+  committed: Array<PackageSwap>;
+}): Promise<string[]> {
+  const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, committed } = input;
+
+  if (rootVisibility === 'public') {
+    for (const node of nodes.values()) {
+      if (node.visibility !== 'public') {
+        throw new ApiError(409, 'public chain has private node', {
+          code: 'releaseDependencyPublicChainMustBePublic',
+          params: { identity: node.identity }
+        });
+      }
+    }
+  }
+
+  const existingManifest = await loadInstallManifest(storeRoot);
+  const existingRanges = await collectExistingRanges(dependencyRoot, storeRoot);
+  const actions: Array<{ node: PlannedDependency; targetVersion: string }> = [];
+  for (const node of nodes.values()) {
+    const existing = existingManifest.skills[node.identity];
+    if (existing?.version === node.version) continue;
+    if (existing?.version) {
+      const ranges = [
+        ...new Set([
+          ...(existingRanges.get(node.identity) ?? []),
+          ...(incomingRanges.get(node.identity) ?? [])
+        ])
+      ];
+      const decision = chooseMergedVersion({
+        existingVersion: existing.version,
+        incomingVersion: node.version,
+        ranges
+      });
+      if ('conflict' in decision) {
+        throw new ApiError(409, 'ranges conflict', {
+          code: 'installedDependencyRangesConflict',
+          params: { identity: node.identity }
+        });
+      }
+      if (decision.version === existing.version) continue; // 已装更高且仍满足：保留不动
+      actions.push({ node, targetVersion: decision.version });
+    } else {
+      actions.push({ node, targetVersion: node.version });
+    }
+  }
+
+  for (const action of actions) {
+    const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(action.node.identity));
+    committed.push(await stagePackageSwap(
+      action.node.identity,
+      action.targetVersion,
+      action.node.data,
+      dependencyTargetDir
+    ));
+  }
+  for (const action of actions) {
+    const specifier = `^${action.targetVersion}`;
+    const lockEntry = {
+      skillId: action.node.data.skillId,
+      identity: action.node.identity,
+      version: action.targetVersion,
+      resolved: action.node.packageUrl,
+      integrity: action.node.integrity,
+      source: 'registry' as const
+    };
+    await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
+    await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
+  }
+  // 返回本轮实际落地（新装或升版）的身份，供 link 为它们建 Tool Link。
+  return actions.map((action) => action.node.identity);
+}
+
+/** 本地源按即将发布的规则解析已发布依赖：数据源直接读 Registry，并记录各身份可见性。 */
+function createHttpGraphSource(
+  options: InstallOptions,
+  visibility: Map<string, Visibility>
+): ReleaseGraphSource {
+  return {
+    async listVersions(identity) {
+      try {
+        const info = await executeInfo(identity, options);
+        visibility.set(identity, info.visibility === 'public' ? 'public' : 'private');
+        return info.versions ?? [];
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+          throw new ReleaseGraphError('releaseDependencyNotVisible', { identity });
+        }
+        if (error instanceof ApiError && error.status === 404) {
+          return [];
+        }
+        throw error;
+      }
+    },
+    async load(identity, version) {
+      const info = await executeInfo(identity, options);
+      const release = info.releases?.find((entry) => entry.version === version);
+      if (!release) {
+        throw new ReleaseGraphError('releaseDependencyNoRelease', { identity });
+      }
+      return {
+        identity,
+        skillId: release.skillId ?? info.skillId ?? '',
+        version,
+        checksum: release.checksum,
+        visibility: info.visibility === 'public' ? 'public' : 'private',
+        dependencies: release.releaseManifest?.dependencies ?? {}
+      };
+    }
+  };
+}
+
+function releaseGraphErrorToApiError(error: ReleaseGraphError): ApiError {
+  return new ApiError(releaseGraphErrorStatus(error.code), error.code, {
+    code: error.code,
+    params: error.errorParams
+  });
+}
+
+/**
+ * 本地源 `install` / `link` 拉取已发布依赖：未冻锁时按与即将发布相同的交集/最高
+ * 满足/可见性规则从 Registry 解析整图，下载后与已装图合并落地。真正的 Release
+ * Dependency Lock 只在 publish 冻结，这里不写回本地源清单。
+ */
+export async function installLocalSourceDependencies(input: {
+  dependencies: Record<string, string>;
+  storeRoot: string;
+  dependencyRoot: string;
+  rootVisibility: Visibility | undefined;
+  options: InstallOptions;
+  authToken: string;
+  committed: Array<PackageSwap>;
+}): Promise<string[]> {
+  const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
+  if (Object.keys(dependencies).length === 0) return [];
+  const visibility = new Map<string, Visibility>();
+  let lock: Record<string, { skillId: string; version: string; checksum: string }>;
+  try {
+    lock = await resolveReleaseGraph(dependencies, createHttpGraphSource(options, visibility), {
+      rootVisibility
+    });
+  } catch (error) {
+    if (error instanceof ReleaseGraphError) throw releaseGraphErrorToApiError(error);
+    throw error;
+  }
+
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const nodes = new Map<string, PlannedDependency>();
+  const incomingRanges = new Map<string, Set<string>>();
+  addRanges(incomingRanges, dependencies);
+  for (const [identity, entry] of Object.entries(lock)) {
+    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
+    const { integrity, data } = await downloadPublishedPackage(packageUrl, identity, options, authToken);
+    await assertPackageCompatible(identity, data, options);
+    addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
+    nodes.set(identity, {
+      identity,
+      version: entry.version,
+      integrity,
+      packageUrl,
+      visibility: visibility.get(identity) ?? 'public',
+      data
+    });
+  }
+
+  return materializeDependencyGraph({
+    nodes,
+    incomingRanges,
+    storeRoot,
+    dependencyRoot,
+    rootVisibility,
+    committed
+  });
+}
+
+async function installPublishedPackage(
+  name: string,
+  version: string,
+  packageUrl: string,
+  projectRoot: string | null,
+  options: InstallOptions,
+  authToken: string,
+  rootVisibility: Visibility | undefined
+): Promise<string> {
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
+  const { integrity, data: rootData } = await downloadPublishedPackage(
+    resolvedPackageUrl,
+    name,
+    options,
+    authToken
+  );
+  await assertPackageCompatible(name, rootData, options);
+
+  const targetDir = options.global || !projectRoot
+    ? publishedInstallTargetDir(name, options)
+    : publishedProjectSkillsDir(projectRoot, name);
   const storeRoot = options.global || !projectRoot
     ? resolveLocalStorePaths(options).root
     : resolveProjectStorePaths(projectRoot).root;
   const dependencyRoot = options.global || !projectRoot ? storeRoot : projectRoot;
-  const specifier = `^${version}`;
-  const lockEntry = {
-    skillId: packageData.skillId,
-    identity: name,
-    version,
-    resolved: resolvedPackageUrl,
-    integrity,
-    source: 'registry' as const
-  };
-  await addSkillDependency(dependencyRoot, name, specifier);
-  await addLockEntry(dependencyRoot, name, lockEntry);
-  await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
-  await installPublishedDependencies(
-    packageData.dependencyLock ?? {},
-    dependencyRoot,
-    storeRoot,
-    options,
-    authToken,
-    new Set([name])
-  );
-  return targetDir;
-}
 
-async function installPublishedDependencies(
-  dependencyLock: Record<string, LockedDependency>,
-  dependencyRoot: string,
-  storeRoot: string,
-  options: InstallOptions,
-  authToken: string,
-  seen: Set<string>
-): Promise<void> {
-  for (const [dependencyName, dependency] of Object.entries(dependencyLock)) {
-    if (seen.has(dependencyName)) continue;
-    seen.add(dependencyName);
-    const dependencyInfo = await executeInfo(dependencyName, options);
-    const dependencyPackageUrl = dependencyInfo.releases?.find((release) => release.version === dependency.version)?.packageUrl ?? dependencyInfo.packageUrl;
-    if (!dependencyPackageUrl) {
-      throw new Error(`Dependency ${dependencyName} has no published Skill Release`);
-    }
-    const fetchImpl = options.customFetch ?? fetch;
-    const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
-    const resolvedPackageUrl = dependencyPackageUrl.startsWith('http')
-      ? dependencyPackageUrl
-      : `${serverUrl}${dependencyPackageUrl}`;
-    const response = await fetchWithTimeout(fetchImpl, resolvedPackageUrl, {
-      headers: { Authorization: `token ${authToken}` }
+  // 先下载整图：安装者读不到任一节点、坏包/不兼容在此失败，此时未写任何盘。
+  const { nodes, incomingRanges } = await planIncomingGraph(rootData, options, authToken);
+
+  // 先根后依赖换包；任一失败回滚本轮已换目录，已有安装保持原状。
+  const committed: Array<PackageSwap> = [];
+  try {
+    committed.push(await stagePackageSwap(name, version, rootData, targetDir));
+    await materializeDependencyGraph({
+      nodes,
+      incomingRanges,
+      storeRoot,
+      dependencyRoot,
+      rootVisibility,
+      committed
     });
-    if (!response.ok) {
-      await requireOkResponse(response, 'Failed to download dependency Published Skill Package');
-    }
-    const packageBytes = Buffer.from(await response.arrayBuffer());
-    const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
-    const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.json$/, '');
-    if (expectedIntegrity.startsWith('sha256-') && integrity !== expectedIntegrity) {
-      throw new Error(`Dependency Published Skill Package checksum does not match Registry metadata: expected ${expectedIntegrity}, got ${integrity}`);
-    }
-    const packageData = JSON.parse(packageBytes.toString('utf8')) as {
-      name: string;
-      skillId: string;
-      version: string;
-      sourceCommit: string;
-      releaseManifest: { compatibility?: Record<string, unknown> };
-      files: Record<string, string>;
-      dependencyLock?: Record<string, LockedDependency>;
-    };
-    if (!options.ignoreCompatibility) {
-      const compatibility = await evaluateCompatibility(packageData.releaseManifest.compatibility ?? {}, {
-        execFileAsync: options.execFileAsync
-      });
-      if (!compatibility.compatible) {
-        throw new Error(`Dependency ${dependencyName} is incompatible: ${[
-          ...compatibility.missingTools.map((tool) => `missing tool ${tool}`),
-          ...compatibility.unsupportedLanguages.map((language) => `unsupported language ${language}`)
-        ].join(', ')}`);
-      }
-    }
-    const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(dependencyName));
-    const dependencyStagingDir = `${dependencyTargetDir}.staging-${process.pid}-${Date.now()}`;
-    await removeDirectory(dependencyStagingDir);
-    for (const [relativePath, content] of Object.entries(packageData.files ?? {})) {
-      const destination = path.join(dependencyStagingDir, relativePath);
-      await fs.mkdir(path.dirname(destination), { recursive: true });
-      await fs.writeFile(destination, content, 'utf8');
-    }
-    const dependencyPreviousDir = `${dependencyTargetDir}.previous-${process.pid}-${Date.now()}`;
-    try {
-      await fs.rename(dependencyTargetDir, dependencyPreviousDir);
-    } catch {
-      await removeDirectory(dependencyPreviousDir);
-    }
-    try {
-      await fs.rename(dependencyStagingDir, dependencyTargetDir);
-    } catch (error) {
-      await removeDirectory(dependencyStagingDir);
-      try {
-        await fs.rename(dependencyPreviousDir, dependencyTargetDir);
-      } catch {
-      }
-      throw error;
-    }
-    await removeDirectory(dependencyPreviousDir);
-    const dependencySpecifier = `^${dependency.version}`;
-    const dependencyLockEntry = {
-      skillId: dependency.skillId,
-      identity: dependencyName,
-      version: dependency.version,
+    const rootSpecifier = `^${version}`;
+    const rootLockEntry = {
+      skillId: rootData.skillId,
+      identity: name,
+      version,
       resolved: resolvedPackageUrl,
       integrity,
       source: 'registry' as const
     };
-    await addLockEntry(dependencyRoot, dependencyName, dependencyLockEntry);
-    await recordInstalledSkill(storeRoot, dependencyName, dependencyLockEntry, dependencySpecifier);
-    await installPublishedDependencies(
-      dependency.dependencyLock ?? {},
-      dependencyRoot,
-      storeRoot,
-      options,
-      authToken,
-      seen
-    );
+    await addSkillDependency(dependencyRoot, name, rootSpecifier);
+    await addLockEntry(dependencyRoot, name, rootLockEntry);
+    await recordInstalledSkill(storeRoot, name, rootLockEntry, rootSpecifier);
+  } catch (error) {
+    await rollbackSwaps(committed);
+    throw error;
   }
+
+  return targetDir;
 }
 
 /**

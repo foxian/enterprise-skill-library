@@ -185,12 +185,19 @@ owner / 创建者删除。删除前必须展示依赖方、填写原因并输入
 尚未产生任何 Skill Release 的 Server-hosted Skill Source。经授权的 Skill User
 可以下载和修改其源码，但不能将它作为技能安装。
 
+## Consumer Project Root
+
+拥有项目级 Skill Store 与 Skill Dependency Manifest 的目录。项目级 Skill Source Link 的落点是这里，不是 Local Skill Source。它与用户级全局 Skill Store 相对。
+
+_Avoid_: 把 Local Skill Source 叫成项目目录；技能项目（当指源码仓库时）。
+
 ## Skill Store
 
 A scope-local collection of installed skill sources owned by ESL. A project
-store lives under the project's `.eslib`; a global store lives under the user's
+store lives under the Consumer Project Root's `.eslib`; a global store lives under the user's
 `~/.eslib`. It is generated local state, not the project's dependency
-declaration.
+declaration. Each Skill Identity has exactly one installed copy in a given
+store.
 
 _Avoid_: `.skills`, `.skill-library`, when referring to the new scoped store.
 
@@ -236,14 +243,16 @@ The consumer project's declaration of the skills it directly uses, stored as
 Release Manifest. It no longer declares AI tools (ADR-0054); a legacy `tools`
 field is ignored on read and dropped on write.
 
-_Avoid_: release.json, when referring to project dependencies.
+_Avoid_: release.json, when referring to project dependencies; Release
+Dependency, 发布依赖（那是技能对技能的安装图，不是项目用技能）。
 
 ## Skill Dependency Lock
 
 The consumer project's exact resolved skill graph, stored as
-`.skills-lock.json`, including versions, sources, and integrity values. It is
-distinct from the server-side Release Dependency Lock frozen into a Skill
-Release.
+`.skills-lock.json`, including versions, sources, and integrity values. Direct
+project entries come from the Skill Dependency Manifest; Release Dependency
+edges of those skills are also recorded here. It is distinct from the
+server-side Release Dependency Lock frozen into a Skill Release.
 
 _Avoid_: Release Dependency Lock.
 
@@ -259,8 +268,8 @@ Server-hosted Skill Source 中随源码一起进行 Git 管理的 `release.json`
 服务器生成 Skill Release 和 Published Skill Package 时所需的发布属性，包括
 `schemaVersion`、`name`（v3 起必填的完整 Skill Identity，技能归属的唯一权
 威来源，ADR-0032）、`version`（SemVer，随源码走 Git 历史，见 ADR-0030）、许可
-证、搜索关键词、兼容性约束和技能依赖，但不记录源码 commit、checksum、发布
-时间或发布状态。发布时，服务器从目标源码 commit
+证、搜索关键词、兼容性约束和发布依赖（Release Dependency），但不记录源码
+commit、checksum、发布时间或发布状态。发布时，服务器从目标源码 commit
 读取并校验该清单，断言 `name` 与技能既定身份一致（归属变更不得借发布顺
 车，ADR-0032），将其内容固化为该 Skill Release 的元数据快照；后续源码修改
 不影响已经创建的 Skill Release。除 `license` 外，其余字段允许为空集合，但
@@ -272,7 +281,7 @@ _Avoid_: Skill Release，用于指代该文件时。
 ## Skill Manifest
 
 已安装技能的**安装副本**或 **Published Skill Package** 中携带的 `skill.json`。
-它记录技能身份、SemVer 版本、描述、作者与可选的关键词、兼容性、依赖等
+它记录技能身份、SemVer 版本、描述、作者与可选的关键词、兼容性、发布依赖等
 元数据，供 `install`（本地副本）、`adapt`、`version`、`list` 等本地消费链路
 读取。它只在两种生成物中出现：本地安装时的技能包副本，以及服务器发布时生成
 的 Published Skill Package（由 ESL Server 写入，见 ADR-0007）；**它不进入
@@ -281,11 +290,22 @@ Server-hosted Skill Source 源码**，也不作为发布输入。
 _Avoid_: 用 Skill Manifest 指代源码中的清单；源码中的发布清单是
 Release Manifest（`release.json`）。
 
+## 发布依赖 (Release Dependency)
+
+技能在 Release Manifest `dependencies` 中声明的、对其他已发布 Server-hosted 技能的安装图
+依赖。它是技能→技能的边，在发布时冻结为 Release Dependency Lock；安装根技能
+时按该锁取出被依赖技能。传递依赖进入消费者的 Skill Dependency Lock，但不进
+入 Skill Dependency Manifest。被依赖技能会进入 Skill Store 并建立 Tool Link，
+供宿主发现；「何时一起用」仍由根技能 SKILL.md 正文约定，ESL 不发明调用组合
+协议（ADR-0055、ADR-0056）。
+
+_Avoid_: Skill Dependency Manifest（项目用技能）；运行时依赖；composition。
+
 ## Release Dependency Lock
 
-服务器在发布时为每个 `release.json.dependencies` 解析出的精确依赖结果。它把
-依赖的 Skill ID、固定版本和制品校验值保存为该 Skill Release 的锁定图，确保
-同一 Release 之后任何时间安装都解析到同一组已发布技能。
+服务器在发布时为每条发布依赖解析出的精确依赖结果。它把依赖的 Skill ID、固定
+版本和制品校验值保存为该 Skill Release 的锁定图，确保同一 Release 之后任何
+时间安装都解析到同一组已发布技能。同一 Skill Identity 在一份锁中只出现一次。
 
 ## Release Tag
 

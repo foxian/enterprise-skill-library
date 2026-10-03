@@ -37,6 +37,22 @@ vi.mock('../src/prompt.js', async (importOriginal) => {
 });
 vi.mock('../src/commands/upload.js', () => ({ executeUpload: vi.fn() }));
 vi.mock('../src/commands/publish.js', () => ({ executePublish: vi.fn() }));
+const {
+  executeDependAddMock,
+  executeDependListMock,
+  executeDependRemoveMock
+} = vi.hoisted(() => ({
+  executeDependAddMock: vi.fn(),
+  executeDependListMock: vi.fn(),
+  executeDependRemoveMock: vi.fn()
+}));
+vi.mock('../src/commands/depend.js', () => ({
+  executeDependAdd: executeDependAddMock,
+  executeDependList: executeDependListMock,
+  executeDependRemove: executeDependRemoveMock,
+  formatDependList: (result: { dependencies: Record<string, string> }) =>
+    Object.entries(result.dependencies).map(([identity, range]) => `${identity} ${range}`).join('\n')
+}));
 vi.mock('../src/commands/link.js', () => ({
   executeLink: vi.fn(),
   resolveLinkIdentity: vi.fn()
@@ -93,6 +109,9 @@ describe('esl program', () => {
     selectMock.mockReset();
     vi.mocked(executeInstall).mockReset();
     vi.mocked(resolveDefaultInstallTools).mockReset();
+    executeDependAddMock.mockReset();
+    executeDependListMock.mockReset();
+    executeDependRemoveMock.mockReset();
   });
 
   it('returns the tools selected from the checkbox prompt', async () => {
@@ -886,6 +905,50 @@ describe('esl program', () => {
     const update = program.commands.find((command) => command.name() === 'update');
     expect(update?.options.map((option) => option.long)).not.toContain('--tools');
     expect(update?.options.map((option) => option.long)).not.toContain('--force');
+  });
+
+  it('registers depend with add, remove, and list subcommands', () => {
+    const program = createProgram();
+    const depend = program.commands.find((command) => command.name() === 'depend');
+    expect(depend).toBeDefined();
+    expect(depend?.commands.map((command) => command.name())).toEqual(['add', 'remove', 'list']);
+    expect(depend?.description()).toContain('release.json');
+  });
+
+  it('routes bare depend and depend list to the source manifest list', async () => {
+    executeDependListMock.mockResolvedValue({ dependencies: { '@acme/base': '^1.2.0' } });
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+
+    try {
+      await run(['node', 'esl', 'depend', './src']);
+      await run(['node', 'esl', 'depend', 'list', '--json']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(executeDependListMock).toHaveBeenNthCalledWith(1, { directory: './src' });
+    expect(executeDependListMock).toHaveBeenNthCalledWith(2, { directory: undefined });
+    expect(logs).toContain('@acme/base ^1.2.0');
+    expect(logs).toContain(JSON.stringify({ dependencies: { '@acme/base': '^1.2.0' } }, null, 2));
+  });
+
+  it('routes depend add and remove to the source manifest edits', async () => {
+    executeDependAddMock.mockResolvedValue({ identity: '@acme/base', range: '^1.2.0', updated: false });
+    executeDependRemoveMock.mockResolvedValue({ identity: '@acme/base' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await run(['node', 'esl', 'depend', 'add', '@acme/base@^1.2.0', './src']);
+      await run(['node', 'esl', 'depend', 'remove', '@acme/base']);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(executeDependAddMock).toHaveBeenCalledWith('@acme/base@^1.2.0', { directory: './src' });
+    expect(executeDependRemoveMock).toHaveBeenCalledWith('@acme/base', { directory: undefined });
   });
 
   it('registers the release tag repair command', () => {

@@ -1,7 +1,7 @@
 # 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
 
 只读命令（直接跑）：`validate`。
-写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `notes` `release-delete` `share`。
+写命令（先回显、确认再跑）：`init` `version` `source` `reset-source` `upload` `publish` `deprecate` `notes` `release-delete` `share` `depend add` `depend remove`。
 
 ## 初始化新技能（就地补缺）
 `esl init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 4`、`name`、`version: 0.1.0`、`license` 默认 `MIT`、`displayName` 默认按短名 Title Case）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
@@ -57,10 +57,21 @@ esl init ./my-skill --agent-interaction --agent-tool claude-code --params-json '
 - **自动同步源码**：对已托管源，`publish` 会 `fetch`、必要时 rebase 到 `esl/main`、并 push 本地领先的提交与 tag——忘记 push 不再阻断发布；rebase 冲突时保留现场，提示解决后重跑。
 - **发布前校验 release tag**：`v<SemVer>` 必须存在且指向被发布的 commit；缺失或指向别处会报错并指路 `esl version`。
 - **回迁守卫**：新版本低于服务器最高已发布版本时会被拒绝（防手滑烧号）；确需回迁旧线时用 `--force` 越过。
-- **`--dry-run` 预演**：跑完所有本地校验（源码合法、工作树干净、remote 与身份、tag 指针）并打印将要发布的内容（版本、commit、文件清单），**不接触服务端、不 push**。用户想先看清楚会发什么时用它。
+- **`--dry-run` 预演**：跑完所有本地校验（源码合法、工作树干净、remote 与身份、tag 指针）后，调服务器跑**同一套冻锁与可见性校验**（发布依赖的范围交集、环、全链可读），打印将要发布的内容（版本、commit、文件清单、dependencyLock），**不创建 Release、不 push**。用户想先看清楚会发什么、图解不解析得动时用它。
 - 若目录还没有 `esl` remote，`publish` 会报错并提示你先 `esl upload`；它不自动建仓、不隐式登记，也不替你推断发布身份。
 
 重要：`@local/*` 保留 Scope 被系统拦截、无法发布（保留名同理：`local`/`builtin`/`admin`/`api`/`git`/`system` 不能作 scope 或用户名）。**发布身份以 `release.json` 的 `name` 为准**（ADR-0032），`publish` 只断言它与首次 upload 固定的身份一致。跑完报告服务器返回的技能身份与 Release Tag（`v<SemVer>`）提示。
+
+## 发布依赖（技能→技能的安装图）
+发布依赖是**技能对技能的安装图边**，写在技能源 `release.json` 的 `dependencies`（键 `@namespace/name`，值 SemVer 范围）。它不是项目侧 `.skills.json`，也不是「Agent 用 A 就自动加载 B」的运行时组合——何时一起用仍写在根技能 SKILL.md 正文，ESL 没有运行时 `depends` 字段。
+
+- `esl depend add @namespace/name [./path]` —— 把边写进技能源清单。**add 必须联网向 Registry 解析**：目标读不到、没有任何已发布版本、或目标是 `@builtin/*`、`@local/*`、`file:` 时拒绝且不改清单。
+  - 不给范围：默认写 `^<当时 Registry 最高稳定版>`（预发布不进默认，与 install 选最高稳定版一致）。
+  - `esl depend add @namespace/name@^1.2.0`：写作者给的范围；同一身份已有边时是**更新**这条边，清单里一个身份只有一条边。
+- `esl depend remove @namespace/name [./path]` —— 删边；边不存在会失败。
+- 无参数 `esl depend`（或 `esl depend list`）—— 列出源清单里的身份与范围，发布前核对。
+- 目录选择与 `publish`/`version` 一致：位置路径或全局 `-C`。命令**只改 `release.json`**：不碰项目 `.skills.json`、Skill Store、Tool Link，不自动 version/commit/tag，可在没有项目安装图的纯源码仓库里跑。
+- 手改 `release.json.dependencies` 永远合法；发布时服务器权威校验目标身份与整条图：范围无交集、成环（含自依赖）、发布者读不到、Public 根依赖非 Public 技能都会拒绝。
 
 ## 升级版本号
 源码形态（`SKILL.md` + `release.json`）的版本号**存在 `release.json` 的 `version` 字段里**，随源码走 Git 历史。升版一律走 `esl version`：
