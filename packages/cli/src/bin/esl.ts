@@ -56,6 +56,12 @@ import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
+import {
+  executeDependAdd,
+  executeDependList,
+  executeDependRemove,
+  formatDependList
+} from '../commands/depend.js';
 import { executeDeprecate } from '../commands/deprecate.js';
 import { executeReleaseDelete } from '../commands/release-delete.js';
 import { executeUpload } from '../commands/upload.js';
@@ -902,6 +908,60 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         console.log('Dry run complete — no release was created.');
       } else {
         console.log('Skill published');
+      }
+    });
+
+  // 发布依赖是技能源清单（release.json.dependencies）的边，不是项目侧安装——
+  // 父命令无子命令时即 list（ADR-0056）。
+  const dependCommand = program
+    .command('depend')
+    .description('Manage release dependencies declared in the skill source release.json')
+    .argument('[path]', 'skill source directory (defaults to --cd or the current directory)')
+    .option('--json', 'output as JSON')
+    .addHelpText('after', example('$ esl depend add @acme/style-guide'))
+    .action(async (skillPath: string | undefined, options: { json?: boolean }) => {
+      const result = await executeDependList({ directory: skillPath });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatDependList(result));
+      }
+    });
+
+  dependCommand
+    .command('add')
+    .description('Add or update a release dependency edge (resolves against the Registry)')
+    .argument('<target>', 'skill identity, optionally with a range: @acme/style-guide[@^1.0.0]')
+    .argument('[path]', 'skill source directory (defaults to the current directory)')
+    .addHelpText('after', example('$ esl depend add @acme/style-guide@^1.0.0'))
+    .action(async (target: string, skillPath: string | undefined) => {
+      const result = await executeDependAdd(target, { directory: skillPath });
+      console.log(`${result.identity} ${result.range} (${result.updated ? 'updated' : 'added'})`);
+    });
+
+  dependCommand
+    .command('remove')
+    .description('Remove a release dependency edge')
+    .argument('<target>', 'skill identity: @acme/style-guide')
+    .argument('[path]', 'skill source directory (defaults to the current directory)')
+    .addHelpText('after', example('$ esl depend remove @acme/style-guide'))
+    .action(async (target: string, skillPath: string | undefined) => {
+      const result = await executeDependRemove(target, { directory: skillPath });
+      console.log(`Removed dependency edge: ${result.identity}`);
+    });
+
+  dependCommand
+    .command('list')
+    .description('List release dependencies in the skill source manifest')
+    .argument('[path]', 'skill source directory (defaults to the current directory)')
+    .addHelpText('after', example('$ esl depend list'))
+    // --json 只定义在父命令上：同名选项会被父级解析器吸收，这里从 parent opts 读。
+    .action(async (skillPath: string | undefined, _options: unknown, command: { parent: { opts: () => { json?: boolean } } }) => {
+      const result = await executeDependList({ directory: skillPath });
+      if (command.parent.opts().json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatDependList(result));
       }
     });
 
