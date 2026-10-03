@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelection, run } from '../src/bin/esl.js';
 import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
@@ -2078,5 +2078,207 @@ describe('upload / publish positional path', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('esl version'));
     errorSpy.mockRestore();
     process.exitCode = undefined;
+  });
+});
+
+describe('consumer project root discovery (bin)', () => {
+  let root: string;
+  let homeDir: string;
+  let originalCwd: string;
+  let homedirSpy: ReturnType<typeof vi.spyOn>;
+
+  function writeSkill(directory: string): void {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, 'SKILL.md'),
+      '---\nname: draft-skill\ndescription: Test skill.\n---\n\n# Draft\n'
+    );
+  }
+
+  beforeEach(() => {
+    originalCwd = process.cwd();
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cpr-'));
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cpr-home-'));
+    homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    vi.mocked(isInteractive).mockReturnValue(false);
+    vi.mocked(resolveLinkIdentity).mockReset();
+    vi.mocked(executeLink).mockReset();
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    homedirSpy.mockRestore();
+    process.exitCode = undefined;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('links into the parent project store silently under --no-input with hard evidence', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.writeFileSync(path.join(root, '.skills.json'), '{"skills":{}}\n');
+    process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
+    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked');
+
+    const program = createProgram();
+    await program.parseAsync(['link', '--no-input', '--no-tools'], { from: 'user' });
+
+    expect(executeLink).toHaveBeenCalledWith(
+      '.',
+      expect.objectContaining({ projectRoot: root, global: false })
+    );
+  });
+
+  it('fails under --no-input when the parent has only weak evidence', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.mkdirSync(path.join(root, '.codex'));
+    process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
+
+    const program = createProgram();
+    await expect(
+      program.parseAsync(['link', '--no-input', '--no-tools'], { from: 'user' })
+    ).rejects.toThrow(/Consumer Project Root|--global/i);
+    expect(executeLink).not.toHaveBeenCalled();
+  });
+
+  it('asks the agent to confirm weak evidence and shows the tool directories', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.mkdirSync(path.join(root, '.codex'));
+    fs.mkdirSync(path.join(root, '.cursor'));
+    process.chdir(path.join(root, 'draft-skill'));
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await run(['node', 'esl', 'link', '--agent-interaction', '--no-tools']);
+
+      expect(process.exitCode).toBe(2);
+      expect(executeLink).not.toHaveBeenCalled();
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{ question: string; multiSelect: boolean; options: Array<{ label: string }> }>;
+      };
+      expect(payload.questions).toHaveLength(1);
+      expect(payload.questions[0].question).toContain('.codex');
+      expect(payload.questions[0].question).toContain('.cursor');
+      expect(payload.questions[0].multiSelect).toBe(false);
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('asks the agent to choose a project root when there is no evidence', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    process.chdir(path.join(root, 'draft-skill'));
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    try {
+      await run(['node', 'esl', 'unlink', '--agent-interaction']);
+
+      expect(process.exitCode).toBe(2);
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{ question: string; options: Array<{ label: string; description?: string }> }>;
+      };
+      expect(payload.questions[0].question).toContain('Consumer Project Root');
+      expect(payload.questions[0].options.map((option) => option.description)).toEqual(
+        expect.arrayContaining(['choice: init', 'choice: directory', 'choice: global'])
+      );
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('completes an agent link rerun with --params-json useParent', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.mkdirSync(path.join(root, '.trae'));
+    process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
+    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked');
+
+    await run([
+      'node',
+      'esl',
+      'link',
+      '--agent-interaction',
+      '--no-tools',
+      '--params-json',
+      '{"useParent":true}'
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(executeLink).toHaveBeenCalledWith(
+      '.',
+      expect.objectContaining({ projectRoot: root, global: false })
+    );
+  });
+
+  it('hints the parent project root for list inside a skill directory', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.writeFileSync(path.join(root, '.skills.json'), '{"skills":{}}\n');
+    process.chdir(path.join(root, 'draft-skill'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const program = createProgram();
+      await program.parseAsync(['list', '--no-input'], { from: 'user' });
+
+      const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain(root);
+      expect(output).toContain('-C');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('chdirs with the global -C before judging the new cwd', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.writeFileSync(path.join(root, '.skills.json'), '{"skills":{}}\n');
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
+    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked');
+
+    const program = createProgram();
+    await program.parseAsync(
+      ['link', '-C', path.join(root, 'draft-skill'), '--no-input', '--no-tools'],
+      { from: 'user' }
+    );
+
+    expect(executeLink).toHaveBeenCalledWith(
+      '.',
+      expect.objectContaining({ projectRoot: root, global: false })
+    );
+  });
+
+  it('initializes the parent during an agent rerun that chooses init', async () => {
+    writeSkill(path.join(root, 'draft-skill'));
+    fs.mkdirSync(path.join(root, '.claude'));
+    process.chdir(path.join(root, 'draft-skill'));
+    vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@local/draft-skill' });
+    vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked');
+    const program = createProgram();
+
+    await program.parseAsync(
+      [
+        'link',
+        '--agent-interaction',
+        '--no-tools',
+        '--params-json',
+        '{"useParent":false,"projectRootChoice":"init"}'
+      ],
+      { from: 'user' }
+    );
+
+    expect(fs.existsSync(path.join(root, '.skills.json'))).toBe(true);
+    expect(executeLink).toHaveBeenCalledWith(
+      '.',
+      expect.objectContaining({ projectRoot: root, global: false })
+    );
   });
 });

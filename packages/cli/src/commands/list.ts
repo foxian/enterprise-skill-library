@@ -11,10 +11,12 @@ import {
 export interface ListOptions extends LocalStoreOptions {
   global?: boolean;
   json?: boolean;
+  /** 只用于测试与调用方注入；默认 process.cwd()。 */
+  projectRoot?: string;
 }
 
 export async function executeList(options: ListOptions = {}): Promise<SkillListEntry[]> {
-  const projectRoot = process.cwd();
+  const projectRoot = options.projectRoot ?? process.cwd();
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root
     : resolveProjectStorePaths(projectRoot).root;

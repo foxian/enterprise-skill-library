@@ -16,6 +16,7 @@ import { executeLink } from '../src/commands/link.js';
 import { executeUnlink } from '../src/commands/unlink.js';
 import { executeUninstall } from '../src/commands/uninstall.js';
 import { executeUpdate } from '../src/commands/update.js';
+import { executeList } from '../src/commands/list.js';
 
 function writeSkillSource(
   directory: string,
@@ -427,18 +428,114 @@ describe('esl unlink', () => {
     ).rejects.toThrow(/@one\/shared-source[\s\S]*@two\/shared-source|@two\/shared-source[\s\S]*@one\/shared-source/i);
   });
 
-  it('hints project-root path or --global when bare project unlink is run inside a skill directory', async () => {
-    const sourceDir = path.join(projectDir, 'draft-skill');
-    writeSkillSource(sourceDir, '@local/draft-skill', '# Draft');
-    await executeLink(sourceDir, { projectRoot: projectDir, homeDir, noTools: true });
+});
+
+describe('Consumer Project Root discovery from a Local Skill Source (ADR-0057)', () => {
+  let farmDir: string;
+  let homeDir: string;
+  let skillDir: string;
+
+  beforeEach(async () => {
+    farmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-farm-'));
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-farm-home-'));
+    skillDir = path.join(farmDir, 'draft-skill');
+    writeSkillSource(skillDir, '@local/draft-skill', '# Draft');
+    await initializeLocalStore({ homeDir });
+    await saveConfig({ tools: [] }, { homeDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(farmDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  it('links into the parent project store when the parent has hard evidence', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+
+    const targetDir = await executeLink(skillDir, { cwd: skillDir, homeDir, noTools: true });
+
+    expect(targetDir).toBe(path.join(farmDir, '.eslib', 'skills', '@local', 'draft-skill'));
+    expect(fs.lstatSync(targetDir).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(path.join(skillDir, '.eslib'))).toBe(false);
+    const skills = await loadSkillsJson(farmDir);
+    expect(skills.skills['@local/draft-skill']).toBe(`link:${path.resolve(skillDir)}`);
+  });
+
+  it('unlinks from the parent project store with a bare or @identity command', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+    await executeLink(skillDir, { cwd: skillDir, homeDir, noTools: true });
+
+    const bare = await executeUnlink(undefined, { cwd: skillDir, homeDir });
+    expect(bare.identity).toBe('@local/draft-skill');
+    expect(
+      fs.existsSync(path.join(farmDir, '.eslib', 'skills', '@local', 'draft-skill'))
+    ).toBe(false);
+    const manifest = await loadInstallManifest(path.join(farmDir, '.eslib'));
+    expect(manifest.skills['@local/draft-skill']).toBeUndefined();
+
+    await executeLink(skillDir, { cwd: skillDir, homeDir, noTools: true });
+    const byIdentity = await executeUnlink('@local/draft-skill', { cwd: skillDir, homeDir });
+    expect(byIdentity.identity).toBe('@local/draft-skill');
+    expect(
+      fs.existsSync(path.join(farmDir, '.eslib', 'skills', '@local', 'draft-skill'))
+    ).toBe(false);
+  });
+
+  it('does not redirect to the parent when the skill directory already has hard evidence', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+    fs.writeFileSync(path.join(skillDir, '.skills.json'), '{"skills":{}}\n');
+
+    // The skill directory is its own Consumer Project Root, so linking would nest
+    // the store inside the source: the core self-reference guard is the last line
+    // of defense. Either way, nothing is written to the parent.
+    await expect(
+      executeLink(skillDir, { cwd: skillDir, homeDir, noTools: true })
+    ).rejects.toThrow(/must not be inside the source directory/i);
+    expect(fs.existsSync(path.join(farmDir, '.eslib', 'skills', '@local', 'draft-skill'))).toBe(false);
+  });
+
+  it('links globally from inside a skill directory without looking one level up', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+
+    const targetDir = await executeLink(skillDir, {
+      cwd: skillDir,
+      homeDir,
+      global: true,
+      noTools: true
+    });
+
+    expect(targetDir).toBe(path.join(homeDir, '.eslib', 'skills', '@local', 'draft-skill'));
+    expect(fs.existsSync(path.join(skillDir, '.eslib'))).toBe(false);
+    expect(fs.existsSync(path.join(farmDir, '.eslib'))).toBe(false);
+  });
+
+  it('refuses install/update inside the skill source before writing a nested store', async () => {
+    await expect(
+      executeInstall('@acme/review', { projectRoot: skillDir, cwd: skillDir, homeDir })
+    ).rejects.toThrow(/nested Skill Store|Consumer Project Root/i);
+    expect(fs.existsSync(path.join(skillDir, '.eslib'))).toBe(false);
 
     await expect(
-      executeUnlink(undefined, {
-        projectRoot: sourceDir,
-        homeDir,
-        cwd: sourceDir
-      })
-    ).rejects.toThrow(/project root|relative\/path|--global|@identity/i);
+      executeUpdate({ projectRoot: skillDir, cwd: skillDir, homeDir })
+    ).rejects.toThrow(/nested Skill Store|Consumer Project Root/i);
+    expect(fs.existsSync(path.join(skillDir, '.eslib'))).toBe(false);
+  });
+
+  it('lists only the skill directory store without switching to the parent', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+    await executeLink(skillDir, { cwd: skillDir, homeDir, noTools: true });
+
+    const skills = await executeList({ projectRoot: skillDir });
+
+    expect(skills).toEqual([]);
+  });
+
+  it('hints the parent project root when uninstall cannot find the skill in the skill directory', async () => {
+    fs.writeFileSync(path.join(farmDir, '.skills.json'), '{"skills":{}}\n');
+
+    await expect(
+      executeUninstall('@local/draft-skill', { projectRoot: skillDir, cwd: skillDir, homeDir })
+    ).rejects.toThrow(new RegExp(farmDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });
 });
 

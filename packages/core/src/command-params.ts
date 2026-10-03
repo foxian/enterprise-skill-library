@@ -41,6 +41,21 @@ export function readOptionalStringParam(
   return value;
 }
 
+export function readOptionalBooleanParam(
+  params: CommandParams,
+  key: string,
+  command: string
+): boolean | undefined {
+  const value = params[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid --params-json for ${command}: "${key}" must be a boolean`);
+  }
+  return value;
+}
+
 export function readOptionalStringArrayParam(
   params: CommandParams,
   key: string,

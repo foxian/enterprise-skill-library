@@ -51,11 +51,14 @@
 
 - 解除 Skill Source Link。有 staging 时纯本地恢复原副本和依赖/锁/安装状态；无 staging 时移除 link 和记录。
 - staging 缺失或损坏时报错并保留 link 状态，不尝试联网恢复。
+- **站在 Local Skill Source 里的项目级 link/unlink（ADR-0057）：** cwd 是技能源码、本身还不是 Consumer Project Root 时，CLI 只把「技能目录的上一级」当候选项目根，且只看这一层、不向祖先搜索。上一级已有 `.skills.json` 或 `.eslib/` 就静默采用；只有工具点目录（`.claude` `.codex` `.cursor` `.trae` `.workbuddy` `.opencode` `.hermes`）时先确认；都没有则三选一（初始化上一级 / 指定目录 / 改全局），非交互在缺硬证据时失败并列出可行动选项。因此刚在技能目录里 `link` 成功的技能，能在同一目录直接 `unlink`。
 - **主推：** 显式 `@scope/skill-name`；已在技能目录且当初是 **global** link 时，可 `esl unlink --global`（省略身份，读当前目录 `release.json`）。
-- **项目级：** 在**项目根**执行 `esl unlink ./相对路径`，或显式传身份。不承诺「cd 进技能子目录后做项目级裸 unlink」能找对 Store（CLI 不以技能目录向上查找 `.eslib`）。
+- **项目级（项目根）：** `esl unlink ./相对路径`，或显式传身份，行为与今天一致、不触发上一级探测；不向更上层祖先搜索。
 - 非 `@` 参数一律视为路径。裸短名 `release.json.name` 按 `@local/<短名>` 推导。
 - 若目录推出的身份与真实已 link 身份不一致，报错并列出真实身份；请改传显式 `@identity`。
-- 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 只改工作目录 / 项目根，位置路径决定读哪个技能目录）。
+- 进阶：`esl unlink -C <项目根> ./skills/foo`（`-C` 先 chdir，再对 *新 cwd* 判断 `unlink`；位置路径决定读哪个技能目录）。
+
+**`install` / `update` / `uninstall` / `list` / `tools` 须站在 Consumer Project Root 执行（ADR-0057）：** 站在无 Manifest/Store 的技能源码里时，`install` / `update` 会在写入 Store/Manifest 之前**拒绝**并把技能源码写成嵌套消费方，并提示去真正的项目根或 `-C`；`list` / `tools` / `uninstall` 不探测上一级、仍只操作当前 cwd 的 Store，若上一级有 `.skills.json` / `.eslib` 则追加 Hint（去那个目录或 `-C`）。技能目录自己已有硬证据时它就是项目根，按项目根语义正常执行。**禁止建议在技能源码里做项目级 `install`。**
 
 `esl uninstall` 对 link 技能只删除 Skill Store link、记录、Tool Link 和 staging，不会递归删除本地源码目录；`esl update` 会跳过 link 技能并报告 skipped。
 `esl list` / `esl ls [--global|-g] [--json] [--no-input]` —— 当前项目或全局 Skill Store 的本机管理入口（ADR-0058）。

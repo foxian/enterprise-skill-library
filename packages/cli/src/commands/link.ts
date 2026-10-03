@@ -32,6 +32,7 @@ import {
   rollbackSwaps,
   type PackageSwap
 } from './install.js';
+import { resolveProjectRootSilently } from './consumer-project-root.js';
 import { notify } from '../output.js';
 
 export interface LinkOptions extends NetworkCommandOptions {
@@ -41,6 +42,8 @@ export interface LinkOptions extends NetworkCommandOptions {
   noTools?: boolean;
   force?: boolean;
   projectRoot?: string;
+  /** 只用于 Consumer Project Root 发现；默认 process.cwd()，不等于改变项目根语义。 */
+  cwd?: string;
 }
 
 interface ResolvedSourceSkill {
@@ -155,10 +158,19 @@ export async function resolveLinkIdentity(
 }
 
 export async function executeLink(sourcePath: string, options: LinkOptions = {}): Promise<string> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const cwd = options.cwd ?? process.cwd();
   const resolved = path.resolve(sourcePath);
   const source = await resolveSourceSkill(resolved, options.identity);
   const identity = source.identity;
+  // ADR-0057：站在 Local Skill Source 里做项目级 link 时，静默采用上一级
+  // Consumer Project Root（hard evidence）。交互路径由 bin 层完成。
+  const projectRoot = await resolveProjectRootSilently({
+    command: 'link',
+    global: options.global,
+    cwd,
+    candidateDir: resolved,
+    projectRoot: options.projectRoot
+  });
 
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root

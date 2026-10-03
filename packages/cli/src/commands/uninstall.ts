@@ -18,12 +18,15 @@ import {
 } from '@esl/core';
 import { installTargetDir, projectSkillsDir } from './network-options.js';
 import { computeRequiredIdentities } from './dependency-graph.js';
+import { consumerProjectRootHint } from './consumer-project-root.js';
 
 export interface UninstallOptions extends LocalStoreOptions {
   projectRoot?: string;
   global?: boolean;
   noAdapt?: boolean;
   force?: boolean;
+  /** 只用于提示判断；默认 projectRoot / process.cwd()。 */
+  cwd?: string;
 }
 
 export interface UninstallResult {
@@ -83,7 +86,8 @@ export async function removeInstalledIdentity(
 }
 
 export async function executeUninstall(name: string, options: UninstallOptions = {}): Promise<UninstallResult> {
-  const projectRoot = options.projectRoot ?? process.cwd();
+  const cwd = options.cwd ?? process.cwd();
+  const projectRoot = options.projectRoot ?? cwd;
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root
     : resolveProjectStorePaths(projectRoot).root;
@@ -92,7 +96,12 @@ export async function executeUninstall(name: string, options: UninstallOptions =
   const installManifest = await loadInstallManifest(storeRoot);
   const entry = installManifest.skills[name];
   if (!entry) {
-    throw new Error(`Skill ${name} is not installed by ESL`);
+    let message = `Skill ${name} is not installed by ESL`;
+    const hint = await consumerProjectRootHint({ global: options.global, cwd });
+    if (hint) {
+      message += `. ${hint}`;
+    }
+    throw new Error(message);
   }
 
   const skillsJson = await loadSkillsJson(dependencyRoot);

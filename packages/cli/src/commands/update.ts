@@ -24,11 +24,14 @@ import {
   requireFreshToken
 } from './network-options.js';
 import type { NetworkCommandOptions } from './network-options.js';
+import { assertNotNestedConsumerStore } from './consumer-project-root.js';
 
 export interface UpdateOptions extends NetworkCommandOptions {
   projectRoot?: string;
   skillName?: string;
   global?: boolean;
+  /** 只用于嵌套 Store 拒绝判断；默认 projectRoot / process.cwd()。 */
+  cwd?: string;
 }
 
 export interface UpdateResultEntry {
@@ -47,7 +50,13 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
       'esl update no longer accepts --tools or --force; tool selection belongs to install/link and link repair to: esl tools sync'
     );
   }
-  const dependencyRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? process.cwd();
+  const dependencyRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? options.cwd ?? process.cwd();
+  await assertNotNestedConsumerStore({
+    command: 'update',
+    global: options.global,
+    projectRoot: dependencyRoot,
+    cwd: options.cwd
+  });
   const storeRoot = options.global ? dependencyRoot : resolveProjectStorePaths(dependencyRoot).root;
   const skillsJson = await loadSkillsJson(dependencyRoot);
   const lockJson = await loadSkillsLock(dependencyRoot);

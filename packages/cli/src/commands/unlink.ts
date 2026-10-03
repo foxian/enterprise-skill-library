@@ -19,6 +19,7 @@ import {
 } from '@esl/core';
 import { installTargetDir, projectSkillsDir } from './network-options.js';
 import { resolveUnlinkIdentity } from './resolve-unlink-identity.js';
+import { consumerProjectRootHint, resolveProjectRootSilently } from './consumer-project-root.js';
 
 export interface UnlinkOptions extends LocalStoreOptions {
   projectRoot?: string;
@@ -45,9 +46,19 @@ export async function executeUnlink(
   options: UnlinkOptions = {}
 ): Promise<UnlinkResult> {
   const cwd = options.cwd ?? process.cwd();
-  const projectRoot = options.projectRoot ?? cwd;
   const resolved = await resolveUnlinkIdentity(target, { cwd });
   const name = resolved.identity;
+  // ADR-0057：站在刚 link 过的 Local Skill Source 里做项目级 unlink 时，静默
+  // 采用上一级 Consumer Project Root；交互路径由 bin 层完成。
+  const projectRoot = options.global
+    ? options.projectRoot ?? cwd
+    : await resolveProjectRootSilently({
+        command: 'unlink',
+        global: false,
+        cwd,
+        candidateDir: resolved.skillDir ?? cwd,
+        projectRoot: options.projectRoot
+      });
 
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root
@@ -79,13 +90,16 @@ export async function executeUnlink(
 
   if (!entry || entry.source !== 'link') {
     let message = `Skill ${name} is not linked by ESL`;
-    if (!options.global && resolved.usedOmitOrDot && resolved.skillDir) {
+    const hint = await consumerProjectRootHint({ global: options.global, cwd });
+    if (hint) {
+      message += `. ${hint}`;
+    } else if (!options.global && resolved.usedOmitOrDot && resolved.skillDir) {
       const looksLikeSkillDir =
         (await fileExists(path.join(resolved.skillDir, 'release.json'))) ||
         (await fileExists(path.join(resolved.skillDir, 'SKILL.md')));
       if (looksLikeSkillDir) {
         message +=
-          '. For a project-level Skill Source Link, run this from the project root as `esl unlink ./relative/path` or pass @identity; if the skill was linked with --global, pass --global';
+          '. If the skill was linked with --global, pass --global; otherwise pass @identity or run from the Consumer Project Root';
       }
     }
     throw new Error(message);

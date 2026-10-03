@@ -139,6 +139,10 @@ export const apiErrorMessages = {
   dependEdgeNotFound: 'Release manifest has no dependency edge for {identity}',
   cliGitMissing:
     'Git is required for this command. Install git (on Windows: https://git-scm.com/download/win) and make sure it is on your PATH.',
+  consumerProjectRootRequired:
+    'Cannot determine the Consumer Project Root from {directory}: its parent has no .skills.json or .eslib. Run from the project root, initialize the parent as a Consumer Project Root, or pass --global.',
+  consumerProjectRootNestedStoreRefused:
+    'Refusing to create a nested Skill Store inside the Local Skill Source {directory}. Run this from the Consumer Project Root, or pass --global. To use the parent directory as the project root: esl -C {parent}.',
 } as const;
 
 export type ApiErrorCode = keyof typeof apiErrorMessages;
@@ -280,4 +284,8 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   dependEdgeNotFound: '发布清单里没有 {identity} 这条依赖边',
   cliGitMissing:
     '该命令需要 git。请安装 Git（Windows 可从 https://git-scm.com/download/win 下载）并确认其在 PATH 中。',
+  consumerProjectRootRequired:
+    '无法从 {directory} 判断 Consumer Project Root：其上一级没有 .skills.json 或 .eslib。请在项目根执行、把上一级初始化为 Consumer Project Root，或传 --global。',
+  consumerProjectRootNestedStoreRefused:
+    '拒绝在 Local Skill Source {directory} 内创建嵌套 Skill Store。请到 Consumer Project Root 执行，或传 --global。若以上一级目录为项目根：esl -C {parent}。',
 };

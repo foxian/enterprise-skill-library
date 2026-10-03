@@ -57,6 +57,7 @@ import type { LocalStoreOptions } from '@esl/core';
 import { executeInfo } from './info.js';
 import { notify } from '../output.js';
 import { resolveBuiltinDir } from '../builtin-dir.js';
+import { assertNotNestedConsumerStore } from './consumer-project-root.js';
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -75,6 +76,8 @@ export interface InstallOptions extends NetworkCommandOptions {
   force?: boolean;
   ignoreCompatibility?: boolean;
   projectRoot?: string;
+  /** 只用于嵌套 Store 拒绝判断；默认 projectRoot / process.cwd()。 */
+  cwd?: string;
   execFileAsync?: typeof defaultExecFileAsync;
 }
 
@@ -821,6 +824,12 @@ export async function resolveDefaultInstallTools(
 
 export async function executeInstall(nameOrPath: string, options: InstallOptions = {}): Promise<string> {
   const projectRoot = options.projectRoot ?? process.cwd();
+  await assertNotNestedConsumerStore({
+    command: 'install',
+    global: options.global,
+    projectRoot,
+    cwd: options.cwd
+  });
   const failedLinks: string[] = [];
   const storeRoot = options.global
     ? resolveLocalStorePaths(options).root

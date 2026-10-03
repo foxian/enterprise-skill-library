@@ -21,7 +21,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
-**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init`、裸 `esl version`、`install` 或 `link` 时，命令一律追加
+**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl init`、裸 `esl version`、`install`、`link` 或 `unlink` 时，命令一律追加
 `--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
 Claude Code 传 `claude-code`、Codex 传 `codex`、Trae 国际版传 `trae-intl`、
 Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
@@ -30,7 +30,17 @@ Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
 Agent 模式下的确认边界：再次安装覆盖已有副本**不必问**；把普通安装改成
 Skill Source Link（或反向）属于改安装模式，必须先征得用户同意，再带
 `--force` 重跑；缺工具勾选时 CLI 会返回工具多选题，收集后用同一个
-`--tools` 重跑即可。
+`--tools` 重跑即可；站在 Local Skill Source 里做项目级 `link` / `unlink`
+需要判定上一级 Consumer Project Root 时，CLI 会返回项目根确认或三选一，用
+`--params-json`（`useParent` / `projectRootChoice` / `projectRootPath`）交回。
+
+**站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）。** cwd 是
+Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级
+当候选项目根（只看一层）：有 `.skills.json` / `.eslib` 静默采用；只有工具点目录
+时先确认；都没有则三选一，非交互缺硬证据时失败。`install` / `update` /
+`uninstall` / `list` / `tools` **不**探测上一级，主语是当前 cwd 的 Store；站在
+技能源码里 `install` / `update` 写入前拒绝、`list` / `tools` / `uninstall` 追加
+Hint。细节见 `references/consumer.md`。
 
 ## 三条不可妥协的规则
 

@@ -11,8 +11,11 @@
 并不提供与 `link ./path` 对称的位置路径写法，也不消除「省略身份」的需求。
 
 另有一层常被忽略的约束：项目级 Skill Store 挂在**调用时的项目根**
-（`process.cwd()` / `-C` 之后的 cwd）下的 `.eslib`，CLI **不会**从技能目录向上查找
-项目根。因此「人已经在技能子目录里」与「项目级 unlink 找得到 Store」并不是一回事。
+（`process.cwd()` / `-C` 之后的 cwd）下的 `.eslib`。CLI 默认不向任意祖先查找
+项目根；**ADR-0057 的例外**是：站在 Local Skill Source 里做项目级 `link` /
+`unlink` 时，只把「技能目录的上一级」当候选项目根（恰好一层，且须有硬证据或
+一次确认），超出这一层仍然不查找。因此「人已经在技能子目录里」与「项目级
+unlink 找得到 Store」需要按 ADR-0057 的规则理解。
 
 ## Solution
 
@@ -44,15 +47,19 @@ esl unlink [skill-name-or-path] [--global]
 
 - **projectRoot**（决定项目级 Store / 依赖清单位置）= 调用时的 cwd（含 `-C` 之后）。
 - **技能目录**（只用于读 `release.json`）= 省略/`.`/位置路径解析出的目录。
-- 位置路径**绝不**移动 projectRoot，也**不**向上查找 `.eslib`。
+- 位置路径本身不移动 projectRoot；唯一的例外是 ADR-0057：站在 Local Skill Source
+  里做项目级 `unlink` 时，允许把「本技能目录的上一级」认作 Consumer Project Root
+  （恰好一层，硬证据静默 / 弱证据确认 / 无证据三选一），但**不**向任意祖先查找
+  `.eslib`。
 
 **「目录内省略」的正式承诺范围：**
 
 - **正式支持并主推**：`esl unlink --global`（人在技能目录内，或 `unlink . --global`）。
   全局 Store 不依赖项目根，与「站在源码目录里解除」匹配。
 - **项目级**：请在**项目根**执行 `esl unlink ./path/to/skill`，或显式
-  `esl unlink @scope/name`。不承诺「cd 进技能子目录后无路径的项目级 unlink」一定找得到
-  Store（除非项目根恰好就是该技能目录）。
+  `esl unlink @scope/name`。站在技能目录里的项目级省略/`.`/`@identity` unlink
+  按 ADR-0057 处理：上一级有 `.skills.json` / `.eslib` 时静默针对上一级 Store，
+  否则按弱证据/无证据的确认规则处理；不向更上层祖先查找。
 - 帮助与 `esl-operator` 必须写明上述区别，避免把省略写成 project/global 同等可用。
 - **项目级裸 unlink 脚枪提示**：当未传 `--global`、参数为省略或 `.`（即技能目录=cwd）、cwd 可识别为技能源码目录（存在可用的 `SKILL.md` 与/或通过校验的 `release.json`），且推导身份在目标（项目级）Store 中未 link 时，错误信息必须追加可行动提示：项目级请在项目根执行 `esl unlink ./相对路径` 或传入 `@identity`；若实际是全局 link 则加上 `--global`。该提示不改变查找范围（仍不向上找 `.eslib`，仍不跨 global 搜索），只改善失败文案。显式路径或显式 `@identity` 失败时不强制套用本特判。
 
@@ -71,8 +78,9 @@ esl unlink [skill-name-or-path] [--global]
 （与现有 link 代码一致的 `path.resolve` / `samePath` 风格；注意 manifest 里
 `resolved` 存的是绝对路径字符串）。
 
-不新开 ADR；不修改 `link` 的路径参数；不把同样糖衣扩展到 `uninstall`；
-不引入「向上查找项目根」。不要求修订 CONTEXT.md 术语——未引入新领域概念。
+不新开 ADR（上一级 Consumer Project Root 发现由 ADR-0057 规定）；不修改 `link`
+的路径参数；不把同样糖衣扩展到 `uninstall`；除 ADR-0057 的恰好一层外，不向任意
+祖先查找项目根。不要求修订 CONTEXT.md 术语。
 
 ## User Stories
 
@@ -109,7 +117,7 @@ esl unlink [skill-name-or-path] [--global]
 - 默认不修改 ADR-0042 正文；若实现时发现帮助文本无法单独说清，再考虑在 ADR-0042
   末尾追加一句「CLI 允许从技能目录的 release.json 推导身份；项目根仍为调用 cwd」。
 - 本次不做：`uninstall` 目录糖衣；按源路径反查作为主解析；去掉 `link` 的路径参数；
-  自动跨 project/global 查找；向上查找项目根。
+  自动跨 project/global 查找；向任意祖先查找项目根（ADR-0057 的一层例外见正文）。
 
 ## Testing Decisions
 
@@ -135,7 +143,7 @@ esl unlink [skill-name-or-path] [--global]
 - 修改 Skill Source Link 的恢复/暂存语义
 - `uninstall` / `tools remove` 的目录推导
 - 改变 `link --identity` 的补全规则
-- 向上查找项目根 / 自动发现 `.eslib`
+- 向任意祖先查找项目根 / 自动发现 `.eslib`（ADR-0057 的恰好一层例外除外）
 - 新领域术语或 CONTEXT.md 词条
 - 服务端 API 变更
 
@@ -154,5 +162,9 @@ esl unlink [skill-name-or-path] [--global]
 ## 规格状态
 
 已冻结（grilling 第二轮 Q4=A / Q5=A）。后续变更须显式修订本文件并说明理由；默认下一步为 writing-plans，仍可不立即写代码。
+
+## 修订记录
+
+- 2026-10-03：按 ADR-0057 / #97 修正「CLI 绝不从技能目录向上查找项目根」的绝对表述。站在 Local Skill Source 里做项目级 `link` / `unlink` 时，允许把技能目录的上一级认作 Consumer Project Root（恰好一层）；硬证据静默采用，弱证据确认，无证据三选一，非交互缺硬证据失败。其余不查找任意祖先的承诺不变。
 
 

@@ -218,6 +218,8 @@ esl unlink @local/my-skill
 
 有 staging 时 `unlink` 纯本地恢复原副本、依赖、锁文件和安装记录；无 staging 时移除 link 和记录。`uninstall` 链接技能时会保留本地源码目录。
 
+**站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）**：cwd 是 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级当候选项目根（只看一层）。上一级已有 `.skills.json` 或 `.eslib/` 就静默采用；只有工具点目录（`.claude` `.codex` `.cursor` `.trae` `.workbuddy` `.opencode` `.hermes`）时先确认；都没有则三选一（初始化上一级 / 指定目录 / 改全局），非交互在缺硬证据时失败。`install` / `update` / `uninstall` / `list` / `tools` 不探测上一级：站在技能源码里时 `install` / `update` 写入前拒绝并提示去项目根，`list` / `tools` / `uninstall` 仍只看当前 cwd 的 Store 并追加 Hint。
+
 ### 6. 查看与管理已安装技能 (List)
 `esl list` 是当前 Skill Store 的本机管理入口（ADR-0058）：在交互式终端（TTY）且未禁用输入时，进入两级管理台——先选技能，再在详情里查看本机字段（Identity、version、source、安装时间、Store 内路径、Skill Source Link 源路径）与逐条 Tool Link 状态，并可在确认后执行单技能 `update`、按期望 Tool Link 集合对账（语义同 install/link，ADR-0054）、`unlink` / `uninstall`。
 ```bash

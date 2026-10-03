@@ -8,6 +8,7 @@
 
 ### Changed
 
+- 站在 Local Skill Source 里做项目级 `esl link` / `esl unlink` 时只把「技能目录的上一级」当候选 Consumer Project Root，且只看一层（ADR-0057）：上一级已有 `.skills.json` 或 `.eslib/` 静默采用；只有 ESL 项目级工具点目录（`.claude` `.codex` `.cursor` `.trae` `.workbuddy` `.opencode` `.hermes`）时先确认（默认采用上一级，选否后可指定另一个目录或改为全局）；都没有则三选一（初始化上一级 / 指定目录 / 改全局），`--no-input` / 非交互在缺硬证据时失败并列出可行动选项。`esl link -g` 与在项目根的 `esl link ./path` 行为不变。`install` / `update` 站在无 Manifest/Store 的技能源码里写入前拒绝，避免建嵌套 Store；`list` / `tools` / `uninstall` 不探测上一级，上一级有硬证据时只追加 Hint。
 - `esl list`（及 `esl ls`）升级为当前 Skill Store 的本机交互管理入口（ADR-0058）：TTY 且未禁用输入时进入两级管理台（选技能 → 详情与动作），详情展示 Identity、version、source、安装时间、Store 内路径与逐条 Tool Link 状态，`source=link` 必显 Skill Source Link 源路径；确认后可执行单技能 `update`、期望 Tool Link 集合对账（语义同 install/link，ADR-0054，先展示将增/将删再确认）、`unlink` / `uninstall`（按 source 分流，builtin 等隐藏不适用动作）。`--json` / `--no-input` / 非 TTY 保持只读；`--json` 在 name/version/source 之上新增可选 displayName、tools（tool/status/managed）与 linkSourcePath，全部本机读取、不访问网络；人类只读输出每行附带已链接工具摘要。`list` 管理流第一版不接入 Agent Interaction，Agent 请 `list --json` 后改调专用写命令；`esl tools *` 的定位与旗标不变。
 
 - 新增 `esl tools preferred`：查看/编辑本机常用工具（`--add` / `--remove` / `--json`，TTY 无旗标时勾选编辑，允许清空）。常用工具只存本机客户端配置；本机交互式 `install` / `link` 成功提交（TTY 勾选或 Agent 带 `--tools` 重跑）中某工具被选中满两次后自动加入，脚本裸 `--tools` 与 `tools` 子命令不计次。

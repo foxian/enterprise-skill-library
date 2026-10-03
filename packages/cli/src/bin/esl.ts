@@ -14,6 +14,7 @@ import {
   assertNoDuplicateCommandParams,
   createAgentInteractionRequest,
   parseCommandParams,
+  readOptionalBooleanParam,
   readOptionalStringArrayParam,
   readOptionalStringParam,
   resolveToolName,
@@ -52,6 +53,11 @@ import { executeInit } from '../commands/init.js';
 import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
 import { executeLink, resolveLinkIdentity } from '../commands/link.js';
 import { executeUnlink } from '../commands/unlink.js';
+import {
+  assertNotNestedConsumerStore,
+  consumerProjectRootHint,
+  resolveConsumerProjectRoot
+} from '../commands/consumer-project-root.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
 import { executeSetServer } from '../commands/config.js';
@@ -396,6 +402,8 @@ export async function installSkill(
   // 计次规则（ADR-0054）：TTY 勾选成功与 Agent 带 --tools 的重跑成功计入常用工具；
   // 裸 --tools、--no-tools 与默认配置回退不计。
   const projectRoot = process.cwd();
+  // ADR-0057：站在无 Manifest/Store 的技能源码里拒绝嵌套 Store，先于工具交互。
+  await assertNotNestedConsumerStore({ command: 'install', global: options.global, projectRoot });
   const storeRoot = options.global
     ? resolveLocalStorePaths({ homeDir: undefined }).root
     : resolveProjectStorePaths(projectRoot).root;
@@ -505,8 +513,48 @@ function versionAgentFields(inspection: VersionInspection): AgentInteractionFiel
 
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version', 'install', 'link']);
+const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version', 'install', 'link', 'unlink']);
 let activeLocale: Locale = DEFAULT_LOCALE;
+
+// ADR-0057：项目级 link / unlink 站在 Local Skill Source 里时先解析 Consumer
+// Project Root（hard 静默 / weak 确认 / 无证据三选一），再按发现后的 Store 继续。
+async function resolveCommandConsumerProjectRoot(input: {
+  command: 'link' | 'unlink';
+  program: Command;
+  global: boolean;
+  cwd: string;
+  candidateDir: string;
+  interactive: boolean;
+  agentMode: boolean;
+}): Promise<{ projectRoot: string; global: boolean }> {
+  const rawParamsJson = input.program.opts().paramsJson as string | undefined;
+  const params = rawParamsJson
+    ? parseCommandParams(rawParamsJson, input.command, [
+        'useParent',
+        'projectRootChoice',
+        'projectRootPath'
+      ])
+    : {};
+  const agentToolRaw = input.program.opts().agentTool as string | undefined;
+  const resolution = await resolveConsumerProjectRoot({
+    command: input.command,
+    global: input.global,
+    cwd: input.cwd,
+    candidateDir: input.candidateDir,
+    interactive: input.interactive,
+    agentMode: input.agentMode,
+    params: {
+      useParent: readOptionalBooleanParam(params, 'useParent', input.command),
+      projectRootChoice: readOptionalStringParam(params, 'projectRootChoice', input.command),
+      projectRootPath: readOptionalStringParam(params, 'projectRootPath', input.command)
+    },
+    agentTool: agentToolRaw === undefined ? undefined : resolveToolName(agentToolRaw)
+  });
+  if (resolution.kind === 'global') {
+    return { projectRoot: input.cwd, global: true };
+  }
+  return { projectRoot: resolution.projectRoot, global: input.global };
+}
 
 export function createProgram(): Command {
   const program = new Command();
@@ -1040,18 +1088,34 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('--no-tools', 'Link the skill source without creating tool links')
     .option('--identity <identity>', 'Namespace or full identity for a bare release.json name')
     .option('-f, --force', 'Replace existing directory or stale link at the target')
-    .addHelpText('after', example('$ esl link ./my-skill -g\\n  $ esl link ../draft-skill'))
+    .addHelpText(
+      'after',
+      example('$ esl link ./my-skill -g\\n  $ esl link ../draft-skill') +
+        '\n\nStanding inside a Local Skill Source, a project-level link targets the parent Consumer Project Root (ADR-0057): its parent when it has .skills.json or .eslib, after confirmation for tool directories, or after choosing among init/directory/global.'
+    )
     .action(async (skillPath: string | undefined, options: { global?: boolean; identity?: string; tools?: string | boolean; force?: boolean }) => {
       const sourcePath = skillPath ?? '.';
       const skipToolLinks = options.tools === false;
       const selectedTools = skipToolLinks ? [] : parseToolsOption(options.tools as string | undefined);
       const agentMode = program.opts().agentInteraction === true;
       const interactive = !agentMode && program.opts().input !== false && isInteractive();
-      const projectRoot = process.cwd();
-      const storeRoot = options.global
+      const cwd = process.cwd();
+      // ADR-0057：先发现 Consumer Project Root，再对发现后的 Store 检查模式转换与工具。
+      const consumerRoot = await resolveCommandConsumerProjectRoot({
+        command: 'link',
+        program,
+        global: options.global === true,
+        cwd,
+        candidateDir: path.resolve(sourcePath),
+        interactive,
+        agentMode
+      });
+      const global = consumerRoot.global;
+      const projectRoot = consumerRoot.projectRoot;
+      const storeRoot = global
         ? resolveLocalStorePaths({ homeDir: undefined }).root
         : resolveProjectStorePaths(projectRoot).root;
-      const level: ToolLevel = options.global ? 'global' : 'project';
+      const level: ToolLevel = global ? 'global' : 'project';
       const { identity } = await resolveLinkIdentity(sourcePath, options.identity);
 
       // 模式转换确认（ADR-0054）：普通安装副本 → Skill Source Link。
@@ -1087,6 +1151,9 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
 
       const targetDir = await executeLink(sourcePath, {
         ...options,
+        global,
+        projectRoot,
+        cwd,
         tools: resolution.tools,
         noTools: skipToolLinks
       });
@@ -1110,7 +1177,13 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .addHelpText('after', example('$ esl list\n  $ esl list --json'))
     .action(async (options: { global?: boolean; json?: boolean }) => {
       // ADR-0058：TTY 且未禁用输入时进入两级交互管理台；--json / --no-input / 非 TTY 只读。
+      const hint = options.json
+        ? null
+        : await consumerProjectRootHint({ global: options.global });
       if (program.opts().input !== false && !options.json && isInteractive()) {
+        if (hint) {
+          console.log(hint);
+        }
         await runListSession({ global: options.global });
         return;
       }
@@ -1121,12 +1194,18 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
       if (skills.length === 0) {
         console.log(options.global ? 'No global skills installed.' : 'No skills installed in this project.');
+        if (hint) {
+          console.log(hint);
+        }
         return;
       }
       const label = options.global ? 'Global' : 'Project';
       console.log(`${label} skills (${skills.length} installed):`);
       for (const skill of skills) {
         console.log(formatSkillListLine(skill));
+      }
+      if (hint) {
+        console.log(hint);
       }
     });
 
@@ -1154,6 +1233,10 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
       for (const line of formatToolsList(entries)) {
         console.log(line);
+      }
+      const hint = await consumerProjectRootHint({ global: options.global });
+      if (hint) {
+        console.log(hint);
       }
     });
 
@@ -1305,10 +1388,29 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       example(
         '$ esl unlink @local/my-skill\n  $ esl unlink -g\n  $ esl unlink ./my-skill'
       ) +
-        '\n\nProject-level path form must be run from the project root; omit-in-directory is for --global.'
+        '\n\nStanding inside a Local Skill Source, a project-level unlink targets the parent Consumer Project Root (ADR-0057); from the project root the ./path form is unchanged.'
     )
     .action(async (target: string | undefined, options: { global?: boolean }) => {
-      const result = await executeUnlink(target, options);
+      const cwd = process.cwd();
+      const agentMode = program.opts().agentInteraction === true;
+      const interactive = !agentMode && program.opts().input !== false && isInteractive();
+      // ADR-0057：目录形态的上一级是技能目录；@identity 形态用 cwd 作为技能目录。
+      const candidateDir = target && !target.startsWith('@') ? path.resolve(cwd, target) : cwd;
+      const consumerRoot = await resolveCommandConsumerProjectRoot({
+        command: 'unlink',
+        program,
+        global: options.global === true,
+        cwd,
+        candidateDir,
+        interactive,
+        agentMode
+      });
+      const result = await executeUnlink(target, {
+        ...options,
+        global: consumerRoot.global,
+        projectRoot: consumerRoot.projectRoot,
+        cwd
+      });
       if (result.restored) {
         console.log(`Skill ${result.identity} unlinked; previous store copy restored at ${result.targetDir}`);
       } else {
