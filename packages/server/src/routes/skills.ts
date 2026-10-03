@@ -1,14 +1,17 @@
 import { apiError } from '../errors.js';
 import {
   DISPLAY_NAME_MAX_LENGTH,
-  highestSatisfyingVersion,
   highestStableVersion,
+  ReleaseGraphError,
+  resolveReleaseGraph,
   SHARE_TIER_TEAM_NAMES,
   STANDING_TEAM_NAMES,
   parseSkillName,
   parseSkillIdentity,
   sortVersionsDescending,
-  validateReleaseManifest
+  validateReleaseManifest,
+  type ReleaseGraphErrorCode,
+  type ReleaseLockEntry
 } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs/promises';
@@ -32,6 +35,7 @@ import {
   type SkillAccessLevel
 } from '../services/skill-access.js';
 import { backendTeamName } from '../services/logical-team-projection.js';
+import { ServerReleaseGraphSource } from '../services/release-graph-source.js';
 import { logEvent } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
 
@@ -756,6 +760,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       releaseManifest?: unknown;
       files?: Record<string, string>;
       notes?: string;
+      dryRun?: boolean;
     };
     if (!body.version || !semver.valid(body.version)) {
       return fail(400, 'releaseVersionMustBeValidSemver');
@@ -764,9 +769,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return fail(400, 'sourcecommitIsRequired');
     }
     const repo = skillRepo(skill);
-    const sourceFiles = typeof giteaService.readSourceTree === 'function'
-      ? await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit)
-      : body.files ?? {};
+    let sourceFiles: Record<string, string>;
+    if (typeof giteaService.readSourceTree === 'function') {
+      try {
+        sourceFiles = await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit);
+      } catch (error) {
+        // dry-run 不 push 源码：本地 commit 服务器读不到时，退回请求体自带文件。
+        if (!(body.dryRun && body.files)) throw error;
+        sourceFiles = body.files;
+      }
+    } else {
+      sourceFiles = body.files ?? {};
+    }
     let sourceManifest: unknown = body.releaseManifest;
     if (sourceFiles['release.json']) {
       try {
@@ -826,11 +840,33 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       }
     }
 
-    let dependencyLock: Record<string, unknown>;
+    // ADR-0056：发布冻锁从根清单展开整图——范围交集、重选再展开、环、发布者
+    // 可读与 Public 根全链 Public 都在这里权威校验；失败用稳定 API Error Code。
+    let dependencyLock: Record<string, ReleaseLockEntry>;
     try {
-      dependencyLock = resolveDependencyLock(repository, name, manifest.data.dependencies);
+      dependencyLock = await resolveReleaseGraph(
+        manifest.data.dependencies,
+        new ServerReleaseGraphSource(repository, giteaService, user.username),
+        {
+          rootVisibility: skill.visibility === 'private' ? 'private' : 'public',
+          rootIdentity: name
+        }
+      );
     } catch (error) {
-      return fail(409, 'internalError', { detail: (error as Error).message });
+      if (error instanceof ReleaseGraphError) {
+        return fail(releaseGraphErrorStatus(error.code), error.code, error.errorParams);
+      }
+      throw error;
+    }
+
+    if (body.dryRun) {
+      return reply.status(200).send({
+        dryRun: true,
+        name,
+        version: body.version,
+        sourceCommit: body.sourceCommit,
+        dependencyLock
+      });
     }
 
     const publishedFiles = { ...sourceFiles };
@@ -1284,46 +1320,12 @@ function searchDisplayName(releaseManifest: unknown, fallback: string): string {
   const displayName = (releaseManifest as { displayName?: unknown }).displayName;
   return typeof displayName === 'string' && displayName.trim() ? displayName : fallback;
 }
-function resolveDependencyLock(
-  repository: SkillRepository,
-  rootName: string,
-  dependencies: Record<string, string>
-): Record<string, { skillId: string; version: string; checksum: string }> {
-  const lock: Record<string, { skillId: string; version: string; checksum: string }> = {};
-  const visiting = new Set<string>([rootName]);
-
-  const visit = (name: string, range: string): void => {
-    if (visiting.has(name)) {
-      throw new Error(`Dependency cycle detected: ${[...visiting, name].join(' -> ')}`);
-    }
-    const releases = repository.getReleases(name);
-    const selectedVersion = highestSatisfyingVersion(
-      releases.map((release) => release.version),
-      range
-    );
-    const selected = selectedVersion
-      ? releases.find((release) => release.version === selectedVersion)
-      : undefined;
-    if (!selected?.skillId) {
-      throw new Error(`Dependency ${name}@${range} has no published Release`);
-    }
-    lock[name] = {
-      skillId: selected.skillId,
-      version: selected.version,
-      checksum: selected.checksum
-    };
-    visiting.add(name);
-    const releaseManifest = selected.releaseManifest as { dependencies?: Record<string, string> };
-    for (const [dependency, dependencyRange] of Object.entries(releaseManifest.dependencies ?? {})) {
-      visit(dependency, dependencyRange);
-    }
-    visiting.delete(name);
-  };
-
-  for (const [name, range] of Object.entries(dependencies)) {
-    visit(name, range);
-  }
-  return lock;
+// 图解析失败码 → HTTP 状态：清单写法问题 400；无权读取 403；其余为与 Registry
+// 状态冲突（无交集、环、无满足版本、Public 链不合法）409。
+function releaseGraphErrorStatus(code: ReleaseGraphErrorCode): number {
+  if (code === 'releaseDependencyTargetInvalid') return 400;
+  if (code === 'releaseDependencyNotVisible') return 403;
+  return 409;
 }
 
 // ESL 三档权限词汇(ADR-0025):Gitea 的 admin/owner 仓库访问级别统一呈现为

@@ -120,6 +120,17 @@ export const apiErrorMessages = {
   forbiddenForcingPastAPinnedDependencyRequiresAPlatformAdministrator: 'Forbidden: forcing past a pinned dependency requires a platform administrator',
   organizationRegistrationRequiresApprovalOnThisPlatformSubmitAnApplicationInstead: 'Organization registration requires approval on this platform; submit an application instead',
   organizationsAreCreatedInstantlyOnThisPlatformCreateOneDirectlyInstead: 'Organizations are created instantly on this platform; create one directly instead',
+  releaseDependencyTargetInvalid:
+    'Release dependency target {identity} is invalid: only published server-hosted skills (@namespace/name) are allowed',
+  releaseDependencyNoRelease: 'Release dependency {identity} has no published Skill Release',
+  releaseDependencyNoSatisfyingVersion:
+    'No published version of {identity} satisfies all the required ranges',
+  releaseDependencyRangesDoNotIntersect:
+    'Dependency ranges for {identity} have no intersection ({ranges})',
+  releaseDependencyCycle: 'Dependency graph contains a cycle: {path}',
+  releaseDependencyNotVisible: 'Release dependency {identity} is not visible to you',
+  releaseDependencyPublicChainMustBePublic:
+    'A public root cannot depend on a non-public skill: {identity}',
   validationFailed: 'Validation failed: {detail}',
   internalError: 'Internal error: {detail}',
   // CLI 本地环境错误（非服务端响应），显式登记以复用错误码翻译机制（ADR-0053）。
@@ -228,6 +239,17 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   unsupportedLocale: '不支持的语言：{locale}',
   userIsAlreadyMemberOf: '用户已经是 {org} 的成员',
   organizationIsNotActive: '组织未激活：{org}',
+  releaseDependencyTargetInvalid:
+    '发布依赖目标 {identity} 非法：只允许依赖已发布的 Server-hosted 技能（@namespace/name）',
+  releaseDependencyNoRelease: '发布依赖 {identity} 没有已发布的 Skill Release',
+  releaseDependencyNoSatisfyingVersion:
+    '{identity} 没有能满足全部所需范围的已发布版本',
+  releaseDependencyRangesDoNotIntersect:
+    '{identity} 的依赖范围没有交集（{ranges}）',
+  releaseDependencyCycle: '依赖图存在环：{path}',
+  releaseDependencyNotVisible: '发布依赖 {identity} 对你不可见',
+  releaseDependencyPublicChainMustBePublic:
+    'Public 根不能依赖非 Public 技能：{identity}',
   validationFailed: '校验失败：{detail}',
   internalError: '内部错误：{detail}',
   identityNotATeamGrant: '该团队承载组织身份，不是技能授权；请改为调整成员身份',

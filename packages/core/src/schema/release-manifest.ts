@@ -50,7 +50,9 @@ export const ReleaseManifestSchema = z
       tools: z.array(z.string().min(1)).optional(),
       languages: z.array(z.string().min(1)).optional()
     }),
-    dependencies: z.record(z.string().regex(/^@[a-z0-9-]+\/[a-z0-9-]+$/), z.string().min(1))
+    // 键的目标合法性（Server-hosted 已发布身份、拒绝保留 Scope/file:）由发布冻锁
+    // 统一权威校验（ADR-0056），schema 不提前按形态拒绝，保证非法边拿到同一个错误码。
+    dependencies: z.record(z.string().min(1), z.string().min(1))
   })
   .strict()
   .superRefine((data, ctx) => {
