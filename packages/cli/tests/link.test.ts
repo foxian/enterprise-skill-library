@@ -506,7 +506,7 @@ describe('esl link pulls published dependencies', () => {
       homeDir,
       server: 'http://localhost:3000',
       customFetch: fetchImpl as any,
-      noTools: true
+      tools: ['claude']
     });
 
     const skillsJson = await loadSkillsJson(projectDir);
@@ -515,6 +515,10 @@ describe('esl link pulls published dependencies', () => {
     expect(lock.skills['@acme/base'].version).toBe('1.2.0');
     expect(
       fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@acme', 'base', 'SKILL.md'))
+    ).toBe(true);
+    // 宿主经两层链接看到被依赖的基础技能：传递依赖也建了 Tool Link。
+    expect(
+      fs.lstatSync(path.join(projectDir, '.claude', 'skills', 'acme_base')).isSymbolicLink()
     ).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import {
   DISPLAY_NAME_MAX_LENGTH,
   highestStableVersion,
   ReleaseGraphError,
+  releaseGraphErrorStatus,
   resolveReleaseGraph,
   SHARE_TIER_TEAM_NAMES,
   STANDING_TEAM_NAMES,
@@ -10,7 +11,6 @@ import {
   parseSkillIdentity,
   sortVersionsDescending,
   validateReleaseManifest,
-  type ReleaseGraphErrorCode,
   type ReleaseLockEntry
 } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -1320,13 +1320,8 @@ function searchDisplayName(releaseManifest: unknown, fallback: string): string {
   const displayName = (releaseManifest as { displayName?: unknown }).displayName;
   return typeof displayName === 'string' && displayName.trim() ? displayName : fallback;
 }
-// 图解析失败码 → HTTP 状态：清单写法问题 400；无权读取 403；其余为与 Registry
-// 状态冲突（无交集、环、无满足版本、Public 链不合法）409。
-function releaseGraphErrorStatus(code: ReleaseGraphErrorCode): number {
-  if (code === 'releaseDependencyTargetInvalid') return 400;
-  if (code === 'releaseDependencyNotVisible') return 403;
-  return 409;
-}
+// releaseGraphErrorStatus（图解析失败码 → HTTP 状态）由 @esl/core 提供，server
+// 与 CLI 共用同一映射。
 
 // ESL 三档权限词汇(ADR-0025):Gitea 的 admin/owner 仓库访问级别统一呈现为
 // manage,与授权操作的档位词汇保持一致。

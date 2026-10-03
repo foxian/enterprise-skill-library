@@ -30,6 +30,7 @@ import {
   resolveToolName,
   resolveReleaseGraph,
   ReleaseGraphError,
+  releaseGraphErrorStatus,
   skillSourceRelativeDir,
   type ReleaseGraphSource,
   validateReleaseManifest,
@@ -167,7 +168,7 @@ async function installFromLocalPath(
   // 本地源按即将发布的规则拉已发布依赖：失败不回滚本地根源，但依赖图不留半套。
   const dependencies = await readSourceDependencies(resolved);
   const authToken = Object.keys(dependencies).length > 0 ? await requireFreshToken(options) : undefined;
-  const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
+  const committed: Array<PackageSwap> = [];
   try {
     await copySkillDirectory(resolved, targetDir);
     if (needsGeneratedSkillJson) {
@@ -261,7 +262,15 @@ async function installFromServer(
   warnIfDeprecated(name, version, requestedRelease?.deprecatedMessage);
   const requestedPackageUrl = requestedRelease?.packageUrl ?? info.packageUrl;
   if (requestedPackageUrl) {
-    return installPublishedPackage(name, version, requestedPackageUrl, projectRoot, options, authToken, info.visibility);
+    return installPublishedPackage(
+      name,
+      version,
+      requestedPackageUrl,
+      projectRoot,
+      options,
+      authToken,
+      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined
+    );
   }
 
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
@@ -342,8 +351,16 @@ interface PlannedDependency {
   version: string;
   integrity: string;
   packageUrl: string;
-  visibility: string;
+  visibility: Visibility;
   data: ParsedPublishedPackage;
+}
+
+type Visibility = 'public' | 'private';
+
+/** 一次目录换入的记录：失败回滚时无旧副本则删、有旧副本则移回。 */
+export interface PackageSwap {
+  targetDir: string;
+  previousDir: string | null;
 }
 
 /** 下载 Published Skill Package：403 统一映射为 releaseDependencyNotVisible。 */
@@ -399,7 +416,7 @@ async function stagePackageSwap(
   version: string,
   data: ParsedPublishedPackage,
   targetDir: string
-): Promise<{ targetDir: string; previousDir: string | null }> {
+): Promise<PackageSwap> {
   const stagingDir = `${targetDir}.staging-${process.pid}-${Date.now()}`;
   await removeDirectory(stagingDir);
   for (const [relativePath, content] of Object.entries(data.files ?? {})) {
@@ -436,7 +453,7 @@ async function stagePackageSwap(
 
 /** 回滚已提交的目录换入：无旧副本的新装直接删，有旧副本的移回。 */
 export async function rollbackSwaps(
-  committed: Array<{ targetDir: string; previousDir: string | null }>
+  committed: Array<PackageSwap>
 ): Promise<void> {
   for (const record of [...committed].reverse()) {
     await removeDirectory(record.targetDir);
@@ -497,7 +514,7 @@ async function planIncomingGraph(
   // 各身份可见性：Public 根全链 Public 校验消费。
   for (const [identity, node] of nodes) {
     const info = await executeInfo(identity, options);
-    node.visibility = info.visibility ?? 'private';
+    node.visibility = info.visibility === 'public' ? 'public' : 'private';
   }
   return { nodes, incomingRanges };
 }
@@ -547,9 +564,9 @@ async function materializeDependencyGraph(input: {
   incomingRanges: Map<string, Set<string>>;
   storeRoot: string;
   dependencyRoot: string;
-  rootVisibility: string | undefined;
-  committed: Array<{ targetDir: string; previousDir: string | null }>;
-}): Promise<void> {
+  rootVisibility: Visibility | undefined;
+  committed: Array<PackageSwap>;
+}): Promise<string[]> {
   const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, committed } = input;
 
   if (rootVisibility === 'public') {
@@ -616,18 +633,20 @@ async function materializeDependencyGraph(input: {
     await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
     await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
   }
+  // 返回本轮实际落地（新装或升版）的身份，供 link 为它们建 Tool Link。
+  return actions.map((action) => action.node.identity);
 }
 
 /** 本地源按即将发布的规则解析已发布依赖：数据源直接读 Registry，并记录各身份可见性。 */
 function createHttpGraphSource(
   options: InstallOptions,
-  visibility: Map<string, string>
+  visibility: Map<string, Visibility>
 ): ReleaseGraphSource {
   return {
     async listVersions(identity) {
       try {
         const info = await executeInfo(identity, options);
-        visibility.set(identity, info.visibility ?? 'private');
+        visibility.set(identity, info.visibility === 'public' ? 'public' : 'private');
         return info.versions ?? [];
       } catch (error) {
         if (error instanceof ApiError && error.status === 403) {
@@ -650,7 +669,7 @@ function createHttpGraphSource(
         skillId: release.skillId ?? info.skillId ?? '',
         version,
         checksum: release.checksum,
-        visibility: (info.visibility as 'public' | 'private') ?? 'private',
+        visibility: info.visibility === 'public' ? 'public' : 'private',
         dependencies: release.releaseManifest?.dependencies ?? {}
       };
     }
@@ -658,13 +677,10 @@ function createHttpGraphSource(
 }
 
 function releaseGraphErrorToApiError(error: ReleaseGraphError): ApiError {
-  const status =
-    error.code === 'releaseDependencyTargetInvalid'
-      ? 400
-      : error.code === 'releaseDependencyNotVisible'
-        ? 403
-        : 409;
-  return new ApiError(status, error.code, { code: error.code, params: error.errorParams });
+  return new ApiError(releaseGraphErrorStatus(error.code), error.code, {
+    code: error.code,
+    params: error.errorParams
+  });
 }
 
 /**
@@ -676,18 +692,18 @@ export async function installLocalSourceDependencies(input: {
   dependencies: Record<string, string>;
   storeRoot: string;
   dependencyRoot: string;
-  rootVisibility: string | undefined;
+  rootVisibility: Visibility | undefined;
   options: InstallOptions;
   authToken: string;
-  committed: Array<{ targetDir: string; previousDir: string | null }>;
-}): Promise<void> {
+  committed: Array<PackageSwap>;
+}): Promise<string[]> {
   const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
-  if (Object.keys(dependencies).length === 0) return;
-  const visibility = new Map<string, string>();
+  if (Object.keys(dependencies).length === 0) return [];
+  const visibility = new Map<string, Visibility>();
   let lock: Record<string, { skillId: string; version: string; checksum: string }>;
   try {
     lock = await resolveReleaseGraph(dependencies, createHttpGraphSource(options, visibility), {
-      rootVisibility: rootVisibility === 'public' ? 'public' : rootVisibility === 'private' ? 'private' : undefined
+      rootVisibility
     });
   } catch (error) {
     if (error instanceof ReleaseGraphError) throw releaseGraphErrorToApiError(error);
@@ -713,7 +729,7 @@ export async function installLocalSourceDependencies(input: {
     });
   }
 
-  await materializeDependencyGraph({
+  return materializeDependencyGraph({
     nodes,
     incomingRanges,
     storeRoot,
@@ -730,7 +746,7 @@ async function installPublishedPackage(
   projectRoot: string | null,
   options: InstallOptions,
   authToken: string,
-  rootVisibility: string | undefined
+  rootVisibility: Visibility | undefined
 ): Promise<string> {
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
   const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
@@ -754,7 +770,7 @@ async function installPublishedPackage(
   const { nodes, incomingRanges } = await planIncomingGraph(rootData, options, authToken);
 
   // 先根后依赖换包；任一失败回滚本轮已换目录，已有安装保持原状。
-  const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
+  const committed: Array<PackageSwap> = [];
   try {
     committed.push(await stagePackageSwap(name, version, rootData, targetDir));
     await materializeDependencyGraph({

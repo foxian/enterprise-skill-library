@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
 import { executeUninstall } from '../src/commands/uninstall.js';
 import { executeUpdate } from '../src/commands/update.js';
+import { executeLink } from '../src/commands/link.js';
 import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
 
 interface PackageSpec {
@@ -187,6 +188,57 @@ describe('esl dependency reclamation', () => {
     expect(result.demotedToTransitive).toBe(true);
     expect(Object.keys((await loadSkillsJson(projectDir)).skills)).toEqual(['@platform-ai/root-a']);
     // 副本保留，仍可被 root-a 使用。
+    expect(await lockVersion('@platform-ai/shared')).toBe('1.2.0');
+    expect(storeExists('@platform-ai/shared')).toBe(true);
+  });
+
+  it('keeps a dependency a linked root still needs', async () => {
+    // Registry 根 root-a 依赖 shared。
+    await installRootA();
+
+    // 再 link 一个本地根源，它同样依赖 shared——回收必须以 link 根的发布依赖图为准。
+    const shared = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    const sourceDir = path.join(projectDir, 'linked-root');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '---\nname: linked-root\ndescription: x\n---\n');
+    fs.writeFileSync(
+      path.join(sourceDir, 'release.json'),
+      JSON.stringify({
+        schemaVersion: 4,
+        name: '@platform-ai/linked-root',
+        version: '0.1.0',
+        license: 'MIT',
+        keywords: [],
+        compatibility: {},
+        dependencies: { '@platform-ai/shared': '^1.0.0' }
+      })
+    );
+    const baseInfo = {
+      name: '@platform-ai/shared',
+      visibility: 'public',
+      versions: ['1.2.0'],
+      releases: [{ version: '1.2.0', checksum: shared.checksum, skillId: 'sk_shared', releaseManifest: { dependencies: {} } }]
+    };
+    const linkFetch = vi.fn();
+    for (const response of [
+      { ok: true, json: async () => baseInfo },
+      { ok: true, json: async () => baseInfo },
+      { ok: true, arrayBuffer: async () => shared.bytes }
+    ]) {
+      linkFetch.mockResolvedValueOnce(response);
+    }
+    await executeLink(sourceDir, {
+      projectRoot: projectDir,
+      homeDir,
+      server,
+      customFetch: linkFetch as never,
+      noTools: true
+    });
+
+    await executeUninstall('@platform-ai/root-a', { projectRoot: projectDir, homeDir });
+
+    // linked-root 仍需要 shared：保留，不被误回收。
+    expect(Object.keys((await loadSkillsJson(projectDir)).skills)).toEqual(['@platform-ai/linked-root']);
     expect(await lockVersion('@platform-ai/shared')).toBe('1.2.0');
     expect(storeExists('@platform-ai/shared')).toBe(true);
   });

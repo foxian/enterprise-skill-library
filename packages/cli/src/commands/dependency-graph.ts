@@ -43,17 +43,26 @@ export async function computeRequiredIdentities(
   return needers;
 }
 
-/** 已装副本 skill.json 的 dependencies；缺失或不可读时视为空（无发布依赖）。 */
+/**
+ * 已装副本的发布依赖：普通安装读生成的 `skill.json`；Skill Source Link 的 Store
+ * 位置指向源码目录、通常没有 `skill.json`，回退读源码的 `release.json`。两者都
+ * 缺失或不可读时视为空（无发布依赖）。
+ */
 export function readInstalledDependencies(
   storeRoot: string,
   identity: string
 ): Record<string, string> {
-  try {
-    const parsed = JSON.parse(
-      fs.readFileSync(path.join(storeRoot, skillSourceRelativeDir(identity), 'skill.json'), 'utf8')
-    ) as { dependencies?: Record<string, string> };
-    return parsed.dependencies ?? {};
-  } catch {
-    return {};
+  const directory = path.join(storeRoot, skillSourceRelativeDir(identity));
+  for (const file of ['skill.json', 'release.json']) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')) as {
+        dependencies?: Record<string, string>;
+      };
+      // skill.json 一定带 dependencies 字段；release.json 同样。命中即返回。
+      return parsed.dependencies ?? {};
+    } catch {
+      // 试下一个文件。
+    }
   }
+  return {};
 }

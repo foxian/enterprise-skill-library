@@ -218,6 +218,25 @@ describe('resolveReleaseGraph', () => {
     expect(lock['@alice/d'].version).toBe('1.0.0');
   });
 
+  it('does not let a reselected version leave stale child ranges behind', async () => {
+    // B@1.5.0 拉 D^2.0.0，B@1.2.0 拉 D^1.0.0；C 逼 B 退到 1.2.0 后，D^2.0.0 已
+    // 不可达，不能把它的范围算进 D 的交集而误报冲突。
+    const graph = source([
+      ['@x/d', [{ version: '1.0.0' }, { version: '2.0.0' }]],
+      ['@x/b', [
+        { version: '1.5.0', dependencies: { '@x/d': '^2.0.0' } },
+        { version: '1.2.0', dependencies: { '@x/d': '^1.0.0' } }
+      ]],
+      ['@x/c', [{ version: '1.0.0', dependencies: { '@x/b': '~1.2.0' } }]]
+    ]);
+
+    const lock = await resolveReleaseGraph({ '@x/b': '^1.0.0', '@x/c': '^1.0.0' }, graph);
+
+    expect(lock['@x/b'].version).toBe('1.2.0');
+    expect(lock['@x/d'].version).toBe('1.0.0');
+    expect(Object.keys(lock).sort()).toEqual(['@x/b', '@x/c', '@x/d']);
+  });
+
   it('drops edges that become unreachable after a version reselect', async () => {
     const graph = source([
       ['@alice/x', [{ version: '1.0.0' }]],

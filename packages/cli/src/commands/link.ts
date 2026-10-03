@@ -29,7 +29,8 @@ import {
 import {
   installLocalSourceDependencies,
   resolveDefaultInstallTools,
-  rollbackSwaps
+  rollbackSwaps,
+  type PackageSwap
 } from './install.js';
 import { notify } from '../output.js';
 
@@ -199,11 +200,12 @@ export async function executeLink(sourcePath: string, options: LinkOptions = {})
 
   // 开发态也让宿主看到被依赖的已发布基础技能：按即将发布的规则拉已发布依赖，
   // 根源码仍是 Skill Source Link，传递依赖只进 Store/锁/安装清单。
+  let dependencyIdentities: string[] = [];
   if (Object.keys(source.dependencies).length > 0) {
     const authToken = await requireFreshToken(options);
-    const committed: Array<{ targetDir: string; previousDir: string | null }> = [];
+    const committed: Array<PackageSwap> = [];
     try {
-      await installLocalSourceDependencies({
+      dependencyIdentities = await installLocalSourceDependencies({
         dependencies: source.dependencies,
         storeRoot,
         dependencyRoot,
@@ -218,7 +220,7 @@ export async function executeLink(sourcePath: string, options: LinkOptions = {})
     }
   }
 
-  await finishLink(identity, projectRoot, storeRoot, targetDir, options);
+  await finishLink(identity, projectRoot, storeRoot, targetDir, options, dependencyIdentities);
   return targetDir;
 }
 
@@ -245,7 +247,7 @@ async function recordLinkInstallState(
 }
 
 async function syncSelectedTools(
-  identity: string,
+  identities: string[],
   projectRoot: string,
   storeRoot: string,
   options: LinkOptions
@@ -259,25 +261,31 @@ async function syncSelectedTools(
     return;
   }
 
+  const failedLinks: string[] = [];
   // 期望 Tool Link 集合对账（ADR-0054）：补齐集合内、删除集合外 ESL 管理项。
-  const reconciliation = await reconcileToolLinks({
-    storeRoot,
-    level: options.global ? 'global' : 'project',
-    tools,
-    identity,
-    projectRoot,
-    homeDir: options.homeDir,
-    force: options.force
-  });
+  // 根源码与本次新拉的传递依赖都按这次集合建立 Link，宿主才看得见整条图。
+  for (const identity of identities) {
+    const reconciliation = await reconcileToolLinks({
+      storeRoot,
+      level: options.global ? 'global' : 'project',
+      tools,
+      identity,
+      projectRoot,
+      homeDir: options.homeDir,
+      force: options.force
+    });
 
-  for (const removed of reconciliation.removed) {
-    notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+    for (const removed of reconciliation.removed) {
+      notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+    }
+
+    failedLinks.push(
+      ...reconciliation.failures.map((result) => {
+        const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
+        return `${result.tool} (${result.targetDir})${detail}`;
+      })
+    );
   }
-
-  const failedLinks = reconciliation.failures.map((result) => {
-    const detail = 'error' in result && result.error ? `: ${result.error}` : ': conflict';
-    return `${result.tool} (${result.targetDir})${detail}`;
-  });
 
   if (failedLinks.length > 0) {
     throw new Error(`Tool link failed; existing content was not overwritten: ${failedLinks.join(', ')}`);
@@ -289,9 +297,10 @@ async function finishLink(
   projectRoot: string,
   storeRoot: string,
   targetDir: string,
-  options: LinkOptions
+  options: LinkOptions,
+  dependencyIdentities: string[] = []
 ): Promise<string> {
-  await syncSelectedTools(identity, projectRoot, storeRoot, options);
+  await syncSelectedTools([identity, ...dependencyIdentities], projectRoot, storeRoot, options);
   if (!options.global) {
     const { ensureGitignore } = await import('./uninstall.js');
     await ensureGitignore(projectRoot);

@@ -5,6 +5,7 @@ import {
   fileExists,
   highestSatisfyingVersion,
   highestStableVersion,
+  RELEASE_DEPENDENCY_TARGET_PATTERN,
   validateReleaseDependencyTarget,
   validateReleaseManifest
 } from '@esl/core';
@@ -27,9 +28,13 @@ export interface DependEdge {
  * 的范围；remove 不接受范围。
  */
 function parseDependTarget(input: string, allowRange: boolean): { identity: string; range?: string } | null {
-  const match = input.match(/^(@[a-z0-9-]+\/[a-z0-9-]+)(?:@([\s\S]+))?$/);
-  if (!match || (!allowRange && match[2] !== undefined)) return null;
-  return { identity: match[1], range: match[2] };
+  // 复用 core 的目标形态正则：身份与可选范围以第二个 @ 分隔。
+  const separator = input.indexOf('@', 1);
+  const identity = separator === -1 ? input : input.slice(0, separator);
+  const range = separator === -1 ? undefined : input.slice(separator + 1);
+  if (!RELEASE_DEPENDENCY_TARGET_PATTERN.test(identity)) return null;
+  if (range !== undefined && !allowRange) return null;
+  return { identity, range };
 }
 
 async function readSourceManifest(directory: string) {
