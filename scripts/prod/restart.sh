@@ -7,7 +7,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+if [ -z "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
+if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ]; then
+  compose_files+=(-f docker-compose.tunnel.yml)
+fi
 if [ -f docker-compose.prod.tls.yml ]; then
   compose_files+=(-f docker-compose.prod.tls.yml)
 fi

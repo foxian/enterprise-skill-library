@@ -33,6 +33,10 @@ ESL 需要同时面向公开访客、CLI 和自动化客户端、浏览器管理
 - 公开生产入口只提供 HTTPS；HTTP 仅用于重定向。DNS、CDN/WAF 和 TLS 证书由组织
   管理的专业基础设施托管，并采用自动续期；数据库、缓存、内部 API、Git Backend
   维护入口、容器编排、监控和 SSH 均不公开。
+- 局域网或无公网入站端口的部署可以使用 Cloudflare Tunnel：由本机发起出站连接，
+  将 `cloud.enterprise-skills.com` 等已声明 hostname 转发到 ESL 网关；Cloudflare
+  边缘终止公网 HTTPS，Tunnel 不改变 ESL Server origin，也不要求公开独立的 API/Git
+  域名。
 - 注册邮箱验证、密码重置和组织邀请等事务邮件使用独立的
   `mail.enterprise-skills.com` 发信域，并由可替换的外部事务邮件服务通过 API 或
   SMTP 提交；ESL Server 不自建邮件投递系统。`support@enterprise-skills.com`

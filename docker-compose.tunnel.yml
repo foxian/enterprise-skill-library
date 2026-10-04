@@ -1,0 +1,12 @@
+# Cloudflare Tunnel override for a LAN-hosted ESL instance.
+# The tunnel is an outbound connection; no public inbound port is required.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ${CLOUDFLARED_CONFIG_DIR:?Set CLOUDFLARED_CONFIG_DIR to the cloudflared credentials directory}:/etc/cloudflared:ro
+    depends_on:
+      server:
+        condition: service_started

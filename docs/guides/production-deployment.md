@@ -96,3 +96,82 @@ Restore」词条）。
   登录页经 `http://<地址>:3000/git/user/login` 访问（与用户同一入口）
 - **日志**：API 诊断日志为 stdout JSON Lines（ADR-0045），由宿主采集；
   compose 已限制单容器日志体积
+
+## 局域网本机通过 Cloudflare Tunnel 发布
+
+如果 ESL Server 运行在局域网本机，且域名由 Cloudflare 管理，推荐使用 Cloudflare
+Tunnel。Tunnel 由本机向 Cloudflare 发起出站连接，因此不需要路由器端口转发、固定公网
+IP 或把 80/443 暴露到互联网。Cloudflare 边缘负责公网 HTTPS，Docker 内的 nginx 只需
+继续监听宿主机 `3000`。
+
+本节假设公开服务入口为 `cloud.enterprise-skills.com`。根域名、`www`、`docs` 和
+`status` 的示例路由也已写入 `docker/cloudflared/config.yml.example`，其中后两个
+hostname 如果暂时没有对应内容，可先不在 Cloudflare 中创建 DNS 路由。
+
+### 1. 创建 Tunnel 和 DNS 路由
+
+在本机确认已安装 `cloudflared`，然后执行：
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create esl-local
+cloudflared tunnel route dns esl-local enterprise-skills.com
+cloudflared tunnel route dns esl-local www.enterprise-skills.com
+cloudflared tunnel route dns esl-local cloud.enterprise-skills.com
+```
+
+命令会在 `~/.cloudflared/` 下生成 Tunnel 凭据 JSON。该目录包含私密凭据，不要提交
+到 Git，也不要把它挂载为可写目录。
+
+### 2. 配置 ingress
+
+复制示例并把 `REPLACE_WITH_TUNNEL_UUID` 替换为 `cloudflared tunnel create` 输出的
+Tunnel UUID：
+
+```bash
+cp docker/cloudflared/config.yml.example ~/.cloudflared/config.yml
+chmod 600 ~/.cloudflared/config.yml ~/.cloudflared/<TUNNEL-UUID>.json
+```
+
+Tunnel 配置将 `cloud.enterprise-skills.com` 转发到 Compose 网络内的
+`http://server:80`，最后的 `http_status:404` 会拒绝未声明的 hostname。不要把
+`api`、`git`、数据库、缓存、Gitea 维护端口或 Docker daemon 加入 ingress。
+
+### 3. 启动生产栈和 Tunnel
+
+在仓库根目录创建生产 `.env`，至少设置：
+
+```dotenv
+ESL_ENVIRONMENT=production
+ESL_SERVER_URL=https://cloud.enterprise-skills.com
+CLOUDFLARED_CONFIG_DIR=/home/<user>/.cloudflared
+```
+
+然后执行：
+
+```bash
+bash scripts/prod/deploy.sh
+```
+
+只要 `CLOUDFLARED_CONFIG_DIR` 非空，部署和重启脚本会自动叠加
+`docker-compose.tunnel.yml`，并启动 `cloudflared` 容器。验证：
+
+```bash
+curl -fsS https://cloud.enterprise-skills.com/health
+curl -I https://enterprise-skills.com/
+```
+
+根域名应返回永久跳转到 `https://www.enterprise-skills.com`；CLI、API 和 Git 统一
+使用 `https://cloud.enterprise-skills.com` 这一 origin。
+
+### Cloudflare Tunnel 注意事项
+
+- Cloudflare Dashboard 中 TLS 模式应至少为 **Full**；Tunnel 到本机这一段是 Docker
+  内网 HTTP，不需要在 ESL nginx 中签发证书。
+- 使用 Tunnel 时不要执行 `scripts/prod/enable-tls.sh`，也不要为本机配置 certbot
+  standalone；这两者要求公网入站 80/443，与局域网 Tunnel 架构无关。
+- `cloudflared` 容器没有 `ports` 配置，公网流量只能经 Tunnel 到达 ESL 网关。
+- 如果局域网主机重启，Docker 的 `restart: unless-stopped` 会自动恢复 Tunnel；仍应
+  通过 `docker compose ... logs cloudflared` 检查连接状态。
+- Cloudflare Access、WAF、速率限制和 DNS 记录属于 Cloudflare 运维配置，不改变 ESL
+  Server 的 `cloud` origin 契约。

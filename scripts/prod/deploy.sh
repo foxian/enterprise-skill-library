@@ -10,7 +10,20 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# docker compose reads .env itself, while this script also needs the optional
+# Tunnel setting to decide whether to include the override file.
+if [ -z "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
+# Cloudflare Tunnel keeps the production service private on the LAN.
+if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ]; then
+  compose_files+=(-f docker-compose.tunnel.yml)
+fi
 # enable-tls.sh 启用 HTTPS 后会生成该片段；存在即叠加
 if [ -f docker-compose.prod.tls.yml ]; then
   compose_files+=(-f docker-compose.prod.tls.yml)

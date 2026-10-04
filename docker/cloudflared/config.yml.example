@@ -1,0 +1,25 @@
+# Copy this file to ~/.cloudflared/config.yml and replace the tunnel UUID.
+# Create the tunnel and DNS routes with:
+#   cloudflared tunnel login
+#   cloudflared tunnel create esl-local
+#   cloudflared tunnel route dns esl-local enterprise-skills.com
+#   cloudflared tunnel route dns esl-local www.enterprise-skills.com
+#   cloudflared tunnel route dns esl-local cloud.enterprise-skills.com
+#   cloudflared tunnel route dns esl-local docs.enterprise-skills.com
+#   cloudflared tunnel route dns esl-local status.enterprise-skills.com
+
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: enterprise-skills.com
+    service: http://server:80
+  - hostname: www.enterprise-skills.com
+    service: http://server:80
+  - hostname: cloud.enterprise-skills.com
+    service: http://server:80
+  - hostname: docs.enterprise-skills.com
+    service: http://server:80
+  - hostname: status.enterprise-skills.com
+    service: http://server:80
+  - service: http_status:404
