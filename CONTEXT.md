@@ -825,6 +825,42 @@ owns API access and discovery of Git clone URLs while hiding internal backend
 service topology from normal Skill Users.
 
 _Avoid_: registry when referring to the full user-facing service endpoint
+## 官方公共 ESL 云
+
+由 ESL 官方托管的公共、多租户 ESL Server 实例。它为没有自建私有 ESL 的企业
+提供技能库服务；公共入口与企业自部署实例是两个部署边界。官方公共 ESL 云的
+稳定服务入口为 `https://cloud.enterprise-skills.com`，CLI、自动化客户端、
+Registry API、Git 流量和 Web 管理界面均通过该 ESL Server 入口访问。
+
+_Avoid_: 公共 Registry（当指完整的官方托管服务时）
+
+## 公共内容入口
+
+面向匿名访客的官网与公开技能发现入口，负责产品介绍、公开技能只读页面、文档
+和下载导航；它不替代 ESL Server，也不承载需要鉴权的发布、安装或组织管理操作。
+官方公共内容入口为 `https://www.enterprise-skills.com`。
+
+_Avoid_: 把官网称为 ESL Server 或 Registry API
+
+## 企业自部署 ESL Server
+
+由企业自行运行和运维的 ESL Server 实例。它可以使用企业自己的域名，例如
+`https://skills.example.com`，并遵循与官方公共 ESL 云相同的客户端协议；它不
+继承官方公共云的租户、数据或运维边界。
+
+_Avoid_: 私有云（当未明确部署模型时）
+
+## 事务邮件发信域
+
+专用于 ESL Server 自动发送注册邮箱验证、密码重置和组织邀请等事务邮件的域名
+边界。它与用户可访问的 ESL Server 入口分离；邮件投递由可替换的外部邮件服务
+能力完成，不要求 ESL Server 自行运行 SMTP 服务。首期发信域为
+`mail.enterprise-skills.com`。
+
+## 产品支持邮箱
+
+用于接收用户人工支持请求的可收件地址，独立于事务邮件发信域。官方产品支持
+邮箱为 `support@enterprise-skills.com`，由企业邮箱服务托管。
 
 ## Locale
 
