@@ -20,7 +20,7 @@ if [ -z "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f .env ]; then
 fi
 
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
-# Cloudflare Tunnel keeps the production service private on the LAN.
+# Cloudflare Tunnel 让生产服务保持在局域网内。
 if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ]; then
   compose_files+=(-f docker-compose.tunnel.yml)
 fi

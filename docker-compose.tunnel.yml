@@ -1,5 +1,5 @@
-# Cloudflare Tunnel override for a LAN-hosted ESL instance.
-# The tunnel is an outbound connection; no public inbound port is required.
+# 局域网 ESL 实例的 Cloudflare Tunnel Compose 覆盖配置。
+# Tunnel 只建立出站连接，不需要公开入站端口。
 services:
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3

@@ -43,6 +43,12 @@ ESL CLI 从本地配置读取 Server 地址，所有命令（含登录）都默�
 esl config set-server https://your-esl-server.example
 ```
 
+官方公共云的稳定 ESL Server origin 是 `https://cloud.enterprise-skills.com`：
+
+```powershell
+esl config set-server https://cloud.enterprise-skills.com
+```
+
 `@foxian/esl` **不内置**出厂默认 Server URL。本地按 [本地开发指南](local-development.md)
 用 Docker 起 Server 时，常见地址是 `http://localhost:3000`。也可用环境变量
 `ESL_SERVER` 做临时覆盖。
