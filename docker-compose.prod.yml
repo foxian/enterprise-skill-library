@@ -24,3 +24,5 @@ services:
       args:
         NPM_PROXY: ${NPM_PROXY:-}
     volumes: !override []
+    # 公网只经 Cloudflare Tunnel 进入，生产服务不发布宿主机端口。
+    ports: !override []

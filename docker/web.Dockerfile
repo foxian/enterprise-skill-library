@@ -2,7 +2,7 @@
 # ESL Server 生产镜像：前端产物与 nginx 配置烤入镜像（ADR-0047）。
 
 # ── 构建阶段：node 环境产出 web dist ──
-FROM node:24-bookworm-slim AS build
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 ARG NPM_PROXY=

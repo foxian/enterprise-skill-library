@@ -11,8 +11,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 # docker compose reads .env itself, while this script also needs the optional
-# Tunnel setting to decide whether to include the override file.
-if [ -z "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f .env ]; then
+# Tunnel setting and smoke-test URL.
+if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
   . ./.env

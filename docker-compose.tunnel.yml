@@ -3,6 +3,8 @@
 services:
   cloudflared:
     image: cloudflare/cloudflared:2026.9.3
+    # 凭据目录以宿主机用户的 0600 权限挂载；Tunnel 容器只读访问该目录。
+    user: "0:0"
     restart: unless-stopped
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:

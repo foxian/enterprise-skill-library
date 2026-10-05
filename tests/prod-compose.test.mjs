@@ -71,5 +71,7 @@ describe('生产 compose override', () => {
     expect(config.services.cloudflared.depends_on.server.condition).toBe('service_started');
     expect(config.services.cloudflared.ports ?? []).toEqual([]);
     expect(config.services.cloudflared.volumes[0].target).toBe('/etc/cloudflared');
+    expect(config.services.server.ports ?? []).toEqual([]);
+    expect(config.services.cloudflared.user).toBe('0:0');
   });
 });
