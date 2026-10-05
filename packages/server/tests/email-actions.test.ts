@@ -118,14 +118,14 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+      payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
 
     expect(registration.statusCode).toBe(202);
-    expect(registration.json()).toEqual({ status: 'pending_email_verification', username: 'bob' });
-    expect(await gitea.getUser('bob')).toBeNull();
+    expect(registration.json()).toEqual({ status: 'pending_email_verification', username: 'bobby' });
+    expect(await gitea.getUser('bobby')).toBeNull();
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({ to: 'bob@example.com' });
+    expect(messages[0]).toMatchObject({ to: 'bobby@example.com' });
 
     const verification = await app.inject({
       method: 'POST',
@@ -133,8 +133,8 @@ describe('email actions', () => {
       payload: { token: tokenFromLastMessage() }
     });
     expect(verification.statusCode).toBe(200);
-    expect(verification.json()).toMatchObject({ status: 'verified', username: 'bob' });
-    expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
+    expect(verification.json()).toMatchObject({ status: 'verified', username: 'bobby' });
+    expect(await gitea.getUser('bobby')).toMatchObject({ email: 'bobby@example.com' });
 
     const reused = await app.inject({
       method: 'POST',
@@ -300,7 +300,7 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+      payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
     const originalToken = tokenFromLastMessage();
@@ -309,7 +309,7 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/verify-email/resend',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', purpose: 'register' }
+      payload: { username: 'bobby', purpose: 'register' }
     });
     expect(resend.statusCode).toBe(202);
 
@@ -326,7 +326,7 @@ describe('email actions', () => {
       payload: { token: tokenFromLastMessage() }
     });
     expect(verification.statusCode).toBe(200);
-    expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
+    expect(await gitea.getUser('bobby')).toMatchObject({ email: 'bobby@example.com' });
   });
 
   it('restores the previous registration link when a resent email fails', async () => {
@@ -334,7 +334,7 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+      payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
     const originalToken = tokenFromLastMessage();
@@ -344,7 +344,7 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/verify-email/resend',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', purpose: 'register' }
+      payload: { username: 'bobby', purpose: 'register' }
     });
     expect(resend.statusCode).toBe(502);
     expect(resend.json().code).toBe('outboundEmailDeliveryFailed');
@@ -356,7 +356,7 @@ describe('email actions', () => {
       payload: { token: originalToken }
     });
     expect(verification.statusCode).toBe(200);
-    expect(await gitea.getUser('bob')).toMatchObject({ email: 'bob@example.com' });
+    expect(await gitea.getUser('bobby')).toMatchObject({ email: 'bobby@example.com' });
   });
 
   it('restores a pending email change when the replacement email fails', async () => {
@@ -478,11 +478,11 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+      payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
     const token = tokenFromLastMessage();
-    await gitea.createUser('bob', 'other-password', { email: 'other-bob@example.com' });
+    await gitea.createUser('bobby', 'other-password', { email: 'other-bobby@example.com' });
 
     const first = await app.inject({
       method: 'POST',
@@ -537,7 +537,7 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'bob-password', email: 'bob@example.com' }
+      payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
 
@@ -549,9 +549,9 @@ describe('email actions', () => {
       method: 'POST',
       url: '/api/auth/register',
       headers: { host: 'localhost:3000' },
-      payload: { username: 'bob', password: 'other-password', email: 'other-bob@example.com' }
+      payload: { username: 'bobby', password: 'other-password', email: 'other-bobby@example.com' }
     });
     expect(reused.statusCode).toBe(202);
-    expect(await gitea.getUser('bob')).toBeNull();
+    expect(await gitea.getUser('bobby')).toBeNull();
   });
 });

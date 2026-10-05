@@ -309,7 +309,7 @@ describe('organization console API', () => {
       method: 'POST',
       url: '/api/orgs/acme/members',
       headers: aliceHeaders,
-      payload: { username: 'bob' }
+      payload: { username: 'admin-alice' }
     });
     expect(duplicate.statusCode).toBe(409);
   });

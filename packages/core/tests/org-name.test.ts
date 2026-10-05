@@ -92,6 +92,8 @@ describe('account and password policy', () => {
   it('validates local member usernames with the organization naming alphabet', () => {
     expect(validateMemberUsername('alice').success).toBe(true);
     expect(validateMemberUsername('platform-ai').success).toBe(true);
+    expect(validateMemberUsername('abc').success).toBe(false);
+    expect(validateMemberUsername('abcd').success).toBe(true);
     expect(validateMemberUsername('admin').success).toBe(false);
     expect(validateMemberUsername('Alice').success).toBe(false);
     expect(validateMemberUsername('alice_user').success).toBe(false);

@@ -30,8 +30,8 @@ export function validatePassword(
 
 export function validateMemberUsername(username: string): ValidationResult<string> {
   const errors: string[] = [];
-  if (username.length < 2 || username.length > 39) {
-    errors.push('username must be 2-39 characters');
+  if (username.length < 4 || username.length > 39) {
+    errors.push('username must be 4-39 characters');
   }
   if (!ACCOUNT_NAME_PATTERN.test(username)) {
     errors.push('username may only contain lowercase letters, digits, and hyphens');
