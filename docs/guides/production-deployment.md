@@ -162,7 +162,7 @@ curl -I https://enterprise-skills.com/
 ```
 
 根域名应返回永久跳转到 `https://www.enterprise-skills.com`；CLI、API 和 Git 统一
-使用 `https://cloud.enterprise-skills.com` 这一 origin。
+使用 `https://cloud.enterprise-skills.com` 这一 origin。尚无官网主页前，`www` 的根路径与 `/admin` 会临时 302 到 `https://cloud.enterprise-skills.com/admin/login`（及对应 admin 路径），避免 www 继续充当控制台入口。
 
 ### Cloudflare Tunnel 注意事项
 

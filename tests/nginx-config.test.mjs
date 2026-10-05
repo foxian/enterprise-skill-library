@@ -12,9 +12,21 @@ describe('Nginx static asset configuration', () => {
     expect(nginxConfig).toContain('include /etc/nginx/mime.types;');
   });
 
-  it('redirects the site root to the skill-library login page', () => {
-    // 单入口 ADR-0004：对外只暴露 3000，访问 / 应直达认证入口（注册在登录页内）。
-    expect(nginxConfig).toMatch(/location\s+=\s+\/\s*\{[^}]*return\s+302\s+\/admin\/login;/);
+  it('redirects cloud/localhost root to the skill-library login page', () => {
+    // 单入口 ADR-0004：cloud/localhost 访问 / 应直达认证入口（注册在登录页内）。
+    expect(nginxConfig).toMatch(
+      /server_name enterprise-skills\.com[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+\/admin\/login;/
+    );
+  });
+
+  it('redirects www root and admin console to the cloud origin', () => {
+    // ADR-0058：www 是官网入口；尚无主页前临时导向 cloud，避免继续充当控制台。
+    expect(nginxConfig).toMatch(
+      /server_name www\.enterprise-skills\.com;[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+https:\/\/cloud\.enterprise-skills\.com\/admin\/login;/
+    );
+    expect(nginxConfig).toMatch(
+      /server_name www\.enterprise-skills\.com;[\s\S]*?location\s+\/admin\s*\{[^}]*return\s+302\s+https:\/\/cloud\.enterprise-skills\.com\$request_uri;/
+    );
   });
 
   it('emits relative redirects so the external host:port is preserved', () => {
