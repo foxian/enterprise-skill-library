@@ -9,7 +9,8 @@ sharing, and using AI Agent skills across teams.
   (recommend 24) for developing this repository. Node 25/26 are not
   supported.
 - `git` on PATH (Git for Windows on Windows) — required by the CLI's
-  install/use/upload/publish/source/status/init/version commands.
+  `skill install` / `skill use` / `source upload` / `release publish` /
+  `source clone` / `source status` / `source init` / `release version` commands.
 - Docker and Docker Compose to run ESL Server. The ESL CLI works on Windows,
   macOS, and Linux; the server is supported on Linux (T1) and via Docker
   Desktop on Windows (T2). See the

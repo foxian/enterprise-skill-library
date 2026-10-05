@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelection, run } from '../src/bin/esl.js';
-import { executeInstall, resolveDefaultInstallTools } from '../src/commands/install.js';
+import { executeInstall } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
 import { executeLink, resolveLinkIdentity } from '../src/commands/link.js';
 import { SUPPORTED_TOOLS, initializeLocalStore, saveConfig } from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
-import { executeToolsRemove } from '../src/commands/tools.js';
 import { isInteractive } from '../src/prompt.js';
 import { readCliVersion } from '../src/version.js';
 import fs from 'node:fs';
@@ -57,13 +56,8 @@ vi.mock('../src/commands/link.js', () => ({
   executeLink: vi.fn(),
   resolveLinkIdentity: vi.fn()
 }));
-vi.mock('../src/commands/tools.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/commands/tools.js')>();
-  return { ...actual, executeToolsRemove: vi.fn() };
-});
 vi.mock('../src/commands/install.js', () => ({
-  executeInstall: vi.fn(),
-  resolveDefaultInstallTools: vi.fn()
+  executeInstall: vi.fn()
 }));
 
 describe('esl program', () => {
@@ -108,7 +102,6 @@ describe('esl program', () => {
     inputMock.mockReset();
     selectMock.mockReset();
     vi.mocked(executeInstall).mockReset();
-    vi.mocked(resolveDefaultInstallTools).mockReset();
     executeDependAddMock.mockReset();
     executeDependListMock.mockReset();
     executeDependRemoveMock.mockReset();
@@ -135,30 +128,27 @@ describe('esl program', () => {
     );
   });
 
-  it('passes configured default tools to link instead of an empty list', async () => {
+  it('requires an explicit --tools for non-interactive link instead of reading preferred tools', async () => {
     const tmp = withTempCwd();
     try {
       vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
-      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['claude', 'codex']);
-      vi.mocked(executeLink).mockResolvedValueOnce('/tmp/linked-target');
+      vi.mocked(executeLink).mockClear();
       const program = createProgram();
 
-      await program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' });
+      await expect(
+        program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' })
+      ).rejects.toThrow(/explicit tool set/);
 
-      expect(executeLink).toHaveBeenCalledWith(
-        './my-skill',
-        expect.objectContaining({ tools: ['claude', 'codex'] })
-      );
+      expect(executeLink).not.toHaveBeenCalled();
     } finally {
       tmp.restore();
     }
   });
 
-  it('prompts the tool checkbox on interactive install even when default tools are configured', async () => {
+  it('prompts the tool checkbox on interactive install', async () => {
     const tmp = withTempCwd();
     try {
       vi.mocked(isInteractive).mockReturnValue(true);
-      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce(['cursor']);
       vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/installed');
       checkboxMock.mockResolvedValueOnce(['claude']);
       const program = createProgram();
@@ -330,26 +320,98 @@ describe('esl program', () => {
     await expect(promptToolSelection(selectTools)).rejects.toBe(cancellation);
   });
 
-  it('registers Phase 1 commands', () => {
+  function subcommands(program: ReturnType<typeof createProgram>, name: string): string[] {
+    return (
+      program.commands.find((command) => command.name() === name)?.commands.map((command) => command.name()) ?? []
+    );
+  }
+
+  it('registers the resource command tree', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((command) => command.name());
+
+    expect(commandNames).toEqual(
+      expect.arrayContaining(['skill', 'source', 'release', 'account', 'config', 'link', 'unlink'])
+    );
+    expect(subcommands(program, 'skill')).toEqual(
+      expect.arrayContaining(['search', 'info', 'install', 'list', 'update', 'uninstall', 'use', 'share'])
+    );
+    expect(subcommands(program, 'source')).toEqual(
+      expect.arrayContaining(['init', 'validate', 'status', 'upload', 'clone', 'reset', 'rename'])
+    );
+    expect(subcommands(program, 'release')).toEqual(
+      expect.arrayContaining(['version', 'publish', 'depend', 'notes', 'deprecate', 'delete', 'repair-tag'])
+    );
+    expect(subcommands(program, 'account')).toEqual(
+      expect.arrayContaining(['login', 'logout', 'whoami', 'change-password'])
+    );
+    expect(subcommands(program, 'config')).toEqual(expect.arrayContaining(['set-server', 'preferred-tools']));
+
+    const depend = program.commands
+      .find((command) => command.name() === 'release')
+      ?.commands.find((command) => command.name() === 'depend');
+    expect(depend?.commands.map((command) => command.name())).toEqual(['add', 'remove', 'list']);
+  });
+
+  it('registers the permanent top-level shortcuts', () => {
     const program = createProgram();
     const commandNames = program.commands.map((command) => command.name());
 
     expect(commandNames).toEqual(
       expect.arrayContaining([
-        'init',
-        'validate',
-        'version',
+        'search',
+        'info',
         'install',
         'list',
-        'use',
-        'source',
         'update',
         'uninstall',
-        'share'
+        'version',
+        'publish',
+        'link',
+        'unlink',
+        'login',
+        'logout',
+        'whoami'
       ])
     );
-    expect(commandNames).not.toContain('admin');
+  });
+
+  it('does not register removed top-level commands or the standalone tools surface', () => {
+    const program = createProgram();
+    const commandNames = program.commands.map((command) => command.name());
+
+    for (const removed of [
+      'use',
+      'init',
+      'upload',
+      'validate',
+      'status',
+      'rename',
+      'reset-source',
+      'depend',
+      'notes',
+      'deprecate',
+      'release-delete',
+      'share',
+      'tools',
+      'repair-tag',
+      'admin'
+    ]) {
+      expect(commandNames, removed).not.toContain(removed);
+    }
     expect(commandNames).not.toContain('delete');
+  });
+
+  it('keeps resource paths and top-level shortcuts behaviorally equivalent', async () => {
+    vi.mocked(executeInstall).mockResolvedValue('/tmp/skill');
+    const program = createProgram();
+
+    await program.parseAsync(['skill', 'install', '@acme/review', '--tools', 'all'], { from: 'user' });
+
+    expect(executeInstall).toHaveBeenCalledWith(
+      '@acme/review',
+      expect.objectContaining({ tools: [...SUPPORTED_TOOLS], noAdapt: false })
+    );
   });
 
   it('registers the whoami command', () => {
@@ -404,9 +466,7 @@ describe('esl program', () => {
     executeSearchMock.mockResolvedValue([
       { name: '@acme/tool', description: 'Org tool', displayName: 'tool', latestStableVersion: '1.0.0', visibility: 'public' },
       { name: '@beta/lib', description: 'Beta library', latestStableVersion: '1.2.0', visibility: 'public' }
-    ]);
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValue(['claude']);
-    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
+    ]);    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
     selectMock.mockResolvedValueOnce('@acme/tool');
     selectMock.mockResolvedValueOnce('install');
     confirmMock.mockResolvedValueOnce(true);
@@ -436,9 +496,7 @@ describe('esl program', () => {
     vi.mocked(isInteractive).mockReturnValue(true);
     executeSearchMock.mockResolvedValue([
       { name: '@acme/tool', description: 'Org tool', latestStableVersion: '1.0.0', visibility: 'public' }
-    ]);
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValue(['claude']);
-    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
+    ]);    vi.mocked(executeInstall).mockResolvedValue('/store/@acme/tool');
     selectMock.mockResolvedValueOnce('@acme/tool');
     selectMock.mockResolvedValueOnce('install');
     confirmMock.mockResolvedValueOnce(true);
@@ -521,7 +579,7 @@ describe('esl program', () => {
 
   it('uses --server for ESL Server commands and does not expose old network flags', () => {
     const program = createProgram();
-    const commandNames = ['login', 'search', 'info', 'publish', 'install', 'source', 'use', 'update'];
+    const commandNames = ['login', 'search', 'info', 'publish', 'install', 'update'];
 
     for (const commandName of commandNames) {
       const command = program.commands.find((entry) => entry.name() === commandName);
@@ -529,6 +587,18 @@ describe('esl program', () => {
       expect(options, commandName).toContain('--server');
       expect(options, commandName).not.toContain('--registry');
       expect(options, commandName).not.toContain('--git-base');
+    }
+
+    // `source clone` and `skill use` replace the old top-level `source` / `use`.
+    const nested = [
+      program.commands.find((entry) => entry.name() === 'source')?.commands.find((entry) => entry.name() === 'clone'),
+      program.commands.find((entry) => entry.name() === 'skill')?.commands.find((entry) => entry.name() === 'use')
+    ];
+    for (const command of nested) {
+      const options = command?.options.map((option) => option.long) ?? [];
+      expect(options).toContain('--server');
+      expect(options).not.toContain('--registry');
+      expect(options).not.toContain('--git-base');
     }
   });
 
@@ -585,14 +655,13 @@ describe('esl program', () => {
     );
   });
 
-  it('fails non-interactively when no tools are configured', async () => {
+  it('fails non-interactively without an explicit --tools', async () => {
     vi.mocked(executeInstall).mockClear();
-    vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
     const program = createProgram();
 
     await expect(
       program.parseAsync(['install', '@acme/review'], { from: 'user' })
-    ).rejects.toThrow('No tools configured');
+    ).rejects.toThrow(/explicit tool set/);
 
     expect(executeInstall).not.toHaveBeenCalled();
   });
@@ -601,13 +670,12 @@ describe('esl program', () => {
     const tmp = withTempCwd();
     try {
       vi.mocked(isInteractive).mockReturnValue(true);
-      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
       vi.mocked(executeInstall).mockClear();
       const program = createProgram();
 
       await expect(
         program.parseAsync(['install', '@acme/review', '--no-input'], { from: 'user' })
-      ).rejects.toThrow('No tools configured');
+      ).rejects.toThrow(/explicit tool set/);
 
       expect(checkboxMock).not.toHaveBeenCalled();
       expect(executeInstall).not.toHaveBeenCalled();
@@ -621,13 +689,12 @@ describe('esl program', () => {
     try {
       vi.mocked(isInteractive).mockReturnValue(true);
       vi.mocked(resolveLinkIdentity).mockResolvedValue({ identity: '@acme/review' });
-      vi.mocked(resolveDefaultInstallTools).mockResolvedValueOnce([]);
       vi.mocked(executeLink).mockClear();
       const program = createProgram();
 
       await expect(
         program.parseAsync(['link', './my-skill', '--no-input'], { from: 'user' })
-      ).rejects.toThrow('No tools configured');
+      ).rejects.toThrow(/explicit tool set/);
 
       expect(checkboxMock).not.toHaveBeenCalled();
       expect(executeLink).not.toHaveBeenCalled();
@@ -636,39 +703,16 @@ describe('esl program', () => {
     }
   });
 
-  it('does not prompt for tools remove under --no-input', async () => {
-    vi.mocked(isInteractive).mockReturnValue(true);
-    vi.mocked(executeToolsRemove).mockClear();
-    const program = createProgram();
-
-    await expect(
-      program.parseAsync(['tools', 'remove', '@acme/review', '--no-input'], { from: 'user' })
-    ).rejects.toThrow('No tools selected');
-
-    expect(checkboxMock).not.toHaveBeenCalled();
-    expect(executeToolsRemove).not.toHaveBeenCalled();
-  });
-
   it('does not resolve tools when install uses --no-adapt', async () => {
     vi.mocked(executeInstall).mockResolvedValueOnce('/tmp/skill');
-    vi.mocked(resolveDefaultInstallTools).mockClear();
     const program = createProgram();
 
     await program.parseAsync(['install', '@acme/review', '--no-adapt'], { from: 'user' });
 
-    expect(resolveDefaultInstallTools).not.toHaveBeenCalled();
     expect(executeInstall).toHaveBeenCalledWith(
       '@acme/review',
       expect.objectContaining({ tools: [], noAdapt: true })
     );
-  });
-
-  it('registers --project on tools list', () => {
-    const program = createProgram();
-    const tools = program.commands.find((command) => command.name() === 'tools');
-    const list = tools?.commands.find((command) => command.name() === 'list');
-
-    expect(list?.options.map((option) => option.long)).toContain('--project');
   });
 
   it('emits an agent tools multiselect for install when --tools is missing', async () => {
@@ -886,7 +930,7 @@ describe('esl program', () => {
       await saveConfig({ tools: ['claude'] }, { homeDir });
       vi.mocked(isInteractive).mockReturnValue(true);
 
-      await run(['node', 'esl', 'tools', 'preferred', '--json']);
+      await run(['node', 'esl', 'config', 'preferred-tools', '--json']);
 
       expect(JSON.parse(stdout.join(''))).toEqual(['claude']);
       expect(checkboxMock).not.toHaveBeenCalled();
@@ -898,24 +942,25 @@ describe('esl program', () => {
     }
   });
 
-  it('registers tools sync and drops update --tools/--force', () => {
+  it('drops the standalone tools command and update --tools/--force', () => {
     const program = createProgram();
-    const tools = program.commands.find((command) => command.name() === 'tools');
-    expect(tools?.commands.map((command) => command.name())).toContain('sync');
+    expect(program.commands.map((command) => command.name())).not.toContain('tools');
     const update = program.commands.find((command) => command.name() === 'update');
     expect(update?.options.map((option) => option.long)).not.toContain('--tools');
     expect(update?.options.map((option) => option.long)).not.toContain('--force');
   });
 
-  it('registers depend with add, remove, and list subcommands', () => {
+  it('registers release depend with add, remove, and list subcommands', () => {
     const program = createProgram();
-    const depend = program.commands.find((command) => command.name() === 'depend');
+    const depend = program.commands
+      .find((command) => command.name() === 'release')
+      ?.commands.find((command) => command.name() === 'depend');
     expect(depend).toBeDefined();
     expect(depend?.commands.map((command) => command.name())).toEqual(['add', 'remove', 'list']);
     expect(depend?.description()).toContain('release.json');
   });
 
-  it('routes bare depend and depend list to the source manifest list', async () => {
+  it('routes bare release depend and depend list to the source manifest list', async () => {
     executeDependListMock.mockResolvedValue({ dependencies: { '@acme/base': '^1.2.0' } });
     const logs: string[] = [];
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
@@ -923,8 +968,8 @@ describe('esl program', () => {
     });
 
     try {
-      await run(['node', 'esl', 'depend', './src']);
-      await run(['node', 'esl', 'depend', 'list', '--json']);
+      await run(['node', 'esl', 'release', 'depend', './src']);
+      await run(['node', 'esl', 'release', 'depend', 'list', '--json']);
     } finally {
       logSpy.mockRestore();
     }
@@ -935,14 +980,14 @@ describe('esl program', () => {
     expect(logs).toContain(JSON.stringify({ dependencies: { '@acme/base': '^1.2.0' } }, null, 2));
   });
 
-  it('routes depend add and remove to the source manifest edits', async () => {
+  it('routes release depend add and remove to the source manifest edits', async () => {
     executeDependAddMock.mockResolvedValue({ identity: '@acme/base', range: '^1.2.0', updated: false });
     executeDependRemoveMock.mockResolvedValue({ identity: '@acme/base' });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     try {
-      await run(['node', 'esl', 'depend', 'add', '@acme/base@^1.2.0', './src']);
-      await run(['node', 'esl', 'depend', 'remove', '@acme/base']);
+      await run(['node', 'esl', 'release', 'depend', 'add', '@acme/base@^1.2.0', './src']);
+      await run(['node', 'esl', 'release', 'depend', 'remove', '@acme/base']);
     } finally {
       logSpy.mockRestore();
     }
@@ -951,9 +996,11 @@ describe('esl program', () => {
     expect(executeDependRemoveMock).toHaveBeenCalledWith('@acme/base', { directory: undefined });
   });
 
-  it('registers the release tag repair command', () => {
+  it('registers release repair-tag under the release resource', () => {
     const program = createProgram();
-    const repairTag = program.commands.find((command) => command.name() === 'repair-tag');
+    const repairTag = program.commands
+      .find((command) => command.name() === 'release')
+      ?.commands.find((command) => command.name() === 'repair-tag');
 
     expect(repairTag).toBeDefined();
     expect(repairTag?.options.map((option) => option.long)).toContain('--server');
@@ -1043,8 +1090,7 @@ describe('esl program', () => {
 
   it('exposes -g/--global and -m/--message short flags', () => {
     const program = createProgram();
-    const captureHelp = (commandName: string): string => {
-      const command = program.commands.find((entry) => entry.name() === commandName);
+    const captureHelp = (command: import('commander').Command | undefined): string => {
       expect(command).toBeDefined();
       const chunks: string[] = [];
       const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
@@ -1058,11 +1104,14 @@ describe('esl program', () => {
       }
       return chunks.join('');
     };
+    const topLevel = (name: string): import('commander').Command | undefined =>
+      program.commands.find((entry) => entry.name() === name);
+    const releaseDelete = topLevel('release')?.commands.find((entry) => entry.name() === 'delete');
 
-    expect(captureHelp('install')).toMatch(/-g,\s*--global/);
-    expect(captureHelp('publish')).toMatch(/-m,\s*--message/);
-    expect(captureHelp('release-delete')).toMatch(/--force/);
-    expect(captureHelp('release-delete')).not.toMatch(/-f,\s*--force/);
+    expect(captureHelp(topLevel('install'))).toMatch(/-g,\s*--global/);
+    expect(captureHelp(topLevel('publish'))).toMatch(/-m,\s*--message/);
+    expect(captureHelp(releaseDelete)).toMatch(/--force/);
+    expect(captureHelp(releaseDelete)).not.toMatch(/-f,\s*--force/);
   });
 
   // file:///D:/… → D:\… 的 URL→路径语义只在 Windows 上成立；Linux 的
@@ -1295,7 +1344,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'codex']);
+      await run(['node', 'esl', 'source', 'init', targetDir, '--agent-interaction', '--agent-tool', 'codex']);
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
@@ -1691,7 +1740,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', targetDir, '--agent-interaction', '--agent-tool', 'claude-code']);
+      await run(['node', 'esl', 'source', 'init', targetDir, '--agent-interaction', '--agent-tool', 'claude-code']);
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
@@ -1749,7 +1798,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--agent-interaction']);
+      await run(['node', 'esl', 'source', 'init', path.join(tmpDir, 'my-skill'), '--agent-interaction']);
 
       expect(process.exitCode).toBe(2);
       expect(stderr.join('')).toBe('');
@@ -1786,7 +1835,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--agent-tool', 'claude']);
+      await run(['node', 'esl', 'source', 'init', path.join(tmpDir, 'my-skill'), '--agent-tool', 'claude']);
 
       expect(process.exitCode).toBe(1);
       expect(stderr.join('')).toContain('--agent-tool requires --agent-interaction');
@@ -1814,6 +1863,7 @@ describe('agent interaction', () => {
       await run([
         'node',
         'esl',
+        'source',
         'init',
         path.join(tmpDir, 'my-skill'),
         '--agent-interaction',
@@ -1844,6 +1894,7 @@ describe('agent interaction', () => {
       await run([
         'node',
         'esl',
+        'source',
         'init',
         targetDir,
         '--params-json',
@@ -1884,6 +1935,7 @@ describe('agent interaction', () => {
       await run([
         'node',
         'esl',
+        'source',
         'init',
         path.join(tmpDir, 'my-skill'),
         '--license',
@@ -1914,6 +1966,7 @@ describe('agent interaction', () => {
       await run([
         'node',
         'esl',
+        'source',
         'init',
         path.join(tmpDir, 'my-skill'),
         '--params-json',
@@ -1938,7 +1991,7 @@ describe('agent interaction', () => {
     process.exitCode = undefined;
 
     try {
-      await run(['node', 'esl', 'init', path.join(tmpDir, 'my-skill'), '--params-json', '{']);
+      await run(['node', 'esl', 'source', 'init', path.join(tmpDir, 'my-skill'), '--params-json', '{']);
 
       expect(process.exitCode).toBe(1);
       expect(stderr.join('')).toContain('expected valid JSON');
@@ -1961,7 +2014,7 @@ describe('agent interaction', () => {
 
     try {
       await executeInit({ directory: targetDir, runGitInit: false, homeDir });
-      await run(['node', 'esl', 'validate', targetDir, '--params-json', '{}']);
+      await run(['node', 'esl', 'source', 'validate', targetDir, '--params-json', '{}']);
 
       expect(process.exitCode).toBe(1);
       expect(stderr.join('')).toContain('--params-json is not supported for validate');
@@ -1986,10 +2039,14 @@ describe('upload / publish positional path', () => {
     vi.mocked(executePublish).mockResolvedValue({});
   });
 
-  it('registers only the optional path positional on upload and publish', () => {
+  it('registers only the optional path positional on source upload and release publish', () => {
     const program = createProgram();
-    const upload = program.commands.find((command) => command.name() === 'upload');
-    const publish = program.commands.find((command) => command.name() === 'publish');
+    const upload = program.commands
+      .find((command) => command.name() === 'source')
+      ?.commands.find((command) => command.name() === 'upload');
+    const publish = program.commands
+      .find((command) => command.name() === 'release')
+      ?.commands.find((command) => command.name() === 'publish');
 
     expect(upload?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual(['path:false']);
     expect(publish?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual([
@@ -1997,16 +2054,18 @@ describe('upload / publish positional path', () => {
     ]);
   });
 
-  it('passes the upload positional path as the directory', async () => {
+  it('passes the source upload positional path as the directory', async () => {
     const program = createProgram();
-    await program.parseAsync(['upload', './markdown-master'], { from: 'user' });
+    await program.parseAsync(['source', 'upload', './markdown-master'], { from: 'user' });
 
     expect(executeUpload).toHaveBeenCalledWith(expect.objectContaining({ directory: './markdown-master' }));
   });
 
-  it('registers only the skill directory positional on init and no skill-name argument', () => {
+  it('registers only the skill directory positional on source init and no skill-name argument', () => {
     const program = createProgram();
-    const init = program.commands.find((command) => command.name() === 'init');
+    const init = program.commands
+      .find((command) => command.name() === 'source')
+      ?.commands.find((command) => command.name() === 'init');
 
     expect(init?.registeredArguments.map((argument) => `${argument.name()}:${argument.required}`)).toEqual([
       'path:false'
@@ -2023,7 +2082,7 @@ describe('upload / publish positional path', () => {
     try {
       const program = createProgram();
       try {
-        await program.parseAsync(['upload', '--directory', './b'], { from: 'user' });
+        await program.parseAsync(['source', 'upload', '--directory', './b'], { from: 'user' });
       } catch {
         // commander exits the process on an unknown option; reaching the assertions below is enough.
       }
@@ -2038,9 +2097,9 @@ describe('upload / publish positional path', () => {
     expect(rejectedWithUnknownOption).toBe(true);
   });
 
-  it('falls back to the current directory for upload when no path is given', async () => {
+  it('falls back to the current directory for source upload when no path is given', async () => {
     const program = createProgram();
-    await program.parseAsync(['upload'], { from: 'user' });
+    await program.parseAsync(['source', 'upload'], { from: 'user' });
 
     const firstCall = vi.mocked(executeUpload).mock.calls[0];
     expect((firstCall?.[0] as { directory?: string }).directory).toBeUndefined();
@@ -2050,7 +2109,7 @@ describe('upload / publish positional path', () => {
     const chdirSpy = vi.spyOn(process, 'chdir').mockImplementation(() => undefined);
     try {
       const program = createProgram();
-      await program.parseAsync(['upload', '-C', './somewhere'], { from: 'user' });
+      await program.parseAsync(['source', 'upload', '-C', './somewhere'], { from: 'user' });
 
       expect(chdirSpy).toHaveBeenCalledWith('./somewhere');
       const firstCall = vi.mocked(executeUpload).mock.calls[0];
@@ -2060,9 +2119,9 @@ describe('upload / publish positional path', () => {
     }
   });
 
-  it('passes the publish positional path as the directory', async () => {
+  it('passes the release publish positional path as the directory', async () => {
     const program = createProgram();
-    await program.parseAsync(['publish', './x'], { from: 'user' });
+    await program.parseAsync(['release', 'publish', './x'], { from: 'user' });
 
     expect(executePublish).toHaveBeenCalledWith(expect.objectContaining({ directory: './x' }));
   });
@@ -2072,7 +2131,7 @@ describe('upload / publish positional path', () => {
     process.exitCode = undefined;
     const program = createProgram();
 
-    await program.parseAsync(['publish', '1.0.0'], { from: 'user' });
+    await program.parseAsync(['release', 'publish', '1.0.0'], { from: 'user' });
 
     expect(executePublish).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('esl version'));

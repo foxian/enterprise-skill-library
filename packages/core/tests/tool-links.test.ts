@@ -7,6 +7,8 @@ import {
   listToolLinks,
   loadToolLinkManifest,
   reconcileToolLinks,
+  removeToolLinks,
+  repairRecordedToolLinks,
   resolveToolName,
   TOOL_DISPLAY_NAMES,
   toolDisplayName,
@@ -211,5 +213,126 @@ describe('reconcileToolLinks', () => {
     expect(
       manifest.links.filter((record) => record.identity === IDENTITY).map((record) => record.tool)
     ).toEqual(['trae-intl']);
+  });
+});
+
+describe('listToolLinks / removeToolLinks / repairRecordedToolLinks', () => {
+  let storeRoot: string;
+  let projectRoot: string;
+  let homeDir: string;
+
+  beforeEach(() => {
+    storeRoot = createStoreRoot();
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-links-proj-'));
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-links-home-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(storeRoot, { recursive: true, force: true });
+    fs.rmSync(projectRoot, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  function linkTarget(tool: ToolName): string {
+    return path.join(toolDirectory(tool, 'project', { projectRoot, homeDir }), 'myorg_reconcile-demo');
+  }
+
+  it('reports a recorded link whose target is missing as broken', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
+    fs.rmSync(linkTarget('claude'), { recursive: true, force: true });
+
+    const entries = await listToolLinks({ storeRoot, level: 'project', projectRoot, homeDir });
+    const claude = entries.find((entry) => entry.tool === 'claude' && entry.identity === IDENTITY);
+
+    expect(claude).toMatchObject({ status: 'broken', managed: true, targetDir: linkTarget('claude') });
+  });
+
+  it('lists a present but unrecorded target as unmanaged', async () => {
+    const foreign = linkTarget('cursor');
+    fs.mkdirSync(path.dirname(foreign), { recursive: true });
+    fs.mkdirSync(foreign);
+    fs.writeFileSync(path.join(foreign, 'SKILL.md'), 'hand placed\n');
+
+    const entries = await listToolLinks({ storeRoot, level: 'project', projectRoot, homeDir });
+    const unmanaged = entries.find((entry) => entry.tool === 'cursor');
+
+    expect(unmanaged?.managed).toBe(false);
+    expect(unmanaged?.status).toBe('unmanaged');
+  });
+
+  it('removes only the requested tool links and keeps the shared Trae link', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'trae-intl', level: 'project', storeRoot, projectRoot, homeDir });
+    await createToolLink({ identity: IDENTITY, tool: 'trae-cn', level: 'project', storeRoot, projectRoot, homeDir });
+    const shared = linkTarget('trae-intl');
+
+    const removed = await removeToolLinks({
+      storeRoot,
+      identity: IDENTITY,
+      tools: ['trae-intl'],
+      level: 'project'
+    });
+
+    expect(removed.map((entry) => entry.tool)).toEqual(['trae-intl']);
+    expect(fs.existsSync(shared)).toBe(true);
+    const manifest = await loadToolLinkManifest(storeRoot);
+    expect(manifest.links.map((record) => record.tool)).toEqual(['trae-cn']);
+  });
+
+  it('repairs missing and stale recorded links without touching unmanaged content', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
+    await createToolLink({ identity: IDENTITY, tool: 'codex', level: 'project', storeRoot, projectRoot, homeDir });
+    const sourceDir = path.join(storeRoot, 'skills', '@myorg', 'reconcile-demo');
+
+    // claude: link removed entirely; codex: stale symlink pointing elsewhere.
+    fs.rmSync(linkTarget('claude'), { recursive: true, force: true });
+    const wrong = path.join(projectRoot, 'wrong');
+    fs.mkdirSync(wrong);
+    fs.rmSync(linkTarget('codex'), { recursive: true, force: true });
+    fs.symlinkSync(wrong, linkTarget('codex'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    const results = await repairRecordedToolLinks({ storeRoot, level: 'project', projectRoot, homeDir });
+
+    expect(results.map((entry) => [entry.tool, entry.status])).toEqual([
+      ['claude', 'created'],
+      ['codex', 'created']
+    ]);
+    expect(fs.realpathSync(linkTarget('claude'))).toBe(fs.realpathSync(sourceDir));
+    expect(fs.realpathSync(linkTarget('codex'))).toBe(fs.realpathSync(sourceDir));
+  });
+
+  it('reports a conflict and never overwrites unmanaged content during repair', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
+    fs.rmSync(linkTarget('claude'), { recursive: true, force: true });
+    fs.mkdirSync(linkTarget('claude'), { recursive: true });
+    fs.writeFileSync(path.join(linkTarget('claude'), 'SKILL.md'), '# Manual\n');
+
+    const results = await repairRecordedToolLinks({ storeRoot, level: 'project', projectRoot, homeDir });
+
+    expect(results.map((entry) => entry.status)).toEqual(['conflict']);
+    expect(fs.readFileSync(path.join(linkTarget('claude'), 'SKILL.md'), 'utf8')).toBe('# Manual\n');
+  });
+
+  it('scopes repair to the given identities', async () => {
+    await createToolLink({ identity: IDENTITY, tool: 'claude', level: 'project', storeRoot, projectRoot, homeDir });
+    fs.rmSync(linkTarget('claude'), { recursive: true, force: true });
+
+    const untouched = await repairRecordedToolLinks({
+      storeRoot,
+      level: 'project',
+      projectRoot,
+      homeDir,
+      identities: new Set(['@myorg/other'])
+    });
+    expect(untouched).toEqual([]);
+    expect(fs.existsSync(linkTarget('claude'))).toBe(false);
+
+    const repaired = await repairRecordedToolLinks({
+      storeRoot,
+      level: 'project',
+      projectRoot,
+      homeDir,
+      identities: new Set([IDENTITY])
+    });
+    expect(repaired.map((entry) => entry.status)).toEqual(['created']);
   });
 });

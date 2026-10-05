@@ -50,7 +50,7 @@ import { executeList, formatSkillListLine } from '../commands/list.js';
 import { runListSession } from '../commands/list-interaction.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
-import { executeInstall, resolveDefaultInstallTools } from '../commands/install.js';
+import { executeInstall } from '../commands/install.js';
 import { executeLink, resolveLinkIdentity } from '../commands/link.js';
 import { executeUnlink } from '../commands/unlink.js';
 import { resolveUnlinkIdentity } from '../commands/resolve-unlink-identity.js';
@@ -82,7 +82,7 @@ import { executeSearch, type SkillSearchFilters, type SkillSearchResult } from '
 import { executeShare } from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
-import { executeToolsList, executeToolsPreferred, executeToolsRemove, executeToolsSync, formatToolSyncResults, formatToolsList, parseToolsOption } from '../commands/tools.js';
+import { executeToolsPreferred, parseToolsOption } from '../commands/tools.js';
 import { executeValidate } from '../commands/validate.js';
 import {
   executeVersion,
@@ -339,8 +339,8 @@ export async function loadPreferredTools(): Promise<ToolName[]> {
   }
 }
 
-// 期望工具集合解析（ADR-0054），install 与 link 共用：
-// Agent 只问工具；TTY 每次勾选；非交互回退全局配置的 tools（或报错）。
+// 期望工具集合解析（ADR-0054 / ADR-0059），install 与 link 共用：
+// Agent 只问工具；TTY 每次勾选（预选来自本机常用工具）；非交互必须显式传 --tools。
 // 返回 countSelection 表示该次成功提交是否计入本机常用工具。
 async function resolveExpectedTools(options: {
   command: string;
@@ -382,11 +382,9 @@ async function resolveExpectedTools(options: {
       countSelection: true
     };
   }
-  const configured = await resolveDefaultInstallTools();
-  if (configured.length === 0) {
-    throw new Error('No tools configured; pass --tools or run interactively');
-  }
-  return { tools: configured, countSelection: false };
+  // 非交互（脚本 / CI / --no-input）不静默读取 preferred tools：必须显式传 --tools
+  // （ADR-0059；#109 story 5）。TTY 预选与 Agent 建议仍可来自本机常用工具。
+  throw new Error('No tools selected; pass --tools (non-interactive install/link requires an explicit tool set)');
 }
 
 // install 命令主体：search TTY 会话确认后也走同一条安装路径（含 tools 选择）。
@@ -557,73 +555,243 @@ async function resolveCommandConsumerProjectRoot(input: {
   return { projectRoot: resolution.projectRoot, global: input.global };
 }
 
-export function createProgram(): Command {
-  const program = new Command();
+// ---------------------------------------------------------------------------
+// 资源式命令定义（ADR-0059）。
+//
+// 每条命令只定义一次，同时挂到资源路径（如 `esl skill search`）和已确认的
+// 高频顶层快捷入口（如 `esl search`）。`path` 参数只影响帮助里的示例文案，让
+// 每个入口自述其用法；行为完全一致，因为两者都调用同一个 `executeX` 实现缝。
+// ---------------------------------------------------------------------------
 
-  program.name('esl').description('Enterprise Skill Library CLI').version(readCliVersion());
-  program.option('-d, --debug', 'print stack traces on error');
-  program.option('--no-input', 'disable all prompts');
-  program.option('--agent-interaction', 'return structured interaction requests instead of prompting');
-  program.option(
-    '--agent-tool <tool>',
-    'AI tool invoking the command, e.g. claude-code or codex (requires --agent-interaction)'
-  );
-  program.option('--locale <locale>', 'Use a temporary locale for this command (zh-CN or en-US)');
-  program.option('--params-json <json>', 'pass command parameters as a JSON object');
-  program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
-  program.hook('preAction', async (_thisCommand, actionCommand) => {
-    const options = program.opts<{
-      cd?: string;
-      paramsJson?: string;
-      agentInteraction?: boolean;
-      agentTool?: string;
-      locale?: string;
-    }>();
-    if (
-      options.locale !== undefined &&
-      !(SUPPORTED_LOCALES as readonly string[]).includes(options.locale)
-    ) {
-      throw new Error(`Unsupported locale: ${options.locale}`);
-    }
-    try {
-      const config = await loadConfig({});
-      activeLocale = resolveLocale({ override: options.locale, accountLocale: config.locale });
-    } catch {
-      activeLocale = resolveLocale({ override: options.locale, accountLocale: null });
-    }
-    if (options.agentTool !== undefined && resolveToolName(options.agentTool) === undefined) {
-      throw new Error(
-        `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_AGENT_TOOL_NAMES}`
-      );
-    }
-    if (options.agentTool !== undefined && options.agentInteraction !== true) {
-      throw new Error('--agent-tool requires --agent-interaction');
-    }
-    if (
-      options.paramsJson !== undefined &&
-      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
-    ) {
-      throw new Error(`--params-json is not supported for ${actionCommand.name()}`);
-    }
-    if (
-      options.agentInteraction === true &&
-      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
-    ) {
-      throw new Error(`--agent-interaction is not supported for ${actionCommand.name()}`);
-    }
-
-    const cd = options.cd;
-    if (typeof cd === 'string' && cd.length > 0) {
-      try {
-        process.chdir(cd);
-      } catch (error) {
-        throw new Error(`Cannot change directory to ${cd}: ${(error as NodeJS.ErrnoException).message}`);
+function addSearch(parent: Command, program: Command, path = 'esl skill search'): Command {
+  return parent
+    .command('search')
+    .description('Search published skills in the Registry')
+    .argument('[query]', 'search query (omit to browse all visible published skills)')
+    .option('--server <url>', 'ESL Server URL')
+    .option('--namespace <namespace>', 'filter by namespace (org or user)')
+    .option('--keyword <keyword>', 'hard filter by skill keyword')
+    .addOption(
+      new Option('--visibility <visibility>', 'filter by visibility').choices(['public', 'private'])
+    )
+    .option('--limit <count>', 'maximum number of results (default 50)')
+    .option('--json', 'Output as JSON')
+    .addHelpText('after', example(`$ ${path} code-review\n  $ ${path}`))
+    .action(async (query: string | undefined, options: {
+      server?: string;
+      namespace?: string;
+      keyword?: string;
+      visibility?: 'public' | 'private';
+      limit?: string;
+      json?: boolean;
+    }) => {
+      let limit: number | undefined;
+      if (options.limit !== undefined) {
+        limit = Number(options.limit);
+        if (!Number.isInteger(limit) || limit <= 0) {
+          throw new Error('--limit must be a positive integer');
+        }
       }
-    }
-  });
+      const filters: SearchSessionFilters = {
+        namespace: options.namespace,
+        keyword: options.keyword,
+        visibility: options.visibility,
+        limit,
+        server: options.server
+      };
+      // TTY（stdin+stdout 且未 --no-input/--json）才进入两步选择会话。
+      if (program.opts().input === false || options.json || !isInteractive()) {
+        const results = await executeSearch(query, { ...options, ...filters });
+        if (options.json) {
+          console.log(JSON.stringify(results, null, 2));
+          return;
+        }
+        if (results.length === 0) {
+          console.log('No skills found.');
+          return;
+        }
+        for (const result of results) {
+          console.log(
+            `${result.name}\t${result.displayName ?? result.skillName ?? ''}\t${result.latestStableVersion ?? ''}\t${result.visibility ?? ''}\t${result.description}`
+          );
+        }
+        return;
+      }
+      await runSearchSession(program, { ...filters, query });
+    });
+}
 
-  program
+function addInfo(parent: Command, path = 'esl skill info'): Command {
+  return parent
+    .command('info')
+    .description('Show published Registry information for a skill')
+    .argument('<skill-name>')
+    .option('--server <url>', 'ESL Server URL')
+    .option('--json', 'Output as JSON')
+    .addHelpText('after', example(`$ ${path} @cnfox/code-review`))
+    .action(async (skillName: string, options: { server?: string; json?: boolean }) => {
+      const info = await executeInfo(skillName, options);
+      if (options.json) {
+        console.log(JSON.stringify(info, null, 2));
+        return;
+      }
+      console.log(formatSkillInfo(info));
+    });
+}
+
+function addInstall(parent: Command, program: Command, path = 'esl skill install'): Command {
+  return parent
+    .command('install')
+    .description('Install a skill into the Skill Store and link it into your AI tools')
+    .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
+    .option('--version <version>', 'version to install')
+    .option('-g, --global', 'Install to global skills directory')
+    .option('--tools <tools>', 'AI tools to link, comma-separated or all')
+    .option('--no-tools', 'Install the skill source without creating tool links')
+    .option('-f, --force', 'Replace ESL-owned stale links')
+    .option('--ignore-compatibility', 'Install incompatible published packages')
+    .option('--no-adapt', 'Skip automatic tool links after install')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example(`$ ${path} @cnfox/code-review --tools claude-code,codex`))
+    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; tools?: string | boolean; force?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
+      if (!nameOrPath) {
+        console.log('Restoring skills from the ESL install manifest...');
+        return;
+      }
+      await installSkill(program, nameOrPath, options);
+    });
+}
+
+function addList(parent: Command, program: Command, path = 'esl skill list'): Command {
+  return parent
+    .command('list')
+    .alias('ls')
+    .description('List installed skills from the Local Skill Store (interactive console on a TTY)')
+    .option('-g, --global', 'List global skills instead of project skills')
+    .option('--json', 'Output as JSON')
+    .addHelpText('after', example(`$ ${path}\n  $ ${path} --json`))
+    .action(async (options: { global?: boolean; json?: boolean }) => {
+      // ADR-0058：TTY 且未禁用输入时进入两级交互管理台；--json / --no-input / 非 TTY 只读。
+      const hint = options.json
+        ? null
+        : await consumerProjectRootHint({ global: options.global });
+      if (program.opts().input !== false && !options.json && isInteractive()) {
+        if (hint) {
+          console.log(hint);
+        }
+        await runListSession({ global: options.global });
+        return;
+      }
+      const skills = await executeList(options);
+      if (options.json) {
+        console.log(JSON.stringify(skills, null, 2));
+        return;
+      }
+      // 人类只读输出标注 Local Skill Store 上下文与 Store 路径（ADR-0059）。
+      const storeRoot = options.global
+        ? resolveLocalStorePaths({ homeDir: undefined }).root
+        : resolveProjectStorePaths(process.cwd()).root;
+      console.log(`Local Skill Store (${options.global ? 'global' : 'project'}): ${storeRoot}`);
+      if (skills.length === 0) {
+        console.log(options.global ? 'No global skills installed.' : 'No skills installed in this project.');
+        if (hint) {
+          console.log(hint);
+        }
+        return;
+      }
+      const label = options.global ? 'Global' : 'Project';
+      console.log(`${label} skills (${skills.length} installed):`);
+      for (const skill of skills) {
+        console.log(formatSkillListLine(skill));
+      }
+      if (hint) {
+        console.log(hint);
+      }
+    });
+}
+
+function addUpdate(parent: Command, path = 'esl skill update'): Command {
+  return parent
+    .command('update')
+    .description('Update installed skills to latest versions')
+    .argument('[skill-name]', 'specific skill to update')
+    .option('-g, --global', 'Update global skills')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example(`$ ${path}`))
+    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
+      const results = await executeUpdate({
+        ...options,
+        skillName
+      });
+      if (results.length === 0) {
+        console.log('All skills are up to date');
+        return;
+      }
+      for (const result of results) {
+        if (result.skipped === 'link') {
+          console.log(`${result.name}: linked (skipped)`);
+        } else {
+          console.log(`${result.name}: ${result.from} -> ${result.to}`);
+        }
+      }
+    });
+}
+
+function addUninstall(parent: Command, path = 'esl skill uninstall'): Command {
+  return parent
+    .command('uninstall')
+    .description('Remove an installed skill')
+    .argument('<skill-name>')
+    .option('-g, --global', 'Uninstall from global skills directory')
+    .option('-f, --force', 'uninstall without confirmation')
+    .addHelpText('after', example(`$ ${path} @cnfox/code-review`))
+    .action(async (skillName: string, options: { global?: boolean }) => {
+      const result = await executeUninstall(skillName, options);
+      if (result.sourceRemoved) {
+        console.log(`Skill ${skillName} uninstalled`);
+      } else {
+        console.log(`Skill ${skillName} uninstalled; linked source was preserved at ${result.sourcePath}`);
+      }
+    });
+}
+
+function addUse(parent: Command): Command {
+  return parent
+    .command('use')
+    .description('Output a skill prompt without installing (pipe to an agent)')
+    .argument('<name-or-path>', 'skill name (@namespace/skill) or local path')
+    .option('--version <version>', 'version to use')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl skill use @cnfox/code-review'))
+    .action(async (nameOrPath: string, options: { version?: string; server?: string }) => {
+      const content = await executeUse(nameOrPath, options);
+      process.stdout.write(content);
+    });
+}
+
+function addShare(parent: Command): Command {
+  return parent
+    .command('share')
+    .description('Share a skill with your organization, a team, or a member')
+    .argument('<skill-name>')
+    .option('--all', 'share with the whole organization (read; add --write for edit)')
+    .option('--team <name>', 'share with a team (read; add --write or --manage)')
+    .option('--user <username>', 'share with a member (read; add --write for edit; add --manage for co-management)')
+    .option('--write', 'grant edit (write) permission where applicable')
+    .option('--manage', 'grant manage permission (share, publish, and grant others)')
+    .option('--reset', 'reset to private (only you keep access)')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl skill share @acme/code-review --all'))
+    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; manage?: boolean; reset?: boolean; server?: string }) => {
+      await executeShare(identity, options);
+      console.log('Skill sharing updated');
+    });
+}
+
+function addInit(parent: Command, program: Command): Command {
+  return parent
     .command('init')
+    .description('Create a new skill source project')
     .argument('[path]', 'target skill directory (defaults to --cd or the current directory)')
     .option('--name <name>', 'skill short name (defaults to the target directory basename)')
     .option('--namespace <namespace>', 'release.json namespace: personal (default) or an organization')
@@ -631,7 +799,7 @@ export function createProgram(): Command {
     .option('--description <text>', 'SKILL.md description (asked interactively when omitted)')
     .option('--display-name <text>', 'release.json display name (defaults to a title-cased short name)')
     .option('--keywords <list>', 'comma-separated release.json keywords')
-    .addHelpText('after', example('$ esl init ./markdown-master\n  $ esl init --name my-skill'))
+    .addHelpText('after', example('$ esl source init ./markdown-master\n  $ esl source init --name my-skill'))
     .action(
       async (
         skillPath: string | undefined,
@@ -682,149 +850,53 @@ export function createProgram(): Command {
         console.log(`Skill initialized at ${targetDir}`);
       }
     );
+}
 
-  program
-    .command('login')
-    .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
-    .option('--server <url>', 'ESL Server URL (defaults to the saved server or ESL_SERVER)')
-    .option('--password-file <path>', 'Read the ESL password from a file')
-    .option('--token-file <path>', 'Read a Skill User Token from a file')
-    .addHelpText('after', example('$ esl login --server http://localhost:3000 --username alice'))
-    .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
-      const login = await executeLogin({
-        ...options,
-        locale: program.opts().locale as string | undefined,
-        noInput: program.opts().input === false,
-        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readServer: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readUsername: process.stdin.isTTY ? undefined : () => readStdinText()
-      });
-      // 全局身份登录（ADR-0032）：一条凭据走遍个人空间与所有组织
-      console.log(`Logged in as ${login.username}`);
-    });
-
-  program
-    .command('logout')
-    .description('Clear the locally stored ESL credentials')
-    .addHelpText('after', example('$ esl logout'))
-    .action(async () => {
-      const result = await executeLogout();
-      console.log(formatLogout(result));
-    });
-
-  const configCmd = program.command('config').description('Manage ESL client configuration');
-  configCmd.addHelpText('after', example('$ esl config set-server http://localhost:3000'));
-  configCmd
-    .command('set-server')
-    .description('Set the ESL Server URL used by all commands')
-    .argument('<url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl config set-server http://localhost:3000'))
-    .action(async (url: string) => {
-      const { server } = await executeSetServer(url);
-      console.log(`Server set to ${server}`);
-    });
-
-  program
-    .command('whoami')
-    .description('Show the current login and login status')
-    .addHelpText('after', example('$ esl whoami'))
-    .action(async () => {
-      const result = await executeWhoami();
-      console.log(formatWhoami(result));
-    });
-
-  const myAccount = program
-    .command('account')
-    .description('Manage your own ESL account');
-  myAccount.addHelpText('after', example('$ esl account change-password'));
-  myAccount
-    .command('change-password')
-    .description('Change your own ESL password')
-    .option('--current-password-file <path>', 'Read the current ESL password from a file')
-    .option('--password-file <path>', 'Read the new ESL password from a file')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl account change-password --server http://localhost:3000'))
-    .action(async (options: { currentPasswordFile?: string; passwordFile?: string; server?: string }) => {
-      await executeChangeOwnPassword({
-        ...options,
-        noInput: program.opts().input === false,
-        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
-        readPassword: readHidden
-      });
-      console.log('Password changed');
-    });
-
-  program
-    .command('search')
-    .argument('[query]', 'search query (omit to browse all visible published skills)')
-    .option('--server <url>', 'ESL Server URL')
-    .option('--namespace <namespace>', 'filter by namespace (org or user)')
-    .option('--keyword <keyword>', 'hard filter by skill keyword')
-    .addOption(
-      new Option('--visibility <visibility>', 'filter by visibility').choices(['public', 'private'])
-    )
-    .option('--limit <count>', 'maximum number of results (default 50)')
-    .option('--json', 'Output as JSON')
-    .addHelpText('after', example('$ esl search code-review\n$ esl search'))
-    .action(async (query: string | undefined, options: {
-      server?: string;
-      namespace?: string;
-      keyword?: string;
-      visibility?: 'public' | 'private';
-      limit?: string;
-      json?: boolean;
-    }) => {
-      let limit: number | undefined;
-      if (options.limit !== undefined) {
-        limit = Number(options.limit);
-        if (!Number.isInteger(limit) || limit <= 0) {
-          throw new Error('--limit must be a positive integer');
-        }
-      }
-      const filters: SearchSessionFilters = {
-        namespace: options.namespace,
-        keyword: options.keyword,
-        visibility: options.visibility,
-        limit,
-        server: options.server
-      };
-      // TTY（stdin+stdout 且未 --no-input/--json）才进入两步选择会话。
-      if (program.opts().input === false || options.json || !isInteractive()) {
-        const results = await executeSearch(query, { ...options, ...filters });
-        if (options.json) {
-          console.log(JSON.stringify(results, null, 2));
-          return;
-        }
-        if (results.length === 0) {
-          console.log('No skills found.');
-          return;
-        }
-        for (const result of results) {
-          console.log(
-            `${result.name}\t${result.displayName ?? result.skillName ?? ''}\t${result.latestStableVersion ?? ''}\t${result.visibility ?? ''}\t${result.description}`
-          );
-        }
+function addValidate(parent: Command): Command {
+  return parent
+    .command('validate')
+    .description('Validate a skill source package')
+    .argument('[path]', 'skill directory')
+    .addHelpText('after', example('$ esl source validate ./my-skill'))
+    .action(async (directory: string | undefined) => {
+      const result = await executeValidate(directory);
+      if (result.valid) {
+        console.log('Skill package is valid');
         return;
       }
-      await runSearchSession(program, { ...filters, query });
+      for (const error of result.errors) {
+        console.error(error);
+      }
+      process.exitCode = 1;
     });
+}
 
-  program
-    .command('info')
-    .argument('<skill-name>')
-    .option('--server <url>', 'ESL Server URL')
-    .option('--json', 'Output as JSON')
-    .addHelpText('after', example('$ esl info @cnfox/code-review'))
-    .action(async (skillName: string, options: { server?: string; json?: boolean }) => {
-      const info = await executeInfo(skillName, options);
-      if (options.json) {
-        console.log(JSON.stringify(info, null, 2));
+function addStatus(parent: Command): Command {
+  return parent
+    .command('status')
+    .description('Show the state of the local skill source vs the server')
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
+    .addHelpText('after', example('$ esl source status'))
+    .action(async (skillPath: string | undefined) => {
+      const status = await executeStatus({ directory: skillPath });
+      if (!status.serverHosted) {
+        console.log('Not yet a server-hosted skill source; run "esl source upload ." to register it');
         return;
       }
-      console.log(formatSkillInfo(info));
+      const lines = [
+        status.clean ? 'Working tree: clean' : 'Working tree: has uncommitted changes',
+        `Local ahead of server: ${status.ahead} commit(s) not pushed`,
+        `Local behind server: ${status.behind} commit(s)`
+      ];
+      if (status.lastCommit) {
+        lines.push(`Last commit: ${status.lastCommit}`);
+      }
+      console.log(lines.join('\n'));
     });
+}
 
-program
+function addUpload(parent: Command, program: Command): Command {
+  return parent
     .command('upload')
     .description('Commit, push and (on first use) register a local skill source')
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
@@ -832,7 +904,7 @@ program
     .option('-m, --message <text>', 'description of this upload, used as the source commit message')
     .option('--confirm-identity <skill-name>', 'confirm the first-upload skill identity for non-interactive use')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl upload ./my-skill --confirm-identity @acme/my-skill'))
+    .addHelpText('after', example('$ esl source upload ./my-skill --confirm-identity @acme/my-skill'))
     .action(async (skillPath: string | undefined, options: { license?: string; message?: string; confirmIdentity?: string; server?: string }) => {
       const uploaded = await executeUpload({
         ...options,
@@ -849,14 +921,30 @@ program
           : `Skill source synced: ${uploaded.name}`
       );
     });
+}
 
-  program
-    .command('reset-source')
+function addClone(parent: Command): Command {
+  return parent
+    .command('clone')
+    .description('Clone a skill source for development')
+    .argument('<skill-name>')
+    .argument('[target]', 'target directory')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl source clone @cnfox/code-review'))
+    .action(async (skillName: string, target: string | undefined, options: { server?: string }) => {
+      const targetDir = await executeSource(skillName, { ...options, target });
+      console.log(`Skill cloned to ${targetDir}`);
+    });
+}
+
+function addResetSource(parent: Command, program: Command): Command {
+  return parent
+    .command('reset')
     .description('Detach a skill source directory from its server source (remove the esl remote and back up release.json)')
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--server <url>', 'ESL Server URL')
     .option('-f, --force', 'reset without confirmation')
-    .addHelpText('after', example('$ esl reset-source ./my-skill --force'))
+    .addHelpText('after', example('$ esl source reset ./my-skill --force'))
     .action(async (skillPath: string | undefined, options: { server?: string; force?: boolean }) => {
       const result = await executeResetSource({
         directory: skillPath,
@@ -865,74 +953,71 @@ program
         noInput: program.opts().input === false
       });
       console.log(`Source link reset in ${result.directory}; the directory is now a plain local skill source`);
-      console.log('To register it as a fresh server source, run "esl upload" from the directory');
+      console.log('To register it as a fresh server source, run "esl source upload" from the directory');
     });
+}
 
-  program
-    .command('status')
-    .description('Show the state of the local skill source vs the server')
-    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
-    .addHelpText('after', example('$ esl status'))
-    .action(async (skillPath: string | undefined) => {
-      const status = await executeStatus({ directory: skillPath });
-      if (!status.serverHosted) {
-        console.log('Not yet a server-hosted skill source; run "esl upload ." to register it');
-        return;
-      }
-      const lines = [
-        status.clean ? 'Working tree: clean' : 'Working tree: has uncommitted changes',
-        `Local ahead of server: ${status.ahead} commit(s) not pushed`,
-        `Local behind server: ${status.behind} commit(s)`
-      ];
-      if (status.lastCommit) {
-        lines.push(`Last commit: ${status.lastCommit}`);
-      }
-      console.log(lines.join('\n'));
-    });
-
-  program
+function addRename(parent: Command): Command {
+  return parent
     .command('rename')
     .description('Rename a server-hosted skill')
     .argument('<skill-name>')
     .argument('<new-name>')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl rename @platform-ai/reviewer reviewer-pro'))
+    .addHelpText('after', example('$ esl source rename @platform-ai/reviewer reviewer-pro'))
     .action(async (identity: string, newName: string, options: { server?: string }) => {
       const renamed = await executeRename(identity, { ...options, newName });
       console.log(`Skill renamed: ${(renamed as { name?: string }).name ?? newName}`);
     });
+}
 
-  program
-    .command('share')
-    .description('Share a skill with your organization, a team, or a member')
-    .argument('<skill-name>')
-    .option('--all', 'share with the whole organization (read; add --write for edit)')
-    .option('--team <name>', 'share with a team (read; add --write or --manage)')
-    .option('--user <username>', 'share with a member (read; add --write for edit; add --manage for co-management)')
-    .option('--write', 'grant edit (write) permission where applicable')
-    .option('--manage', 'grant manage permission (share, publish, and grant others)')
-    .option('--reset', 'reset to private (only you keep access)')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl share @acme/code-review --all'))
-    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; manage?: boolean; reset?: boolean; server?: string }) => {
-      await executeShare(identity, options);
-      console.log('Skill sharing updated');
+function addVersion(parent: Command, program: Command, path = 'esl release version'): Command {
+  return parent
+    .command('version')
+    .description('Set the next version in the skill source release manifest')
+    .argument('[release]', 'major, minor, patch, or an explicit SemVer (e.g. 1.2.3)')
+    .addHelpText('after', example(`$ ${path} minor\n  $ ${path} 1.2.3`))
+    .action(async (release?: string) => {
+      const rawParamsJson = program.opts().paramsJson as string | undefined;
+      const params = rawParamsJson
+        ? parseCommandParams(rawParamsJson, 'version', ['release'])
+        : {};
+      assertNoDuplicateCommandParams(params, { release }, 'version');
+      release ??= readOptionalStringParam(params, 'release', 'version');
+
+      if (!release) {
+        if (program.opts().input === false) {
+          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
+        }
+        if (program.opts().agentInteraction === true) {
+          const inspection = await inspectVersion(process.cwd());
+          throw new AgentInteractionRequiredError(
+            createAgentInteractionRequest({
+              command: 'version',
+              fields: versionAgentFields(inspection),
+              agentTool:
+                program.opts().agentTool === undefined
+                  ? undefined
+                  : resolveToolName(program.opts().agentTool as string)
+            })
+          );
+        }
+        if (!isInteractive()) {
+          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
+        }
+        const inspection = await inspectVersion(process.cwd());
+        const selected = await promptVersionSelection(inspection);
+        release = selected === 'custom' ? await promptCustomVersion() : selected;
+      }
+      const version = await executeVersion(release);
+      console.log(version);
     });
+}
 
-  program
-    .command('repair-tag')
-    .description('Repair a missing release tag')
-    .argument('<skill-name>')
-    .argument('<version>')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl repair-tag @platform-ai/reviewer 1.0.0'))
-    .action(async (identity: string, version: string, options: { server?: string }) => {
-      const repaired = await executeRepairTag(identity, { ...options, version });
-console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${version}`}`);
-    });
-
-  program
+function addPublish(parent: Command, program: Command, path = 'esl release publish'): Command {
+  return parent
     .command('publish')
+    .description('Publish an immutable Release from the skill source')
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--server <url>', 'ESL Server URL')
     .option('--visibility <visibility>', 'public or private')
@@ -940,7 +1025,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('-m, --message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
     .option('--dry-run', 'validate and preview the release without touching the server')
-    .addHelpText('after', example('$ esl publish ./my-skill -m "fix: dead-link regex"'))
+    .addHelpText('after', example(`$ ${path} ./my-skill -m "fix: dead-link regex"`))
     .action(async (skillPath: string | undefined, options: { server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
       if (skillPath && SEMVER_ARGUMENT_PATTERN.test(skillPath)) {
         console.error(
@@ -960,15 +1045,17 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         console.log('Skill published');
       }
     });
+}
 
+function addDepend(parent: Command): Command {
   // 发布依赖是技能源清单（release.json.dependencies）的边，不是项目侧安装——
   // 父命令无子命令时即 list（ADR-0056）。
-  const dependCommand = program
+  const dependCommand = parent
     .command('depend')
     .description('Manage release dependencies declared in the skill source release.json')
     .argument('[path]', 'skill source directory (defaults to --cd or the current directory)')
     .option('--json', 'output as JSON')
-    .addHelpText('after', example('$ esl depend add @acme/style-guide'))
+    .addHelpText('after', example('$ esl release depend add @acme/style-guide'))
     .action(async (skillPath: string | undefined, options: { json?: boolean }) => {
       const result = await executeDependList({ directory: skillPath });
       if (options.json) {
@@ -983,7 +1070,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Add or update a release dependency edge (resolves against the Registry)')
     .argument('<target>', 'skill identity, optionally with a range: @acme/style-guide[@^1.0.0]')
     .argument('[path]', 'skill source directory (defaults to the current directory)')
-    .addHelpText('after', example('$ esl depend add @acme/style-guide@^1.0.0'))
+    .addHelpText('after', example('$ esl release depend add @acme/style-guide@^1.0.0'))
     .action(async (target: string, skillPath: string | undefined) => {
       const result = await executeDependAdd(target, { directory: skillPath });
       console.log(`${result.identity} ${result.range} (${result.updated ? 'updated' : 'added'})`);
@@ -994,7 +1081,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .description('Remove a release dependency edge')
     .argument('<target>', 'skill identity: @acme/style-guide')
     .argument('[path]', 'skill source directory (defaults to the current directory)')
-    .addHelpText('after', example('$ esl depend remove @acme/style-guide'))
+    .addHelpText('after', example('$ esl release depend remove @acme/style-guide'))
     .action(async (target: string, skillPath: string | undefined) => {
       const result = await executeDependRemove(target, { directory: skillPath });
       console.log(`Removed dependency edge: ${result.identity}`);
@@ -1004,7 +1091,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .command('list')
     .description('List release dependencies in the skill source manifest')
     .argument('[path]', 'skill source directory (defaults to the current directory)')
-    .addHelpText('after', example('$ esl depend list'))
+    .addHelpText('after', example('$ esl release depend list'))
     // --json 只定义在父命令上：同名选项会被父级解析器吸收，这里从 parent opts 读。
     .action(async (skillPath: string | undefined, _options: unknown, command: { parent: { opts: () => { json?: boolean } } }) => {
       const result = await executeDependList({ directory: skillPath });
@@ -1015,14 +1102,33 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
     });
 
-  program
+  return dependCommand;
+}
+
+function addNotes(parent: Command): Command {
+  return parent
+    .command('notes')
+    .description('Update the release notes of a published version')
+    .argument('<skill-name>')
+    .argument('<version>')
+    .requiredOption('-m, --message <text>', 'new release notes')
+    .option('--server <url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl release notes @platform-ai/reviewer 1.1.0 -m "Revised notes"'))
+    .action(async (identity: string, version: string, options: { message: string; server?: string }) => {
+      const updated = await executeNotes(identity, version, options);
+      console.log(`Release notes updated: ${updated.skillName} ${updated.version}`);
+    });
+}
+
+function addDeprecate(parent: Command): Command {
+  return parent
     .command('deprecate')
     .description('Mark a published version as deprecated, or clear the mark')
     .argument('<skill-name>', 'scoped skill name, e.g. @acme/code-review')
     .argument('<version>', 'published version to deprecate')
     .option('-m, --message <text>', 'warning shown to anyone installing this version; empty clears the mark', '')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl deprecate @acme/code-review 1.2.0 -m "Use 1.3.0 instead"'))
+    .addHelpText('after', example('$ esl release deprecate @acme/code-review 1.2.0 -m "Use 1.3.0 instead"'))
     .action(async (name: string, version: string, options: { message: string; server?: string }) => {
       await executeDeprecate(name, version, options);
       console.log(
@@ -1031,58 +1137,149 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
           : `Cleared the deprecation mark on ${name}@${version}`
       );
     });
+}
 
-  program
-    .command('release-delete')
+function addReleaseDelete(parent: Command): Command {
+  return parent
+    .command('delete')
     .description('Delete a single published version (the version number is burned)')
     .argument('<skill-name>', 'scoped skill name, e.g. @acme/code-review')
     .argument('<version>', 'published version to delete')
     .requiredOption('--confirm <version>', 'echo the version to confirm the deletion')
     .option('--force', 'override the dependency-pinning guard (platform administrator only)')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl release-delete @acme/code-review 1.0.0 --confirm 1.0.0'))
+    .addHelpText('after', example('$ esl release delete @acme/code-review 1.0.0 --confirm 1.0.0'))
     .action(async (name: string, version: string, options: { confirm: string; force?: boolean; server?: string }) => {
       const result = await executeReleaseDelete(name, version, options);
       const dependents = result.dependents?.length ? ` (was required by ${result.dependents.join(', ')})` : '';
       console.log(`Deleted ${name}@${version}${dependents}`);
     });
+}
 
-  program
-    .command('notes')
-    .description('Update the release notes of a published version')
+function addRepairTag(parent: Command): Command {
+  return parent
+    .command('repair-tag')
+    .description('Repair a missing release tag')
     .argument('<skill-name>')
     .argument('<version>')
-    .requiredOption('-m, --message <text>', 'new release notes')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl notes @platform-ai/reviewer 1.1.0 -m "Revised notes"'))
-    .action(async (identity: string, version: string, options: { message: string; server?: string }) => {
-      const updated = await executeNotes(identity, version, options);
-      console.log(`Release notes updated: ${updated.skillName} ${updated.version}`);
+    .addHelpText('after', example('$ esl release repair-tag @platform-ai/reviewer 1.0.0'))
+    .action(async (identity: string, version: string, options: { server?: string }) => {
+      const repaired = await executeRepairTag(identity, { ...options, version });
+      console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${version}`}`);
     });
+}
 
-  program
-    .command('install')
-    .argument('[name-or-path]', 'skill name (@namespace/skill) or local path')
-    .option('--version <version>', 'version to install')
-    .option('-g, --global', 'Install to global skills directory')
-    .option('--tools <tools>', 'AI tools to link, comma-separated or all')
-    .option('--no-tools', 'Install the skill source without creating tool links')
-    .option('-f, --force', 'Replace ESL-owned stale links')
-    .option('--ignore-compatibility', 'Install incompatible published packages')
-    .option('--no-adapt', 'Skip automatic tool links after install')
+function addLogin(parent: Command, program: Command, path = 'esl account login'): Command {
+  return parent
+    .command('login')
+    .description('Log in to an ESL Server')
+    .option('--username <username>', 'ESL username (defaults to the saved or prompted username)')
+    .option('--server <url>', 'ESL Server URL (defaults to the saved server or ESL_SERVER)')
+    .option('--password-file <path>', 'Read the ESL password from a file')
+    .option('--token-file <path>', 'Read a Skill User Token from a file')
+    .addHelpText('after', example(`$ ${path} --server http://localhost:3000 --username alice`))
+    .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
+      const login = await executeLogin({
+        ...options,
+        locale: program.opts().locale as string | undefined,
+        noInput: program.opts().input === false,
+        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readServer: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readUsername: process.stdin.isTTY ? undefined : () => readStdinText()
+      });
+      // 全局身份登录（ADR-0032）：一条凭据走遍个人空间与所有组织
+      console.log(`Logged in as ${login.username}`);
+    });
+}
+
+function addLogout(parent: Command, path = 'esl account logout'): Command {
+  return parent
+    .command('logout')
+    .description('Clear the locally stored ESL credentials')
+    .addHelpText('after', example(`$ ${path}`))
+    .action(async () => {
+      const result = await executeLogout();
+      console.log(formatLogout(result));
+    });
+}
+
+function addWhoami(parent: Command, path = 'esl account whoami'): Command {
+  return parent
+    .command('whoami')
+    .description('Show the current login and login status')
+    .addHelpText('after', example(`$ ${path}`))
+    .action(async () => {
+      const result = await executeWhoami();
+      console.log(formatWhoami(result));
+    });
+}
+
+function addChangePassword(parent: Command, program: Command): Command {
+  return parent
+    .command('change-password')
+    .description('Change your own ESL password')
+    .option('--current-password-file <path>', 'Read the current ESL password from a file')
+    .option('--password-file <path>', 'Read the new ESL password from a file')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl install @cnfox/code-review --tools claude-code,codex'))
-    .action(async (nameOrPath: string | undefined, options: { version?: string; global?: boolean; tools?: string | boolean; force?: boolean; adapt?: boolean; server?: string; ignoreCompatibility?: boolean }) => {
-      if (!nameOrPath) {
-        console.log('Restoring skills from the ESL install manifest...');
+    .addHelpText('after', example('$ esl account change-password --server http://localhost:3000'))
+    .action(async (options: { currentPasswordFile?: string; passwordFile?: string; server?: string }) => {
+      await executeChangeOwnPassword({
+        ...options,
+        noInput: program.opts().input === false,
+        readInput: process.stdin.isTTY ? undefined : () => readStdinText(),
+        readPassword: readHidden
+      });
+      console.log('Password changed');
+    });
+}
+
+function addSetServer(parent: Command): Command {
+  return parent
+    .command('set-server')
+    .description('Set the ESL Server URL used by all commands')
+    .argument('<url>', 'ESL Server URL')
+    .addHelpText('after', example('$ esl config set-server http://localhost:3000'))
+    .action(async (url: string) => {
+      const { server } = await executeSetServer(url);
+      console.log(`Server set to ${server}`);
+    });
+}
+
+function addPreferredTools(parent: Command, program: Command): Command {
+  return parent
+    .command('preferred-tools')
+    .description('View or edit your local preferred AI tools (first tool mount preselection)')
+    .option('--add <tools>', 'add tools, comma-separated')
+    .option('--remove <tools>', 'remove tools, comma-separated')
+    .option('--json', 'output as JSON')
+    .addHelpText('after', example('$ esl config preferred-tools --add claude,codex'))
+    .action(async (options: { add?: string; remove?: string; json?: boolean }) => {
+      const interactive =
+        program.opts().input !== false &&
+        options.json !== true &&
+        options.add === undefined &&
+        options.remove === undefined &&
+        isInteractive();
+      const result = await executeToolsPreferred({ ...options, interactive });
+      if (options.json) {
+        console.log(JSON.stringify(result.tools, null, 2));
         return;
       }
-      await installSkill(program, nameOrPath, options);
+      if (result.tools.length === 0) {
+        console.log('No preferred tools configured.');
+        return;
+      }
+      for (const tool of result.tools) {
+        console.log(`${toolDisplayName(tool)} (${tool})`);
+      }
     });
+}
 
-  program
+function addLink(program: Command): Command {
+  return program
     .command('link')
-    .description('Link a local skill directory into the store (symlink, like npm link)')
+    .description('Link a local skill source into the Skill Store (the only Source Link command)')
     .argument('[path]', 'local skill directory (defaults to --cd or the current directory)')
     .option('-g, --global', 'Link to global skills directory')
     .option('--tools <tools>', 'AI tools to link, comma-separated or all')
@@ -1091,7 +1288,7 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
     .option('-f, --force', 'Replace existing directory or stale link at the target')
     .addHelpText(
       'after',
-      example('$ esl link ./my-skill -g\\n  $ esl link ../draft-skill') +
+      example('$ esl link ./my-skill -g\n  $ esl link ../draft-skill') +
         '\n\nStanding inside a Local Skill Source, a project-level link targets the parent Consumer Project Root (ADR-0057): its parent when it has .skills.json or .eslib, after confirmation for tool directories, or after choosing among init/directory/global.'
     )
     .action(async (skillPath: string | undefined, options: { global?: boolean; identity?: string; tools?: string | boolean; force?: boolean }) => {
@@ -1169,223 +1366,10 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
       }
       console.log('Linked skill at ' + targetDir);
     });
+}
 
-  program
-    .command('list')
-    .alias('ls')
-    .description('List installed skills and manage them (interactive console on a TTY)')
-    .option('-g, --global', 'List global skills instead of project skills')
-    .option('--json', 'Output as JSON')
-    .addHelpText('after', example('$ esl list\n  $ esl list --json'))
-    .action(async (options: { global?: boolean; json?: boolean }) => {
-      // ADR-0058：TTY 且未禁用输入时进入两级交互管理台；--json / --no-input / 非 TTY 只读。
-      const hint = options.json
-        ? null
-        : await consumerProjectRootHint({ global: options.global });
-      if (program.opts().input !== false && !options.json && isInteractive()) {
-        if (hint) {
-          console.log(hint);
-        }
-        await runListSession({ global: options.global });
-        return;
-      }
-      const skills = await executeList(options);
-      if (options.json) {
-        console.log(JSON.stringify(skills, null, 2));
-        return;
-      }
-      if (skills.length === 0) {
-        console.log(options.global ? 'No global skills installed.' : 'No skills installed in this project.');
-        if (hint) {
-          console.log(hint);
-        }
-        return;
-      }
-      const label = options.global ? 'Global' : 'Project';
-      console.log(`${label} skills (${skills.length} installed):`);
-      for (const skill of skills) {
-        console.log(formatSkillListLine(skill));
-      }
-      if (hint) {
-        console.log(hint);
-      }
-    });
-
-  const toolsCommand = program
-    .command('tools')
-    .description('Manage AI tool skill links')
-    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'))
-    .action(async () => {
-      // 裸 `esl tools` 与 `tools list` 同样只读；站在技能目录里时给项目根 Hint。
-      const hint = await consumerProjectRootHint({});
-      if (hint) {
-        console.log(hint);
-      }
-      toolsCommand.help();
-    });
-  toolsCommand
-    .command('list')
-    .description('List skills linked into AI tools')
-    .option('--tool <tools>', 'filter by tool, comma-separated')
-    .option('--skill <skills>', 'filter by skill identity, comma-separated')
-    .option('-g, --global', 'list global links instead of project links')
-    .option('--project', 'list project links (the default)')
-    .option('--managed', 'only ESL-managed links')
-    .option('--unmanaged', 'only links ESL does not manage')
-    .option('--status <statuses>', 'filter by status: linked,broken,conflict,source-only,unmanaged')
-    .option('--json', 'output as JSON')
-    .addHelpText('after', example('$ esl tools list --tool claude-code,codex --managed'))
-    .action(async (options: { tool?: string; skill?: string; global?: boolean; project?: boolean; managed?: boolean; unmanaged?: boolean; status?: string; json?: boolean }) => {
-      const entries = await executeToolsList(options);
-      if (options.json) {
-        console.log(JSON.stringify(entries, null, 2));
-        return;
-      }
-      for (const line of formatToolsList(entries)) {
-        console.log(line);
-      }
-      const hint = await consumerProjectRootHint({ global: options.global });
-      if (hint) {
-        console.log(hint);
-      }
-    });
-
-  toolsCommand
-    .command('sync')
-    .description('Repair recorded Tool Links for installed skills')
-    .option('-g, --global', 'repair global links instead of project links')
-    .addHelpText('after', example('$ esl tools sync'))
-    .action(async (options: { global?: boolean }) => {
-      const results = await executeToolsSync(options);
-      if (results.length === 0) {
-        console.log('No recorded Tool Links to repair.');
-        return;
-      }
-      for (const line of formatToolSyncResults(results)) {
-        console.log(line);
-      }
-    });
-
-  toolsCommand
-    .command('preferred')
-    .description('View or edit your local preferred AI tools (first tool mount preselection)')
-    .option('--add <tools>', 'add tools, comma-separated')
-    .option('--remove <tools>', 'remove tools, comma-separated')
-    .option('--json', 'output as JSON')
-    .addHelpText('after', example('$ esl tools preferred --add claude,codex'))
-    .action(async (options: { add?: string; remove?: string; json?: boolean }) => {
-      const interactive =
-        program.opts().input !== false &&
-        options.json !== true &&
-        options.add === undefined &&
-        options.remove === undefined &&
-        isInteractive();
-      const result = await executeToolsPreferred({ ...options, interactive });
-      if (options.json) {
-        console.log(JSON.stringify(result.tools, null, 2));
-        return;
-      }
-      if (result.tools.length === 0) {
-        console.log('No preferred tools configured.');
-        return;
-      }
-      for (const tool of result.tools) {
-        console.log(`${toolDisplayName(tool)} (${tool})`);
-      }
-    });
-
-  toolsCommand
-    .command('remove')
-    .description('Remove ESL-managed links for a skill')
-    .argument('<skill-name>', 'skill identity, e.g. @acme/review')
-    .option('--tools <tools>', 'AI tools to unlink, comma-separated or all')
-    .option('-g, --global', 'remove global links instead of project links')
-    .addHelpText('after', example('$ esl tools remove @acme/review --tools claude-code,cursor'))
-    .action(async (skillName: string, options: { tools?: string; global?: boolean }) => {
-      let tools = parseToolsOption(options.tools);
-      if (tools.length === 0) {
-        if (program.opts().input === false || !isInteractive()) {
-          throw new Error('No tools selected; pass --tools or run interactively');
-        }
-        tools = await promptToolSelection();
-      }
-
-      const results = await executeToolsRemove(skillName, { ...options, tools });
-      if (results.length === 0) {
-        console.log(`No ESL-managed links found for ${skillName}`);
-        return;
-      }
-      for (const result of results) {
-        console.log(`${result.tool}: ${result.status} ${result.targetDir}`);
-      }
-    });
-
-  program
-    .command('source')
-    .description('Clone skill source for development')
-    .argument('<skill-name>')
-    .argument('[target]', 'target directory')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl source @cnfox/code-review'))
-    .action(async (skillName: string, target: string | undefined, options: { server?: string }) => {
-      const targetDir = await executeSource(skillName, { ...options, target });
-      console.log(`Skill cloned to ${targetDir}`);
-    });
-
-  program
-    .command('use')
-    .description('Output a skill prompt without installing (pipe to an agent)')
-    .argument('<name-or-path>', 'skill name (@namespace/skill) or local path')
-    .option('--version <version>', 'version to use')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl use @cnfox/code-review'))
-    .action(async (nameOrPath: string, options: { version?: string; server?: string }) => {
-      const content = await executeUse(nameOrPath, options);
-      process.stdout.write(content);
-    });
-
-  program
-    .command('update')
-    .description('Update installed skills to latest versions')
-    .argument('[skill-name]', 'specific skill to update')
-    .option('-g, --global', 'Update global skills')
-    .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl update'))
-    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
-      const results = await executeUpdate({
-        ...options,
-        skillName
-      });
-      if (results.length === 0) {
-        console.log('All skills are up to date');
-        return;
-      }
-      for (const result of results) {
-        if (result.skipped === 'link') {
-          console.log(`${result.name}: linked (skipped)`);
-        } else {
-          console.log(`${result.name}: ${result.from} -> ${result.to}`);
-        }
-      }
-    });
-
-  program
-    .command('uninstall')
-    .description('Remove an installed skill')
-    .argument('<skill-name>')
-    .option('-g, --global', 'Uninstall from global skills directory')
-    .option('-f, --force', 'uninstall without confirmation')
-    .addHelpText('after', example('$ esl uninstall @cnfox/code-review'))
-    .action(async (skillName: string, options: { global?: boolean }) => {
-      const result = await executeUninstall(skillName, options);
-      if (result.sourceRemoved) {
-        console.log(`Skill ${skillName} uninstalled`);
-      } else {
-        console.log(`Skill ${skillName} uninstalled; linked source was preserved at ${result.sourcePath}`);
-      }
-    });
-
-  program
+function addUnlink(program: Command): Command {
+  return program
     .command('unlink')
     .description('Unlink a local skill source and restore the previous store copy when staged')
     .argument(
@@ -1429,62 +1413,139 @@ console.log(`Release tag repaired: ${(repaired as { tag?: string }).tag ?? `v${v
         console.log(`Skill ${result.identity} unlinked`);
       }
     });
+}
 
-  program
-    .command('validate')
-    .argument('[path]', 'skill directory')
-    .addHelpText('after', example('$ esl validate ./my-skill'))
-    .action(async (directory: string | undefined) => {
-      const result = await executeValidate(directory);
-      if (result.valid) {
-        console.log('Skill package is valid');
-        return;
-      }
-      for (const error of result.errors) {
-        console.error(error);
-      }
-      process.exitCode = 1;
-    });
+export function createProgram(): Command {
+  const program = new Command();
 
-  program
-    .command('version')
-    .argument('[release]', 'major, minor, patch, or an explicit SemVer (e.g. 1.2.3)')
-    .addHelpText('after', example('$ esl version minor\n$ esl version 1.2.3'))
-    .action(async (release?: string) => {
-      const rawParamsJson = program.opts().paramsJson as string | undefined;
-      const params = rawParamsJson
-        ? parseCommandParams(rawParamsJson, 'version', ['release'])
-        : {};
-      assertNoDuplicateCommandParams(params, { release }, 'version');
-      release ??= readOptionalStringParam(params, 'release', 'version');
+  program.name('esl').description('Enterprise Skill Library CLI').version(readCliVersion());
+  program.option('-d, --debug', 'print stack traces on error');
+  program.option('--no-input', 'disable all prompts');
+  program.option('--agent-interaction', 'return structured interaction requests instead of prompting');
+  program.option(
+    '--agent-tool <tool>',
+    'AI tool invoking the command, e.g. claude-code or codex (requires --agent-interaction)'
+  );
+  program.option('--locale <locale>', 'Use a temporary locale for this command (zh-CN or en-US)');
+  program.option('--params-json <json>', 'pass command parameters as a JSON object');
+  program.option('-C, --cd <path>', 'run the command in the given directory first, like npm -C');
+  program.hook('preAction', async (_thisCommand, actionCommand) => {
+    const options = program.opts<{
+      cd?: string;
+      paramsJson?: string;
+      agentInteraction?: boolean;
+      agentTool?: string;
+      locale?: string;
+    }>();
+    if (
+      options.locale !== undefined &&
+      !(SUPPORTED_LOCALES as readonly string[]).includes(options.locale)
+    ) {
+      throw new Error(`Unsupported locale: ${options.locale}`);
+    }
+    try {
+      const config = await loadConfig({});
+      activeLocale = resolveLocale({ override: options.locale, accountLocale: config.locale });
+    } catch {
+      activeLocale = resolveLocale({ override: options.locale, accountLocale: null });
+    }
+    if (options.agentTool !== undefined && resolveToolName(options.agentTool) === undefined) {
+      throw new Error(
+        `Unknown agent tool: ${options.agentTool}. Supported tools: ${SUPPORTED_AGENT_TOOL_NAMES}`
+      );
+    }
+    if (options.agentTool !== undefined && options.agentInteraction !== true) {
+      throw new Error('--agent-tool requires --agent-interaction');
+    }
+    if (
+      options.paramsJson !== undefined &&
+      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
+    ) {
+      throw new Error(`--params-json is not supported for ${actionCommand.name()}`);
+    }
+    if (
+      options.agentInteraction === true &&
+      !AGENT_INTERACTION_COMMANDS.has(actionCommand.name())
+    ) {
+      throw new Error(`--agent-interaction is not supported for ${actionCommand.name()}`);
+    }
 
-      if (!release) {
-        if (program.opts().input === false) {
-          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
-        }
-        if (program.opts().agentInteraction === true) {
-          const inspection = await inspectVersion(process.cwd());
-          throw new AgentInteractionRequiredError(
-            createAgentInteractionRequest({
-              command: 'version',
-              fields: versionAgentFields(inspection),
-              agentTool:
-                program.opts().agentTool === undefined
-                  ? undefined
-                  : resolveToolName(program.opts().agentTool as string)
-            })
-          );
-        }
-        if (!isInteractive()) {
-          throw new Error('Missing release; pass major, minor, patch, or an explicit SemVer');
-        }
-        const inspection = await inspectVersion(process.cwd());
-        const selected = await promptVersionSelection(inspection);
-        release = selected === 'custom' ? await promptCustomVersion() : selected;
+    const cd = options.cd;
+    if (typeof cd === 'string' && cd.length > 0) {
+      try {
+        process.chdir(cd);
+      } catch (error) {
+        throw new Error(`Cannot change directory to ${cd}: ${(error as NodeJS.ErrnoException).message}`);
       }
-      const version = await executeVersion(release);
-      console.log(version);
-    });
+    }
+  });
+
+  // --- resource command surfaces (ADR-0059) ---
+
+  const skill = program
+    .command('skill')
+    .description('Consume published skills: discover, install, and manage the Local Skill Store');
+  skill.addHelpText('after', example('$ esl skill search code-review\n  $ esl skill install @cnfox/code-review'));
+  addSearch(skill, program, 'esl skill search');
+  addInfo(skill, 'esl skill info');
+  addInstall(skill, program, 'esl skill install');
+  addList(skill, program, 'esl skill list');
+  addUpdate(skill, 'esl skill update');
+  addUninstall(skill, 'esl skill uninstall');
+  addUse(skill);
+  addShare(skill);
+
+  const source = program
+    .command('source')
+    .description('Manage a skill source project through its authoring lifecycle');
+  source.addHelpText('after', example('$ esl source clone @cnfox/code-review\n  $ esl source upload'));
+  addInit(source, program);
+  addValidate(source);
+  addStatus(source);
+  addUpload(source, program);
+  addClone(source);
+  addResetSource(source, program);
+  addRename(source);
+
+  const release = program
+    .command('release')
+    .description('Version, publish, and govern skill releases');
+  release.addHelpText('after', example('$ esl release version minor\n  $ esl release publish'));
+  addVersion(release, program, 'esl release version');
+  addPublish(release, program, 'esl release publish');
+  addDepend(release);
+  addNotes(release);
+  addDeprecate(release);
+  addReleaseDelete(release);
+  addRepairTag(release);
+
+  const account = program.command('account').description('Manage your own ESL account');
+  account.addHelpText('after', example('$ esl account login --server http://localhost:3000\n  $ esl account whoami'));
+  addLogin(account, program, 'esl account login');
+  addLogout(account, 'esl account logout');
+  addWhoami(account, 'esl account whoami');
+  addChangePassword(account, program);
+
+  const config = program.command('config').description('Manage ESL client configuration');
+  config.addHelpText('after', example('$ esl config set-server http://localhost:3000\n  $ esl config preferred-tools --add claude'));
+  addSetServer(config);
+  addPreferredTools(config, program);
+
+  // --- permanent top-level shortcuts (ADR-0059) ---
+
+  addSearch(program, program, 'esl search');
+  addInfo(program, 'esl info');
+  addInstall(program, program, 'esl install');
+  addList(program, program, 'esl list');
+  addUpdate(program, 'esl update');
+  addUninstall(program, 'esl uninstall');
+  addVersion(program, program, 'esl version');
+  addPublish(program, program, 'esl publish');
+  addLogin(program, program, 'esl login');
+  addLogout(program, 'esl logout');
+  addWhoami(program, 'esl whoami');
+  addLink(program);
+  addUnlink(program);
 
   return program;
 }

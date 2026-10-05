@@ -2,7 +2,7 @@
 
 面向**终端用户**：本机还没有 `esl` 命令时，如何准备环境、安装 `@foxian/esl`，并完成首次登录校验。
 
-- **成功标准**：`esl --version` 可用 → 已配置 ESL Server → `esl login` → `esl whoami` 显示已登录。
+- **成功标准**：`esl --version` 可用 → 已配置 ESL Server → `esl account login` → `esl account whoami` 显示已登录。
 - **不是这篇的范围**：克隆本仓库、Docker 起 ESL Server、生产部署。那些请看 [本地开发指南](local-development.md) / [生产部署](production-deployment.md)。
 
 npm 包页上的最短安装说明见 [`packages/cli/README.md`](../../packages/cli/README.md)；中文短说明见 [cli-package-readme.zh-CN.md](cli-package-readme.zh-CN.md)。
@@ -15,10 +15,10 @@ npm 包页上的最短安装说明见 [`packages/cli/README.md`](../../packages/
 | --- | --- | --- |
 | 硬前置 | **Node.js** + **npm** | 官方支持 `20.17.x`、`22.x`（≥22.13）、`24.x`；**推荐 24**。npm 随 Node 安装。 |
 | 硬前置 | **可访问的 ESL Server URL** | `@foxian/esl` **不内置**默认 Server 地址。向管理员索取公司部署地址，或使用自有实例。 |
-| 强烈建议 | **Git**（在 `PATH` 中） | 装 CLI 与 `whoami` **不需要** Git；但首次远端 `esl install` / `upload` / `publish` / `source` 等会调用本机 `git`。建议一并装好。 |
+| 强烈建议 | **Git**（在 `PATH` 中） | 装 CLI 与 `account whoami` **不需要** Git；但首次远端 `esl skill install` / `esl source upload` / `esl release publish` / `esl source clone` 等会调用本机 `git`。建议一并装好。 |
 | 不需要 | Docker | 只消费已有 ESL Server 时不需要 Docker。 |
 
-账号：需要一个 **Skill User** 账号才能 `esl login`。没有账号时见下文「最小注册路径」。**CLI 不能替你注册。**
+账号：需要一个 **Skill User** 账号才能 `esl account login`。没有账号时见下文「最小注册路径」。**CLI 不能替你注册。**
 
 ---
 
@@ -160,12 +160,12 @@ esl config set-server https://your-esl-server.example
 ### 5.3 登录并校验
 
 ```bash
-esl login
-esl whoami
+esl account login
+esl account whoami
 ```
 
-- `esl login`：交互输入用户名与密码（**不要**把密码写在命令行里）。
-- `esl whoami`：应显示用户名、Server、状态 `active` 等。若为 `Not logged in` / `expired`，重新 `esl login`。
+- `esl account login`：交互输入用户名与密码（**不要**把密码写在命令行里）。
+- `esl account whoami`：应显示用户名、Server、状态 `active` 等。若为 `Not logged in` / `expired`，重新 `esl account login`。
 
 到这里即视为**安装与首次登录成功**。
 
@@ -175,10 +175,10 @@ esl whoami
 
 ## 6. 推荐下一步（可选）
 
-- 搜索 / 试用 / 安装技能：`esl search`、`esl use`、`esl install`（远端安装需要本机 **Git**）。
+- 搜索 / 试用 / 安装技能：`esl skill search`、`esl skill use`、`esl skill install`（远端安装需要本机 **Git**）。
 - 若希望 **AI Agent 驱动 `esl`**：首次需**显式**安装内置技能，例如  
-  `esl install -g @builtin/esl-operator`  
-  并按你的 AI 工具执行 `esl link` / `esl adapt`（细节见 [usage.md](usage.md)）。  
+  `esl skill install -g @builtin/esl-operator`  
+  安装时用 `--tools` 指定要链接的 AI 工具（如 `--tools claude-code,codex`），或之后用 `esl link`（细节见 [usage.md](usage.md)）。  
   仅 `npm install -g @foxian/esl` **不会**自动把 operator 装进全局技能库（见 ADR-0008）。
 
 ---

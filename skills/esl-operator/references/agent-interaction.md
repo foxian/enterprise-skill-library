@@ -16,7 +16,7 @@ esl <command> --agent-interaction --agent-tool <tool>
 `claude`；Codex 用 `codex`，其余见 `--help`）。无论是否带
 `--agent-tool`，stdout 都输出 AskUserQuestion 风格 JSON。只在该模式下处理
 结构化交互请求，不要等用户明确说“需要选择框”才添加。普通终端保持现有交互
-方式。当前 `init`、裸 `esl version`、`install`、`link` 与 `unlink` 已接入该协议；其他命令先查看其
+方式。当前 `esl source init`、裸 `esl release version`、`esl skill install`、`esl link` 与 `esl unlink` 已接入该协议；其他命令先查看其
 reference 或 `--help`。
 
 ## 判断结果
@@ -70,7 +70,7 @@ Agent 模式下 `install` / `link` 不会发覆盖安装或模式转换的 y/n �
 - 问题文案含「First tool mount」时表示这是该技能的首次工具挂载，预选的是
   本机常用工具，而不是已有 link。
 - 收集答案后用**同一个** `--tools` 旗标重跑，提交规范 id（逗号分隔）：
-  `esl install @acme/review --agent-interaction --tools claude,codex`。
+  `esl skill install @acme/review --agent-interaction --tools claude,codex`。
 
 ## link / unlink：站在 Local Skill Source 里的项目根
 
@@ -95,10 +95,10 @@ esl link --agent-interaction --params-json '{"projectRootChoice":"directory","pr
 `--no-input` / 非交互在缺硬证据时以普通错误失败并列出可行动选项，不会猜一个项目
 根。项目根问完后才会继续问工具。
 
-答案以 `question` 文本为键返回。对 `init`，问题按顺序对应参数
+答案以 `question` 文本为键返回。对 `esl source init`，问题按顺序对应参数
 `description`、`license`、`keywords`、`namespace`：单选取所选 `label`；多选
 （`keywords`）的多个 label 用逗号拼接；自由文本取用户输入。映射后重新执行同一
-命令。对裸 `esl version`，`Release type` 的 `patch` / `minor` / `major` 直接
+命令。对裸 `esl release version`，`Release type` 的 `patch` / `minor` / `major` 直接
 作为 `release` 参数；自定义 SemVer 走 Other，再作为 `release` 原样传回。
 
 ## 传回参数
@@ -106,23 +106,23 @@ esl link --agent-interaction --params-json '{"projectRootChoice":"directory","pr
 固定字段优先使用命令自己的 flag：
 
 ```shell
-esl init ./my-skill --description "代码审查技能" --license MIT
+esl source init ./my-skill --description "代码审查技能" --license MIT
 ```
 
 多个或嵌套参数使用 `--params-json`：
 
 ```shell
-esl init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"display-name":"代码审查","namespace":"personal"}'
+esl source init ./my-skill --agent-interaction --agent-tool <tool> --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"display-name":"代码审查","namespace":"personal"}'
 ```
 
-在 Claude Code、Codex 或 Trae 里运行 `init` 时命令要带对应的 `--agent-tool`，
+在 Claude Code、Codex 或 Trae 里运行 `esl source init` 时命令要带对应的 `--agent-tool`，
 并按上面的 `AskUserQuestion` 风格输出处理。
 
-裸 `esl version` 的 Agent 回答示例：
+裸 `esl release version` 的 Agent 回答示例：
 
 ```shell
-esl version --agent-interaction --agent-tool <tool> --params-json '{"release":"patch"}'
-esl version --agent-interaction --agent-tool <tool> --params-json '{"release":"1.4.2"}'
+esl release version --agent-interaction --agent-tool <tool> --params-json '{"release":"patch"}'
+esl release version --agent-interaction --agent-tool <tool> --params-json '{"release":"1.4.2"}'
 ```
 
 `--params-json` 的值必须是顶层 JSON object。只传命令支持的字段；不要把同一字段

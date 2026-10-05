@@ -541,6 +541,8 @@ export interface RepairToolLinksOptions {
   level: ToolLevel;
   projectRoot?: string;
   homeDir?: string;
+  /** When set, only recorded links for these identities are re-ensured. */
+  identities?: ReadonlySet<string>;
 }
 
 /**
@@ -558,6 +560,9 @@ export async function repairRecordedToolLinks(
   const seen = new Set<string>();
   for (const record of manifest.links) {
     if (record.level !== options.level) {
+      continue;
+    }
+    if (options.identities && !options.identities.has(record.identity)) {
       continue;
     }
     const key = `${record.identity}\n${record.tool}`;

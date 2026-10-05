@@ -13,7 +13,7 @@ Enterprise Skill Library（ESL）命令行客户端：在企业内发现、安�
 - Node.js：`20.17.x`、`22.x`（≥22.13）或 `24.x`（推荐 24）
 - npm（随 Node 安装）
 - 可访问的 ESL Server URL（发行包**无**出厂默认地址）
-- 强烈建议本机 `PATH` 中有 Git（远端 `esl install` / 创作类命令会用到）
+- 强烈建议本机 `PATH` 中有 Git（远端 `esl skill install` / 创作类命令会用到）
 
 ## 安装
 
@@ -33,15 +33,15 @@ esl --version
 esl config set-server https://your-esl-server.example
 
 # 登录（交互输入用户名、密码；勿在命令行写明文密码）
-esl login
+esl account login
 
 # 确认身份
-esl whoami
+esl account whoami
 
 # 搜索 / 试用 / 安装技能
-esl search keyword
-esl use @scope/skill-name
-esl install @scope/skill-name
+esl skill search keyword
+esl skill use @scope/skill-name
+esl skill install @scope/skill-name
 ```
 
 本地 Docker 开发时，Server **常见**为 `http://localhost:3000`。这是本地开发约定，不是 CLI 出厂默认。
@@ -52,10 +52,10 @@ esl install @scope/skill-name
 
 | 命令 | 作用 |
 | --- | --- |
-| `esl search` / `esl info` | 发现与查看技能 |
-| `esl install` / `esl update` / `esl uninstall` | 安装、更新、卸载 |
-| `esl link` / `esl tools sync` / `esl tools list` | 链接到 Claude Code、Codex 等工具目录 |
-| `esl init` / `esl upload` / `esl publish` | 创作并发布技能 |
+| `esl skill search` / `esl skill info` | 发现与查看技能 |
+| `esl skill install` / `esl skill update` / `esl skill uninstall` | 安装、更新、卸载 |
+| `esl link` / `esl skill list` | 链接本地源码到技能库、查看已装技能与 Tool Link 状态 |
+| `esl source init` / `esl source upload` / `esl release publish` | 创作并发布技能 |
 | `esl --help` | 完整命令帮助 |
 
 面向 Agent 的操作说明随包装有内置技能 `@builtin/esl-operator`（仅当该技能曾被显式安装过时，全局 `postinstall` 才会同步；**首次**仍需显式安装）。

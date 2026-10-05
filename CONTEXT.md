@@ -96,7 +96,7 @@ SKILL.md 完成（见 Skill Rename）。
 ## Source Update
 
 Maintainer 将对 Server-hosted Skill Source 的后续 Git 提交推送到服务器的
-操作。它不创建 Skill Release。可通过 `esl upload`（esl 化，含自动提交与
+操作。它不创建 Skill Release。可通过 `esl source upload`（esl 化，含自动提交与
 rebase）或裸 `git push esl main` 完成。
 
 ## Source Checkout
@@ -210,7 +210,7 @@ _Avoid_: `.skills`, `.skill-library`, when referring to the new scoped store.
 声明（那是 Skill Dependency Manifest），也不是 Tool Link Manifest。
 
 _Avoid_: skills-lock（当指 Install Manifest 时）；技能列表页（当指本机 CLI
-`esl list` 所依据的清单时）。
+`esl skill list` 所依据的清单时）。
 
 ## Tool Link
 
@@ -309,11 +309,11 @@ _Avoid_: Skill Dependency Manifest（项目用技能）；运行时依赖；comp
 
 ## Release Tag
 
-Skill Release 创建成功前后，由 `esl version` 在本地源码中创建、随 push 上行
+Skill Release 创建成功前后，由 `esl release version` 在本地源码中创建、随 push 上行
 至 Server-hosted Skill Source 的 annotated Git tag，格式为 `v<SemVer>`。它
 指向 Skill Release 绑定的源码 commit，帮助用户在 Git 历史中定位发布源码，
 但不是 Skill Release 或 Published Skill Package 的事实来源。`publish` 校验
-其存在且指向被发布的 commit；缺失时由服务器补建（`repair-tag` 兜底），补建
+其存在且指向被发布的 commit；缺失时由服务器补建（`esl release repair-tag` 兜底），补建
 失败不使已经创建的 Skill Release 失效。
 
 _Avoid_: Skill Release，用于指代 Git tag 时。
@@ -482,7 +482,7 @@ _Avoid_: 技能权限页面、权限页（旧称）。
 空间与所有所在组织——并以命名空间筛选（个人命名空间排在最前）。组织详情页的
 「技能」页签是同一个列表锁定到该组织命名空间的视图，内容与权限判定同源，仅入
 口与预设筛选不同。
-_Avoid_: 我的技能、个人技能（当指该跨命名空间列表时）；`esl list` / 本机已装
+_Avoid_: 我的技能、个人技能（当指该跨命名空间列表时）；`esl skill list` / 本机已装
 技能清单（当指 CLI 对本机 Skill Store 的列举或管理台时）。
 
 ## Local Scope
@@ -596,10 +596,10 @@ _Avoid_: Adapt Manifest, `.esl-adapt-manifest.json`.
 
 ## 期望 Tool Link 集合 (Expected Tool Link Set)
 
-`esl install` / `esl link` 的交互勾选或 `--tools` 所表达的目标状态：该技能在
+`esl skill install` / `esl link` 的交互勾选或 `--tools` 所表达的目标状态：该技能在
 该 Skill Store 上应存在的 ESL 管理 Tool Link 全集。对账时先补齐集合内缺失
 link，集合内全部成功后才删除集合外的 ESL 管理项；unmanaged 内容不在对账范围
-内（ADR-0054）。它不是增量追加名单，也与 `tools remove` 的删除名单语义相反。
+内（ADR-0054）。它不是增量追加名单，也与「只删某个工具 link」的删除名单语义相反。
 
 _Avoid_: 增量名单（当指期望集合时）；`--tools-set`（提交期望集合复用
 `--tools`）。

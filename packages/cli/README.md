@@ -13,7 +13,7 @@ Chinese guide (repo only): [cli-package-readme.zh-CN.md](https://github.com/foxi
 - Node.js: `20.17.x`, `22.x` (≥22.13), or `24.x` (24 recommended)
 - npm (ships with Node.js)
 - A reachable ESL Server URL (no default is bundled)
-- Git strongly recommended on `PATH` before remote `esl install` / authoring commands
+- Git strongly recommended on `PATH` before remote `esl skill install` / authoring commands
 
 ## Install
 
@@ -33,15 +33,15 @@ If `esl` is not found after install, open a new terminal and confirm the npm glo
 esl config set-server https://your-esl-server.example
 
 # Interactive login (username / password). Do not put passwords on the CLI.
-esl login
+esl account login
 
 # Check identity
-esl whoami
+esl account whoami
 
 # Search / try / install a skill
-esl search keyword
-esl use @scope/skill-name
-esl install @scope/skill-name
+esl skill search keyword
+esl skill use @scope/skill-name
+esl skill install @scope/skill-name
 ```
 
 For local Docker development, the Server is often `http://localhost:3000`. That is a local-dev convention, not a packaged default.
@@ -52,10 +52,10 @@ No account yet? Open `{server}/admin/register-user` in a browser (CLI cannot reg
 
 | Command | Purpose |
 | --- | --- |
-| `esl search` / `esl info` | Discover and inspect skills |
-| `esl install` / `esl update` / `esl uninstall` | Install, update, uninstall |
-| `esl link` / `esl tools sync` / `esl tools list` | Link into Claude Code, Codex, and other tool directories |
-| `esl init` / `esl upload` / `esl publish` | Author and publish skills |
+| `esl skill search` / `esl skill info` | Discover and inspect skills |
+| `esl skill install` / `esl skill update` / `esl skill uninstall` | Install, update, uninstall |
+| `esl link` / `esl skill list` | Link a local source into the store; list installed skills and tool-link status |
+| `esl source init` / `esl source upload` / `esl release publish` | Author and publish skills |
 | `esl --help` | Full command help |
 
 Agent-oriented operating notes ship as the built-in skill `@builtin/esl-operator` (synced on global install via `postinstall` **only if** that skill was already installed once; first-time install is still explicit).

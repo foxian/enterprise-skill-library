@@ -8,7 +8,7 @@ import {
   saveConfig
 } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
-import { executeToolsList, executeToolsRemove, executeToolsSync, formatToolsList, parseToolsOption } from '../src/commands/tools.js';
+import { parseToolsOption } from '../src/commands/tools.js';
 import { executeUpdate } from '../src/commands/update.js';
 
 describe('esl tools', () => {
@@ -101,92 +101,6 @@ describe('esl tools', () => {
     expect(manifest.links.map((record) => record.tool)).toEqual(['claude']);
   });
 
-  it('renders tool display names in the human-readable tools list', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude', 'trae-intl']
-    });
-
-    const entries = await executeToolsList({ projectRoot: projectDir, homeDir });
-    const lines = formatToolsList(entries).join('\n');
-
-    expect(lines).toContain('Claude Code');
-    expect(lines).toContain('Trae International');
-    expect(lines.split('\n').some((line) => line.startsWith('trae-intl '))).toBe(false);
-  });
-
-  it('filters tool links by the claude-code alias', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-
-    const entries = await executeToolsList({
-      projectRoot: projectDir,
-      homeDir,
-      tool: 'claude-code'
-    });
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.tool).toBe('claude');
-  });
-
-  it('reports a missing manifest-owned link as broken', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const linkPath = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
-    fs.rmSync(linkPath, { recursive: true, force: true });
-
-    const entries = await executeToolsList({ projectRoot: projectDir, homeDir });
-    const claudeEntry = entries.find(
-      (entry) => entry.tool === 'claude' && entry.identity === '@myorg/my-local-skill'
-    );
-
-    expect(claudeEntry).toMatchObject({
-      tool: 'claude',
-      identity: '@myorg/my-local-skill',
-      status: 'broken',
-      managed: true,
-      targetDir: linkPath
-    });
-    expect(entries.some((entry) => entry.tool === 'source')).toBe(false);
-  });
-
-  it('keeps a shared trae project link until the last tool reference is removed', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['trae-intl', 'trae-cn']
-    });
-    const linkPath = path.join(projectDir, '.trae', 'skills', 'myorg_my-local-skill');
-
-    await executeToolsRemove('@myorg/my-local-skill', {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['trae-intl']
-    });
-
-    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
-    expect(path.resolve(fs.readlinkSync(linkPath))).toBe(sourceDir);
-    const manifest = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
-    expect(manifest.links.map((record) => record.tool)).toEqual(['trae-cn']);
-
-    await executeToolsRemove('@myorg/my-local-skill', {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['trae-cn']
-    });
-
-    expect(fs.existsSync(linkPath)).toBe(false);
-    const finalManifest = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
-    expect(finalManifest.links).toEqual([]);
-  });
 
   it('does not overwrite an unmanaged tool target and reports the conflict', async () => {
     const targetDir = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
@@ -293,180 +207,7 @@ describe('esl tools', () => {
     ).rejects.toThrow(/--tools/);
   });
 
-  it('lists unmanaged content and supports tool and management filters', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const manualDir = path.join(projectDir, '.codex', 'skills', 'manual-skill');
-    fs.mkdirSync(manualDir, { recursive: true });
-    fs.writeFileSync(path.join(manualDir, 'SKILL.md'), '# Manual\n');
-
-    const unmanaged = await executeToolsList({
-      projectRoot: projectDir,
-      homeDir,
-      tool: 'codex',
-      unmanaged: true
-    });
-    expect(unmanaged).toEqual([
-      expect.objectContaining({
-        tool: 'codex',
-        identity: 'manual-skill',
-        status: 'unmanaged',
-        managed: false
-      })
-    ]);
-  });
-
-  it('lists source-only and conflict states', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      noAdapt: true
-    });
-
-    const secondSkillDir = path.join(projectDir, 'second-skill');
-    fs.mkdirSync(secondSkillDir);
-    fs.writeFileSync(
-      path.join(secondSkillDir, 'skill.json'),
-      JSON.stringify({
-        name: '@myorg/second-skill',
-        version: '0.1.0',
-        description: 'Second skill',
-        author: 'tester'
-      })
-    );
-    fs.writeFileSync(
-      path.join(secondSkillDir, 'SKILL.md'),
-      '---\nname: second-skill\ndescription: Second.\n---\n'
-    );
-    await executeInstall(secondSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const secondLink = path.join(projectDir, '.claude', 'skills', 'myorg_second-skill');
-    fs.rmSync(secondLink, { recursive: true, force: true });
-    fs.mkdirSync(secondLink, { recursive: true });
-
-    const entries = await executeToolsList({
-      projectRoot: projectDir,
-      homeDir,
-      status: 'source-only,conflict'
-    });
-
-    expect(
-      entries
-        .map((entry) => `${entry.identity}:${entry.status}`)
-        .sort()
-    ).toEqual([
-      '@myorg/my-local-skill:source-only',
-      '@myorg/second-skill:conflict'
-    ]);
-    expect(entries.some((entry) => entry.status === 'linked')).toBe(false);
-  });
-
-  it('removes missing link records and preserves conflicting records', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const missingLink = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
-    fs.rmSync(missingLink, { recursive: true, force: true });
-
-    const secondSkillDir = path.join(projectDir, 'second-skill');
-    fs.mkdirSync(secondSkillDir);
-    fs.writeFileSync(
-      path.join(secondSkillDir, 'skill.json'),
-      JSON.stringify({
-        name: '@myorg/second-skill',
-        version: '0.1.0',
-        description: 'Second skill',
-        author: 'tester'
-      })
-    );
-    fs.writeFileSync(
-      path.join(secondSkillDir, 'SKILL.md'),
-      '---\nname: second-skill\ndescription: Second.\n---\n'
-    );
-    await executeInstall(secondSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['cursor']
-    });
-    const conflictingLink = path.join(projectDir, '.cursor', 'skills', 'myorg_second-skill');
-    fs.rmSync(conflictingLink, { recursive: true, force: true });
-    fs.mkdirSync(conflictingLink, { recursive: true });
-    fs.writeFileSync(path.join(conflictingLink, 'SKILL.md'), '# Manual\n');
-
-    await executeToolsRemove('@myorg/my-local-skill', {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const missingResults = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
-    expect(missingResults.links.map((record) => record.identity)).toEqual([
-      '@myorg/second-skill'
-    ]);
-
-    const conflictResults = await executeToolsRemove('@myorg/second-skill', {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['cursor']
-    });
-    expect(conflictResults).toEqual([
-      expect.objectContaining({ tool: 'cursor', status: 'conflict' })
-    ]);
-    expect(fs.readFileSync(path.join(conflictingLink, 'SKILL.md'), 'utf8')).toBe('# Manual\n');
-    const finalManifest = await loadToolLinkManifest(path.join(projectDir, '.eslib'));
-    expect(finalManifest.links.map((record) => record.identity)).toEqual([
-      '@myorg/second-skill'
-    ]);
-  });
-
-  it('repairs stale ESL-owned links through tools sync instead of update --force', async () => {
-    const sourceDir = path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill');
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const linkPath = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
-    const wrongSource = path.join(projectDir, 'wrong-source');
-    fs.mkdirSync(wrongSource);
-    fs.rmSync(linkPath, { recursive: true, force: true });
-    fs.symlinkSync(
-      wrongSource,
-      linkPath,
-      process.platform === 'win32' ? 'junction' : 'dir'
-    );
-
-    const results = await executeToolsSync({ projectRoot: projectDir, homeDir });
-
-    expect(results.map((result) => result.status)).toEqual(['created']);
-    expect(path.resolve(fs.readlinkSync(linkPath))).toBe(sourceDir);
-  });
-
-  it('keeps unmanaged content occupying a recorded target during tools sync', async () => {
-    await executeInstall(localSkillDir, {
-      projectRoot: projectDir,
-      homeDir,
-      tools: ['claude']
-    });
-    const manualDir = path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill');
-    fs.rmSync(manualDir, { recursive: true, force: true });
-    fs.mkdirSync(manualDir, { recursive: true });
-    fs.writeFileSync(path.join(manualDir, 'SKILL.md'), '# Manual\n');
-
-    const results = await executeToolsSync({ projectRoot: projectDir, homeDir });
-
-    expect(results.map((result) => result.status)).toEqual(['conflict']);
-    expect(fs.readFileSync(path.join(manualDir, 'SKILL.md'), 'utf8')).toBe('# Manual\n');
-  });
-
-  it('reports broken links on default update without repairing them', async () => {
+  it('repairs a broken recorded link on default update', async () => {
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
       homeDir,
@@ -479,15 +220,13 @@ describe('esl tools', () => {
       '---\nname: my-local-skill\ndescription: Updated.\n---\n\n# Updated\n'
     );
 
-    await expect(
-      executeUpdate({
-        projectRoot: projectDir,
-        homeDir,
-        skillName: '@myorg/my-local-skill'
-      })
-    ).rejects.toThrow(/tool link issue/i);
+    await executeUpdate({
+      projectRoot: projectDir,
+      homeDir,
+      skillName: '@myorg/my-local-skill'
+    });
 
-    expect(fs.existsSync(linkPath)).toBe(false);
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(
       fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@myorg', 'my-local-skill', 'SKILL.md'), 'utf8')
     ).toContain('# Updated');

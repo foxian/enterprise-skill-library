@@ -54,11 +54,11 @@ esl config set-server https://cloud.enterprise-skills.com
 `ESL_SERVER` 做临时覆盖。
 
 #### 交互式登录（推荐）
-`esl login` 会依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后
+`esl account login` 会依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后
 token 写入本机所有者只读凭据文件，后续命令无需再传账号与地址：
 
 ```powershell
-esl login
+esl account login
 ```
 
 #### 指定账号 / 非交互登录
@@ -67,29 +67,29 @@ esl login
 
 ```powershell
 # 指定用户名（仍会交互提示密码）
-esl login --username alice
+esl account login --username alice
 
 # 覆盖本次 Server
-esl login --server https://your-esl-server.example --username alice
+esl account login --server https://your-esl-server.example --username alice
 
 # 用密码文件登录
-esl login --username alice --password-file ./pw.txt
+esl account login --username alice --password-file ./pw.txt
 
 # 用用户 token 文件登录（离线换取身份；组织列表可能为空）
-esl login --username alice --token-file ./user-token.txt
+esl account login --username alice --token-file ./user-token.txt
 ```
 
 平台管理员（ESL Administrator Account）不通过 CLI 登录：打开管理后台
 （`http://<server>/admin/`），使用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）
 与密码登录。
 
-登录后的 token 默认 30 天有效，过期后需重新 `esl login`；可通过环境变量
-`ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。登出使用 `esl logout`（清除本机
+登录后的 token 默认 30 天有效，过期后需重新 `esl account login`；可通过环境变量
+`ESL_LOGIN_TTL_HOURS` 调整有效期（单位：小时）。登出使用 `esl account logout`（清除本机
 凭据，保留已配置的 Server 等）。
 
 #### 查看当前登录状态
 ```powershell
-esl whoami
+esl account whoami
 ```
 
 输出当前用户名、Organization memberships（组织成员关系列表）、Server、登录时间、
@@ -128,77 +128,77 @@ esl account change-password
 
 ### 1. 搜索技能 (Search)
 
-`esl search` 是消费者发现面：列出或查询当前能从 ESL Server **安装**的已发布技能
+`esl skill search` 是消费者发现面：列出或查询当前能从 ESL Server **安装**的已发布技能
 （ADR-0049）。不传 query 即浏览全部可见技能；匿名可见 `public`，登录后附加有权的
 `private`。未发布技能不出现在此结果中（管理清单另见 Web inventory）。
 
 ```bash
 # 浏览全部可见的已发布可安装技能
-esl search
+esl skill search
 
 # 按关键词查询（匹配 Identity / 描述 / 显示名 / keywords）
-esl search code-review
+esl skill search code-review
 
 # 收窄：Namespace、keyword 硬过滤、可见性、条数上限
-esl search review --namespace acme --keyword git --visibility public --limit 50
+esl skill search review --namespace acme --keyword git --visibility public --limit 50
 
 # 结构化输出（非 TTY / 脚本 / Agent）
-esl search code-review --json
+esl skill search code-review --json
 ```
 
 交互式终端（TTY，且未加 `--json` / `--no-input`）下可用箭头选择技能，并调整
-Namespace / 可见性等筛选；选中后可查看详情，或在确认完整 `esl install …` 命令后安装。
-`esl install` 本身不做远端目录浏览。
+Namespace / 可见性等筛选；选中后可查看详情，或在确认完整 `esl skill install …` 命令后安装。
+`esl skill install` 本身不做远端目录浏览。
 
 ### 2. 查看技能详情 (Info)
 查看指定技能的元数据、版本及源码信息：
 ```bash
 # 人类可读摘要（默认）
-esl info @cnfox/code-review
+esl skill info @cnfox/code-review
 
 # 输出完整 JSON 结构
-esl info @cnfox/code-review --json
+esl skill info @cnfox/code-review --json
 ```
 
 ### 3. 免安装试用技能 (Use)
 临时读取技能的 Prompt 文本并输出到控制台，无需安装或修改项目依赖（支持管道传递给 Agent）：
 ```bash
 # 试用远端技能并直接输出 Prompt
-esl use @cnfox/code-review
+esl skill use @cnfox/code-review
 
 # 指定版本号试用
-esl use @cnfox/code-review --version 1.0.0
+esl skill use @cnfox/code-review --version 1.0.0
 
 # 试用本地草稿技能
-esl use ./path/to/my-skill
+esl skill use ./path/to/my-skill
 
 # 通过管道传递给 Agent (如 Claude Code)
-esl use @cnfox/code-review | claude "请帮助审核当前的 git diff"
+esl skill use @cnfox/code-review | claude "请帮助审核当前的 git diff"
 ```
 
 ### 4. 安装技能 (Install)
 将技能安装至当前项目：
 ```bash
 # 从 ESL Server 安装最新版本
-esl install @cnfox/code-review
+esl skill install @cnfox/code-review
 
 # 安装指定版本
-esl install @cnfox/code-review --version 1.0.0
+esl skill install @cnfox/code-review --version 1.0.0
 
 # 从本地相对路径安装（身份固定为 @local/<name>；在安装副本里补 skill.json，源目录不动）
-esl install ./path/to/my-skill
+esl skill install ./path/to/my-skill
 
 # 安装到个人全局环境 (~/.eslib/skills/)
-esl install @cnfox/code-review -g
+esl skill install @cnfox/code-review -g
 
 # 链接到全部或指定 AI 工具
-esl install @cnfox/code-review --tools all
-esl install @cnfox/code-review --tools claude-code,codex,trae-intl
+esl skill install @cnfox/code-review --tools all
+esl skill install @cnfox/code-review --tools claude-code,codex,trae-intl
 
 # 只安装源，不创建 Tool Link
-esl install @cnfox/code-review --no-tools
+esl skill install @cnfox/code-review --no-tools
 ```
-> **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。`--tools` 与交互勾选都是该技能的**期望 Tool Link 集合**：补齐集合内、删除集合外 ESL 管理 link。TTY 未传 `--tools` 时每次都会弹勾选（预勾已有 link；首次挂载预勾本机常用工具并说明）；非交互用全局配置的 `tools` 或报错。项目 `.skills.json` 不再声明工具。
+> **提示**：项目级技能源写入 `.eslib/skills/`，全局级写入 `~/.eslib/skills/`。每个目标工具只得到一个指向该源的目录 link，不再复制技能。`--tools` 与交互勾选都是该技能的**期望 Tool Link 集合**：补齐集合内、删除集合外 ESL 管理 link。TTY 未传 `--tools` 时每次都会弹勾选（预勾已有 link；首次挂载预勾本机常用工具并说明）；非交互必须显式传 `--tools`，否则报错（不静默读取 preferred tools）。项目 `.skills.json` 不再声明工具。
 
 ### 5. 本地源码开发链接 (Link)
 在持续开发本地技能时，把源码目录链入 Skill Store，避免每次修改都重新安装：
@@ -222,80 +222,87 @@ esl link ./path/to/my-skill --force
 esl unlink @local/my-skill
 ```
 
-有 staging 时 `unlink` 纯本地恢复原副本、依赖、锁文件和安装记录；无 staging 时移除 link 和记录。`uninstall` 链接技能时会保留本地源码目录。
+有 staging 时 `esl unlink` 纯本地恢复原副本、依赖、锁文件和安装记录；无 staging 时移除 link 和记录。`esl skill uninstall` 链接技能时会保留本地源码目录。
 
-**站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）**：cwd 是 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级当候选项目根（只看一层）。上一级已有 `.skills.json` 或 `.eslib/` 就静默采用；只有工具点目录（`.claude` `.codex` `.cursor` `.trae` `.workbuddy` `.opencode` `.hermes`）时先确认；都没有则三选一（初始化上一级 / 指定目录 / 改全局），非交互在缺硬证据时失败。`install` / `update` / `uninstall` / `list` / `tools` 不探测上一级：站在技能源码里时 `install` / `update` 写入前拒绝并提示去项目根，`list` / `tools` / `uninstall` 仍只看当前 cwd 的 Store 并追加 Hint。
+**站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）**：cwd 是 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级当候选项目根（只看一层）。上一级已有 `.skills.json` 或 `.eslib/` 就静默采用；只有工具点目录（`.claude` `.codex` `.cursor` `.trae` `.workbuddy` `.opencode` `.hermes`）时先确认；都没有则三选一（初始化上一级 / 指定目录 / 改全局），非交互在缺硬证据时失败。`esl skill install` / `esl skill update` / `esl skill uninstall` / `esl skill list` 不探测上一级：站在技能源码里时 `esl skill install` / `esl skill update` 写入前拒绝并提示去项目根，`esl skill list` / `esl skill uninstall` 仍只看当前 cwd 的 Store 并追加 Hint。
 
 ### 6. 查看与管理已安装技能 (List)
-`esl list` 是当前 Skill Store 的本机管理入口（ADR-0058）：在交互式终端（TTY）且未禁用输入时，进入两级管理台——先选技能，再在详情里查看本机字段（Identity、version、source、安装时间、Store 内路径、Skill Source Link 源路径）与逐条 Tool Link 状态，并可在确认后执行单技能 `update`、按期望 Tool Link 集合对账（语义同 install/link，ADR-0054）、`unlink` / `uninstall`。
+`esl skill list` 是当前 Skill Store 的本机管理入口（ADR-0058）：在交互式终端（TTY）且未禁用输入时，进入两级管理台——先选技能，再在详情里查看本机字段（Identity、version、source、安装时间、Store 内路径、Skill Source Link 源路径）与逐条 Tool Link 状态，并可在确认后执行单技能 `esl skill update`、按期望 Tool Link 集合对账（语义同 `esl skill install` / `esl link`，ADR-0054）、`esl unlink` / `esl skill uninstall`。
 ```bash
 # 查看当前项目安装的技能（TTY 下进入交互管理台）
+esl skill list
+# 或使用顶层快捷方式
 esl list
 # 或简写
 esl ls
 
 # 管理全局安装的技能
-esl list -g
+esl skill list -g
 
 # 输出 JSON 结构化数据（含 displayName、tools[tool/status/managed]、link 时的 linkSourcePath；永不进入交互）
-esl list --json
+esl skill list --json
 
 # 禁用交互（脚本/自动化），保持只读人类输出（每行附带已链接工具摘要）
-esl list --no-input
+esl skill list --no-input
 ```
-非 TTY（管道、CI）自动只读。`--json`、`--no-input`、非 TTY 三种情况都不会进入管理台。变更动作执行前一律确认；按技能轴的快捷操作不取代 `esl tools *`：按工具过滤、managed/unmanaged 排障与 `tools sync` 仍归 Tool Link 专用命令。
+非 TTY（管道、CI）自动只读。`--json`、`--no-input`、非 TTY 三种情况都不会进入管理台。变更动作执行前一律确认；Tool Link 状态直接由 `esl skill list` 呈现（每行/每项带该技能已链接工具摘要，`--json` 含逐条 link 详情），修复已记录的 Tool Link 归 `esl skill update`。
 
 ### 7. 修复已记录的 Tool Link
-只修复 Tool Link Manifest 中已记录的 link：缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。不按配置给未记录的技能批量新建，也不裁剪任何 link：
+修复 Tool Link 现在归 `esl skill update`：它在更新技能的同时只修复 Tool Link Manifest 中已记录的 link——缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖；不按配置给未记录的技能批量新建，也不裁剪任何 link：
 ```bash
-# 修复当前项目已记录的 Tool Link
-esl tools sync
+# 更新技能时一并修复当前项目已记录的 Tool Link
+esl skill update
 
-# 修复全局已记录的 Tool Link
-esl tools sync -g
+# 更新全局技能并修复全局已记录的 Tool Link
+esl skill update -g
 
 # 查看/编辑本机常用工具（首次工具挂载的预勾选）
-esl tools preferred --add claude,codex
+esl config preferred-tools --add claude,codex
 ```
 
 ### 8. 查看与删除 Tool Link
 ```bash
-# 查看当前项目所有工具、技能和 link 状态
-esl tools list
+# 查看当前项目所有技能及其逐条 Tool Link 状态
+esl skill list
 
-# 筛选工具、技能、作用域和状态
-esl tools list --tool claude-code,codex --status broken,conflict
-esl tools list -g --unmanaged
-esl tools list --json
+# 结构化输出（每项含 tools[tool/status/managed]）
+esl skill list --json
 
-# 只解除指定工具的 link，保留 Skill Store 源
-esl tools remove @cnfox/code-review --tools claude-code,cursor
+# 移除技能在本机的 Skill Store 条目与该技能的全部 ESL 管理 link
+esl skill uninstall @cnfox/code-review
+
+# 或退回本地源码 link，本地源码目录保留
+esl unlink @local/my-skill
+
+# 只想调整工具集合、保留 Store 源：用 install 的期望集合，或在 `esl skill list` 管理台里 Adjust tool links…
+esl skill install @cnfox/code-review --tools claude-code
 ```
 
 ### 9. 更新技能 (Update)
 检查并升级已安装的技能到 ESL Server 上的最新版本。Skill Source Link 会保持源码实时状态并被跳过：
 ```bash
 # 更新项目下所有技能
-esl update
+esl skill update
 
 # 更新指定的某个技能
-esl update @cnfox/code-review
+esl skill update @cnfox/code-review
 
 # 更新全局技能
-esl update -g
+esl skill update -g
 
-# 更新后确保指定工具存在正确 link
-esl update @cnfox/code-review --tools claude-code,codex
+# 更新会自动维护已记录的 Tool Link，不重新询问工具；
+# 要改变工具集合，用 install 的期望集合语义
+esl skill install @cnfox/code-review --tools claude-code,codex
 ```
 
 ### 10. 卸载技能 (Uninstall)
 移除已安装的技能（清理 Skill Store 源、依赖/锁/安装记录及该技能的全部 ESL 管理 link）：
 ```bash
 # 卸载项目技能
-esl uninstall @cnfox/code-review
+esl skill uninstall @cnfox/code-review
 
 # 卸载全局技能
-esl uninstall @cnfox/code-review -g
+esl skill uninstall @cnfox/code-review -g
 ```
 
 ---
@@ -308,77 +315,77 @@ esl uninstall @cnfox/code-review -g
 脚手架初始化一个新的技能目录：
 ```bash
 # 在当前目录下创建 my-skill 文件夹，技能标识为 @cnfox/my-skill
-esl init @cnfox/my-skill
+esl source init ./my-skill --namespace cnfox
 
 # 指定许可证（默认 MIT）
-esl init @cnfox/my-skill --license Apache-2.0
+esl source init ./my-skill --license Apache-2.0
 ```
 将会生成包含 `SKILL.md`（带 YAML Frontmatter）与 `release.json` 的源码骨架。源码形态的发布输入是 `SKILL.md` + `release.json`；`skill.json` 不属于源码，只作为安装副本或发布包的生成物。
 
 ### 2. 校验技能规范 (Validate)
 在发布前检查技能结构、`SKILL.md` 规范与 `release.json` 元数据是否合法：
 ```bash
-esl validate ./my-skill
+esl source validate ./my-skill
 ```
 
 ### 3. 上传源码 (Upload)
 把本地源码提交并推送到服务器成为 Server-hosted Skill Source（首次创建 Skill ID 与 `esl` remote，之后对已托管源直接同步）：
 ```bash
-esl upload ./my-skill
+esl source upload ./my-skill
 
 # 目录缺 release.json 时自动补清单，可指定许可证
-esl upload ./my-skill --license Apache-2.0
+esl source upload ./my-skill --license Apache-2.0
 
 # 用一句话说明本次上传内容（作为源码提交说明）
-esl upload ./my-skill -m "fix: correct the dead-link regex"
+esl source upload ./my-skill -m "fix: correct the dead-link regex"
 ```
-`upload` 自动完成 git 前置：非 git 仓库自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit；已托管源推前自动 rebase 到服务器最新，冲突时保留现场并提示解决后重跑。本地已与服务器一致时报告 `already up to date`。查看本地与服务器源的差异状态：
+`esl source upload` 自动完成 git 前置：非 git 仓库自动 `git init`、缺失时补基础 `.gitignore`、有未提交改动（含自动补的 `release.json`）时自动 `git add -A` + commit；已托管源推前自动 rebase 到服务器最新，冲突时保留现场并提示解决后重跑。本地已与服务器一致时报告 `already up to date`。查看本地与服务器源的差异状态：
 
 ```bash
-esl status
+esl source status
 ```
-> **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录，`esl upload` 会识别为孤儿场景——交互模式提示"是否移除 esl remote 并重新登记"，同意则自动 `git remote remove esl` 后全新登记；拒绝或非交互则给出 `git remote remove esl` → `esl upload .` 的手动指引。
+> **源被删除后的恢复**：若服务器源已被管理员删除而本地仍保留技能目录，`esl source upload` 会识别为孤儿场景——交互模式提示"是否移除 esl remote 并重新登记"，同意则自动 `git remote remove esl` 后全新登记；拒绝或非交互则给出 `git remote remove esl` → `esl source upload .` 的手动指引。
 
 ### 4. 发布技能 (Publish)
 把当前源码发布为 Skill Release 到 ESL Server。版本号取自 `release.json`，不是命令参数：
 ```bash
 cd my-skill
-esl publish
+esl release publish
 
 # 指定版本说明（作为发布说明与 release tag 说明）
-esl publish -m "fix: dead-link regex; feat: docx batch"
+esl release publish -m "fix: dead-link regex; feat: docx batch"
 
 # 预演：跑完所有本地校验并展示将要发布的内容，不接触服务端
-esl publish --dry-run
+esl release publish --dry-run
 
 # 跳过交互确认（脚本 / 非交互）
-esl publish --force
+esl release publish --force
 ```
-> 版本号来自被发布 commit 的 `release.json.version`；发布前请先 `esl version`（见下节）。直接传版本号（`esl publish 1.0.0`）会被拒绝并提示改用 `esl version`。
-> 对一个已托管源，`publish` 会自动 `fetch`、必要时 rebase 到服务器最新、并 push 本地领先的提交——忘记 push 不再阻断发布；冲突时保留 rebase 现场，解决后重跑即可。
-> 不传 `-m` / `--message` 时，`publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
+> 版本号来自被发布 commit 的 `release.json.version`；发布前请先 `esl release version`（见下节）。直接传版本号（`esl release publish 1.0.0`）会被拒绝并提示改用 `esl release version`。
+> 对一个已托管源，`esl release publish` 会自动 `fetch`、必要时 rebase 到服务器最新、并 push 本地领先的提交——忘记 push 不再阻断发布；冲突时保留 rebase 现场，解决后重跑即可。
+> 不传 `-m` / `--message` 时，`esl release publish` 自动收集"自上一个 release tag 以来的 commit 说明"作为版本说明；交互模式会展示让你确认/修改，直接回车即用默认。版本说明存入 release 记录（API 可查，供消费者判断是否升级）与 release tag。发布后如需修订说明：
 
 ```bash
-esl notes @platform-ai/reviewer 1.1.0 -m "修订后的版本说明"
+esl release notes @platform-ai/reviewer 1.1.0 -m "修订后的版本说明"
 ```
 > **注意**：名称为 `@local/*` 的技能将被系统拦截，无法直接发布；发布身份（scope 即其 Namespace）由 Platform Organization 锁定，不能从登录用户推断。
-> `publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`）并落盘，随后提示先 `esl version` 设定版本、再发布。首次登记仍归 `esl upload`：尚无 `esl` remote 时 `publish` 会报错并提示先 `esl upload`，不会隐式建仓。
+> `esl release publish` 要求目录含 `release.json`；缺失时自动补最小清单（`schemaVersion: 2`、`version: 0.1.0`）并落盘，随后提示先 `esl release version` 设定版本、再发布。首次登记仍归 `esl source upload`：尚无 `esl` remote 时 `esl release publish` 会报错并提示先 `esl source upload`，不会隐式建仓。
 > 发布不可变、不可覆盖，错发只能靠弃用或删除补救。新版本低于服务器最高已发布版本时会被拒绝（防止手滑烧号）；确需回迁旧线时用 `--force` 越过。
-> `esl publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。
+> `esl release publish` 发布前会要求确认；使用 `--force`（`-f`）可跳过确认，或配合全局 `--no-input` 在自动化中失败即止。
 
 **弃用单个版本**：坏版本（安全缺陷、内容错误）发出后无法覆盖，可用弃用标记劝退消费者：
 ```bash
 # 标记为不推荐：安装该版本时会看到这段说明，但仍可安装
-esl deprecate @platform-ai/reviewer 1.0.0 -m "Use 1.1.0; this release ships a broken regex"
+esl release deprecate @platform-ai/reviewer 1.0.0 -m "Use 1.1.0; this release ships a broken regex"
 
 # 传空 message 解除标记
-esl deprecate @platform-ai/reviewer 1.0.0 -m ""
+esl release deprecate @platform-ai/reviewer 1.0.0 -m ""
 
 # 内容必须从服务器消失时（例如误发密钥）：删除单个版本，需回显版本号确认
-esl release-delete @platform-ai/reviewer 1.0.0 --confirm 1.0.0
+esl release delete @platform-ai/reviewer 1.0.0 --confirm 1.0.0
 ```
 > 弃用不改变版本解析：被弃用的版本若仍是最高稳定版，默认安装依旧会选中它（只是伴随警告）。
-> `release-delete` 移除该版本的发布包、版本记录与 Release Tag，保留源码 Git 历史、技能本身与其他版本；**版本号烧毁、不可重发**，所以要求 `--confirm` 回显。技能 Maintainer 可删自己技能的版本；被其他技能的依赖锁定引用时服务端会拒绝并列出引用方，只有平台管理员能加 `--force` 强制（强制后依赖它的技能安装会失败）。
+> `esl release delete` 移除该版本的发布包、版本记录与 Release Tag，保留源码 Git 历史、技能本身与其他版本；**版本号烧毁、不可重发**，所以要求 `--confirm` 回显。技能 Maintainer 可删自己技能的版本；被其他技能的依赖锁定引用时服务端会拒绝并列出引用方，只有平台管理员能加 `--force` 强制（强制后依赖它的技能安装会失败）。
 > 管理后台的技能管理页面「发布历史」里也有同样的删除入口（需回显版本号确认），Web 与 CLI 走同一个接口。
 
 ### 整技能生命周期：Archive / Restore / Delete
@@ -397,36 +404,36 @@ Delete 前页面会展示将被移除的 Release 数和完整依赖方列表。�
 源码形态（`SKILL.md` + `release.json`）的版本号存在 `release.json` 的 `version` 字段里，随源码走 Git 历史：
 ```bash
 # 交互式选择：当前版本会算出 patch / minor / major 的目标值
-esl version
+esl release version
 
 # 递增：改写 release.json + 自动 commit + 打 annotated tag v<SemVer>（不 push）
-esl version patch   # 0.1.0 -> 0.1.1
-esl version minor   # 0.1.1 -> 0.2.0
-esl version major   # 0.2.0 -> 1.0.0
+esl release version patch   # 0.1.0 -> 0.1.1
+esl release version minor   # 0.1.1 -> 0.2.0
+esl release version major   # 0.2.0 -> 1.0.0
 
 # 显式设值（旧 schemaVersion: 1 清单的迁移入口）
-esl version 1.4.2
+esl release version 1.4.2
 ```
-> 裸 `esl version` 仅在交互式终端中显示选择器；非 TTY 或 `--no-input` 下必须显式传版本，避免脚本意外创建 commit 和 tag。AI Agent 可加 `--agent-interaction`，通过返回的版本选择问题收集答案后，用 `--params-json '{"release":"patch"}'` 重执行。
-> `esl version` 不 push：推送归 `esl upload` 或下一次 `esl publish`（`publish` 会自动同步）。
-> 工作树有未提交改动时 `version` 会拒绝执行，避免把无关改动卷进版本提交。
+> 裸 `esl release version` 仅在交互式终端中显示选择器；非 TTY 或 `--no-input` 下必须显式传版本，避免脚本意外创建 commit 和 tag。AI Agent 可加 `--agent-interaction`，通过返回的版本选择问题收集答案后，用 `--params-json '{"release":"patch"}'` 重执行。
+> `esl release version` 不 push：推送归 `esl source upload` 或下一次 `esl release publish`（`esl release publish` 会自动同步）。
+> 工作树有未提交改动时 `esl release version` 会拒绝执行，避免把无关改动卷进版本提交。
 > 旧清单（`schemaVersion: 1`，无 `version` 字段）只提供自定义 SemVer 入口；显式设值完成迁移后，后续才能使用递增关键字。已有的历史 Skill Release 不受影响。
 
 ### 6. 克隆远端源码进行二次开发 (Source)
 若需要对别人发布的技能进行二次开发或修复 Bug，可直接获取其完整 Git 源码：
 ```bash
 # 将 @cnfox/code-review 的 Git 源码克隆到当前目录
-esl source @cnfox/code-review
+esl source clone @cnfox/code-review
 
 # 克隆到指定目录
-esl source @cnfox/code-review ./custom-dir
+esl source clone @cnfox/code-review ./custom-dir
 ```
 
 ---
 
 ## 六、 多 Agent 工具配置与目录映射 (Tool Link Reference)
 
-当运行 `esl install` / `esl link`（勾选或 `--tools`）时，系统在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录；勾选与人类可读输出使用展示名（Claude Code、Trae International 等），CLI 参数与清单仍用规范 id。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
+当运行 `esl skill install` / `esl link`（勾选或 `--tools`）时，系统在对应 AI Agent 工作区中建立单技能目录 link，目标是 `.eslib/skills/@scope/skill-name` 源目录；勾选与人类可读输出使用展示名（Claude Code、Trae International 等），CLI 参数与清单仍用规范 id。Windows 使用 directory junction，类 Unix 使用目录 symlink；link 创建失败不会回退为复制。
 
 | 工具名称 (`tools`) | 项目级安装路径 (Project) | 全局安装路径 (Global) |
 | :--- | :--- | :--- |

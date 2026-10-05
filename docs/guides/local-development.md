@@ -138,18 +138,18 @@ npm run reload:dev
 
 ## 登录
 
-CLI 仅供组织成员使用：`esl login` 需要 `--org <orgname>`
+CLI 仅供组织成员使用：`esl account login` 需要 `--org <orgname>`
 （或提示输入）并分别发送组织名和用户名；服务器组装并校验 `<orgname>_<username>`
 账号。使用 `npm exec -- esl config set-server http://localhost:3000` 设置一次服务器
 （或设置 `ESL_SERVER` 环境变量），然后：
 
 ```powershell
-npm exec -- esl login --org acme --username alice
+npm exec -- esl account login --org acme --username alice
 ```
 
 平台管理员不登录 CLI。打开管理后台 `http://localhost:3000/admin`，
 使用 `GITEA_ADMIN_USERNAME`（默认 `eslroot`）和管理员密码登录。
-使用 `npm exec -- esl whoami` 检查当前 CLI 登录状态（显示组织和角色）。
+使用 `npm exec -- esl account whoami` 检查当前 CLI 登录状态（显示组织和角色）。
 
 组织和成员管理已移至管理后台；CLI 仅保留面向开发者的命令。技能用户可以使用
 `esl account change-password` 修改自己的密码。
@@ -159,10 +159,10 @@ npm exec -- esl login --org acme --username alice
 使用保留的 `@local` 命名空间存放尚未发布的本地或草稿技能：
 
 ```powershell
-npm exec -- esl init @local/my-skill
-npm exec -- esl validate .\my-skill
-npm exec -- esl install .\my-skill
-npm exec -- esl tools sync
+npm exec -- esl source init @local/my-skill
+npm exec -- esl source validate .\my-skill
+npm exec -- esl skill install .\my-skill
+npm exec -- esl skill update
 ```
 
 `@local/*` 技能可以在本地创建、安装和适配，但不能发布到共享服务器。
@@ -228,7 +228,7 @@ npm run reset:dev
 脚本拒绝删除看起来不像 ESL 数据的数据目录，并且它永远不会自动运行——
 重置本质上是破坏性的。参见 `docs/adr/0018` 了解重置为何采用这种方式。
 
-重置会使 `~/.eslib/` 下任何先前的 `esl login` 状态失效；
+重置会使 `~/.eslib/` 下任何先前的 `esl account login` 状态失效；
 之后需要重新登录。只有三个数据卷子目录被删除：
 `.env`、web 包和源代码树保持不变。
 
@@ -246,9 +246,9 @@ npm run reset:dev
 ## CLI 冒烟测试
 
 ```powershell
-npm exec -- esl login --server http://localhost:3000 --org <orgname> --username <user>
-npm exec -- esl search my-skill --server http://localhost:3000
-npm exec -- esl info @myorg/my-skill --server http://localhost:3000
+npm exec -- esl account login --server http://localhost:3000 --org <orgname> --username <user>
+npm exec -- esl skill search my-skill --server http://localhost:3000
+npm exec -- esl skill info @myorg/my-skill --server http://localhost:3000
 ```
 
 完整的发布、跨用户安装、更新和源码冒烟路径，请参阅

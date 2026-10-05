@@ -85,23 +85,29 @@ describe('network CLI commands', () => {
     });
 
     expect(result).toBe(
-      'Name: @myorg/my-skill\nDescription: A test skill\nVersions: 1.0.0, 0.9.0\nRepository: esl-skills/myorg_my-skill'
+      'Registry (ESL Server):\nName: @myorg/my-skill\nDescription: A test skill\nVersions: 1.0.0, 0.9.0\nRepository: esl-skills/myorg_my-skill'
     );
   });
 
   it('omits absent fields in human info', () => {
-    expect(formatSkillInfo({ name: '@myorg/my-skill' })).toBe('Name: @myorg/my-skill');
+    expect(formatSkillInfo({ name: '@myorg/my-skill' })).toBe('Registry (ESL Server):\nName: @myorg/my-skill');
   });
 
   it('shows the display name in the title position when it differs from the identity', () => {
     expect(
       formatSkillInfo({ name: '@myorg/my-skill', displayName: 'My Skill', description: 'A test skill' })
-    ).toBe('Name: My Skill (@myorg/my-skill)\nDescription: A test skill');
+    ).toBe('Registry (ESL Server):\nName: My Skill (@myorg/my-skill)\nDescription: A test skill');
   });
 
   it('does not repeat the identity when the display name equals it', () => {
     expect(formatSkillInfo({ name: '@myorg/my-skill', displayName: '@myorg/my-skill' })).toBe(
-      'Name: @myorg/my-skill'
+      'Registry (ESL Server):\nName: @myorg/my-skill'
+    );
+  });
+
+  it('labels built-in skills as resolving locally rather than from the Registry', () => {
+    expect(formatSkillInfo({ name: '@builtin/esl-operator' })).toBe(
+      'Built-in skill:\nName: @builtin/esl-operator'
     );
   });
 });

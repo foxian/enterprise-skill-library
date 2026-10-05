@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeUpdate } from '../src/commands/update.js';
+import { executeInstall } from '../src/commands/install.js';
 import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials, saveSkillsJson, saveSkillsLock } from '@esl/core';
 
 describe('esl update', () => {
@@ -558,5 +559,50 @@ describe('esl update', () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  it('repairs a missing recorded Tool Link while updating', async () => {
+    const localSkillDir = path.join(projectDir, 'link-skill');
+    fs.mkdirSync(localSkillDir);
+    fs.writeFileSync(
+      path.join(localSkillDir, 'skill.json'),
+      JSON.stringify({ name: '@myorg/link-skill', version: '0.2.0', description: 'Link skill', author: 'tester' })
+    );
+    fs.writeFileSync(
+      path.join(localSkillDir, 'SKILL.md'),
+      '---\nname: link-skill\ndescription: Link skill.\n---\n'
+    );
+    await saveSkillsJson(projectDir, { skills: { '@myorg/link-skill': `file:${localSkillDir}` } });
+    await executeInstall(localSkillDir, { projectRoot: projectDir, homeDir, tools: ['claude'] });
+    const linkPath = path.join(projectDir, '.claude', 'skills', 'myorg_link-skill');
+    fs.rmSync(linkPath, { recursive: true, force: true });
+
+    await executeUpdate({ projectRoot: projectDir, homeDir, noAdapt: true });
+
+    expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+  });
+
+  it('fails when a recorded Tool Link target is occupied by unmanaged content', async () => {
+    const localSkillDir = path.join(projectDir, 'conflict-skill');
+    fs.mkdirSync(localSkillDir);
+    fs.writeFileSync(
+      path.join(localSkillDir, 'skill.json'),
+      JSON.stringify({ name: '@myorg/conflict-skill', version: '0.2.0', description: 'Conflict skill', author: 'tester' })
+    );
+    fs.writeFileSync(
+      path.join(localSkillDir, 'SKILL.md'),
+      '---\nname: conflict-skill\ndescription: Conflict skill.\n---\n'
+    );
+    await saveSkillsJson(projectDir, { skills: { '@myorg/conflict-skill': `file:${localSkillDir}` } });
+    await executeInstall(localSkillDir, { projectRoot: projectDir, homeDir, tools: ['claude'] });
+    const linkPath = path.join(projectDir, '.claude', 'skills', 'myorg_conflict-skill');
+    fs.rmSync(linkPath, { recursive: true, force: true });
+    fs.mkdirSync(linkPath, { recursive: true });
+    fs.writeFileSync(path.join(linkPath, 'SKILL.md'), '# Manual\n');
+
+    await expect(
+      executeUpdate({ projectRoot: projectDir, homeDir, noAdapt: true })
+    ).rejects.toThrow(/Tool link issue/);
+    expect(fs.readFileSync(path.join(linkPath, 'SKILL.md'), 'utf8')).toBe('# Manual\n');
   });
 });

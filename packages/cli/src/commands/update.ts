@@ -6,11 +6,11 @@ import {
   BUILTIN_SPECIFIER_PREFIX,
   highestStableVersion,
   isBuiltinIdentity,
-  listToolLinks,
   loadInstallManifest,
   loadSkillsJson,
   loadSkillsLock,
   renameSkillState,
+  repairRecordedToolLinks,
   resolveLocalStorePaths,
   validateSkillDirectory
 } from '@esl/core';
@@ -44,10 +44,10 @@ export interface UpdateResultEntry {
 export type UpdateResult = UpdateResultEntry[];
 
 export async function executeUpdate(options: UpdateOptions = {}): Promise<UpdateResult> {
-  // update 只升级版本；工具选择归 install/link，修链归 tools sync（ADR-0054）。
+  // update 只升级版本；工具选择归 install/link，已记录 link 的修复由 update 自动维护（ADR-0059）。
   if ('tools' in options || 'force' in options) {
     throw new Error(
-      'esl update no longer accepts --tools or --force; tool selection belongs to install/link and link repair to: esl tools sync'
+      'esl skill update no longer accepts --tools or --force; tool selection belongs to esl skill install / esl link'
     );
   }
   const dependencyRoot = options.global ? resolveLocalStorePaths(options).root : options.projectRoot ?? options.cwd ?? process.cwd();
@@ -183,22 +183,22 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     return results;
   }
 
-  // 升级后已有正确 Tool Link 自动看到新内容；损坏/冲突的链在此报告而不修复。
-  const linkEntries = await listToolLinks({
+  // 升级后自动维护已记录的 Tool Link（承接原 `tools sync` 的修复职责，ADR-0059）：
+  // 缺失或 ESL 自己的错链重建，被非 ESL 内容占用的目标报告冲突且不覆盖。
+  const repairs = await repairRecordedToolLinks({
     storeRoot,
     level: options.global ? 'global' : 'project',
     projectRoot: dependencyRoot,
-    homeDir: options.homeDir
+    homeDir: options.homeDir,
+    identities: targetIdentities
   });
-  const issues = linkEntries.filter(
-    (entry) =>
-      targetIdentities.has(entry.identity) &&
-      (entry.status === 'broken' || entry.status === 'conflict')
+  const issues = repairs.filter(
+    (entry) => entry.status === 'conflict' || entry.status === 'failed'
   );
   if (issues.length > 0) {
     throw new Error(
       `Tool link issue: ${issues
-        .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status})`)
+        .map((entry) => `${entry.tool} (${entry.identity}: ${entry.status}${entry.error ? `: ${entry.error}` : ''})`)
         .join(', ')}`
     );
   }

@@ -101,6 +101,8 @@ async function infoFromBuiltin(name: string, options: NetworkCommandOptions): Pr
 
 export function formatSkillInfo(info: SkillInfo): string {
   const lines: string[] = [
+    // 输出上下文标注（ADR-0059）：`skill info` 固定查 Registry；内置技能随 CLI 发行、本地解析。
+    isBuiltinIdentity(info.name) ? 'Built-in skill:' : 'Registry (ESL Server):',
     info.displayName && info.displayName !== info.name
       ? `Name: ${info.displayName} (${info.name})`
       : `Name: ${info.name}`

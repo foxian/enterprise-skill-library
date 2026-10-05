@@ -2,10 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildBuiltinPackage, initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig } from '@esl/core';
+import { buildBuiltinPackage, initializeLocalStore, loadSkillsJson, loadSkillsLock, repairRecordedToolLinks, resolveProjectStorePaths, saveConfig } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 import { executeUninstall } from '../src/commands/uninstall.js';
-import { executeToolsSync } from '../src/commands/tools.js';
 
 describe('esl built-in uninstall and adapt', () => {
   let homeDir: string;
@@ -62,7 +61,7 @@ describe('esl built-in uninstall and adapt', () => {
     expect(fs.existsSync(linkPath)).toBe(false);
   });
 
-  it('repairs the recorded link of an installed built-in skill during tools sync', async () => {
+  it('repairs the recorded link of an installed built-in skill', async () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
@@ -72,7 +71,12 @@ describe('esl built-in uninstall and adapt', () => {
     const linkPath = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
     fs.rmSync(linkPath, { recursive: true, force: true });
 
-    const results = await executeToolsSync({ directory: projectDir, homeDir });
+    const results = await repairRecordedToolLinks({
+      storeRoot: resolveProjectStorePaths(projectDir).root,
+      level: 'project',
+      projectRoot: projectDir,
+      homeDir
+    });
 
     expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
     expect(results.some((result) => result.tool === 'claude')).toBe(true);
