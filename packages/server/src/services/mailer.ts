@@ -20,6 +20,7 @@ export interface SmtpSettings {
   username: string;
   password: string;
   from: string;
+  replyTo: string;
 }
 
 export function readSmtpSettings(repository: PlatformSettingsRepository): SmtpSettings | null {
@@ -28,10 +29,11 @@ export function readSmtpSettings(repository: PlatformSettingsRepository): SmtpSe
   const username = repository.getSetting('smtp_username')?.trim() ?? '';
   const password = repository.getSetting('smtp_password') ?? '';
   const from = repository.getSetting('smtp_from')?.trim() ?? '';
+  const replyTo = repository.getSetting('smtp_reply_to')?.trim() ?? '';
   if (!host || !Number.isInteger(port) || port <= 0 || !from || !username || !password) {
     return null;
   }
-  return { host, port, username, password, from };
+  return { host, port, username, password, from, replyTo };
 }
 
 export function hasSmtpSettings(repository: PlatformSettingsRepository): boolean {
@@ -64,6 +66,7 @@ export class SmtpMailer implements Mailer {
     try {
       await transporter.sendMail({
         from: settings.from,
+        ...(settings.replyTo ? { replyTo: settings.replyTo } : {}),
         to: message.to,
         subject: message.subject,
         text: message.text,

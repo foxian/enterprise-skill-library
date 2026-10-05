@@ -291,6 +291,7 @@ describe('super administrator org console API', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
 
@@ -311,6 +312,7 @@ describe('super administrator org console API', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
 
@@ -325,6 +327,7 @@ describe('super administrator org console API', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
 

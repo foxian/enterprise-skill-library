@@ -93,6 +93,9 @@
             <el-form-item :label="t('settings.smtpFrom')">
               <el-input v-model="smtpFrom" :disabled="smtpDisabled" data-test="smtp-from" />
             </el-form-item>
+            <el-form-item :label="t('settings.smtpReplyTo')">
+              <el-input v-model="smtpReplyTo" :disabled="smtpDisabled" data-test="smtp-reply-to" />
+            </el-form-item>
           </el-form>
         </div>
 
@@ -137,6 +140,7 @@ interface PlatformSettings {
   smtpPort: number;
   smtpUsername: string;
   smtpFrom: string;
+  smtpReplyTo: string;
   smtpPasswordSet: boolean;
 }
 
@@ -151,6 +155,7 @@ function normalizeSettings(settings: Partial<PlatformSettings>): PlatformSetting
     smtpPort: settings.smtpPort ?? 465,
     smtpUsername: settings.smtpUsername ?? '',
     smtpFrom: settings.smtpFrom ?? '',
+    smtpReplyTo: settings.smtpReplyTo ?? '',
     smtpPasswordSet: settings.smtpPasswordSet ?? false
   };
 }
@@ -165,6 +170,7 @@ const smtpPort = ref(465);
 const smtpUsername = ref('');
 const smtpPassword = ref('');
 const smtpFrom = ref('');
+const smtpReplyTo = ref('');
 const smtpPasswordSet = ref(false);
 const saving = ref(false);
 const errorMessage = ref('');
@@ -178,6 +184,7 @@ const saved = ref<PlatformSettings>({
   smtpPort: 465,
   smtpUsername: '',
   smtpFrom: '',
+  smtpReplyTo: '',
   smtpPasswordSet: false
 });
 
@@ -193,6 +200,7 @@ const hasChanges = computed(() => (
   || smtpPort.value !== saved.value.smtpPort
   || smtpUsername.value !== saved.value.smtpUsername
   || smtpFrom.value !== saved.value.smtpFrom
+  || smtpReplyTo.value !== saved.value.smtpReplyTo
   || smtpPassword.value.trim().length > 0
 ));
 
@@ -211,6 +219,7 @@ async function load(): Promise<void> {
     smtpPort.value = saved.value.smtpPort;
     smtpUsername.value = saved.value.smtpUsername;
     smtpFrom.value = saved.value.smtpFrom;
+    smtpReplyTo.value = saved.value.smtpReplyTo;
     smtpPasswordSet.value = saved.value.smtpPasswordSet;
   } catch (error) {
     errorMessage.value = formatRequestError(error);
@@ -233,7 +242,8 @@ async function handleSave(): Promise<void> {
         smtpPort: smtpPort.value,
         smtpUsername: smtpUsername.value,
         ...(smtpPassword.value ? { smtpPassword: smtpPassword.value } : {}),
-        smtpFrom: smtpFrom.value
+        smtpFrom: smtpFrom.value,
+        smtpReplyTo: smtpReplyTo.value
       }
     }));
     saved.value = {
@@ -246,6 +256,7 @@ async function handleSave(): Promise<void> {
       smtpPort: settings.smtpPort,
       smtpUsername: settings.smtpUsername,
       smtpFrom: settings.smtpFrom,
+      smtpReplyTo: settings.smtpReplyTo,
       smtpPasswordSet: settings.smtpPasswordSet
     };
     orgRegistrationMode.value = settings.orgRegistrationMode;
@@ -257,6 +268,7 @@ async function handleSave(): Promise<void> {
     smtpPort.value = settings.smtpPort;
     smtpUsername.value = settings.smtpUsername;
     smtpFrom.value = settings.smtpFrom;
+    smtpReplyTo.value = settings.smtpReplyTo;
     smtpPasswordSet.value = settings.smtpPasswordSet;
     smtpPassword.value = '';
     ElMessage.success(t('settings.saved'));

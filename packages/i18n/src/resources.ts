@@ -271,6 +271,7 @@ const zhCN: TranslationTree = {
     smtpPassword: 'SMTP 密码或授权码',
     smtpPasswordUnchanged: '已配置，留空表示保持不变',
     smtpFrom: '发件人地址',
+    smtpReplyTo: '回复地址',
     saved: '平台设置已保存'
   },
   userManagement: {
@@ -725,6 +726,7 @@ const enUS: TranslationTree = {
     smtpPassword: 'SMTP password or authorization code',
     smtpPasswordUnchanged: 'Configured; leave blank to keep it',
     smtpFrom: 'From address',
+    smtpReplyTo: 'Reply-to address',
     saved: 'Platform settings saved'
   },
   userManagement: {

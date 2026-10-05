@@ -73,6 +73,7 @@ describe('platform settings', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
 
@@ -92,6 +93,7 @@ describe('platform settings', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
 
@@ -106,6 +108,7 @@ describe('platform settings', () => {
       smtpPort: 587,
       smtpUsername: '',
       smtpFrom: '',
+      smtpReplyTo: '',
       smtpPasswordSet: false
     });
   });
@@ -171,7 +174,8 @@ describe('platform settings', () => {
         smtpPort: 587,
         smtpUsername: 'noreply@example.com',
         smtpPassword: 'test-only-password',
-        smtpFrom: 'noreply@example.com'
+        smtpFrom: 'noreply@example.com',
+        smtpReplyTo: 'support@example.com'
       }
     });
     expect(updated.statusCode).toBe(200);
@@ -181,6 +185,7 @@ describe('platform settings', () => {
       smtpPort: 587,
       smtpUsername: 'noreply@example.com',
       smtpFrom: 'noreply@example.com',
+      smtpReplyTo: 'support@example.com',
       smtpPasswordSet: true
     });
     expect(updated.json()).not.toHaveProperty('smtpPassword');

@@ -179,6 +179,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       smtpPort: Number(platformSettingsRepository.getSetting('smtp_port') ?? '587'),
       smtpUsername: platformSettingsRepository.getSetting('smtp_username') ?? '',
       smtpFrom: platformSettingsRepository.getSetting('smtp_from') ?? '',
+      smtpReplyTo: platformSettingsRepository.getSetting('smtp_reply_to') ?? '',
       smtpPasswordSet: Boolean(platformSettingsRepository.getSetting('smtp_password'))
     };
   });
@@ -196,6 +197,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       smtpUsername?: string;
       smtpPassword?: string;
       smtpFrom?: string;
+      smtpReplyTo?: string;
     };
 
     if (body.orgRegistrationMode !== undefined) {
@@ -268,6 +270,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       platformSettingsRepository.setSetting('smtp_password', body.smtpPassword);
     }
     if (body.smtpFrom !== undefined) platformSettingsRepository.setSetting('smtp_from', body.smtpFrom.trim());
+    if (body.smtpReplyTo !== undefined) platformSettingsRepository.setSetting('smtp_reply_to', body.smtpReplyTo.trim());
     return {
       orgRegistrationMode: getRegistrationMode(),
       registrationMode: getUserRegistrationMode(),
@@ -278,6 +281,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
       smtpPort: Number(platformSettingsRepository.getSetting('smtp_port') ?? '587'),
       smtpUsername: platformSettingsRepository.getSetting('smtp_username') ?? '',
       smtpFrom: platformSettingsRepository.getSetting('smtp_from') ?? '',
+      smtpReplyTo: platformSettingsRepository.getSetting('smtp_reply_to') ?? '',
       smtpPasswordSet: Boolean(platformSettingsRepository.getSetting('smtp_password'))
     };
   });
