@@ -44,7 +44,8 @@ describe('esl install @builtin/esl-operator (offline)', () => {
     const targetDir = await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
-      builtinDir: builtinRoot
+      builtinDir: builtinRoot,
+      tools: ['claude']
     });
 
     expect(targetDir).toBe(path.join(projectDir, '.eslib', 'skills', '@builtin', 'esl-operator'));
@@ -85,12 +86,13 @@ describe('esl install @builtin/esl-operator (offline)', () => {
     expect(globalSkills.skills['@builtin/esl-operator']).toBe('builtin:esl-operator');
   });
 
-  it('links a global built-in install into tool directories by default', async () => {
+  it('links a global built-in install into tool directories when tools are given', async () => {
     const targetDir = await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
       builtinDir: builtinRoot,
-      global: true
+      global: true,
+      tools: ['claude']
     });
 
     const linkPath = path.join(homeDir, '.claude', 'skills', 'builtin_esl-operator');

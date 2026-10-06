@@ -77,15 +77,15 @@ Log in as `author` (organization `smoke`) with the recorded password, initialize
 a skill, commit it, and publish version `0.1.0`.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --org smoke --username author
+npm exec -- esl account login --server http://localhost:3000 --username author
 
 Push-Location .scratch\smoke-workspace
-npm exec -- esl source init @smoke/demo
+npm exec -- esl source init .\demo --namespace smoke
 Push-Location demo
 git branch -M main
 git add SKILL.md release.json
 git commit -m "Initial demo skill"
-npm exec -- esl source upload --directory .
+npm exec -- esl source upload .
 npm exec -- esl release version 0.1.0
 npm exec -- esl release publish --force
 Pop-Location
@@ -115,7 +115,7 @@ Log in as `consumer` (organization `smoke`), inspect the published Skill Release
 then install it into a project.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --org smoke --username consumer
+npm exec -- esl account login --server http://localhost:3000 --username consumer
 npm exec -- esl skill search demo
 npm exec -- esl skill info @smoke/demo
 
@@ -137,7 +137,7 @@ publish the next Skill Release. Source-form skills store the version in
 `esl release publish` reads it back and syncs the source before releasing.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --org smoke --username author
+npm exec -- esl account login --server http://localhost:3000 --username author
 
 Push-Location .scratch\smoke-workspace\demo
 git add SKILL.md release.json
@@ -162,7 +162,7 @@ Log back in as `consumer`, update the project install, and clone the Skill Sourc
 Repository to the fixed smoke target.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --org smoke --username consumer
+npm exec -- esl account login --server http://localhost:3000 --username consumer
 
 Push-Location .scratch\smoke-workspace\consumer-project
 npm exec -- esl skill update @smoke/demo

@@ -138,18 +138,17 @@ npm run reload:dev
 
 ## 登录
 
-CLI 仅供组织成员使用：`esl account login` 需要 `--org <orgname>`
-（或提示输入）并分别发送组织名和用户名；服务器组装并校验 `<orgname>_<username>`
-账号。使用 `npm exec -- esl config set-server http://localhost:3000` 设置一次服务器
-（或设置 `ESL_SERVER` 环境变量），然后：
+CLI 使用**全局身份**登录：一条凭据走遍个人命名空间与所有所在组织，`esl account login`
+只需用户名与密码（无组织参数）。使用 `npm exec -- esl config set-server http://localhost:3000`
+设置一次服务器（或设置 `ESL_SERVER` 环境变量），然后：
 
 ```powershell
-npm exec -- esl account login --org acme --username alice
+npm exec -- esl account login --username alice
 ```
 
 平台管理员不登录 CLI。打开管理后台 `http://localhost:3000/admin`，
 使用 `GITEA_ADMIN_USERNAME`（默认 `eslroot`）和管理员密码登录。
-使用 `npm exec -- esl account whoami` 检查当前 CLI 登录状态（显示组织和角色）。
+使用 `npm exec -- esl account whoami` 检查当前 CLI 登录状态（显示所属组织）。
 
 组织和成员管理已移至管理后台；CLI 仅保留面向开发者的命令。技能用户可以使用
 `esl account change-password` 修改自己的密码。
@@ -159,7 +158,7 @@ npm exec -- esl account login --org acme --username alice
 使用保留的 `@local` 命名空间存放尚未发布的本地或草稿技能：
 
 ```powershell
-npm exec -- esl source init @local/my-skill
+npm exec -- esl source init .\my-skill
 npm exec -- esl source validate .\my-skill
 npm exec -- esl skill install .\my-skill
 npm exec -- esl skill update
@@ -246,7 +245,7 @@ npm run reset:dev
 ## CLI 冒烟测试
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --org <orgname> --username <user>
+npm exec -- esl account login --server http://localhost:3000 --username <user>
 npm exec -- esl skill search my-skill --server http://localhost:3000
 npm exec -- esl skill info @myorg/my-skill --server http://localhost:3000
 ```

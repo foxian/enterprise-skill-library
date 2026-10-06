@@ -9,11 +9,9 @@ import {
   addLockEntry,
   addSkillDependency,
   chooseMergedVersion,
-  loadConfig,
   loadInstallManifest,
   reconcileToolLinks,
   resolveProjectStorePaths,
-  SUPPORTED_TOOLS,
   type ToolName,
   copySkillDirectory,
   createMinimalSkillManifest,
@@ -27,7 +25,6 @@ import {
   recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
-  resolveToolName,
   resolveReleaseGraph,
   ReleaseGraphError,
   releaseGraphErrorStatus,
@@ -53,7 +50,6 @@ import {
   publishedProjectSkillsDir,
   type NetworkCommandOptions
 } from './network-options.js';
-import type { LocalStoreOptions } from '@esl/core';
 import { executeInfo } from './info.js';
 import { notify } from '../output.js';
 import { resolveBuiltinDir } from '../builtin-dir.js';
@@ -804,24 +800,6 @@ async function installPublishedPackage(
   return targetDir;
 }
 
-/**
- * Non-interactive fallback tool set for install/link: only the local client
- * config's preferred tools. Project `.skills.json` no longer declares tools
- * (ADR-0054); legacy `tools` fields there are ignored.
- */
-export async function resolveDefaultInstallTools(
-  options: LocalStoreOptions = {}
-): Promise<ToolName[]> {
-  const config = await loadConfig(options);
-  return config.tools.map((tool) => {
-    const resolved = resolveToolName(tool);
-    if (resolved === undefined) {
-      throw new Error(`Unknown configured tool: ${tool}. Supported tools: ${SUPPORTED_TOOLS.join(', ')}`);
-    }
-    return resolved;
-  });
-}
-
 export async function executeInstall(nameOrPath: string, options: InstallOptions = {}): Promise<string> {
   const projectRoot = options.projectRoot ?? process.cwd();
   await assertNotNestedConsumerStore({
@@ -843,7 +821,9 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
       : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
 
   if (!options.noAdapt) {
-    const tools = options.tools ?? await resolveDefaultInstallTools(options);
+    // 工具集必须由调用方显式给出（CLI 走 resolveExpectedTools 的显式/交互/Agent 分支）；
+    // 未给出即视为不建 link，绝不回退本机 preferred tools（ADR-0059）。
+    const tools = options.tools ?? [];
     if (tools.length > 0) {
       const installManifest = await loadInstallManifest(storeRoot);
       const targetPath = path.resolve(targetDir);

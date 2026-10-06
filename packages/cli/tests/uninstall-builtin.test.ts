@@ -43,7 +43,8 @@ describe('esl built-in uninstall and adapt', () => {
     await executeInstall('@builtin/esl-operator', {
       projectRoot: projectDir,
       homeDir,
-      builtinDir: builtinRoot
+      builtinDir: builtinRoot,
+      tools: ['claude']
     });
     const linkPath = path.join(projectDir, '.claude', 'skills', 'builtin_esl-operator');
     expect(fs.lstatSync(linkPath).isSymbolicLink()).toBe(true);

@@ -326,10 +326,11 @@ describe('esl tools', () => {
 
     await executeInstall(localSkillDir, {
       projectRoot: projectDir,
-      homeDir
+      homeDir,
+      tools: ['claude']
     });
 
-    // Only the global client config tools apply; project-side tool
+    // Only the explicitly requested tool applies; project-side tool
     // declarations are legacy state (ADR-0054).
     expect(
       fs.existsSync(path.join(projectDir, '.claude', 'skills', 'myorg_my-local-skill'))

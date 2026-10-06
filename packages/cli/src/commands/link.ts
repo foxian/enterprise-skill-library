@@ -28,7 +28,6 @@ import {
 } from './network-options.js';
 import {
   installLocalSourceDependencies,
-  resolveDefaultInstallTools,
   rollbackSwaps,
   type PackageSwap
 } from './install.js';
@@ -268,7 +267,8 @@ async function syncSelectedTools(
     return;
   }
 
-  const tools = options.tools ?? await resolveDefaultInstallTools({ homeDir: options.homeDir });
+  // 工具集必须由调用方显式给出；未给出即视为不建 link，绝不回退本机 preferred tools（ADR-0059）。
+  const tools = options.tools ?? [];
   if (tools.length === 0) {
     return;
   }
