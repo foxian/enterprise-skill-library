@@ -9,7 +9,7 @@
 ## 语言偏好
 登录响应会把账户的 `locale` 保存到本机 CLI 配置；后续命令默认按该语言输出。任意命令可用 `--locale zh-CN` 或 `--locale en-US` 做单次覆盖，但不会写回账户偏好。账户偏好本身在 Web 设置中管理。
 
-`esl config set-server <url>` —— 设 ESL Server 地址。发行包**无**出厂默认 URL；官方公共云使用 `https://cloud.enterprise-skills.com`，本地 Docker 开发常见 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
+`esl config set-server <url>` —— 设 ESL Server 地址。发行包**无**出厂默认 URL；使用部署者配置的实例地址，本地 Docker 开发常见 `http://localhost:3000`。设一次后所有命令都用它，不必每次带 `--server`。
 
 ## Server Origin 迁移（服务器换地址）
 ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release 原样保留）时，改完 `esl config set-server <新地址>` 后：

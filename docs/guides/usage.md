@@ -43,10 +43,10 @@ ESL CLI 从本地配置读取 Server 地址，所有命令（含登录）都默�
 esl config set-server https://your-esl-server.example
 ```
 
-官方公共云的稳定 ESL Server origin 是 `https://cloud.enterprise-skills.com`：
+部署者的 ESL Server origin 例如 `https://esl.example.com`：
 
 ```powershell
-esl config set-server https://cloud.enterprise-skills.com
+esl config set-server https://esl.example.com
 ```
 
 `@foxian/esl` **不内置**出厂默认 Server URL。本地按 [本地开发指南](local-development.md)

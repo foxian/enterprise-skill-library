@@ -104,9 +104,8 @@ Tunnel。Tunnel 由本机向 Cloudflare 发起出站连接，因此不需要路�
 IP 或把 80/443 暴露到互联网。Cloudflare 边缘负责公网 HTTPS，Docker 内的 nginx 只需
 继续监听宿主机 `3000`。
 
-本节假设公开服务入口为 `cloud.enterprise-skills.com`。根域名、`www`、`docs` 和
-`status` 的示例路由也已写入 `docker/cloudflared/config.yml.example`，其中后两个
-hostname 如果暂时没有对应内容，可先不在 Cloudflare 中创建 DNS 路由。
+本节使用 `esl.example.com` 作为占位服务入口。部署者必须在私有实例配置中替换为
+自己的域名；真实域名、DNS、证书和 Tunnel 凭据不得提交到本公开仓库。
 
 ### 1. 创建 Tunnel 和 DNS 路由
 
@@ -115,10 +114,14 @@ hostname 如果暂时没有对应内容，可先不在 Cloudflare 中创建 DNS 
 ```bash
 cloudflared tunnel login
 cloudflared tunnel create esl-local
-cloudflared tunnel route dns esl-local enterprise-skills.com
-cloudflared tunnel route dns esl-local www.enterprise-skills.com
-cloudflared tunnel route dns esl-local cloud.enterprise-skills.com
+cloudflared tunnel route dns esl-local esl.example.com
+cloudflared tunnel route dns esl-local www.esl.example.com
+cloudflared tunnel route dns esl-local cloud.esl.example.com
 ```
+
+`docker/cloudflared/config.yml.example` 中还包含 `docs`、`status` 等可选 hostname
+示例；如果你的实例不需要这些入口，可以不在 Cloudflare 中创建对应 DNS 路由，也可以
+从私有实例配置中删除。hostname 集合由实例层决定，本示例只是给出常见模式。
 
 命令会在 `~/.cloudflared/` 下生成 Tunnel 凭据 JSON。该目录包含私密凭据，不要提交
 到 Git，也不要把它挂载为可写目录。
@@ -133,7 +136,7 @@ cp docker/cloudflared/config.yml.example ~/.cloudflared/config.yml
 chmod 600 ~/.cloudflared/config.yml ~/.cloudflared/<TUNNEL-UUID>.json
 ```
 
-Tunnel 配置将 `cloud.enterprise-skills.com` 转发到 Compose 网络内的
+Tunnel 配置将 `cloud.esl.example.com` 转发到 Compose 网络内的
 `http://server:80`，最后的 `http_status:404` 会拒绝未声明的 hostname。不要把
 `api`、`git`、数据库、缓存、Gitea 维护端口或 Docker daemon 加入 ingress。
 
@@ -143,7 +146,7 @@ Tunnel 配置将 `cloud.enterprise-skills.com` 转发到 Compose 网络内的
 
 ```dotenv
 ESL_ENVIRONMENT=production
-ESL_SERVER_URL=https://cloud.enterprise-skills.com
+ESL_SERVER_URL=https://cloud.esl.example.com
 CLOUDFLARED_CONFIG_DIR=/home/<user>/.cloudflared
 ```
 
@@ -157,12 +160,12 @@ bash scripts/prod/deploy.sh
 `docker-compose.tunnel.yml`，并启动 `cloudflared` 容器。验证：
 
 ```bash
-curl -fsS https://cloud.enterprise-skills.com/health
-curl -I https://enterprise-skills.com/
+curl -fsS https://cloud.esl.example.com/health
+curl -I https://esl.example.com/
 ```
 
-根域名应返回永久跳转到 `https://www.enterprise-skills.com`；CLI、API 和 Git 统一
-使用 `https://cloud.enterprise-skills.com` 这一 origin。尚无官网主页前，`www` 的根路径与 `/admin` 会临时 302 到 `https://cloud.enterprise-skills.com/admin/login`（及对应 admin 路径），避免 www 继续充当控制台入口。
+根域名应返回永久跳转到部署者配置的 `www` 地址；CLI、API 和 Git 统一使用部署者
+配置的 ESL Server origin。站点内容和 `www` 的路由由实例层决定。
 
 ### Cloudflare Tunnel 注意事项
 

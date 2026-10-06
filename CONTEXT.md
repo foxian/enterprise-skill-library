@@ -825,22 +825,33 @@ owns API access and discovery of Git clone URLs while hiding internal backend
 service topology from normal Skill Users.
 
 _Avoid_: registry when referring to the full user-facing service endpoint
+
+## 产品层
+
+由公开仓库维护的可复用 ESL 代码、通用部署能力和产品文档。产品层不包含某个真实
+部署的域名、DNS、证书、凭据或网站私有内容。
+
+## 实例层
+
+某个企业技能网站的私有部署、生产数据、域名、运维配置和网站内容。实例层通过锁定
+的版本或不可变镜像依赖产品层，不等同于公开仓库。
+
+## 私有部署仓库
+
+管理单个实例层的私有 Git 仓库，保存生产编排、真实入口、密钥引用、品牌资源和内容
+源文件。它可以依赖公开 ESL 仓库，但不应复制公开仓库或把实例配置回写到公开仓库。
+
+## 上游版本
+
+私有部署仓库依赖的公开 ESL tag、Release、npm 版本或不可变镜像 digest。上游版本
+必须可审计、可测试并可回滚；私有实例不默认跟踪公开仓库的 `main` 分支。
+
 ## 官方公共 ESL 云
 
-由 ESL 官方托管的公共、多租户 ESL Server 实例。它为没有自建私有 ESL 的企业
-提供技能库服务；公共入口与企业自部署实例是两个部署边界。官方公共 ESL 云的
-稳定服务入口为 `https://cloud.enterprise-skills.com`，CLI、自动化客户端、
-Registry API、Git 流量和 Web 管理界面均通过该 ESL Server 入口访问。
+由 ESL 维护者单独运营的公共、多租户 ESL Server 实例（如果存在）。它与开源产品层
+以及其他企业自部署实例是不同的部署边界，具体域名不属于开源仓库默认契约。
 
-_Avoid_: 公共 Registry（当指完整的官方托管服务时）
-
-## 公共内容入口
-
-面向匿名访客的官网与公开技能发现入口，负责产品介绍、公开技能只读页面、文档
-和下载导航；它不替代 ESL Server，也不承载需要鉴权的发布、安装或组织管理操作。
-官方公共内容入口为 `https://www.enterprise-skills.com`。
-
-_Avoid_: 把官网称为 ESL Server 或 Registry API
+_Avoid_: 把任一私有实例称为官方公共云
 
 ## 企业自部署 ESL Server
 
@@ -854,13 +865,12 @@ _Avoid_: 私有云（当未明确部署模型时）
 
 专用于 ESL Server 自动发送注册邮箱验证、密码重置和组织邀请等事务邮件的域名
 边界。它与用户可访问的 ESL Server 入口分离；邮件投递由可替换的外部邮件服务
-能力完成，不要求 ESL Server 自行运行 SMTP 服务。首期发信域为
-`mail.enterprise-skills.com`。
+能力完成，不要求 ESL Server 自行运行 SMTP 服务。具体发信域由实例层配置。
 
 ## 产品支持邮箱
 
 用于接收用户人工支持请求的可收件地址，独立于事务邮件发信域。官方产品支持
-邮箱为 `support@enterprise-skills.com`，由企业邮箱服务托管。
+地址由产品运营主体配置，由企业邮箱服务托管。
 
 ## Locale
 

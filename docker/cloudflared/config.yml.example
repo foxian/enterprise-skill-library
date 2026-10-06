@@ -2,24 +2,24 @@
 # Create the tunnel and DNS routes with:
 #   cloudflared tunnel login
 #   cloudflared tunnel create esl-local
-#   cloudflared tunnel route dns esl-local enterprise-skills.com
-#   cloudflared tunnel route dns esl-local www.enterprise-skills.com
-#   cloudflared tunnel route dns esl-local cloud.enterprise-skills.com
-#   cloudflared tunnel route dns esl-local docs.enterprise-skills.com
-#   cloudflared tunnel route dns esl-local status.enterprise-skills.com
+#   cloudflared tunnel route dns esl-local esl.example.com
+#   cloudflared tunnel route dns esl-local www.esl.example.com
+#   cloudflared tunnel route dns esl-local cloud.esl.example.com
+#   cloudflared tunnel route dns esl-local docs.esl.example.com
+#   cloudflared tunnel route dns esl-local status.esl.example.com
 
 tunnel: REPLACE_WITH_TUNNEL_UUID
 credentials-file: /etc/cloudflared/REPLACE_WITH_TUNNEL_UUID.json
 
 ingress:
-  - hostname: enterprise-skills.com
+  - hostname: esl.example.com
     service: http://server:80
-  - hostname: www.enterprise-skills.com
+  - hostname: www.esl.example.com
     service: http://server:80
-  - hostname: cloud.enterprise-skills.com
+  - hostname: cloud.esl.example.com
     service: http://server:80
-  - hostname: docs.enterprise-skills.com
+  - hostname: docs.esl.example.com
     service: http://server:80
-  - hostname: status.enterprise-skills.com
+  - hostname: status.esl.example.com
     service: http://server:80
   - service: http_status:404

@@ -10,11 +10,11 @@ const config = fs.readFileSync(
 describe('Cloudflare Tunnel public entrypoints', () => {
   it('routes supported public hostnames to the local server and rejects others', () => {
     for (const hostname of [
-      'enterprise-skills.com',
-      'www.enterprise-skills.com',
-      'cloud.enterprise-skills.com',
-      'docs.enterprise-skills.com',
-      'status.enterprise-skills.com'
+      'esl.example.com',
+      'www.esl.example.com',
+      'cloud.esl.example.com',
+      'docs.esl.example.com',
+      'status.esl.example.com'
     ]) {
       expect(config).toContain(`hostname: ${hostname}`);
     }

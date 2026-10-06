@@ -15,17 +15,17 @@ describe('Nginx static asset configuration', () => {
   it('redirects cloud/localhost root to the skill-library login page', () => {
     // 单入口 ADR-0004：cloud/localhost 访问 / 应直达认证入口（注册在登录页内）。
     expect(nginxConfig).toMatch(
-      /server_name enterprise-skills\.com[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+\/admin\/login;/
+      /server_name esl\.example\.com[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+\/admin\/login;/
     );
   });
 
-  it('redirects www root and admin console to the cloud origin', () => {
-    // ADR-0058：www 是官网入口；尚无主页前临时导向 cloud，避免继续充当控制台。
+  it('redirects the example www root and admin console to the example cloud origin', () => {
+    // ADR-0058：公开仓库只保留占位域名示例，真实站点路由在私有实例中配置。
     expect(nginxConfig).toMatch(
-      /server_name www\.enterprise-skills\.com;[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+https:\/\/cloud\.enterprise-skills\.com\/admin\/login;/
+      /server_name www\.esl\.example\.com;[\s\S]*?location\s+=\s+\/\s*\{[^}]*return\s+302\s+https:\/\/cloud\.esl\.example\.com\/admin\/login;/
     );
     expect(nginxConfig).toMatch(
-      /server_name www\.enterprise-skills\.com;[\s\S]*?location\s+\/admin\s*\{[^}]*return\s+302\s+https:\/\/cloud\.enterprise-skills\.com\$request_uri;/
+      /server_name www\.esl\.example\.com;[\s\S]*?location\s+\/admin\s*\{[^}]*return\s+302\s+https:\/\/cloud\.esl\.example\.com\$request_uri;/
     );
   });
 

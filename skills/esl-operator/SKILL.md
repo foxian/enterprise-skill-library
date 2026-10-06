@@ -82,6 +82,6 @@ Hint。细节见 `references/consumer.md`。
   3. 人类完整步骤（前置、PATH、注册、登录）：仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md
   4. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
 - 报「该命令需要 git」（`esl skill install`/`esl skill use` 远程技能、`esl source upload`/`esl release publish`/`esl source clone`/`esl source status`/`esl source init`/`esl release version` 等）：PATH 里没有 git。提示用户安装 git（Windows 装 [Git for Windows](https://git-scm.com/download/win)）并确认其在 PATH 后重试；不要绕过或改跑别的命令。`esl skill use`/`esl skill install` 本地路径与内置技能不依赖 git，可照常执行。
-- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；官方公共云使用 `https://cloud.enterprise-skills.com`，本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
+- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；部署者使用自己的 ESL Server URL，本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
 
 现在，按上面的路由表读对应 reference。
