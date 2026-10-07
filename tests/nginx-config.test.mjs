@@ -31,8 +31,9 @@ describe('Nginx default server configuration', () => {
     expect(nginxConfig).toContain('absolute_redirect off;');
   });
 
-  it('includes instance-level custom routes from conf.d', () => {
-    // ADR-0060：实例层在 nginx-conf.d/ 中添加 .conf，具体 server_name 优先于 default_server。
-    expect(nginxConfig).toContain('include /etc/nginx/conf.d/*.conf;');
+  it('includes instance-level custom routes from a dedicated directory', () => {
+    // ADR-0060：实例层在 nginx-conf.d/ 中添加 .conf，挂载到专用的 instance-conf
+    // （不是镜像自带的 conf.d），具体 server_name 优先于 default_server。
+    expect(nginxConfig).toContain('include /etc/nginx/instance-conf/*.conf;');
   });
 });

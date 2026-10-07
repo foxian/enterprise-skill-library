@@ -62,9 +62,9 @@ describe('公开仓库产品边界 — 配置文件不含真实实例域名', ()
     expect(nginxConf).toMatch(/server_name\s+_;/);
   });
 
-  it('Nginx 保留 conf.d include 供实例层注入自定义路由', () => {
+  it('Nginx 保留专用 instance-conf include 供实例层注入自定义路由', () => {
     const nginxConf = readRepoFile('docker/nginx.conf');
-    expect(nginxConf).toContain('include /etc/nginx/conf.d/*.conf;');
+    expect(nginxConf).toContain('include /etc/nginx/instance-conf/*.conf;');
   });
 
   it('.env.example 使用 localhost 作为默认 ESL_SERVER_URL', () => {

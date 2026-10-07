@@ -16,7 +16,7 @@ HTTPS 或把服务暴露到公网时，由部署者自行配置，实例配置�
 | 域名 | 默认 localhost，不绑定 | 默认不绑定，localhost / IP 直接可用；域名路由按需添加 |
 | Git Backend 直连 | 宿主 3001 端口（E2E/调试） | 不暴露，仅经 `/git/` 反代（ADR-0004） |
 | 前端 | 本机构建 dist 挂载 | 烤入 `server` 镜像（回滚 = 换回旧镜像） |
-| 实例自定义路由 | 不挂载 | `nginx-conf.d/` 挂载到容器 `/etc/nginx/conf.d` |
+| 实例自定义路由 | 不挂载 | `nginx-conf.d/` 挂载到容器 `/etc/nginx/instance-conf` |
 | 种子数据 | `ESL_AUTO_SEED` 可开 | 恒 false，干净启动 |
 | 「回到过去」 | `npm run reset:dev`（有生产护栏，见下） | **备份/恢复**（`scripts/prod/backup.sh` / `restore.sh`） |
 
@@ -109,8 +109,10 @@ server {
 
 工作原理：
 
-- 生产 compose 把 `nginx-conf.d/` 挂载到容器的 `/etc/nginx/conf.d`，
-  默认 nginx 配置通过 `include /etc/nginx/conf.d/*.conf;` 加载这些文件。
+- 生产 compose 把 `nginx-conf.d/` 挂载到容器专用的 `/etc/nginx/instance-conf`，
+  默认 nginx 配置通过 `include /etc/nginx/instance-conf/*.conf;` 加载这些文件。
+  使用专用目录是为了避开镜像自带的 `/etc/nginx/conf.d/default.conf`
+  （它会误抢 `localhost` 请求，导致开发时看到 nginx 欢迎页）。
 - 声明了具体 `server_name` 的 server 块**优先于** `default_server`；
   未匹配到的请求仍走默认服务。
 - 每个路由一个文件，独立增删；产品层升级 nginx 配置不会覆盖实例自定义路由。

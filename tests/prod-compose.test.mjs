@@ -50,7 +50,7 @@ describe('生产 compose override', () => {
 
     const server = JSON.parse(result.stdout).services.server;
     const confdMount = (server.volumes ?? []).find(
-      (volume) => volume.target === '/etc/nginx/conf.d'
+      (volume) => volume.target === '/etc/nginx/instance-conf'
     );
     expect(confdMount).toBeDefined();
     expect(confdMount.source).toMatch(/nginx-conf\.d$/);
