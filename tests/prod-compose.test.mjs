@@ -16,20 +16,6 @@ function mergedProdConfig(env = {}) {
   );
 }
 
-function mergedTunnelConfig(env = {}) {
-  return spawnSync(
-    'docker',
-    [
-      'compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.prod.yml',
-      '-f', 'docker-compose.tunnel.yml', 'config', '--format', 'json'
-    ],
-    {
-      encoding: 'utf8',
-      env: { ...process.env, CLOUDFLARED_CONFIG_DIR: '/tmp/cloudflared', ...env }
-    }
-  );
-}
-
 describe('生产 compose override', () => {
   it('不发布 Git Backend 直连端口（宿主 3001 仅开发/E2E 使用，ADR-0004）', () => {
     const result = mergedProdConfig();
@@ -50,28 +36,31 @@ describe('生产 compose override', () => {
       .toBe('http://esl.example.com/git/');
   });
 
-  it('ESL Server 前端烤入镜像：构建 web 生产镜像且不再 bind-mount dist 与 nginx.conf', () => {
+  it('ESL Server 前端烤入镜像：构建 web 生产镜像', () => {
     const result = mergedProdConfig();
     expect(result.status, result.stderr).toBe(0);
 
     const server = JSON.parse(result.stdout).services.server;
     expect(server.build.dockerfile).toBe('docker/web.Dockerfile');
-    const bindMounts = (server.volumes ?? [])
-      .filter((volume) => volume.type === 'bind')
-      .map((volume) => volume.source);
-    expect(bindMounts).toEqual([]);
   });
 
-  it('Cloudflare Tunnel 通过出站连接接入 server，且不发布宿主端口', () => {
-    const result = mergedTunnelConfig({ CLOUDFLARED_CONFIG_DIR: '/tmp/cloudflared' });
+  it('挂载实例层 nginx-conf.d 到容器 conf.d（ADR-0060）', () => {
+    const result = mergedProdConfig();
     expect(result.status, result.stderr).toBe(0);
 
-    const config = JSON.parse(result.stdout);
-    expect(config.services.cloudflared.command).toContain('tunnel');
-    expect(config.services.cloudflared.depends_on.server.condition).toBe('service_started');
-    expect(config.services.cloudflared.ports ?? []).toEqual([]);
-    expect(config.services.cloudflared.volumes[0].target).toBe('/etc/cloudflared');
-    expect(config.services.server.ports ?? []).toEqual([]);
-    expect(config.services.cloudflared.user).toBe('0:0');
+    const server = JSON.parse(result.stdout).services.server;
+    const confdMount = (server.volumes ?? []).find(
+      (volume) => volume.target === '/etc/nginx/conf.d'
+    );
+    expect(confdMount).toBeDefined();
+    expect(confdMount.source).toMatch(/nginx-conf\.d$/);
+  });
+
+  it('生产默认不发布 server 宿主端口（公网暴露方式由部署者决定）', () => {
+    const result = mergedProdConfig();
+    expect(result.status, result.stderr).toBe(0);
+
+    const server = JSON.parse(result.stdout).services.server;
+    expect(server.ports ?? []).toEqual([]);
   });
 });

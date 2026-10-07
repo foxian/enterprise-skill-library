@@ -9,9 +9,12 @@ ESL 的开源代码可以被维护者自己的企业技能网站使用，但网�
 ## 决策
 
 - 公开仓库 `enterprise-skill-library` 维护可复用的产品代码、通用 Docker/局域网
-  部署能力、占位配置和公开文档。
-- 每个真实部署维护独立的私有部署仓库。私有仓库保存真实域名、DNS、TLS、反向代理、
-  Tunnel、生产环境变量、密钥引用、品牌资源、网站内容和部署流水线。
+  部署能力和公开文档。默认配置不绑定任何域名：nginx 是 `default_server`，
+  localhost/IP 开箱即用；`.env` 只有通用模板。
+- 实例配置通过 `.gitignore` 管理的本地文件注入：`nginx-conf.d/` 中的自定义
+  server 块挂载到容器 `/etc/nginx/conf.d`；TLS、Tunnel 配置同理。
+  需要版本管理和审阅时，再为单个实例维护独立的私有部署仓库，保存真实域名、DNS、
+  TLS、反向代理、Tunnel、环境变量、密钥引用、品牌资源、网站内容和部署流水线。
 - 私有实例通过 Git tag、GitHub Release、npm 包或不可变 Docker 镜像依赖公开产品，
   必须锁定明确版本或 digest，不直接跟踪 `main`。
 - 私有仓库可以保存网站 Markdown/JSON 内容并通过 Git 审阅、回滚和同步；内容变更

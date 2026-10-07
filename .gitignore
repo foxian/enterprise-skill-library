@@ -7,10 +7,15 @@ packages/*/dist/
 # Local data directory (default ESL bind-mount location)
 data/
 
-# 生产运维产物（ADR-0047）：备份归档（含秘密，必须留在服务器上）、
-# certbot 证书、enable-tls.sh 生成的 TLS compose 片段与域名校验文件
+# 生产运维产物（ADR-0047）：备份归档（含秘密，必须留在服务器上）
 backups/
+
+# 实例层配置（ADR-0058 / ADR-0060）：自定义域名路由、TLS 证书与 Tunnel
+# 都属于具体实例，不属于公开产品仓库
+nginx-conf.d/
 letsencrypt/
+docker/cloudflared/
+docker-compose.tunnel.yml
 docker-compose.prod.tls.yml
 .tls-domain
 

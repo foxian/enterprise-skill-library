@@ -10,11 +10,14 @@ ESL 需要同时支持 CLI、自动化客户端、浏览器管理用户和企业
 
 - ESL Server 对外提供单一用户可见入口；API 与 Git 使用 `/api`、`/git` 路径，
   不要求公开独立的 `api` 或 `git` 用户域名。
-- 自托管实例使用部署者自己的域名，例如 `skills.example.com`，或仅在局域网内
-  使用 `http://localhost:3000`。域名、DNS、CDN/WAF、TLS、邮件和 Tunnel 均由
-  部署者管理，不属于开源仓库的固定资产。
-- 公开仓库中的 Docker、Nginx 和 Cloudflare Tunnel 文件只能使用
-  `esl.example.com` 等占位域名。真实 hostname 通过私有部署配置或环境变量注入。
+- 产品层 nginx 默认是不绑定域名的 `default_server`（`server_name _`），
+  localhost、服务器 IP 或任意 hostname 都可直接访问，自托管开箱即用；
+  不在配置中写死任何真实域名或占位域名。
+- 实例特定的路由（`www` 官网入口、根域名 canonical 跳转等）以独立 `.conf`
+  文件放入仓库的 `nginx-conf.d/`（挂载到容器 `/etc/nginx/conf.d`），
+  具体 `server_name` 优先于 default_server。该目录不纳入版本控制。
+- 域名、DNS、CDN/WAF、TLS、邮件和 Tunnel 均由部署者管理，不属于开源仓库的
+  固定资产；其配置与凭据通过 gitignore 的本地文件或私有部署仓库注入。
 - 公开生产入口只提供 HTTPS；HTTP 仅用于重定向。数据库、缓存、内部 API、Git
   Backend 维护入口、容器编排、监控和 SSH 均不公开。
 - 局域网或无公网入站端口的部署可以使用 Cloudflare Tunnel，由本机发起出站连接；

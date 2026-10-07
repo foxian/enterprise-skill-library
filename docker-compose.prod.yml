@@ -16,13 +16,16 @@ services:
       ESL_AUTO_SEED: "false"
 
   server:
-    # 前端产物与 nginx 配置烤入镜像（docker/web.Dockerfile），
-    # 替换开发期的 dist/nginx.conf bind-mount
+    # 前端产物烤入镜像（docker/web.Dockerfile），替换开发期的 dist bind-mount。
     build:
       context: .
       dockerfile: docker/web.Dockerfile
       args:
         NPM_PROXY: ${NPM_PROXY:-}
-    volumes: !override []
-    # 公网只经 Cloudflare Tunnel 进入，生产服务不发布宿主机端口。
+    # 实例层自定义 nginx 路由（ADR-0060）：nginx-conf.d/ 不纳入版本控制，
+    # 目录为空时使用镜像内默认配置（default_server，不绑定域名）。
+    volumes: !override
+      - ./nginx-conf.d:/etc/nginx/conf.d:ro
+    # 生产服务默认不发布宿主机端口；如何把入口暴露到公网（反向代理、Tunnel、
+    # 端口映射等）由部署者自行决定。
     ports: !override []

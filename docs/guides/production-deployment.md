@@ -4,13 +4,19 @@ ESL 生产部署基线见 ADR-0047：单台 Linux 服务器 + Docker Compose，�
 override 叠加在开发栈之上，开发/生产脚本按运行环境分目录。服务器唯一前置依赖：
 **Docker 与 git**（无 node）。
 
+域名、TLS 和公网入口都不是 ESL 产品的固定组成部分（ADR-0058 / ADR-0060）：
+默认部署不绑定任何域名，用 `localhost` 或服务器 IP 即可直接访问；需要域名、
+HTTPS 或把服务暴露到公网时，由部署者自行配置，实例配置不进入公开仓库。
+
 ## 核心概念对照
 
 | 概念 | 开发环境 | 生产环境 |
 |------|---------|---------|
 | 运行配置 | `docker compose up` | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`（下称「生产 compose 命令」） |
+| 域名 | 默认 localhost，不绑定 | 默认不绑定，localhost / IP 直接可用；域名路由按需添加 |
 | Git Backend 直连 | 宿主 3001 端口（E2E/调试） | 不暴露，仅经 `/git/` 反代（ADR-0004） |
 | 前端 | 本机构建 dist 挂载 | 烤入 `server` 镜像（回滚 = 换回旧镜像） |
+| 实例自定义路由 | 不挂载 | `nginx-conf.d/` 挂载到容器 `/etc/nginx/conf.d` |
 | 种子数据 | `ESL_AUTO_SEED` 可开 | 恒 false，干净启动 |
 | 「回到过去」 | `npm run reset:dev`（有生产护栏，见下） | **备份/恢复**（`scripts/prod/backup.sh` / `restore.sh`） |
 
@@ -24,7 +30,8 @@ git clone <repo> && cd enterprise-skill-library
 cp .env.example .env
 vi .env          # 必填：GITEA_ADMIN_PASSWORD（强密码，同步存入密码管理器）
                  #      ESL_ENVIRONMENT=production
-                 #      ESL_SERVER_URL=http://<服务器IP>（域名就绪后改为 https://<域名>）
+                 # ESL_SERVER_URL 默认 http://localhost:3000；
+                 # 有域名或对外地址时改为对应值
 chmod 600 .env   # .env 含秘密，仅文件主人可读
 
 # 3. 部署（构建镜像 → 等待健康 → 冒烟）
@@ -34,7 +41,8 @@ bash scripts/prod/deploy.sh
 bash scripts/prod/backup.sh --install-cron
 ```
 
-完成后访问 `http://<服务器IP>:3000/admin/` 用平台管理员账号登录。
+完成后通过 `http://<服务器IP>:3000/admin/`（或你配置的地址）用平台管理员账号登录。
+默认不绑定域名，IP 访问即可工作。
 
 ## 日常发版
 
@@ -69,15 +77,73 @@ bash scripts/prod/restore.sh backups/esl-backup-<TS>.tar.gz --yes   # 灾难恢�
 **已知边界**：备份在本机 `backups/` 目录，防误删、防程序缺陷，**不防磁盘物理
 损坏**。如需异地容灾，定期将归档拷贝到另一台机器（本手册不展开）。
 
-## 启用 HTTPS（域名就绪后）
+## 自定义域名与路由
 
-```bash
-bash scripts/prod/enable-tls.sh <域名> [certbot邮箱]
+ESL 的默认 nginx 是一个 `default_server`（`server_name _`），不绑定任何域名：
+localhost、服务器 IP、以及任意指向本机的域名都能直接访问。
+
+需要**实例特定的路由**时（例如 `www` 官网入口、根域名 canonical 跳转、
+官网与管理台分离），在仓库根目录的 `nginx-conf.d/` 中添加 `.conf` 文件：
+
+```nginx
+# nginx-conf.d/www.conf —— 示例：www 子域名跳转到管理入口
+server {
+  listen 80;
+  server_name www.example.com;
+
+  location / {
+    return 302 https://cloud.example.com/admin/login;
+  }
+}
 ```
 
-一次性完成：certbot standalone 签发（期间 server 容器停约数十秒）→ 生成
-`docker-compose.prod.tls.yml` → 443 切换 → 每周一 03:30 自动续期 cron →
-HTTPS 冒烟验证。前提：域名 DNS 已解析到本服务器。
+```nginx
+# nginx-conf.d/canonical.conf —— 示例：根域名永久跳转到 www
+server {
+  listen 80;
+  server_name example.com;
+
+  return 301 https://www.example.com$request_uri;
+}
+```
+
+工作原理：
+
+- 生产 compose 把 `nginx-conf.d/` 挂载到容器的 `/etc/nginx/conf.d`，
+  默认 nginx 配置通过 `include /etc/nginx/conf.d/*.conf;` 加载这些文件。
+- 声明了具体 `server_name` 的 server 块**优先于** `default_server`；
+  未匹配到的请求仍走默认服务。
+- 每个路由一个文件，独立增删；产品层升级 nginx 配置不会覆盖实例自定义路由。
+
+`nginx-conf.d/` 已在 `.gitignore` 中，**不纳入版本控制**——域名与路由属于具体
+实例。希望对其做版本管理、审阅和回滚时，由实例维护自己的私有部署仓库。
+
+## 启用 HTTPS（原理）
+
+ESL 产品本身不内置证书申请或 TLS 切换脚本。HTTPS 的常见做法是：
+
+- **在反向代理 / 边缘网络终止 TLS**：由 nginx、Caddy、Nginx Proxy Manager、
+  云负载均衡或 CDN 在边缘监听 443、管理证书（如 Let's Encrypt），再把请求
+  转发给 ESL 的 80 端口。ESL 容器内始终只跑 HTTP。
+- **在 ESL nginx 上直接终止 TLS**：把证书挂进容器，在 `nginx-conf.d/` 中添加
+  监听 443 的 server 块，并配置 80 → 443 跳转。证书续期由部署者自行安排。
+
+无论哪种方式，证书、私钥和续期配置都属于实例层，不应进入公开仓库或公开构建日志。
+
+## 在局域网通过 Tunnel 发布（原理）
+
+如果 ESL 运行在局域网内、没有公网固定 IP 或无法做端口转发，可以使用出站型
+隧道（Cloudflare Tunnel、ngrok、frp、cpolar 等）把服务暴露出去：
+
+- 隧道客户端在本机主动向外部服务发起**出站连接**，因此不需要在路由器或防火墙上
+  开放入站端口。
+- 隧道边缘终止公网 HTTPS，并把声明的 hostname 转发到 ESL 的 nginx（80 端口）。
+- 哪些 hostname 转发到本机、未声明的 hostname 如何拒绝，均由隧道自己的配置
+  决定，属于实例层。
+
+ESL 不绑定任何特定隧道厂商。部署者自行选择方案、准备隧道配置和凭据，并通过
+compose 或其他编排方式让隧道客户端与 ESL 一起运行；这些文件放入 `.gitignore`
+管理的本地目录，不提交到公开仓库。
 
 ## Bootstrap Reset 生产护栏
 
@@ -94,87 +160,8 @@ Restore」词条）。
   `/health`、API 边界、Git Backend 维护入口
 - **Git Backend 恢复入口**：生产环境不暴露 3001 直连端口；Gitea 的维护
   登录页经 `http://<地址>:3000/git/user/login` 访问（与用户同一入口）
+- **自定义路由未生效**：检查 `.conf` 文件是否在 `nginx-conf.d/` 中、
+  `server_name` 是否拼写正确，并用 `docker exec <server容器> nginx -t`
+  验证配置语法
 - **日志**：API 诊断日志为 stdout JSON Lines（ADR-0045），由宿主采集；
   compose 已限制单容器日志体积
-
-## 局域网本机通过 Cloudflare Tunnel 发布
-
-如果 ESL Server 运行在局域网本机，且域名由 Cloudflare 管理，推荐使用 Cloudflare
-Tunnel。Tunnel 由本机向 Cloudflare 发起出站连接，因此不需要路由器端口转发、固定公网
-IP 或把 80/443 暴露到互联网。Cloudflare 边缘负责公网 HTTPS，Docker 内的 nginx 只需
-继续监听宿主机 `3000`。
-
-本节使用 `esl.example.com` 作为占位服务入口。部署者必须在私有实例配置中替换为
-自己的域名；真实域名、DNS、证书和 Tunnel 凭据不得提交到本公开仓库。
-
-### 1. 创建 Tunnel 和 DNS 路由
-
-在本机确认已安装 `cloudflared`，然后执行：
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create esl-local
-cloudflared tunnel route dns esl-local esl.example.com
-cloudflared tunnel route dns esl-local www.esl.example.com
-cloudflared tunnel route dns esl-local cloud.esl.example.com
-```
-
-`docker/cloudflared/config.yml.example` 中还包含 `docs`、`status` 等可选 hostname
-示例；如果你的实例不需要这些入口，可以不在 Cloudflare 中创建对应 DNS 路由，也可以
-从私有实例配置中删除。hostname 集合由实例层决定，本示例只是给出常见模式。
-
-命令会在 `~/.cloudflared/` 下生成 Tunnel 凭据 JSON。该目录包含私密凭据，不要提交
-到 Git，也不要把它挂载为可写目录。
-
-### 2. 配置 ingress
-
-复制示例并把 `REPLACE_WITH_TUNNEL_UUID` 替换为 `cloudflared tunnel create` 输出的
-Tunnel UUID：
-
-```bash
-cp docker/cloudflared/config.yml.example ~/.cloudflared/config.yml
-chmod 600 ~/.cloudflared/config.yml ~/.cloudflared/<TUNNEL-UUID>.json
-```
-
-Tunnel 配置将 `cloud.esl.example.com` 转发到 Compose 网络内的
-`http://server:80`，最后的 `http_status:404` 会拒绝未声明的 hostname。不要把
-`api`、`git`、数据库、缓存、Gitea 维护端口或 Docker daemon 加入 ingress。
-
-### 3. 启动生产栈和 Tunnel
-
-在仓库根目录创建生产 `.env`，至少设置：
-
-```dotenv
-ESL_ENVIRONMENT=production
-ESL_SERVER_URL=https://cloud.esl.example.com
-CLOUDFLARED_CONFIG_DIR=/home/<user>/.cloudflared
-```
-
-然后执行：
-
-```bash
-bash scripts/prod/deploy.sh
-```
-
-只要 `CLOUDFLARED_CONFIG_DIR` 非空，部署和重启脚本会自动叠加
-`docker-compose.tunnel.yml`，并启动 `cloudflared` 容器。验证：
-
-```bash
-curl -fsS https://cloud.esl.example.com/health
-curl -I https://esl.example.com/
-```
-
-根域名应返回永久跳转到部署者配置的 `www` 地址；CLI、API 和 Git 统一使用部署者
-配置的 ESL Server origin。站点内容和 `www` 的路由由实例层决定。
-
-### Cloudflare Tunnel 注意事项
-
-- Cloudflare Dashboard 中 TLS 模式应至少为 **Full**；Tunnel 到本机这一段是 Docker
-  内网 HTTP，不需要在 ESL nginx 中签发证书。
-- 使用 Tunnel 时不要执行 `scripts/prod/enable-tls.sh`，也不要为本机配置 certbot
-  standalone；这两者要求公网入站 80/443，与局域网 Tunnel 架构无关。
-- `cloudflared` 容器没有 `ports` 配置，公网流量只能经 Tunnel 到达 ESL 网关。
-- 如果局域网主机重启，Docker 的 `restart: unless-stopped` 会自动恢复 Tunnel；仍应
-  通过 `docker compose ... logs cloudflared` 检查连接状态。
-- Cloudflare Access、WAF、速率限制和 DNS 记录属于 Cloudflare 运维配置，不改变 ESL
-  Server 的 `cloud` origin 契约。

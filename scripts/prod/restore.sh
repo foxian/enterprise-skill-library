@@ -29,9 +29,6 @@ if [ -z "${ESL_DATA_DIR:-}" ] && [ -f .env ]; then
 fi
 
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
-if [ -f docker-compose.prod.tls.yml ]; then
-  compose_files+=(-f docker-compose.prod.tls.yml)
-fi
 compose() { docker compose "${compose_files[@]}" "$@"; }
 
 echo "restore: taking a pre-restore snapshot of the current state (best-effort)..."

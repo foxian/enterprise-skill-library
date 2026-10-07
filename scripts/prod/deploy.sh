@@ -20,13 +20,10 @@ if [ -f .env ]; then
 fi
 
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
-# Cloudflare Tunnel 让生产服务保持在局域网内。
-if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ]; then
+# 可选：实例自行维护的 Cloudflare Tunnel 覆盖文件（ADR-0060，不纳入版本控制）。
+# 仅当配置了凭据目录且本地存在该 compose 文件时叠加；如何暴露公网入口由部署者决定。
+if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f docker-compose.tunnel.yml ]; then
   compose_files+=(-f docker-compose.tunnel.yml)
-fi
-# enable-tls.sh 启用 HTTPS 后会生成该片段；存在即叠加
-if [ -f docker-compose.prod.tls.yml ]; then
-  compose_files+=(-f docker-compose.prod.tls.yml)
 fi
 
 on_error() {

@@ -15,11 +15,9 @@ if [ -z "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f .env ]; then
 fi
 
 compose_files=(-f docker-compose.yml -f docker-compose.prod.yml)
-if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ]; then
+# 可选：实例自行维护的 Cloudflare Tunnel 覆盖文件（ADR-0060，不纳入版本控制）
+if [ -n "${CLOUDFLARED_CONFIG_DIR:-}" ] && [ -f docker-compose.tunnel.yml ]; then
   compose_files+=(-f docker-compose.tunnel.yml)
-fi
-if [ -f docker-compose.prod.tls.yml ]; then
-  compose_files+=(-f docker-compose.prod.tls.yml)
 fi
 
 docker compose "${compose_files[@]}" restart "$@"

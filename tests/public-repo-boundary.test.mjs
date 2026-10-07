@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 // ADR-0058 / ADR-0060 / Issue #121：公开仓库只维护可复用的产品层资产，
 // 不得包含真实实例域名、生产 Secret、Token、密钥或生产服务器地址。
+// 域名、TLS、Tunnel 等实例配置通过 gitignore 的本地文件注入。
 // 本测试扫描公开配置与文档，确保私有实例信息不会重新进入公开仓库。
 
 const repoRoot = path.resolve(process.cwd());
@@ -15,15 +16,10 @@ function readRepoFile(relativePath) {
 // 真实实例域名模式（私有部署的域名，不得出现在公开仓库）
 const REAL_INSTANCE_DOMAIN_PATTERN = /enterprise-skills\.com/i;
 
-// 公开仓库应使用的占位域名（产品层示例）
-const PLACEHOLDER_DOMAIN = 'esl.example.com';
-
-// 需要扫描的公开配置文件列表
+// 需要扫描的公开配置文件
 const PUBLIC_CONFIG_FILES = [
   '.env.example',
   'docker/nginx.conf',
-  'docker/nginx.tls.conf',
-  'docker/cloudflared/config.yml.example',
 ];
 
 // 需要扫描的核心文档与技能文件
@@ -38,14 +34,14 @@ const PUBLIC_DOC_FILES = [
   'skills/esl-operator/references/setup.md',
 ];
 
-// 简单的 secret 模式：不应该出现在公开配置示例中的硬编码敏感值
+// 不应该出现在公开配置示例中的硬编码敏感值
 const SUSPICIOUS_SECRET_PATTERNS = [
-  // GITEA_ADMIN_PASSWORD 不应是真实强密码，必须是示例值
+  // GITEA_ADMIN_PASSWORD 必须是示例值，不能是真实强密码
   {
     name: '硬编码 GITEA_ADMIN_PASSWORD 真实值',
     pattern: /^GITEA_ADMIN_PASSWORD\s*=\s*(?!change-this-admin-password|change|REPLACE|示例|example|<).{16,}/im,
   },
-  // ESL_EMAIL_ACTION_SECRET 不应是真实密钥，必须是示例值
+  // ESL_EMAIL_ACTION_SECRET 必须是示例值
   {
     name: '硬编码 ESL_EMAIL_ACTION_SECRET 真实值',
     pattern: /^ESL_EMAIL_ACTION_SECRET\s*=\s*(?!change-this-to-a-long-random-secret|change|REPLACE|示例|example|<).{40,}/im,
@@ -60,19 +56,15 @@ describe('公开仓库产品边界 — 配置文件不含真实实例域名', ()
     });
   }
 
-  it('Nginx 配置使用占位域名 esl.example.com', () => {
+  it('Nginx 默认服务不绑定具体域名（default_server + server_name _）', () => {
     const nginxConf = readRepoFile('docker/nginx.conf');
-    expect(nginxConf).toContain(PLACEHOLDER_DOMAIN);
+    expect(nginxConf).toMatch(/listen\s+80\s+default_server;/);
+    expect(nginxConf).toMatch(/server_name\s+_;/);
   });
 
-  it('Nginx TLS 配置使用占位域名 esl.example.com', () => {
-    const tlsConf = readRepoFile('docker/nginx.tls.conf');
-    expect(tlsConf).toContain(PLACEHOLDER_DOMAIN);
-  });
-
-  it('Cloudflare Tunnel 示例配置使用占位域名 esl.example.com', () => {
-    const tunnelConf = readRepoFile('docker/cloudflared/config.yml.example');
-    expect(tunnelConf).toContain(PLACEHOLDER_DOMAIN);
+  it('Nginx 保留 conf.d include 供实例层注入自定义路由', () => {
+    const nginxConf = readRepoFile('docker/nginx.conf');
+    expect(nginxConf).toContain('include /etc/nginx/conf.d/*.conf;');
   });
 
   it('.env.example 使用 localhost 作为默认 ESL_SERVER_URL', () => {
@@ -93,7 +85,7 @@ describe('公开仓库产品边界 — 核心文档不含真实实例域名', ()
 describe('公开仓库产品边界 — 配置示例不含硬编码生产 Secret', () => {
   const envExample = readRepoFile('.env.example');
 
-  it('GITEA_ADMIN_PASSWORD 标注为示例值且非强密码', () => {
+  it('GITEA_ADMIN_PASSWORD 使用示例值', () => {
     expect(envExample).toMatch(/GITEA_ADMIN_PASSWORD=change-this-admin-password/);
   });
 
@@ -102,11 +94,6 @@ describe('公开仓库产品边界 — 配置示例不含硬编码生产 Secret'
       expect(envExample, name).not.toMatch(pattern);
     });
   }
-
-  it('Cloudflare Tunnel 示例配置使用 REPLACE_WITH_TUNNEL_UUID 占位符', () => {
-    const tunnelConf = readRepoFile('docker/cloudflared/config.yml.example');
-    expect(tunnelConf).toContain('REPLACE_WITH_TUNNEL_UUID');
-  });
 });
 
 describe('公开仓库产品边界 — 术语与 ADR-0060 一致', () => {
