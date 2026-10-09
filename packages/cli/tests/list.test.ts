@@ -114,7 +114,7 @@ describe('esl list', () => {
     await fs.mkdir(skillSource, { recursive: true });
     const toolDir = path.join(tmpDir, '.claude', 'skills', '@alice_code-review');
     await fs.mkdir(path.dirname(toolDir), { recursive: true });
-    await fs.symlink(skillSource, toolDir, 'dir');
+    await fs.symlink(skillSource, toolDir, process.platform === 'win32' ? 'junction' : 'dir');
     await fs.writeFile(
       path.join(storeRoot, '.esl-install-manifest.json'),
       JSON.stringify({

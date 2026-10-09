@@ -1,5 +1,32 @@
 # 登录与环境准备
 
+## 推荐的首次体检顺序
+
+面向第一次使用 ESL 的用户，先只做只读检查，按以下顺序解释结果：
+
+```powershell
+node --version
+npm --version
+git --version
+esl --version
+esl account whoami
+```
+
+- Node.js 支持范围：20.17.x、22.x（≥22.13）、24.x；推荐 24.x。缺 Node 或 npm 时不能安装 CLI。
+- Git 主要用于源码 clone/upload、release publish 等作者流程；已发布技能的搜索、详情、试用和通常的远端安装不依赖本机 Git。
+- `esl --version` 成功才表示 CLI 已安装；不要把仓库内 `npm run build` 当成终端用户安装方式。
+- `whoami` 只在 Server 已配置后判断登录态；看到 `Not logged in` 不代表 CLI 安装失败。
+
+安装完成的成功标准是：`esl --version` 有版本号；已有 Server URL；需要鉴权的场景下 `esl account whoami` 显示 `active`。普通消费者不需要 Docker，只有用户明确要运行本地 ESL Server 时才进入 Docker/本地开发文档。
+
+## 环境问题的分流话术
+
+- **没有 `esl`**：说明“CLI 尚未安装”，引导 `npm install -g @foxian/esl`，新开终端后复查 `esl --version`。
+- **有 `esl` 但没有 Server**：说明“客户端已安装、服务端地址未配置”，向用户索取管理员给出的 URL，再确认后执行 `esl config set-server <url>`。
+- **有 Server 但未登录**：说明“环境已就绪但账号未认证”，让用户在自己的终端运行交互式 `esl login`，不要代输密码。
+- **只想搜索公共技能**：可以先继续，不强制登录；涉及私有技能、安装、上传或发布时再处理认证。
+- **Node/Git 不满足**：不要反复重试 ESL 命令，先修复对应前置并重新体检。
+
 ## CLI 尚未安装
 
 若终端报 `esl: command not found`（或同类「无法执行 esl」），先回到 `SKILL.md` 的「命令找不到 / 服务不通」最短失败卡：检查 `node`/`npm` → `npm install -g @foxian/esl` → `esl --version`。人类分平台详版见 `docs/guides/cli-install.md`（https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md）。**不要**在未装上 CLI 时继续本页的 login / set-server 步骤。

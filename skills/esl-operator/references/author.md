@@ -1,118 +1,172 @@
-# 作者工作流：建 / 校验 / 发布 / 升版 / 拉源码
+# 作者工作流：定义 / 创建 / 校验 / 上传 / 发布 / 维护
 
-资源式命令面是 `esl source …`（源码生命周期）与 `esl release …`（版本、发布与发布后治理）；npm 风格的 `esl version` / `esl publish` 保留为**顶层快捷入口**，与 `esl release version` / `esl release publish` 行为完全等价。
+本页是作者命令参考。面向用户目标的阶段路径见 `references/workflows.md`。作者任务必须明确区分：本地源码、Server-hosted Source、未发布 Release 和可安装的 Published Release。
 
-只读命令（直接跑）：`esl source validate`、`esl source status`。
-写命令（先回显、确认再跑）：`esl source init` `esl release version` `esl source clone` `esl source reset` `esl source upload` `esl release publish` `esl release deprecate` `esl release notes` `esl release delete` `esl skill share` `esl release depend add` `esl release depend remove`。
+## 生命周期总览
 
-## 初始化新技能（就地补缺）
-`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>` —— 把指定目录（默认当前目录，可用全局 `-C` 选定）就地初始化为技能源：**缺什么补什么，绝不覆盖已有文件**。没有 `SKILL.md` 则生成（frontmatter 只含短名与描述）；没有 `release.json` 则补最小清单（`schemaVersion: 4`、`name`、`version: 0.1.0`、`license` 默认 `MIT`、`displayName` 默认按短名 Title Case）。**不生成 `skill.json`**——它是安装/发布包的生成物，不属于源码。本技能由 AI 执行，`--agent-interaction --agent-tool <tool>` 是固定组成，不等待终端输入；`<tool>` 按当前宿主传（Claude Code 用 `claude-code`，兼容旧值 `claude`）。
-
-短名权威顺序：已有 `SKILL.md.name` > `--name` > 目录 basename。已有 `SKILL.md` 时整个文件不动；frontmatter 只要包含合法的 `name` 和 `description` 即可，`metadata`、`allowed-tools` 等额外键会被接受并忽略。缺少必填字段或类型非法时，`source init` 只补缺并打一行警告，严格校验交给 `esl source validate`。目录已是 git 仓库（含父级）时跳过 `git init`。
-
-在终端里 `source init` 会逐项询问仍缺失字段的 description、license、keywords、displayName、namespace（各带默认值，回车接受）。namespace 会优先显示编号列表（1 固定为 personal，其余是当前登录用户所在组织；登录态有效时向服务端取一次组织列表，失败则回退登录时缓存，无列表退回手输），非交互环境（管道、`--no-input`）跳过问答直接写模板。已经用旗标给出的字段不会再问，所以 `--license Apache-2.0` 仍会问 keywords、但已生成 SKILL.md 时不再问 description。**脚本化场景建议把五个字段都用旗标给全**，避免依赖问答。
-
-`displayName` 是显示名（ADR-0048）：`source init` 自动把短名转成标题（`markdown-master` → `Markdown Master`）预填为种子；想用中文显示名直接删除种子输入中文即可，留空则生成 v4 清单时省略该字段。
-
-AI Agent 必须运行 `esl source init ./my-skill --agent-interaction --agent-tool <tool>`，
-让缺失输入以 JSON 返回（退出码 `2`）；向用户收集后重跑同一命令。Claude Code、
-Codex、Trae 国际版和 Trae 国内版分别传 `claude-code`、`codex`、`trae-intl`、
-`trae-cn`；旧值 `claude` 仍兼容。stdout 直接给出 `AskUserQuestion` 风格 JSON（含 `questions` 数组，
-`metadata.source` 为 `esl-cli`），按宿主的交互界面消费。不带
-`--agent-tool` 时输出同一格式。简单字段优先用专用旗标，多个结构化字段可用
-一次 `--params-json`：
-
-```shell
-esl source init ./my-skill --agent-interaction --agent-tool claude-code --params-json '{"description":"代码审查技能","license":"MIT","keywords":["git","review"],"namespace":"personal"}'
+```text
+需求定义
+  → source init / 接入已有目录
+  → 编写与本地试跑
+  → source validate
+  → source upload        # 登记或同步源码，不等于发布
+  → release version      # 准备不可变版本
+  → release publish      # 进入 Registry，可被消费者安装
+  → notes / deprecate / delete（发布后治理）
 ```
 
-`--params-json` 只接受顶层 JSON object，未知字段、错误类型，或同一字段同时由
-专用旗标和 JSON 传入都会按普通参数错误失败。
+上传源码不会自动让普通用户可安装；发布版本也不会替代源码校验。任何阶段失败都停在当前阶段，不跳过检查强行继续。
 
-注意：`source init` 的 `--name` 只接受**短名**；`--namespace` 接受 `personal`（默认）或组织名。归属写在 `release.json` 的 `name` 字段（v3，ADR-0032）：个人归属写裸短名（如 `my-skill`，上传时按上传者解析个人命名空间）；组织归属写 `@组织名/短名`。想发布到组织命名空间，用 `esl source init --namespace <组织名>` 或把 `name` 改成 `@组织名/短名`——但**首次 `upload` 即固定身份**，之后改归属必须走正式流程，别指望靠改 `name` 迁移。
+只读命令：`esl source validate`、`esl source status`。
+写命令：`esl source init`、`esl release version`、`esl source clone`、`esl source reset`、`esl source upload`、`esl release publish`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl skill share`、`esl release depend add/remove`。写命令先回显完整命令、说明影响并等待用户确认。
 
-## 选目录：全局 -C
-`esl -C <dir> <命令>`（长写 `--cd <dir>`）—— 借鉴 npm：先把工作目录切到 `<dir>` 再执行命令，对所有命令生效，位置可写在子命令前或后。相对 `-C` 的路径按**切换前**的 cwd 解析；切进去之后所有位置路径参数按**切换后**的 cwd 解析，想覆盖 `-C` 的目录请给绝对路径。给目录类命令传技能目录的写法就两条：全局 `-C` 或命令自带的位置路径（`esl source upload [./path]`）；各命令的 `--directory` 选项已移除。
+## 开始前：先定义技能，不要先跑 init
 
-## 校验
-`esl source validate ./path` —— 发布前检查目录结构与 `SKILL.md` frontmatter。frontmatter 要求合法且必填的 `name`、`description`；其他额外字段允许存在，但不参与 ESL 元数据。源码形态下，发布输入是 `SKILL.md` + `release.json`；`skill.json` 不在源码里，`validate` 不要求它。只读。校验失败把错误逐条对照修，别带 `--force` 跳过。
+在从零创建前，先收集足以指导实现的信息：
 
-注意：`source validate` 只校验结构，**不拦 `@local/*` 保留 Scope**——`@local` 的发布拦截由 `esl release publish` 阶段执行。所以你在提议 `publish` 前要自己复核技能身份不是 `@local/*`，别等 `validate` 通过就以为能发。
+- 要解决的问题和目标用户；
+- 触发场景；
+- 输入、输出和成功标准；
+- 不应该做什么、边界和安全限制；
+- 一个最小成功示例和一个失败/边界示例；
+- 是否只本地使用，还是最终上传给个人/组织；
+- 组织 namespace、可见性和共享对象（若计划发布）。
 
-## 查看源与服务器状态
-`esl source status [./path]` —— 只读显示本地技能源相对服务器的状态：工作树是否干净、本地领先/落后服务器多少提交、最近一次提交。尚未托管时提示先 `esl source upload`。
+如果用户已有明确目录或 `SKILL.md`，不要重新初始化覆盖；先识别目录和源码状态。
 
-## 上传源码（发布前必需）
-`esl source upload [./path] [--message|-m <text>] [--license SPDX] [--confirm-identity <技能名>]` —— 把本地源码目录首次创建为 Server-hosted Skill Source：生成 Skill ID 与服务器 Git 仓库，并把本地源码推上服务器（加 `esl` remote）。**它是正式的源码登记/同步命令**，与创建不可变 Published Release 的 `esl release publish` 明确分工。技能目录用位置路径（`esl source upload ./markdown-master`，默认当前目录）或全局 `-C` 指定。发布前必须已有 `esl` remote 且 `HEAD` 已推上去。新技能从 `source init` 之后，先 `source upload` 再 `release publish`。
+## 从零初始化
 
-- **技能描述随每次 upload 同步**：`upload` 始终以 `SKILL.md` frontmatter 的 description 为准，把技能描述登记/更新到服务器（首次注册随登记写入；已托管源的后续同步走独立的仅 Maintainer 可用的 description 更新）。描述更新失败不阻断源码同步，仅在输出中提示——看到提示可如实转述，不要重试整个 upload。管理后台的技能管理页面展示的就是这个「最近一次 upload 登记的描述」，改了 `SKILL.md` 的描述后要跑一次 `source upload` 才会在线上生效。
-- **显示名随每次 upload 同步**：`upload` 以 `release.json` 的 `displayName` 为准确认/更新服务器显示名（ADR-0048），与 description 一样走「最近一次 upload 登记的值」；已托管源的后续同步走独立的仅 Maintainer 可用的 display-name 更新。改了 `release.json` 的 `displayName` 后要跑一次 `source upload` 才会在线上生效。
+`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>`
 
-- **归属由 `release.json` 的 `name` 决定**（ADR-0032）：`@组织名/短名` 要求上传者是该组织成员（任何成员都可直发新技能，上传者成为初始 Maintainer，无需组织管理员预授权）；裸短名或 `@自己的用户名/短名` 落在个人命名空间。身份在**首次 upload 时固定**，之后 `publish` 只会断言 `name` 与既定身份一致——不一致直接报错，归属变更不得借发布顺车。
-- **首次 upload 先确认身份**（ADR-0039）：交互式终端会显示将要创建的完整技能身份并要求 `y/N` 确认；非交互模式必须传 `--confirm-identity <release.json.name>`，值要和清单里的 `name` 完全一致。确认错了就改 `release.json` 后再上传，别把错误归属注册成新源。
-- **已托管源禁止跨 namespace 漂移**（ADR-0039）：后续 `upload` 会在 fetch/rebase/push 前比对 `release.json` 声明的 namespace 与 `esl` remote 揭示的既有 namespace；不一致直接阻断。恢复 `release.json` 的原 namespace 后继续同步；确需其他归属，只能显式创建新源，不支持跨 namespace 迁移。
-- 若目录缺 `release.json`，`upload` 会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`，可用 `--license` 覆盖），并落盘到源码目录，然后提示先 commit + push、再重跑 `upload`。
-- **Server Origin 迁移自动重指**：ESL Server 换地址（数据整体迁移，如换域名/IP）后，已托管目录的 `esl` remote 仍指向旧地址；下次 `esl source upload` 会检测到 origin 漂移，自动向当前服务器验证技能身份（含改名重定向）后把 remote 重指到新地址并继续上传，输出一行「re-homed the esl remote」提示——不需要手动 `git remote set-url`。若验证不过（技能在当前服务器不存在，或当前登录读不到），报错会区分「地址迁移未验证」与「账号/权限」，并给出与下条相同的两条出路。
-- 已托管目录（有 `esl` remote）上 fetch 失败时，`upload` 先用 Registry API 做一次只读探测再报错（ADR-0027），按探测结果分三种文案：**① 技能身份在服务器可见但 Git 源同步不了**——凭据陈旧或缺仓库权限，提示用维护它的账号重新登录后再 `esl source upload`；**② 身份可见但服务器 cloneUrl 与 remote 仓库路径不一致**——remote 指向陈旧路径（如改名后），提示核对后手动 `git remote remove esl` 再重新 `esl source upload`；**③ 探测失败（不确定）**——降级为统一的两种可能文案（其他账号维护 或 源已不存在），出路上「切维护账号重登」或确认删除后手动 `git remote remove esl` 两步重建。push 失败走同一统一文案并附 `git push esl HEAD:main` 收尾提示。CLI 绝不自动删除 remote 重注册——看到这类报错别提议删 remote，先按文案里的探测结论引导：能确定「身份可见」就只查账号/权限，探测失败才让用户去确认服务器源是否还在。
+`source init` 会就地补缺，不覆盖已有文件：缺少 `SKILL.md` 时创建基本 frontmatter；缺少 `release.json` 时补最小 v4 清单；不生成 `skill.json`，因为 `skill.json` 属于安装/发布包而非源码。
 
-## 发布
-`esl release publish [./path] [--message|-m <text>] [--dry-run] [--force|-f] [--license SPDX]`（顶层快捷：`esl publish …`）—— 在技能目录内执行，把当前源码发布为 Skill Release。**版本号不是命令参数**：它取自被发布 commit 的 `release.json.version`，所以发新版前必须先 `esl release version`（见下节）。要求目录含 `release.json`；若缺失会自动补最小清单（`schemaVersion: 4`、裸短名、`version: 0.1.0`、`license` 默认 `MIT`），落盘后**提示先 `esl release version` 设定版本、再发布**（不会继续发布）。默认会先要你确认；`--force` 跳过确认；`--no-input` 在自动化里失败即止。
+执行前确认：目标目录、短名、个人或组织 namespace、description、license、keywords、display name。AI 执行时固定带 `--agent-interaction --agent-tool <tool>`；缺失字段由 CLI 返回结构化问题，再向用户收集后用同一命令重跑。不要猜组织名，也不要替用户确认首次身份。
 
-- **传版本号会被拒绝**：`esl release publish 1.0.0` 不再兼容（会被识别为误传的版本参数并报错指路 `esl release version`）。要发 1.0.0 就先 `esl release version 1.0.0`（或 `esl release version major`）。
-- **自动同步源码**：对已托管源，`publish` 会 `fetch`、必要时 rebase 到 `esl/main`、并 push 本地领先的提交与 tag——忘记 push 不再阻断发布；rebase 冲突时保留现场，提示解决后重跑。
-- **发布前校验 release tag**：`v<SemVer>` 必须存在且指向被发布的 commit；缺失或指向别处会报错并指路 `esl release version`。
-- **回迁守卫**：新版本低于服务器最高已发布版本时会被拒绝（防手滑烧号）；确需回迁旧线时用 `--force` 越过。
-- **`--dry-run` 预演**：跑完所有本地校验（源码合法、工作树干净、remote 与身份、tag 指针）后，调服务器跑**同一套冻锁与可见性校验**（发布依赖的范围交集、环、全链可读），打印将要发布的内容（版本、commit、文件清单、dependencyLock），**不创建 Release、不 push**。用户想先看清楚会发什么、图解不解析得动时用它。
-- 若目录还没有 `esl` remote，`publish` 会报错并提示你先 `esl source upload`；它不自动建仓、不隐式登记，也不替你推断发布身份。
+身份规则：`SKILL.md.name` 是短名；`release.json.name` 是归属与完整身份的权威来源。个人可用裸短名，组织使用 `@组织名/短名`。首次 `source upload` 会固定身份；后续不要靠修改 `release.json.name` 迁移 namespace。
 
-重要：`@local/*` 保留 Scope 被系统拦截、无法发布（保留名同理：`local`/`builtin`/`admin`/`api`/`git`/`system` 不能作 scope 或用户名）。**发布身份以 `release.json` 的 `name` 为准**（ADR-0032），`esl release publish` 只断言它与首次 `esl source upload` 固定的身份一致。跑完报告服务器返回的技能身份与 Release Tag（`v<SemVer>`）提示。
+## 已有目录：接入而不是重建
 
-## 发布依赖（技能→技能的安装图）
-发布依赖是**技能对技能的安装图边**，写在技能源 `release.json` 的 `dependencies`（键 `@namespace/name`，值 SemVer 范围）。它不是项目侧 `.skills.json`，也不是「Agent 用 A 就自动加载 B」的运行时组合——何时一起用仍写在根技能 SKILL.md 正文，ESL 没有运行时 `depends` 字段。命令在 `esl release depend` 资源下。
+如果目录已有 `SKILL.md`：
 
-- `esl release depend add @namespace/name [./path]` —— 把边写进技能源清单。**add 必须联网向 Registry 解析**：目标读不到、没有任何已发布版本、或目标是 `@builtin/*`、`@local/*`、`file:` 时拒绝且不改清单。
-  - 不给范围：默认写 `^<当时 Registry 最高稳定版>`（预发布不进默认，与 install 选最高稳定版一致）。
-  - `esl release depend add @namespace/name@^1.2.0`：写作者给的范围；同一身份已有边时是**更新**这条边，清单里一个身份只有一条边。
-- `esl release depend remove @namespace/name [./path]` —— 删边；边不存在会失败。
-- 无参数 `esl release depend`（或 `esl release depend list`）—— 列出源清单里的身份与范围，发布前核对。
-- 目录选择与 `esl release publish`/`esl release version` 一致：位置路径或全局 `-C`。命令**只改 `release.json`**：不碰项目 `.skills.json`、Skill Store、Tool Link，不自动 version/commit/tag，可在没有项目安装图的纯源码仓库里跑。
-- 手改 `release.json.dependencies` 永远合法；发布时服务器权威校验目标身份与整条图：范围无交集、成环（含自依赖）、发布者读不到、Public 根依赖非 Public 技能都会拒绝。
+1. 检查当前目录和上级是否为 Git 仓库；
+2. 检查 `release.json`、`esl` remote 和 `source status`；
+3. 执行 `esl source validate ./path`；
+4. 判断用户要仅本地使用、上传同步，还是创建发布版本。
 
-## 升级版本号
-源码形态（`SKILL.md` + `release.json`）的版本号**存在 `release.json` 的 `version` 字段里**，随源码走 Git 历史。升版一律走 `esl release version`（顶层快捷：`esl version`）：
+已有 `SKILL.md` 不代表源已托管；已有 `release.json` 也不代表版本已发布。先读取状态再决定下一步。
 
-- 裸 `esl release version` —— 仅在交互式终端中显示选择器，列出 `patch`、`minor`、`major` 的实际目标版本和用途，也可输入自定义 SemVer。
-- `esl release version patch|minor|major` —— 按 SemVer 递增，改写 `release.json`、自动 commit、并创建 annotated tag `v<SemVer>`。
-- `esl release version <显式 SemVer>`（如 `esl release version 1.4.2`）—— 直接设值；这也是旧 `schemaVersion: 1` 清单的迁移入口（用递增关键字会报错指路）。
-- 非 TTY 或 `--no-input` 下不能省略版本参数；AI Agent 执行裸命令时使用 `--agent-interaction`，按返回的 `Release type` 问题收集答案，再用 `--params-json '{"release":"patch"}'` 重执行。
-- **`version` 不 push**：推送归 `esl source upload` 或下一次 `esl release publish`（`publish` 会自动同步）。
-- 工作树有未提交改动时拒绝执行——先提交或 stash，避免无关改动被卷进版本提交。
-- 内置技能（`@builtin/*`）不可升版，其版本锁定在 ESL CLI 版本上。
+## 目录选择：全局 `-C`
 
-标准发版序列：改源码 → `git commit` → `esl release version patch` → `esl release publish`（必要时先 `esl release publish --dry-run` 预演）。
+`esl -C <dir> <command>`（长写 `--cd <dir>`）先切换工作目录后执行命令。相对 `-C` 的路径按切换前 cwd 解析；切换后的位置路径按新 cwd 解析。目录类命令优先使用位置路径或 `-C`，不要使用已移除的 `--directory`。
 
-## 弃用、修订说明与删除单个版本
-坏版本（安全缺陷、内容错误）发出后不可覆盖、不可重发同号，只能劝退或删除。这些发布后治理命令都在 `esl release` 资源下，没有顶层快捷入口：
+## 校验与质量审查
 
-- `esl release deprecate @ns/name <version> --message "说明"`（`-m` 等价） —— 标记为不推荐。安装该版本的人会看到这段说明，但**仍可安装**；弃用不改变版本解析（被弃用版本若仍是最高稳定版，默认安装依旧选中它）。传空 message 解除标记。需要技能管理权。
-- `esl release notes @ns/name <version> --message "..."`（`-m` 等价） —— 修订已发布版本的 release notes（元数据，不改发布包）。需要技能管理权。
-- `esl release delete @ns/name <version> --confirm <version>` —— 删除单个 Release，用于内容必须从服务器消失的场景（如误发密钥）。移除该版本的发布包、版本记录与 Release Tag，**保留源码 Git 历史、技能本身与其他版本**。必须用 `--confirm` 回显版本号（版本号烧毁、不可重发，所以要显式确认，别替用户省这一步）。
-  - 技能 Maintainer 可删自己技能的版本；若该版本被其他技能的 Release Dependency Lock 引用，服务端会拒绝并列出引用方，此时只有平台管理员能加 `--force` 强制删除（强制后相关技能的安装会因依赖缺失而失败——报错里会说明，别默认加 `--force`）。
-  - 想「劝退但不删除」用 `release deprecate`；`release delete` 只在内容必须消失时用。
-- `esl release repair-tag @ns/name <version>` —— 运维兜底：为缺失或损坏的 Release Tag 补建 `v<SemVer>` tag。低频率治理命令，只在服务器报告 tag 缺失时使用。
+`esl source validate [./path]` 只读校验源码结构、`SKILL.md` frontmatter 和 release manifest；它不等于内容质量审查，也不会替用户判断技能是否值得发布。
 
-## 拉别人源码做二次开发
-`esl source clone @ns/name [./dir]` —— 克隆远端 Git 源码到本地（默认当前目录），可改可修。这拿的是源码仓库，不是 Published Package；它和 `esl skill use` 不同：后者只把 Prompt 打到 stdout 供试用，不落地源码。
+校验通过后仍要人工/AI 审查：
 
-## 重置源链接（源已在服务器删除后重建）
-`esl source reset [./path] [-f]` —— 把一个已托管目录（有 `esl` remote）还原为未托管的本地源：删除 `esl` remote 并把 `release.json` 改名保留为 `release.json.before-reset`。**它只做本地脱管，绝不删服务器上任何东西，也不自动重新登记**——重传始终是下一条显式的 `esl source upload`（将生成全新 Skill ID）。适用场景只有一个：确认服务器源已被删除、本地要按新源重建。执行前的守门：CLI 先向 Registry API 询问一次该身份是否还存在——**身份仍可见时直接拒绝执行**（服务器源还在，别拿它当删除手段；报错会给出两条正途：切维护账号重登后 `esl source upload` 同步，或在 Web 技能生命周期页真正删除：未发布技能由 manage 权限持有者删除，已发布技能由平台管理员或组织所有者删除），只有 `--force` 能越过阻断；探测失败才对应「确实没删到」的场景静默通过。要求确认，非交互传 `--force`。重传后缺 `release.json` 会自动补最小清单，需要的字段可从 `.before-reset` 备份拷回。别在源只是「维护账号不对」时怂恿用户 `--force`——阻断报错就是在拦这种情况，先让用户去服务器核实。
+- description 是否准确、可触发、不过度宽泛；
+- instructions 是否能让目标用户完成任务；
+- 输入输出和边界是否明确；
+- 示例是否能复现；
+- 是否包含秘密、本机路径或不应共享的内容；
+- references 是否按需拆分，避免主文件过长。
 
-## 重命名已托管技能
-`esl source rename @ns/old-name <new-name> [--server <url>]` —— 重命名服务器托管的技能（改显示名/短名归属走正式流程，不是靠改 `release.json`）。
+**完成标准**：结构校验成功，内容审查通过，并用最小案例完成一次本地试跑。只有这三项都满足才进入 upload。
+
+## 本地试跑
+
+使用 `esl skill use ./path` 输出本地 Prompt，或将其管道给目标 Agent；它不上传、不发布、不修改 Server。试跑用于验证技能行为，不替代 `source validate`。
+
+## 查看源码托管状态
+
+`esl source status [./path]` 只读显示工作树、提交、本地与 Server 的领先/落后和托管状态。未托管时会提示先 `source upload`。如果用户只想本地使用，看到未托管可以正常停止，不要擅自上传。
+
+## 上传源码：建立或同步维护源
+
+`esl source upload [./path] [--message|-m <text>] [--license SPDX] [--confirm-identity <技能名>]`
+
+上传会在 Server 登记或同步技能源码、建立/更新 Server-hosted Source，并使用 Git remote 推送。它不是发布；用户仍需要后续 `release version` 与 `release publish` 才能让版本进入可安装 Registry。
+
+上传前检查：
+
+- 不是 `@builtin/*` 或 `@local/*`；
+- `source validate` 成功；
+- namespace、短名、display name 和 description 正确；
+- 当前账号对目标 namespace 有权限；
+- 工作树、commit、remote 和 push 状态符合预期；
+- 未包含密码、token、密钥或敏感本机文件。
+
+首次上传的完整身份必须确认；非交互场景使用与 `release.json.name` 完全一致的 `--confirm-identity`。已托管源不要通过改 manifest 强行迁移 namespace。
+
+## 版本：生成不可变 Release
+
+`esl release version [patch|minor|major|<SemVer>]`（在目标源码目录执行；需要切换目录时用全局 `-C, --cd <path>`）
+
+标准顺序是：先提交源码，再生成版本。工作树有未提交改动时停止并要求用户提交或 stash，避免无关改动被卷入版本。
+
+- `patch`：向后兼容的修复；
+- `minor`：新增兼容能力；
+- `major`：不兼容变更；
+- 显式 SemVer：用户明确指定版本时使用。
+
+版本号一旦发布不可覆盖或复用；内置 `@builtin/*` 技能版本由 ESL CLI 版本锁定，不走此流程。
+
+## 发布：让消费者可安装
+
+`esl release publish [./path] [--dry-run]`
+
+发布前再次确认：技能身份、版本、namespace、可见性、依赖锁、release notes 和“其他用户将可以看到并安装”。优先使用 `--dry-run` 预演（若用户只想检查，不等于发布）。发布会校验源码已同步、身份一致、依赖可解析，并将 Release 置为 Registry 可安装状态。
+
+发布后使用 `esl skill info @scope/name --json` 或 `esl skill search @scope/name --json` 闭环验证。只能在查询到正确版本后报告“已发布”；仅 upload 成功只能报告“源码已同步”。
+
+## 发布依赖
+
+`esl release depend add @scope/dependency[@<semver-range>] [./path]`
+`esl release depend remove @scope/dependency [./path]`
+`esl release depend list [./path]`（父命令 `depend` 不带子命令也表示 list）
+
+依赖是 Release 安装图的一部分：添加/删除会影响后续发布和消费者安装解析。修改前展示完整命令、依赖身份与版本范围并确认；发布后依赖通过 Release Lock 固定，不能把未锁定的新依赖偷偷混入已有版本。
+
+## 发布后治理
+
+- `esl release notes @scope/name <version> --message "说明"`：修改 Release notes，不改发布包内容。
+- `esl release deprecate @scope/name <version> --message "说明"`：标记不推荐但仍可安装；解除标记传空 message。
+- `esl release delete @scope/name <version> --confirm <version>`：删除指定 Release。版本号烧毁、不可重发；仅在内容必须消失（如误发密钥）时使用，先说明影响。若仍被依赖锁引用，不要默认加 `--force`。
+- `esl release repair-tag @scope/name <version>`：仅在服务器报告 Tag 缺失/损坏时使用的运维修复。
+
+## 二次开发已有技能
+
+- 只想阅读/试用：`esl skill use @scope/name`；
+- 想修改源码：`esl source clone @scope/name ./target`；
+- 修改后：`source validate` → `source status` → 根据权限决定 upload/publish。
+
+不要把已安装 Store 副本当成维护源；不要修改 `release.json.name` 伪造跨 namespace 归属。
+
+## 重置与重命名
+
+- `esl source reset [./path] --force`：只在确认服务器源已删除、需要按新 Skill ID 重建时使用。它不删除服务器资源，也不应作为“换账号”或“修权限”手段。
+- `esl source rename @scope/old-name <new-name>`：对已托管技能执行正式重命名；不要靠修改 `SKILL.md.name` 或 `release.json.name` 实现。
 
 ## 共享与权限
-`esl skill share @ns/skill-name --all [--write]` —— 授权给组织常设团队：`--all` 为组织只读团队（全员可读），`--write` 为组织读写团队。
-`esl skill share @ns/skill-name --team <team>` —— 按技能授权指定团队只读；追加 `--write` 为读写，追加 `--manage` 为管理。团队成员会按该技能的授权档位获得权限。
-`esl skill share @ns/skill-name --user <username> [--write]` —— 授权给单个成员只读或读写。
-`esl skill share @ns/skill-name --reset` —— 重置为仅自己可见（撤销全部团队挂载与协作者授权）。
-四个目标互斥，一次只能选一个；执行前按写命令规则先回显完整命令、等用户确认。只有技能 Owner 或组织管理员能改权限，403 时提示无权而非重试。
+
+`esl skill share @scope/name --all [--write]`
+`esl skill share @scope/name --team <team> [--write|--manage]`
+`esl skill share @scope/name --user <username> [--write]`
+`esl skill share @scope/name --reset`
+
+先确认组织、目标（全员/团队/成员）和权限等级（只读/读写/管理）。这是远端权限变更，执行前回显完整命令并确认；完成后复核实际授权范围。403 表示权限不足，不要盲目重试或升级权限。
+
+## 作者任务完成报告
+
+完成后准确说明所处阶段：
+
+- 本地源码已初始化 / 已校验；
+- 源码已上传并托管；
+- Release 已生成；
+- Release 已发布并可安装；
+- 共享权限已更新；
+- 验证命令和结果；
+- 仍需用户执行的下一步。
+
+不要把 `source upload` 报告为“已发布”，也不要把 `source validate` 报告为“质量保证”。
