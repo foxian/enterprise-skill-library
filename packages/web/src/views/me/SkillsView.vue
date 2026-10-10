@@ -38,7 +38,7 @@
             <el-table-column :label="t('columns.status')" width="100">
               <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
             </el-table-column>
-            <el-table-column :label="t('columns.shareStatus')" width="140">
+            <el-table-column :label="t('skill.orgWideAuthorization')" width="140">
               <template #default="{ row }">
                 <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ t(row.state.text) }}</el-tag>
               </template>

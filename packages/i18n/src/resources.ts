@@ -135,7 +135,6 @@ const zhCN: TranslationTree = {
     sourceCommit: '来源 commit',
     publisher: '发布人',
     ownerRelation: '归属关系',
-    shareStatus: '共享状态',
     myPermission: '我的权限'
   },
   actions: {
@@ -359,7 +358,8 @@ const zhCN: TranslationTree = {
     latestRelease: '最新发布',
     noReleases: '尚未发布任何 Skill Release',
     createdByUser: '创建者：{{name}}',
-    currentShare: '当前共享状态',
+    currentAuthorization: '当前授权',
+    orgWideAuthorization: '全组织授权',
     allManage: '技能管理团队可管理',
     allWrite: '读写团队可读写',
     allRead: '只读团队可读',
@@ -386,6 +386,7 @@ const zhCN: TranslationTree = {
     reasonRequired: '请填写删除原因',
     confirmIdentity: '确认失败：请输入完整技能身份 {{identity}}',
     skillDeleted: '技能已彻底删除',
+    visibility: '可见性',
     visibilityPublic: 'public（平台全员可搜可装）',
     visibilityPrivate: 'private（仅被授权者）',
     publicVisibilityOn: '技能已设为 public',
@@ -590,7 +591,6 @@ const enUS: TranslationTree = {
     sourceCommit: 'Source commit',
     publisher: 'Publisher',
     ownerRelation: 'Relationship',
-    shareStatus: 'Share status',
     myPermission: 'My permission'
   },
   actions: {
@@ -814,7 +814,8 @@ const enUS: TranslationTree = {
     latestRelease: 'Latest release',
     noReleases: 'No Skill Release has been published',
     createdByUser: 'Created by {{name}}',
-    currentShare: 'Current sharing',
+    currentAuthorization: 'Current authorization',
+    orgWideAuthorization: 'Organization-wide authorization',
     allManage: 'Manage teams can manage',
     allWrite: 'Read-write teams can read and write',
     allRead: 'Read-only teams can read',
@@ -841,6 +842,7 @@ const enUS: TranslationTree = {
     reasonRequired: 'Enter a deletion reason',
     confirmIdentity: 'Confirmation failed: enter the full skill identity {{identity}}',
     skillDeleted: 'Skill permanently deleted',
+    visibility: 'Visibility',
     visibilityPublic: 'public (searchable and installable by everyone)',
     visibilityPrivate: 'private (authorized viewers only)',
     publicVisibilityOn: 'Skill visibility set to public',

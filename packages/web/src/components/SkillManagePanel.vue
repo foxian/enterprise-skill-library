@@ -34,8 +34,8 @@
       </div>
     </el-card>
 
-    <el-card class="section-card">
-      <template #header>{{ t('skill.currentShare') }}</template>
+    <el-card class="section-card" data-test="current-authorization-card">
+      <template #header>{{ t('skill.currentAuthorization') }}</template>
       <el-space wrap>
         <el-tag v-if="matrix.sharedAllManage" type="danger">{{ t('skill.allManage') }}</el-tag>
         <el-tag v-if="matrix.sharedAllWrite" type="warning">{{ t('skill.allWrite') }}</el-tag>
@@ -172,8 +172,8 @@
       </div>
     </el-card>
 
-    <el-card class="section-card">
-      <template #header>{{ t('columns.shareStatus') }}</template>
+    <el-card class="section-card" data-test="visibility-card">
+      <template #header>{{ t('skill.visibility') }}</template>
       <el-space wrap>
         <el-tag :type="visibility === 'public' ? 'success' : 'info'" data-test="visibility-tag">
           {{ visibility === 'public' ? t('skill.visibilityPublic') : t('skill.visibilityPrivate') }}
@@ -187,8 +187,8 @@
       </el-space>
     </el-card>
 
-    <el-card class="section-card">
-      <template #header>{{ t('skill.currentShare') }}</template>
+    <el-card class="section-card" data-test="org-wide-authorization-card">
+      <template #header>{{ t('skill.orgWideAuthorization') }}</template>
       <el-radio-group
         :model-value="shareLevel"
         :disabled="!canManage"

@@ -95,6 +95,29 @@ describe('技能列表视图', () => {
     expect(wrapper.find('[data-test="namespace-filter"]').exists()).toBe(false);
   });
 
+  it('技能列表列标题用「全组织授权」，与列内容的组织共享档位同名', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [{ ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' }]
+        };
+      }
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return { status: 200, json: matrixFor('reviewer', { sharedAllRead: true }) };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SkillListView, { account: 'owner', route: '/admin/me/skills' });
+    await flushPromises();
+
+    const headers = wrapper.findAll('[data-test="skill-list-managed"] th').map((header) => header.text());
+    expect(headers).toContain('全组织授权');
+    // 该列渲染的是组织共享档位，不是 public/private 可见性，列名不冒用「可见性」
+    expect(headers).not.toContain('可见性');
+    expect(headers).not.toContain('共享状态');
+  });
+
   it('成员按「我管理的/共享给我的」双视图查看技能', async () => {
     // member 角色默认账号是 acme 组织的 bob
     useApiMock((_method, url) => {
@@ -301,6 +324,28 @@ describe('SkillManagePanel 权限配置', () => {
     expect(requests.filter((request) => request.method === 'POST').at(-1)?.body).toEqual({
       action: 'reset_to_private'
     });
+  });
+
+  it('可见性、当前授权与全组织授权三个区块标题各自明确且互不混淆', async () => {
+    mockMatrixApi({ sharedAllRead: true, teams: [{ id: 7, name: 'frontend', permission: 'read' }] });
+    wrapper = await mountPanel();
+
+    const visibility = wrapper.find('[data-test="visibility-card"]');
+    const current = wrapper.find('[data-test="current-authorization-card"]');
+    const orgWide = wrapper.find('[data-test="org-wide-authorization-card"]');
+    expect(visibility.exists()).toBe(true);
+    expect(current.exists()).toBe(true);
+    expect(orgWide.exists()).toBe(true);
+
+    // public/private 区块自称「可见性」，不再借用「共享状态」
+    expect(visibility.text()).toContain('可见性');
+    expect(visibility.text()).not.toContain('共享状态');
+    // 授权矩阵概览与组织常设团队档位各自有名，且不互相冒用
+    expect(current.text()).toContain('当前授权');
+    expect(current.text()).not.toContain('全组织授权');
+    expect(orgWide.text()).toContain('全组织授权');
+    expect(orgWide.text()).not.toContain('当前授权');
+    expect(visibility.text()).not.toContain('当前授权');
   });
 
   it('成员授权提交用户名与读写权限', async () => {
