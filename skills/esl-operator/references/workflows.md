@@ -169,3 +169,7 @@ list --json 查看现状 → 明确影响范围 → update/link/unlink/uninstall
 - 可选的下一步。
 
 如果用户只完成了体检、搜索、上传或版本准备，要准确报告当前阶段，不要提前宣称已安装或已发布。
+
+## 场景：把基础技能播种到另一家企业
+
+先确认源目录为干净的 Git 仓库并已提交；在用户确认输出路径后运行 `esl source export [path] [--output <directory>]`。默认输出 `<短名>-export/`，位置在源目录同级，不改源目录、不要求登录。检查副本内容和裸名的 `release.json.name`；由目标企业 Maintainer 选定自己的 namespace（组织需改成 `@目标组织/短名`）并在自己的 Server 首次 `source upload`。之后两个实例独立演进，不当成 Origin 迁移、Source Remote 重指或上游同步。若用户明确要求把**当前目录**清成只剩技能文档和代码，才运行 `esl source clean [path] --force`；它会删除 `.git` 与 `release.json`，不能用来做分发。详见 `references/author.md`。

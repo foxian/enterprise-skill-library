@@ -27,7 +27,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 - `node` / `npm` 缺失或 Node 不在支持范围：先解决运行时，再安装 CLI。
 - CLI 存在但 Server 未配置：向用户索取管理员提供的 ESL Server URL，再执行 `esl config set-server <url>`（这是写配置，先确认）。不要猜地址，也不要把仓库开发地址当成用户的企业地址。
 - Server 可达但未登录：公共搜索和部分只读查询可继续；私有技能、安装、更新、上传、发布前引导用户在自己的终端执行交互式 `esl login`。AI 绝不输入密码。
-- Git 缺失：可以继续做 `search` / `info` / `use` / 已发布技能的远端 `install` / 本地 `validate`；只有 `source clone/upload`、`release publish` 等源码发布流程需要先安装 Git。
+- Git 缺失：可以继续做 `search` / `info` / `use` / 已发布技能的远端 `install` / 本地 `validate`；只有 `source clone/upload/export`、`release publish` 等源码发布流程需要先安装 Git。
 - 体检通过后，复述当前目标、范围（项目级/全局、目标工具、版本/命名空间）和下一步，再执行对应流程。
 
 只有当用户目标明确且体检结果满足前置条件时，才进入下面的消费者或作者工作流。不要为了“看起来完整”要求用户提前安装 Docker；普通 CLI 用户不需要 Docker。
@@ -94,7 +94,7 @@ Hint。细节见 `references/consumer.md`。
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`、`esl release depend add`、`esl release depend remove`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`、`esl release depend add`、`esl release depend remove`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作没有 Agent Interaction 协议，AI 无法替用户应答确认框。
 
@@ -143,3 +143,6 @@ pm exec -- esl` 方式。
 - Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；部署者使用自己的 ESL Server URL，本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
 
 现在，先按 `references/workflows.md` 确定用户目标与成功判据，再按上面的路由表读取命令细节。
+
+- **跨实例播种**：参照 `references/author.md` 的 `source export` 流程导出 `<短名>-export/`，先审查副本，再由目标企业 Maintainer 确认 namespace 并上传；不要改源目录的 `.git`/remote。
+- **原地去身份**：用户明确要把当前技能目录清成只剩文档和代码时，用 `esl source clean [path] --force`；它删除 `.git` 与 `release.json`，不替代 export。

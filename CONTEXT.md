@@ -136,7 +136,17 @@ Local Skill Source 的本地操作。它移除 Source Remote，并把 Release Ma
 自动重新登记——重新上传始终是显式的后续步骤。执行前有守门：当该身份在服务器上对当前登录仍可见时，拒绝
 执行并指引核实（切维护账号同步，或走 Archived/Deleted 流程删除）；仅
 `--force` 可越过该阻断。探测失败（身份不可见或不可达）时静默执行。
-_Avoid_: 清理；接管（adopt，ADR-0021 语义）；orphan 重新注册。
+_Avoid_: 清理（`source clean` 会删除 `.git` 与清单，语义不同）；接管（adopt，ADR-0021 语义）；orphan 重新注册；跨实例播种。
+
+## 跨实例播种 (Cross-instance Seeding)
+
+把一份技能源码作为初始内容交给另一套企业自部署 ESL Server 的 Maintainer，由其在该实例重新 Source Upload。两边形成独立的 Server-hosted Skill Source 与独立 Skill ID，不是同一技能搬家。
+_Avoid_: 换服务器再上传；Source Remote 重指；源链接重置；原地 `source clean`（当目的是给另一实例做初始源时，应导出副本而不是清掉原目录）。
+
+## 源目录清理 (Source Directory Clean)
+
+把一个含 `SKILL.md` 的技能目录原地还原为不含 Git 仓库和 ESL 身份清单的纯技能文档/代码目录：删除 `.git/`、`release.json` 和 `release.json.before-reset`，保留技能正文。它不连接 Server，也不复制目录。
+_Avoid_: 当作跨实例播种；当作源链接重置；误清普通 Git 仓库。
 
 ## Active Unreleased Skill Source
 

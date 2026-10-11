@@ -337,7 +337,7 @@ describe('esl program', () => {
       expect.arrayContaining(['search', 'info', 'install', 'list', 'update', 'uninstall', 'use', 'share'])
     );
     expect(subcommands(program, 'source')).toEqual(
-      expect.arrayContaining(['init', 'validate', 'status', 'upload', 'clone', 'reset', 'rename'])
+      expect.arrayContaining(['init', 'validate', 'status', 'upload', 'clone', 'reset', 'export', 'clean', 'rename'])
     );
     expect(subcommands(program, 'release')).toEqual(
       expect.arrayContaining(['version', 'publish', 'depend', 'notes', 'deprecate', 'delete', 'repair-tag'])

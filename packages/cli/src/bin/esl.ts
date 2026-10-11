@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 import { Command, Option } from 'commander';
-import { checkbox, confirm, input, select } from '@inquirer/prompts';
+import { checkbox, input, select } from '@inquirer/prompts';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readHidden, readStdinText, readText, isInteractive } from '../prompt.js';
+import { confirm, readHidden, readStdinText, readText, isInteractive } from '../prompt.js';
 import {
   AgentInteractionRequiredError,
   loadConfig,
+  executeCleanSource,
+  executeExportSource,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   SUPPORTED_TOOLS,
@@ -937,6 +939,41 @@ function addClone(parent: Command): Command {
     });
 }
 
+
+function addExportSource(parent: Command): Command {
+  return parent
+    .command('export')
+    .description('Export a clean skill source seed without Git history or server identity')
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
+    .option('-o, --output <directory>', 'export directory (default: ../<short-name>-export)')
+    .addHelpText('after', example('$ esl source export ./my-skill'))
+    .action(async (skillPath: string | undefined, options: { output?: string }) => {
+      const result = await executeExportSource({ directory: skillPath, output: options.output });
+      console.log(`Skill source exported to ${result.output}`);
+      console.log('The exported source has no Git history or ESL remote; release.json.name was reset to the bare skill name.');
+    });
+}
+
+function addCleanSource(parent: Command, program: Command): Command {
+  return parent
+    .command('clean')
+    .description('Remove Git history and ESL release identity from a skill directory in place')
+    .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
+    .option('-f, --force', 'clean without confirmation')
+    .addHelpText('after', example('$ esl source clean ./my-skill --force'))
+    .action(async (skillPath: string | undefined, options: { force?: boolean }) => {
+      if (options.force !== true) {
+        if (program.opts().input === false || !isInteractive()) {
+          throw new Error('Cleaning a skill directory requires confirmation; pass --force to skip the confirmation in non-interactive runs');
+        }
+        const confirmed = await confirm(`Remove .git and release.json from ${skillPath ?? '.'}, keeping only the skill documents and code? `);
+        if (!confirmed) throw new Error('Clean cancelled');
+      }
+      const result = await executeCleanSource({ directory: skillPath });
+      console.log(`Skill directory cleaned in ${result.directory}`);
+      console.log(`Removed: ${result.removed.join(', ')}`);
+    });
+}
 function addResetSource(parent: Command, program: Command): Command {
   return parent
     .command('reset')
@@ -1505,6 +1542,8 @@ export function createProgram(): Command {
   addUpload(source, program);
   addClone(source);
   addResetSource(source, program);
+  addExportSource(source);
+  addCleanSource(source, program);
   addRename(source);
 
   const release = program

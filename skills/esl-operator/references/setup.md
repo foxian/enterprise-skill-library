@@ -70,3 +70,5 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 
 ## Token 过期
 `esl account whoami` 显示 `expired`，或某条命令报 401 → 让用户重新 `esl account login`；可提一句 `ESL_LOGIN_TTL_HOURS` 调 TTL。
+
+跨实例播种与换 Server Origin 不同：`esl source export` 在本机产生无 Git 历史的独立副本，不自动修改当前 `esl config set-server`、登录信息或源目录 remote；目标企业再自行设置其 Server、确认 namespace 并首次上传。不要在源目录执行 `source reset` 或 `source clean` 来做分发；`source clean` 只用于明确要把当前目录去身份。

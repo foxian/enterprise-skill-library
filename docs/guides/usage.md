@@ -459,3 +459,11 @@ esl source clone @cnfox/code-review ./custom-dir
   "tools": ["claude-code", "trae-intl", "codex"]
 }
 ```
+
+## 跨实例分发基础技能源码
+
+在干净且已提交的技能仓库根目录执行 `esl source export`，默认生成同级 `<短名>-export/`；也可 `esl source export ./my-skill --output ./seed-for-company`。导出只包含 Git `HEAD` 已提交文件，不带 `.git`、remote 或历史；原目录完全不变。已有输出目录会报错，不会覆盖。
+
+导出副本的 `release.json` 会保留通用元数据，`name` 改为裸短名。交付前检查所有已提交文件，避免把私有内容、凭据或企业内部域名交给对方。目标企业的 Maintainer 若要把技能放在组织 namespace，先在副本中把 `release.json.name` 改成 `@目标组织/短名`，再在其 ESL Server 登录并执行 `esl source upload <副本目录> --confirm-identity @目标组织/短名`；裸短名则会归入上传者个人 namespace。每个实例的 Skill ID 独立，后续更新也各自独立。不要对原目录执行 `source reset` 或删除 `.git` 来做分发。
+
+若要把**当前目录**清成不含 Git 历史和 ESL 身份的纯技能文档/代码，用 `esl source clean [path] [--force]`。它会原地删除 `.git`、`release.json` 和 `release.json.before-reset`（若存在），保留 `SKILL.md` 与技能正文；非交互必须 `--force`。这会丢掉 Git 历史，只适合明确要就地去身份的场景，不替代 `source export`。

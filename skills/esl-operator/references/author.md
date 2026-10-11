@@ -18,7 +18,7 @@
 上传源码不会自动让普通用户可安装；发布版本也不会替代源码校验。任何阶段失败都停在当前阶段，不跳过检查强行继续。
 
 只读命令：`esl source validate`、`esl source status`。
-写命令：`esl source init`、`esl release version`、`esl source clone`、`esl source reset`、`esl source upload`、`esl release publish`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl skill share`、`esl release depend add/remove`。写命令先回显完整命令、说明影响并等待用户确认。
+写命令：`esl source init`、`esl release version`、`esl source clone`、`esl source reset`、`esl source export`、`esl source clean`、`esl source upload`、`esl release publish`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl skill share`、`esl release depend add/remove`。写命令先回显完整命令、说明影响并等待用户确认。
 
 ## 开始前：先定义技能，不要先跑 init
 
@@ -146,6 +146,7 @@
 ## 重置与重命名
 
 - `esl source reset [./path] --force`：只在确认服务器源已删除、需要按新 Skill ID 重建时使用。它不删除服务器资源，也不应作为“换账号”或“修权限”手段。
+- `esl source clean [./path] --force`：原地删除 `.git`、`release.json` 和 `release.json.before-reset`，保留 `SKILL.md` 与技能正文。只在用户明确要求把当前目录清成无 Git/ESL 身份时使用；非交互必须 `--force`。不要用它做跨实例分发（应 `source export`），也不要用它代替 `source reset`。
 - `esl source rename @scope/old-name <new-name>`：对已托管技能执行正式重命名；不要靠修改 `SKILL.md.name` 或 `release.json.name` 实现。
 
 ## 共享与权限
@@ -170,3 +171,9 @@
 - 仍需用户执行的下一步。
 
 不要把 `source upload` 报告为“已发布”，也不要把 `source validate` 报告为“质量保证”。
+
+## 跨实例播种：导出独立维护副本
+
+`esl source export [./path] [--output <directory>]` 是本地写命令：源目录必须是干净、已提交的技能 Git 仓库根；默认在源目录同级生成 `<短名>-export/`。只导出 HEAD 中已跟踪文件，不带 `.git`、Git remote 或历史；源目录不变、已有目标目录不覆盖，不需要 Server 或登录。执行前回显输出路径并确认；导出后审查内容（不会自动删掉普通文件中可能含有的敏感信息）。
+
+副本 `release.json.name` 自动变成裸短名，其他通用元数据保留。目标企业 Maintainer 若需要组织归属，必须在其首次上传前将副本的 `release.json.name` 改为 `@目标组织/短名`，然后运行 `esl source upload <副本> --confirm-identity @目标组织/短名`。裸名上传归个人命名空间。各实例分别生成 Skill ID，并独立维护更新。不要把 `source reset`、`source clean`、`git clean` 或手工删除源目录 `.git` 当作分发步骤。用户若只要把当前目录去身份，才使用 `source clean`。
