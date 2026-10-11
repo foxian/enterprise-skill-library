@@ -81,7 +81,12 @@ import { executeRename } from '../commands/rename.js';
 import { executeNotes } from '../commands/notes.js';
 import { executeRepairTag } from '../commands/repair-tag.js';
 import { executeSearch, type SkillSearchFilters, type SkillSearchResult } from '../commands/search.js';
-import { executeShare } from '../commands/share.js';
+import {
+  confirmClearGrants,
+  executeShare,
+  formatPermissionMatrix,
+  type ShareOptions
+} from '../commands/share.js';
 import { executeUpdate } from '../commands/update.js';
 import { executeUninstall } from '../commands/uninstall.js';
 import { executeToolsPreferred, parseToolsOption } from '../commands/tools.js';
@@ -308,7 +313,7 @@ export async function runSearchSession(
 
       // 安装前回显完整命令并确认；拒绝则回到列表继续浏览。
       console.log(`\n$ ${installCommandFor(chosen, server)}`);
-      const proceed = await confirmPrompt({ message: 'Run this install command?', default: false });
+      const proceed = await confirmPrompt('Run this install command?');
       if (!proceed) continue;
       await install(chosen);
       return;
@@ -771,22 +776,45 @@ function addUse(parent: Command): Command {
     });
 }
 
-function addShare(parent: Command): Command {
+function addShare(parent: Command, program: Command): Command {
   return parent
     .command('share')
-    .description('Share a skill with your organization, a team, or a member')
+    .description('Show a skill access matrix, or change who can use it')
     .argument('<skill-name>')
-    .option('--all', 'share with the whole organization (read; add --write for edit)')
+    .option('--all', 'share with the whole organization (read; add --write or --manage)')
     .option('--team <name>', 'share with a team (read; add --write or --manage)')
-    .option('--user <username>', 'share with a member (read; add --write for edit; add --manage for co-management)')
+    .option('--user <username>', 'share with a member (read; add --write or --manage)')
+    .option('--revoke-team <name>', 'revoke a team grant')
+    .option('--revoke-user <username>', 'revoke a member grant')
+    .option('--visibility <visibility>', 'set skill visibility: public or private')
+    .option('--clear-grants', 'clear all explicit team and member grants (does not change visibility)')
+    .option('-f, --force', 'skip the confirmation for --clear-grants')
     .option('--write', 'grant edit (write) permission where applicable')
     .option('--manage', 'grant manage permission (share, publish, and grant others)')
-    .option('--reset', 'reset to private (only you keep access)')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl skill share @acme/code-review --all'))
-    .action(async (identity: string, options: { all?: boolean; team?: string; user?: string; write?: boolean; manage?: boolean; reset?: boolean; server?: string }) => {
-      await executeShare(identity, options);
-      console.log('Skill sharing updated');
+    .addHelpText(
+      'after',
+      example(
+        '$ esl skill share @acme/code-review\n  $ esl skill share @acme/code-review --all --write\n  $ esl skill share @acme/code-review --visibility public'
+      )
+    )
+    .action(async (identity: string, options: ShareOptions) => {
+      if (options.clearGrants) {
+        await confirmClearGrants({
+          identity,
+          force: options.force,
+          interactive: program.opts().input !== false && isInteractive(),
+          confirm
+        });
+      }
+      const outcome = await executeShare(identity, options);
+      if (outcome.kind === 'matrix') {
+        console.log(formatPermissionMatrix(outcome.matrix));
+      } else if (outcome.kind === 'visibility') {
+        console.log(`Skill visibility set to ${outcome.visibility}`);
+      } else {
+        console.log('Skill sharing updated');
+      }
     });
 }
 
@@ -1056,13 +1084,12 @@ function addPublish(parent: Command, program: Command, path = 'esl release publi
     .description('Publish an immutable Release from the skill source')
     .argument('[path]', 'skill directory (defaults to --cd or the current directory)')
     .option('--server <url>', 'ESL Server URL')
-    .option('--visibility <visibility>', 'public or private')
     .option('--license <spdx>', 'SPDX license for a missing release.json (default MIT)')
     .option('-m, --message <text>', 'release notes; defaults to the commits since the last release tag')
     .option('-f, --force', 'publish without confirmation')
     .option('--dry-run', 'validate and preview the release without touching the server')
     .addHelpText('after', example(`$ ${path} ./my-skill -m "fix: dead-link regex"`))
-    .action(async (skillPath: string | undefined, options: { server?: string; visibility?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
+    .action(async (skillPath: string | undefined, options: { server?: string; license?: string; message?: string; force?: boolean; dryRun?: boolean }) => {
       if (skillPath && SEMVER_ARGUMENT_PATTERN.test(skillPath)) {
         console.error(
           `esl publish no longer takes a version argument (got ${skillPath}). Run \`esl version <release>\` to set the version, then run esl publish.`
@@ -1533,7 +1560,7 @@ export function createProgram(): Command {
   addUpdate(skill, 'esl skill update');
   addUninstall(skill, 'esl skill uninstall');
   addUse(skill);
-  addShare(skill);
+  addShare(skill, program);
 
   const source = program
     .command('source')

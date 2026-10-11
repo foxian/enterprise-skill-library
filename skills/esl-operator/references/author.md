@@ -88,7 +88,17 @@
 
 上传会在 Server 登记或同步技能源码、建立/更新 Server-hosted Source，并使用 Git remote 推送。它不是发布；用户仍需要后续 `release version` 与 `release publish` 才能让版本进入可安装 Registry。
 
-上传前检查：
+### 上传前：盘点文件，先问再传
+
+在回显 `source upload` 之前，列出技能目录里将被提交/打包的文件（跳过 `.git`），按三类给用户看，**等用户确认保留集之后**才进入写命令：
+
+1. **建议保留**：`SKILL.md`、`release.json`、`.gitignore`，以及 `SKILL.md` / references 明确引用的 scripts、references、assets。
+2. **建议排除（默认不上传）**：`__pycache__/`、`*.pyc`、`.pytest_cache/`、`.venv/`、`node_modules/`、`.DS_Store`、job JSON、`*.log`、下载成品（如 `*.mp4`）、编辑器/运行时残留。
+3. **必须询问**：`archive/` 或其它留档、示例数据、未在文档中引用的脚本、本机路径配置、体积明显偏大的文件。说明该文件对消费者是否必要、排除后技能还能否按文档执行。
+
+用户确认后，把排除项写入 `.gitignore`，并从磁盘删除仍会妨碍发布的文件：`esl release publish` 遍历工作区、只跳过 `.git`，**不遵守** `.gitignore`。不要替用户默默删掉第 3 类文件。
+
+上传前其余检查：
 
 - 不是 `@builtin/*` 或 `@local/*`；
 - `source validate` 成功；
@@ -116,7 +126,11 @@
 
 `esl release publish [./path] [--dry-run]`
 
-发布前再次确认：技能身份、版本、namespace、可见性、依赖锁、release notes 和“其他用户将可以看到并安装”。优先使用 `--dry-run` 预演（若用户只想检查，不等于发布）。发布会校验源码已同步、身份一致、依赖可解析，并将 Release 置为 Registry 可安装状态。
+发布前再次确认：技能身份、版本、namespace、可见性、依赖锁、release notes 和“其他用户将可以看到并安装”。沿用上传时用户确认过的保留集，再扫一遍磁盘，确认排除项没有回到工作区。
+
+`--dry-run` 只在用户只要预演、还不发布时使用；它同样把工作区 POST 到 Server 做冻锁校验，并不更快。用户已确认发布时，Agent 直接 `esl release publish <path> --force -m "..."`，不要先 dry-run 再正式发一遍。非交互环境没有 `--force` 会在确认提示上卡住。
+
+发布会校验源码已同步、身份一致、依赖可解析，并将 Release 置为 Registry 可安装状态。
 
 发布后使用 `esl skill info @scope/name --json` 或 `esl skill search @scope/name --json` 闭环验证。只能在查询到正确版本后报告“已发布”；仅 upload 成功只能报告“源码已同步”。
 
@@ -149,14 +163,26 @@
 - `esl source clean [./path] --force`：原地删除 `.git`、`release.json` 和 `release.json.before-reset`，保留 `SKILL.md` 与技能正文。只在用户明确要求把当前目录清成无 Git/ESL 身份时使用；非交互必须 `--force`。不要用它做跨实例分发（应 `source export`），也不要用它代替 `source reset`。
 - `esl source rename @scope/old-name <new-name>`：对已托管技能执行正式重命名；不要靠修改 `SKILL.md.name` 或 `release.json.name` 实现。
 
-## 共享与权限
+## 共享治理：授权与可见性
 
-`esl skill share @scope/name --all [--write]`
-`esl skill share @scope/name --team <team> [--write|--manage]`
-`esl skill share @scope/name --user <username> [--write]`
-`esl skill share @scope/name --reset`
+三件事互不相同（ADR-0062），别把它们当成一个“共享状态”：
 
-先确认组织、目标（全员/团队/成员）和权限等级（只读/读写/管理）。这是远端权限变更，执行前回显完整命令并确认；完成后复核实际授权范围。403 表示权限不足，不要盲目重试或升级权限。
+| 看什么 | 命令 |
+|---|---|
+| **当前授权**（权限矩阵，只读） | `esl skill share @scope/name` |
+| 全组织授权（常设团队档位） | `esl skill share @scope/name --all [--write\|--manage]` |
+| 团队授权 | `esl skill share @scope/name --team <team> [--write\|--manage]` |
+| 成员授权 | `esl skill share @scope/name --user <username> [--write\|--manage]` |
+| 撤销团队授权 | `esl skill share @scope/name --revoke-team <team>` |
+| 撤销成员授权 | `esl skill share @scope/name --revoke-user <username>` |
+| 清空全部显式授权 | `esl skill share @scope/name --clear-grants` |
+| **可见性**（public/private） | `esl skill share @scope/name --visibility public\|private` |
+
+不带任何目标旗标是**只读**的：直接跑，把矩阵读给用户（可见性 / 全组织授权 / 团队授权 / 成员授权）。其余都是远端变更：先回显完整命令并确认，完成后复核实际范围。一次只能带一个目标旗标；`--write` / `--manage` 只作用于 `--all` / `--team` / `--user`。
+
+`--clear-grants` 会先二次确认，提示会说明清空的是哪些授权；非交互环境必须显式加 `--force`——**先拿到用户同意再带上它**。它只清空该技能的显式团队与成员授权：**不改变可见性**，也不撤销所有者、Maintainer 或管理员基于角色获得的权限。不要把它说成“设为私有”，也不要用它代替 `--visibility private`。同理，切可见性不增删任何授权。
+
+403 表示权限不足，不要盲目重试或升级权限。
 
 ## 作者任务完成报告
 

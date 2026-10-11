@@ -1451,6 +1451,9 @@ function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
     name: skill.name,
     displayName: resolveSkillDisplayName(repository, skill),
     description: skill.description,
+    // 逐技能可见性（ADR-0032/0062）：管理页的可见性区块与 CLI 的
+    // `esl skill share`（查看矩阵）都从这里读，缺了就只能显示兜底值。
+    visibility: skill.visibility,
     status: skill.status,
     everPublished,
     deletionError: skill.deletionError ?? null,

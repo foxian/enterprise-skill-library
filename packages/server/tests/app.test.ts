@@ -129,6 +129,7 @@ describe('Fastify Server API', () => {
         name: '@foxian/ghost-skill',
         description: 'orphan',
         displayName: 'ghost-skill',
+        visibility: 'private',
         everPublished: false,
         deletionError: null,
         createdBy: 'foxian_admin',

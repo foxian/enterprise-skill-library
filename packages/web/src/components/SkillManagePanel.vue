@@ -487,7 +487,7 @@ function assignPermissionsResponse(response: PermissionsResponse): void {
   lifecycle.value = response.viewerLifecycle;
   matrix.value = matrixResponse;
   // 可见性随技能记录一并下发（public/private）
-  visibility.value = (skill as { visibility?: 'public' | 'private' }).visibility ?? 'private';
+  visibility.value = skill?.visibility ?? 'private';
 }
 
 // 生命周期操作(CONTEXT:技能生命周期):Archive 是可恢复停用；Delete 是两阶段

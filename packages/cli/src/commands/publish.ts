@@ -28,7 +28,6 @@ export interface PublishOptions extends NetworkCommandOptions {
   directory?: string;
   /** @deprecated Version is now read from release.json; pass --version to point users at `esl version` */
   version?: string;
-  visibility?: string;
   force?: boolean;
   noInput?: boolean;
   license?: string;

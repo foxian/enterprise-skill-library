@@ -49,13 +49,13 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 - **试用**：用户只想阅读或验证效果 → `skill use`，不安装、不写盘；明确试用与安装的区别。
 - **安装**：确认技能、版本、项目/全局和工具 → 回显完整 `install` 命令 → 用户确认 → 处理工具选择题 → 用 `list --json` 验证安装与 Tool Link。
 - **编写**：先问技能要解决的任务、输入、输出、示例和边界 → `source init` → 逐步编辑文件 → `validate` → 用真实小案例试跑 → 再上传。
-- **上传/发布**：先 `source status` 和 `validate` → 确认 namespace、远端仓库、版本与可见性 → `source upload`（源码同步/托管）→ `release version` → `release publish`；发布前再次确认，因为发布会对其他用户可见。
+- **上传/发布**：先 `source status` 和 `validate` → **盘点技能目录，列出可能不必上传的文件并问用户** → 用户确认保留集后再 `source upload` → `release version` → `release publish`。盘点与排除规则见 `references/author.md`。发布已确认后直接 publish（Agent 加 `--force`），不要默认再跑 `--dry-run`。
 
 不要一次输出完整命令长列表；只在当前阶段展示下一条或一组紧邻命令。对写命令继续遵守下文的确认门槛。
+
 ## 先读取用户工作流，再读取命令细节
 
 用户已经明确目标时，先读 `references/workflows.md` 选择最短路径，再读取对应命令 reference。不要把完整命令表一次性展示给用户。
-eferences/workflows.md 选择最短路径，再读取对应命令 reference。不要把完整命令表一次性展示给用户。
 
 ## 怎么用这个技能
 
@@ -67,7 +67,7 @@ eferences/workflows.md 选择最短路径，再读取对应命令 reference。�
 | 没装 esl / 安装 CLI / command not found | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装、看工具 link 状态 / 更新、升级（含修复已记录 link）/ 卸载 / unlink 源码 / 我的常用工具、偏好工具（`esl config preferred-tools`） | `references/consumer.md` |
-| 建、创建、初始化技能 / 校验、看源状态 / 上传源码 / 发布 / 改版本号 / 发布依赖 / 弃用、修订说明、删除版本 / 重命名 / 拉别人源码、二次开发 / 共享授权 | `references/author.md` |
+| 建、创建、初始化技能 / 校验、看源状态 / 上传源码 / 发布 / 改版本号 / 发布依赖 / 弃用、修订说明、删除版本 / 重命名 / 拉别人源码、二次开发 / 共享治理（看谁有权限、授权与撤销、切可见性） | `references/author.md` |
 | 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
@@ -94,7 +94,7 @@ Hint。细节见 `references/consumer.md`。
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`、`esl release depend add`、`esl release depend remove`、`esl account whoami --online`/`esl whoami --online`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`、`esl skill share`（**无任何目标旗标**，查看权限矩阵）——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`（带任何目标旗标：`--all` / `--team` / `--user` / `--revoke-team` / `--revoke-user` / `--visibility` / `--clear-grants`，清空授权时非交互需 `--force`）、`esl release depend add`、`esl release depend remove`、`esl account whoami --online`/`esl whoami --online`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作没有 Agent Interaction 协议，AI 无法替用户应答确认框。
 
@@ -146,3 +146,4 @@ pm exec -- esl` 方式。
 
 - **跨实例播种**：参照 `references/author.md` 的 `source export` 流程导出 `<短名>-export/`，先审查副本，再由目标企业 Maintainer 确认 namespace 并上传；不要改源目录的 `.git`/remote。
 - **原地去身份**：用户明确要把当前技能目录清成只剩文档和代码时，用 `esl source clean [path] --force`；它删除 `.git` 与 `release.json`，不替代 export。
+
