@@ -939,7 +939,6 @@ function addClone(parent: Command): Command {
     });
 }
 
-
 function addExportSource(parent: Command): Command {
   return parent
     .command('export')
@@ -1245,9 +1244,13 @@ function addWhoami(parent: Command, path = 'esl account whoami'): Command {
   return parent
     .command('whoami')
     .description('Show the current login and login status')
-    .addHelpText('after', example(`$ ${path}`))
-    .action(async () => {
-      const result = await executeWhoami();
+    .option(
+      '--online',
+      'Verify account details (email, organization memberships) with the server and update the local snapshot'
+    )
+    .addHelpText('after', example(`$ ${path}\n  $ ${path} --online`))
+    .action(async (options: { online?: boolean }) => {
+      const result = await executeWhoami({ online: options.online });
       console.log(formatWhoami(result));
     });
 }
@@ -1664,3 +1667,4 @@ function canonicalPath(filePath: string): string {
 if (isDirectCliEntry(import.meta.url, process.argv[1])) {
   await run(process.argv);
 }
+

@@ -143,6 +143,174 @@ describe('esl login', () => {
     expect(config.organizations).toEqual([]);
   });
 
+  it('records the account email fetched from the profile endpoint', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/account/profile')) {
+        return {
+          ok: true,
+          json: async () => ({
+            username: 'zhangsan',
+            email: 'zhangsan@example.com',
+            emailPendingCompletion: false,
+            emailPendingVerification: false
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+      };
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.email).toBe('zhangsan@example.com');
+  });
+
+  it('keeps the synthetic email returned for a pending-completion account', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/account/profile')) {
+        return {
+          ok: true,
+          json: async () => ({
+            username: 'zhangsan',
+            email: 'zhangsan@local.esl',
+            emailPendingCompletion: true,
+            emailPendingVerification: false
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+      };
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.email).toBe('zhangsan@local.esl');
+  });
+
+  it('does not fail login when the profile lookup errors', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/account/profile')) {
+        return { ok: false, status: 500, text: async () => 'boom' };
+      }
+      return {
+        ok: true,
+        json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+      };
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const credentials = await loadCredentials({ homeDir });
+    expect(credentials.token).toBe('mock_skill_user_token');
+    const config = await loadConfig({ homeDir });
+    expect(config.email).toBeNull();
+  });
+
+  it('does not fail login when the profile lookup throws', async () => {
+    const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/account/profile')) {
+        throw new Error('network down');
+      }
+      return {
+        ok: true,
+        json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+      };
+    });
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.email).toBeNull();
+  });
+
+  it('keeps the previously stored email on a same-account token-file login', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      { server: 'http://skills.company.com', username: 'zhangsan', email: 'zhangsan@example.com', tools: [] },
+      { homeDir }
+    );
+    const tokenFile = path.join(homeDir, 'token.txt');
+    fs.writeFileSync(tokenFile, 'pre_made_token');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'zhangsan',
+      tokenFile,
+      homeDir,
+      customFetch: vi.fn() as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.email).toBe('zhangsan@example.com');
+  });
+
+  it('clears a previously stored email when a token-file login switches account', async () => {
+    await initializeLocalStore({ homeDir });
+    await saveConfig(
+      {
+        server: 'http://skills.company.com',
+        username: 'zhangsan',
+        email: 'zhangsan@example.com',
+        organizations: [{ org: 'acme', identity: 'owner', isOwnerMember: true }],
+        tools: []
+      },
+      { homeDir }
+    );
+    const tokenFile = path.join(homeDir, 'token.txt');
+    fs.writeFileSync(tokenFile, 'pre_made_token');
+
+    await executeLogin({
+      server: 'http://skills.company.com',
+      username: 'lisi',
+      tokenFile,
+      homeDir,
+      customFetch: vi.fn() as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.username).toBe('lisi');
+    expect(config.email).toBeNull();
+    expect(config.organizations).toEqual([]);
+  });
+
   it('prompts for a password when no file is provided', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -157,7 +325,12 @@ describe('esl login', () => {
       customFetch: mockFetch as any
     });
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    // 两次：一次换 token，一次取账户邮箱快照（/api/account/profile）。
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://skills.company.com/api/account/profile',
+      expect.objectContaining({ headers: { Authorization: 'token mock_skill_user_token' } })
+    );
     const credentials = await loadCredentials({ homeDir });
     expect(credentials.token).toBe('mock_skill_user_token');
   });

@@ -419,7 +419,7 @@ describe('esl program', () => {
     const whoami = program.commands.find((command) => command.name() === 'whoami');
 
     expect(whoami).toBeDefined();
-    expect(whoami?.options.map((option) => option.long)).toEqual([]);
+    expect(whoami?.options.map((option) => option.long)).toEqual(['--online']);
   });
 
   it('registers the config set-server command and makes login options optional', () => {

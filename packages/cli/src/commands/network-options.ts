@@ -4,9 +4,11 @@ import {
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   skillSourceDirectoryName,
-  type LocalStoreOptions
+  type LocalStoreOptions,
+  type OrganizationMembership
 } from '@esl/core';
 import path from 'node:path';
+import { requireOkResponse } from '../api-error.js';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   server?: string;
@@ -126,6 +128,44 @@ export async function fetchWithTimeout(
 export function apiUrl(server: string, path: string): string {
   const base = server.replace(/\/$/, '');
   return `${base}${path}`;
+}
+
+// 取登录账号的资料（当前用户邮箱）。失败语义交给调用方：登录时 try/catch 降级，
+// whoami --online 时让错误上抛。
+export async function fetchAccountProfile(
+  server: string,
+  token: string,
+  fetchImpl: typeof fetch
+): Promise<{ email: string | null }> {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/account/profile'), {
+    headers: { Authorization: `token ${token}` }
+  });
+  await requireOkResponse(res, 'Failed to fetch account profile');
+  const data = (await res.json()) as { email?: unknown };
+  return { email: typeof data.email === 'string' && data.email.length > 0 ? data.email : null };
+}
+
+// 取登录账号的组织隶属关系（实时）。与 init 的 namespace 菜单同一口径：deleting /
+// delete_failed 的组织不属于可正常使用的组织，过滤掉；返回形状与登录响应一致，
+// 不带服务端附加的 status。
+export async function fetchMyOrganizations(
+  server: string,
+  token: string,
+  fetchImpl: typeof fetch
+): Promise<OrganizationMembership[]> {
+  const res = await fetchWithTimeout(fetchImpl, apiUrl(server, '/api/orgs/mine'), {
+    headers: { Authorization: `token ${token}` }
+  });
+  await requireOkResponse(res, 'Failed to fetch organization memberships');
+  const data = (await res.json()) as {
+    organizations?: (OrganizationMembership & { status?: string })[];
+  };
+  if (!Array.isArray(data.organizations)) {
+    return [];
+  }
+  return data.organizations
+    .filter((membership) => !membership.status || membership.status === 'active')
+    .map(({ org, identity, isOwnerMember }) => ({ org, identity, isOwnerMember }));
 }
 
 // 解析 http(s) URL 的 origin（scheme://host[:port]）；非 http(s) 或无法解析时返回 null。

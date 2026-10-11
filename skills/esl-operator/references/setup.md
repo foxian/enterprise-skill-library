@@ -46,7 +46,9 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 - **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `esl source upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `esl source upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
 
 ## 查看登录状态
-`esl account whoami`（快捷：`esl whoami`）—— 输出当前用户名 / Organization memberships（组织成员关系列表）/ Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。只读，可直接跑。状态不明时先跑它。
+`esl account whoami`（快捷：`esl whoami`）—— 输出当前用户名 / Email / Organization memberships（组织成员关系列表）/ Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。默认只读，可直接跑。状态不明时先跑它。展示的是**登录时记录的快照**：邮箱在密码登录时从服务器取回并存在本机，之后在网页上改了邮箱需重新登录才会刷新；`--token-file` 离线登录不取邮箱，同一账号重登保留原有邮箱与组织列表，换账号重登则清空（不显示 Email 行）。
+
+`--online` 旗标：向服务器核实账户资料（邮箱、组织隶属）并把结果写回本地快照，随后默认的离线 whoami 也反映最新值。它是**写命令**（更新本机配置），执行前按写命令规则先回显、等用户确认。用户改过邮箱/组织后想让本地立刻跟上，或只有 token 文件（无法用密码重登）时，提议它。未登录、服务器地址缺失、或请求失败（含 token 失效）时直接报错，不回退到本地旧值——避免把陈旧资料当成刚核实的结果。
 （全局身份模型：一条凭据走遍个人命名空间与所有所在组织，组织列表由服务端按 Git Backend 成员关系派生。旧版配置带 `org`/`role` 字段时输出一行重新登录提示。）
 
 ## 登录
@@ -55,7 +57,7 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 旗标：
 - `--username <name>`：指定用户名（仍会交互提示密码）
 - `--server <url>`：本次覆盖已配置地址（也可用环境变量 `ESL_SERVER`）
-- `--token-file <path>`：用用户 token 文件登录（离线，不换取身份；组织列表留空）
+- `--token-file <path>`：用用户 token 文件登录（离线，不换取身份；组织列表与邮箱不取新值，同一账号重登沿用本地已有值）
 - `--password-file <path>`：用密码文件登录（脚本 / CI）
 
 账号是全局的：注册后即拥有个人命名空间 `@用户名`，被拉入组织后同样一份凭据即可访问组织命名空间，无需按组织分别登录。平台管理员不通过 CLI 登录——打开管理后台（`http://<server>/admin/`），用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。

@@ -75,7 +75,7 @@ esl account login --server https://your-esl-server.example --username alice
 # 用密码文件登录
 esl account login --username alice --password-file ./pw.txt
 
-# 用用户 token 文件登录（离线换取身份；组织列表可能为空）
+# 用用户 token 文件登录（离线换取身份；不取新的组织列表与邮箱）
 esl account login --username alice --token-file ./user-token.txt
 ```
 
@@ -92,9 +92,20 @@ esl account login --username alice --token-file ./user-token.txt
 esl account whoami
 ```
 
-输出当前用户名、Organization memberships（组织成员关系列表）、Server、登录时间、
+输出当前用户名、Email、Organization memberships（组织成员关系列表）、Server、登录时间、
 过期时间与状态（`active` / `expired` / `Not logged in`）。若配置仍带旧版
-`org`/`role` 字段，会提示重新登录以迁移到全局身份。
+`org`/`role` 字段，会提示重新登录以迁移到全局身份。邮箱是登录时从服务器取回并存
+在本机的快照，之后在网页上改了邮箱需重新登录才会刷新；`--token-file` 离线登录不取
+新值——同一账号重登沿用本地已有的邮箱与组织列表，换账号重登则清空（不显示 Email 行）。
+
+要让本地快照立刻跟上服务器（在网页上改过邮箱或组织之后），用 `--online`：它联网核实
+邮箱与组织隶属，并把结果写回本机（写操作）：
+
+```powershell
+esl account whoami --online
+```
+
+未登录、服务器地址缺失或请求失败时直接报错，不会退回本地旧值。
 
 CLI 不支持在命令行明文传 token/密码。登录成功后 token 会写入用户目录下的
 凭据文件（仅所有者可读），不会写入 `config.json`。

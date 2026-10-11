@@ -60,6 +60,7 @@ export async function initializeLocalStore(options: LocalStoreOptions = {}): Pro
   await writeJsonIfMissing(paths.configJson, {
     server: null,
     username: null,
+    email: null,
     organizations: null,
     tools: []
   });
@@ -93,6 +94,12 @@ export interface ConfigIdentity {
 export interface EslConfig extends ConfigIdentity {
   server: string | null;
   username: string | null;
+  /**
+   * 登录时刻从服务端取回的用户邮箱快照（/api/account/profile）。不是凭据，
+   * 与 username 同级存放；改邮箱后需重新登录才会刷新。token-file 离线登录
+   * 拿不到，置为 null。存量账号的合成邮箱（user@local.esl）原样保存。
+   */
+  email?: string | null;
   /** 账户语言偏好（ADR-0044）；null 表示未主动选择。 */
   locale?: string | null;
   organizations: OrganizationMembership[] | null;
