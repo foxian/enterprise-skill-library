@@ -1,14 +1,15 @@
 <template>
   <div data-test="skill-manage-panel">
     <div class="console-toolbar">
-      <h2 class="panel-title">
-        <template v-if="panelIdentity">
-          {{ t('skill.manageTitle', { identity: panelIdentity }) }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
-        </template>
-        <template v-else>
-          {{ t('skill.manageTitlePrefix') }}<code class="skill-path">@{{ scope }}/{{ skillName }}</code>
-        </template>
-      </h2>
+      <div class="panel-identity">
+        <h2 class="panel-title">{{ t('skill.manageTitle', { identity: context?.displayName ?? skillName }) }}</h2>
+        <div class="panel-identity-meta">
+          <el-tag size="small" :type="isPersonalNamespace ? 'info' : 'primary'">
+            {{ t(isPersonalNamespace ? 'skill.namespaceTypePersonal' : 'skill.namespaceTypeOrganization') }}
+          </el-tag>
+          <code class="skill-path">@{{ scope }}/{{ skillName }}</code>
+        </div>
+      </div>
       <el-tag :type="stateTagType" data-test="share-state">{{ stateText }}</el-tag>
     </div>
 
@@ -434,14 +435,6 @@ async function findMember(): Promise<void> {
   } catch (error) { errorMessage.value = formatRequestError(error); }
 }
 
-// 面板标题（ADR-0048）：优先对外显示名，仅当与 Identity 短名不同时展示，避免重复。
-const panelIdentity = computed(() => {
-  if (context.value?.displayName && context.value.displayName !== props.skillName) {
-    return context.value.displayName;
-  }
-  return undefined;
-});
-
 const shareState = computed(() => deriveShareState(matrix.value));
 
 const stateText = computed(() => t(shareState.value.text));
@@ -732,7 +725,20 @@ onMounted(async () => {
   margin-top: 10px;
 }
 
+.panel-identity {
+  min-width: 0;
+}
+
+.panel-identity-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .panel-title {
+  overflow-wrap: anywhere;
   margin: 0;
   font-size: 16px;
   font-weight: 600;
@@ -742,8 +748,9 @@ onMounted(async () => {
 /* 技能标识符是技术坐标,用等宽字体呈现 */
 .skill-path {
   font-family: var(--font-family-mono);
-  font-size: 14px;
-  color: var(--celadon-600);
+  overflow-wrap: anywhere;
+  font-size: var(--fs-xs);
+  color: var(--el-text-color-secondary);
   background-color: var(--celadon-50);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
@@ -761,6 +768,8 @@ onMounted(async () => {
 }
 
 .skill-desc-row {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 14px;
   color: var(--el-text-color-primary);
 }

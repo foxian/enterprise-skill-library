@@ -575,3 +575,23 @@ body {
 .console-shell .el-aside .el-menu::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 技能描述预览保持可读宽度，悬停或聚焦可查看全文。 */
+.skill-description-tooltip {
+  max-width: min(480px, calc(100vw - 32px));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+@media (max-width: 600px) {
+  .skill-pagination {
+    justify-content: flex-start;
+  }
+}

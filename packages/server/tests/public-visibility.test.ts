@@ -125,7 +125,7 @@ describe('skill visibility', () => {
       headers: { authorization: 'token zoe-token' }
     });
     expect(inventory.json()).toEqual([
-      expect.objectContaining({ name: '@acme/tool', access: 'read', relation: 'shared' })
+      expect.objectContaining({ name: '@acme/tool', description: 'Org tool', access: 'read', relation: 'shared' })
     ]);
 
     const info = await app.inject({

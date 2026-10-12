@@ -896,6 +896,7 @@ describe('skill RBAC permissions', () => {
     expect(bobInventory.statusCode).toBe(200);
     const bobRows = bobInventory.json();
     expect(bobRows).toHaveLength(2);
+    expect(bobRows.find((row: { name: string }) => row.name === '@acme/reviewer').description).toBe('Reviewer skill');
     expect(bobRows.map((row: { name: string; access: string; relation: string }) => [row.name, row.access, row.relation]))
       .toEqual(expect.arrayContaining([
         ['@acme/secret', 'manage', 'managed'],
@@ -908,6 +909,7 @@ describe('skill RBAC permissions', () => {
       headers: { authorization: 'token alice-token' }
     });
     const aliceRows = aliceInventory.json();
+    expect(aliceRows.find((row: { name: string }) => row.name === '@acme/draft').description).toBe('Draft skill');
     // alice 是 reviewer/draft 的创建者(managed),对 secret 无任何授权,不可见
     expect(aliceRows).toHaveLength(2);
     expect(aliceRows.map((row: { name: string; access: string; relation: string }) => [row.name, row.access, row.relation]))

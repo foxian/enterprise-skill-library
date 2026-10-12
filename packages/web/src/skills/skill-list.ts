@@ -86,9 +86,10 @@ export interface SkillSummary extends SkillRecordView {
 // 角色化技能清单(ADR-0025):服务端按调用方身份过滤(含未发布技能)并标注关系——
 // managed=持有管理权,shared=可读/可写但无管理权。契约显式化(ADR-0064):只含
 // 服务端显式挑选的字段,没有 SkillRecord 的沉默透传;personalNamespace 驱动
-// 归属徽标与共享状态的空占位。
+// 归属徽标与共享状态的空占位。描述为清单显式字段，供各权限档预览。
 export interface SkillInventoryItem {
   name: string;
+  description?: string;
   displayName?: string;
   scope: string;
   skillName: string;

@@ -1,3 +1,4 @@
+import { ElPagination, ElSelect } from 'element-plus';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import SkillManagePanel from '../src/components/SkillManagePanel.vue';
@@ -237,6 +238,65 @@ describe('技能列表视图', () => {
     await filter.find('input').setValue('beta');
     await filter.find('input').trigger('keydown', { key: 'Enter' });
     await flushPromises();
+  });
+
+  it('超管名称回退、归属标识及命名空间筛选与清除', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return { status: 200, json: [
+          inventoryView(skills[0], { displayName: '代码审查', personalNamespace: false }),
+          inventoryView(skills[2], { personalNamespace: true })
+        ] };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SuperSkillsView, { account: 'platformAdmin', route: '/admin/super/skills' });
+    await flushPromises();
+
+    expect(wrapper.findAll('[data-test="skill-display-name"]').map((cell) => cell.text())).toEqual(['代码审查', 'tool']);
+    expect(wrapper.findAll('[data-test="scope-badge"]').map((cell) => cell.text())).toEqual(['组织', '个人']);
+    const select = wrapper.findComponent(ElSelect);
+    select.vm.$emit('update:modelValue', 'other');
+    await flushPromises();
+    expect(wrapper.find('[data-test="super-skills-table"]').text()).toContain('@other/tool');
+    expect(wrapper.find('[data-test="super-skills-table"]').text()).not.toContain('@acme/reviewer');
+    select.vm.$emit('update:modelValue', 'missing');
+    await flushPromises();
+    expect(wrapper.find('[data-test="super-skills-table"]').text()).toContain('该命名空间下暂无技能');
+    select.vm.$emit('update:modelValue', '');
+    await flushPromises();
+    expect(wrapper.find('[data-test="super-skills-table"]').text()).toContain('@acme/reviewer');
+  });
+
+  it.each([
+    [SuperSkillsView, 'platformAdmin', '/admin/super/skills', 'super-skills-table'],
+    [SkillListView, 'member', '/admin/me/skills', 'skill-list-managed']
+  ] as const)('技能列表分页、切换页大小和筛选重置（%s）', async (view, account, route, tableId) => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') return { status: 200, json: Array.from({ length: 45 }, (_, i) => ({
+        name: '@acme/item-' + i, scope: 'acme', skillName: 'item-' + i,
+        createdBy: 'alice', personalNamespace: false, relation: 'managed', access: 'manage'
+      })) };
+      return { status: 200, json: matrixFor('reviewer') };
+    });
+    wrapper = await mountConsoleView(view, { account, route });
+    await flushPromises();
+    const table = () => wrapper!.find('[data-test="' + tableId + '"]');
+    const pager = wrapper.findComponent(ElPagination);
+    expect(pager.props('total')).toBe(45);
+    expect(table().findAll('[data-test="skill-display-name"]')).toHaveLength(20);
+    pager.vm.$emit('update:current-page', 3);
+    await flushPromises();
+    expect(table().findAll('[data-test="skill-display-name"]')).toHaveLength(5);
+    expect(table().text()).toContain('@acme/item-40');
+    wrapper.findComponent(ElSelect).vm.$emit('update:modelValue', 'acme');
+    await flushPromises();
+    expect(pager.props('currentPage')).toBe(1);
+    pager.vm.$emit('update:current-page', 2);
+    pager.vm.$emit('update:page-size', 50);
+    await flushPromises();
+    expect(pager.props('currentPage')).toBe(1);
+    expect(table().findAll('[data-test="skill-display-name"]')).toHaveLength(45);
   });
 
   it('超管可见跨组织技能总览（含未发布）', async () => {

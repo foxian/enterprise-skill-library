@@ -19,24 +19,10 @@
       </div>
       <el-tabs v-model="activeTab">
         <el-tab-pane :label="t('skill.managedTab')" name="managed">
-          <el-table :data="visibleManagedRows" data-test="skill-list-managed" v-loading="loading">
+          <el-table :data="pagedManagedRows" data-test="skill-list-managed" v-loading="loading">
             <el-table-column :label="t('skill.name')" min-width="240">
               <template #default="{ row }">
-                <div class="skill-name-cell">
-                  <!-- 归属徽标(A6/ADR-0064):个人/组织;锁定视图(组织详情页签)
-                       的技能必然是组织技能,徽标是噪音,不显示 -->
-                  <el-tag
-                    v-if="!lockedNamespace"
-                    size="small"
-                    :type="row.personalNamespace ? 'info' : 'primary'"
-                    data-test="scope-badge"
-                  >
-                    {{ t(row.personalNamespace ? 'skill.namespaceTypePersonal' : 'skill.namespaceTypeOrganization') }}
-                  </el-tag>
-                  <span class="skill-title" data-test="skill-display-name">{{ row.displayName ?? row.skillName }}</span>
-                  <!-- 全名(A6)只在此出现一次,小字辅引用/CLI 操作 -->
-                  <code class="skill-path">{{ row.name }}</code>
-                </div>
+                <SkillIdentity :skill="row" :show-namespace-badge="!lockedNamespace" />
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
@@ -65,21 +51,10 @@
           </el-table>
         </el-tab-pane>
         <el-tab-pane :label="t('skill.sharedTab')" name="shared">
-          <el-table :data="visibleSharedRows" data-test="skill-list-shared" v-loading="loading">
+          <el-table :data="pagedSharedRows" data-test="skill-list-shared" v-loading="loading">
             <el-table-column :label="t('skill.name')" min-width="240">
               <template #default="{ row }">
-                <div class="skill-name-cell">
-                  <el-tag
-                    v-if="!lockedNamespace"
-                    size="small"
-                    :type="row.personalNamespace ? 'info' : 'primary'"
-                    data-test="scope-badge"
-                  >
-                    {{ t(row.personalNamespace ? 'skill.namespaceTypePersonal' : 'skill.namespaceTypeOrganization') }}
-                  </el-tag>
-                  <span class="skill-title" data-test="skill-display-name">{{ row.displayName ?? row.skillName }}</span>
-                  <code class="skill-path">{{ row.name }}</code>
-                </div>
+                <SkillIdentity :skill="row" :show-namespace-badge="!lockedNamespace" />
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
@@ -94,12 +69,25 @@
           </el-table>
         </el-tab-pane>
       </el-tabs>
+      <div class="skill-pagination">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :total="activeTab === 'managed' ? visibleManagedRows.length : visibleSharedRows.length"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          :disabled="loading"
+          data-test="skill-pagination"
+        />
+      </div>
+
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
+import SkillIdentity from '../../components/SkillIdentity.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
@@ -157,6 +145,12 @@ const visibleSharedRows = computed(() =>
   namespaceFilter.value ? sharedRows.value.filter((row) => row.scope === namespaceFilter.value) : sharedRows.value
 );
 
+const currentPage = ref(1);
+const pageSize = ref(20);
+const pagedManagedRows = computed(() => visibleManagedRows.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value));
+const pagedSharedRows = computed(() => visibleSharedRows.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value));
+watch([namespaceFilter, activeTab, pageSize], () => { currentPage.value = 1; });
+
 function openPermissions(scope: string, skillName: string): void {
   void router.push({
     name: 'me-skill-manage',
@@ -197,18 +191,6 @@ onMounted(async () => {
 <style scoped>
 .page-error {
   margin-top: 16px;
-}
-
-/* A6 名称列:主标题为主行,归属徽标与其同行,全名小字随后 */
-.skill-name-cell {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.skill-title {
-  font-weight: 600;
 }
 
 .share-empty {

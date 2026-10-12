@@ -1,14 +1,26 @@
 <template>
   <div>
     <el-card class="data-card" shadow="never">
-      <el-table :data="rows" data-test="super-skills-table" v-loading="loading">
-        <el-table-column :label="t('skill.name')">
+      <div class="console-toolbar skill-overview-toolbar">
+        <span class="toolbar-caption">{{ t('skill.platformSkills') }}</span>
+        <el-select
+          v-model="namespaceFilter"
+          data-test="namespace-filter"
+          :placeholder="t('skill.namespacePlaceholder')"
+          :aria-label="t('skill.namespacePlaceholder')"
+          clearable
+          filterable
+          class="namespace-filter"
+        >
+          <el-option v-for="scope in namespaces" :key="scope" :label="`@${scope}`" :value="scope" />
+        </el-select>
+      </div>
+      <el-table :data="pagedRows" data-test="super-skills-table" v-loading="loading">
+        <el-table-column :label="t('skill.name')" min-width="240">
           <template #default="{ row }">
-            <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
-            <code class="skill-path">{{ row.name }}</code>
+            <SkillIdentity :skill="row" />
           </template>
         </el-table-column>
-        <el-table-column prop="scope" :label="t('columns.organization')" width="140" />
         <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
         <el-table-column :label="t('columns.status')" width="100">
           <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
@@ -25,14 +37,29 @@
             </el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <span v-if="!loading && !errorMessage">{{ t(namespaceFilter ? 'skill.noNamespaceSkills' : 'skill.noPlatformSkills') }}</span>
+        </template>
       </el-table>
+      <div class="skill-pagination">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :total="visibleRows.length"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          :disabled="loading"
+          data-test="skill-pagination"
+        />
+      </div>
       <el-alert v-if="errorMessage" type="error" :title="errorMessage" :closable="false" class="page-error" />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import SkillIdentity from '../../components/SkillIdentity.vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { loadSkillInventorySummaries, statusText, type SkillInventoryItem } from '../../skills/skill-list';
@@ -42,6 +69,15 @@ const { t } = useLocaleState();
 const router = useRouter();
 
 const rows = ref<SkillInventoryItem[]>([]);
+const namespaceFilter = ref('');
+const namespaces = computed(() => [...new Set(rows.value.map((row) => row.scope))].sort());
+const visibleRows = computed(() => namespaceFilter.value
+  ? rows.value.filter((row) => row.scope === namespaceFilter.value)
+  : rows.value);
+const currentPage = ref(1);
+const pageSize = ref(20);
+const pagedRows = computed(() => visibleRows.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value));
+watch([namespaceFilter, pageSize], () => { currentPage.value = 1; });
 const loading = ref(false);
 const errorMessage = ref('');
 
@@ -67,6 +103,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.namespace-filter {
+  width: 220px;
+}
+
+.skill-overview-toolbar {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+  .namespace-filter {
+    width: 100%;
+  }
+}
+
 .page-error {
   margin-top: 16px;
 }

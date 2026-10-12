@@ -361,7 +361,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
     // ADR-0064 契约显式化:不再 SkillRecord 全字段展开,只返回列表需要的字段,
-    // 杜绝 description/owner 等字段的「沉默透传」;scope/skillName 保留结构化
+    // 描述供技能信息列预览，显式返回；owner 等字段仍不透传。scope/skillName 保留结构化
     // 冗余,客户端不解析 name 字符串。personalNamespace 驱动列表的归属徽标与
     // 共享状态的空占位(A6 决策)。
     const view: Array<{
@@ -369,6 +369,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       scope: string;
       skillName: string;
       displayName: string | null;
+      description: string;
       createdBy: string;
       status?: string;
       personalNamespace: boolean;
@@ -383,6 +384,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         scope: skill.scope,
         skillName: skill.skillName,
         displayName: resolveSkillDisplayName(repository, skill),
+        description: skill.description,
         createdBy: skill.createdBy,
         status: skill.status,
         personalNamespace: !isOrgNamespace(skill.scope),

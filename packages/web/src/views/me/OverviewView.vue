@@ -47,15 +47,11 @@
         </div>
       </template>
       <el-empty v-if="!loading && managedSkills.length === 0" :description="t('overview.noManagedSkills')" />
-      <el-table v-else :data="managedSkills" data-test="overview-managed-skills" v-loading="loading">
-        <el-table-column :label="t('skill.name')">
+      <el-table v-else :data="managedSkills.slice(0, 5)" data-test="overview-managed-skills" v-loading="loading">
+        <el-table-column :label="t('skill.name')" min-width="240">
           <template #default="{ row }">
-            <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
-            <code class="skill-path">{{ row.name }}</code>
+            <SkillIdentity :skill="row" />
           </template>
-        </el-table-column>
-        <el-table-column :label="t('columns.namespace')" width="160">
-          <template #default="{ row }">@{{ row.scope }}</template>
         </el-table-column>
         <el-table-column :label="t('columns.actions')" width="120">
           <template #default="{ row }">
@@ -117,6 +113,7 @@
 </template>
 
 <script setup lang="ts">
+import SkillIdentity from '../../components/SkillIdentity.vue';
 import { computed, onMounted, ref } from 'vue';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';

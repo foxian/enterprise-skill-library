@@ -15,7 +15,7 @@
 2. **个人命名空间收到组织级授权动作时服务端显式拒绝**，返回语义错误码
    `personalNamespaceNoOrgSharing`，不再以"团队未找到"的 404 兜底。
 3. **inventory 契约显式化**：响应只返回显式挑选的字段
-   （`name / scope / skillName / displayName / createdBy / status / access /
+   （`name / scope / skillName / displayName / description / createdBy / status / access /
    relation`），不再展开 `SkillRecord`。保留 `scope` 与 `skillName` 的结构化
    冗余，前端不解析 `name` 字符串。
 
@@ -32,3 +32,10 @@
   准确的"共享状态"；归属（个人/组织）以徽标并入技能名称列，不再单设命名空间列。
 - 前端 web 测试与服务端 rbac-permissions、public-visibility、display-name
   测试按新契约同步收紧。
+
+## 技能描述预览补充（2026-10-12）
+
+技能清单显式返回 `description`，供超管、个人、组织及个人概览中的技能列表
+统一预览；可见性与权限过滤沿用原规则。名称列按“显示名（缺失时短名）→
+最多两行描述→归属徽标与完整标识”展示，描述不按固定字符数截取，悬停或
+键盘聚焦可查看全文。组织锁定列表省略归属徽标，管理详情页展示完整描述。
