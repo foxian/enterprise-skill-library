@@ -52,6 +52,8 @@ export interface DeleteContext {
 export type SkillAccessLevel = 'read' | 'write' | 'manage';
 
 export type PermissionsResponse = PermissionMatrix & {
+  /** 归属(A6/ADR-0064):true 时面板隐藏全组织授权与团队授权卡,个人技能只有协作者授权。 */
+  personalNamespace?: boolean;
   skill?: SkillContext;
   viewerAccess?: SkillAccessLevel;
   viewerLifecycle?: ViewerLifecycle;
@@ -82,16 +84,17 @@ export interface SkillSummary extends SkillRecordView {
 }
 
 // 角色化技能清单(ADR-0025):服务端按调用方身份过滤(含未发布技能)并标注关系——
-// managed=持有管理权,shared=可读/可写但无管理权。
+// managed=持有管理权,shared=可读/可写但无管理权。契约显式化(ADR-0064):只含
+// 服务端显式挑选的字段,没有 SkillRecord 的沉默透传;personalNamespace 驱动
+// 归属徽标与共享状态的空占位。
 export interface SkillInventoryItem {
   name: string;
   displayName?: string;
   scope: string;
   skillName: string;
-  description?: string;
   createdBy: string;
-  owner: string;
   status?: string;
+  personalNamespace: boolean;
   access: 'read' | 'write' | 'manage';
   relation: 'managed' | 'shared';
 }

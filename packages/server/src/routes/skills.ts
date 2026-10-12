@@ -49,6 +49,16 @@ export interface SkillsRouteOptions {
   packageRoot?: string;
 }
 
+// ADR-0064:依赖 Gitea Organization 团队的技能授权动作。个人命名空间(技能的
+// git 仓库属主是一名 Skill User)没有组织团队,对这些动作显式拒绝。
+const ORG_LEVEL_PERMISSION_ACTIONS = new Set([
+  'share_all_read',
+  'share_all_write',
+  'share_all_manage',
+  'set_team',
+  'remove_team'
+]);
+
 // 技能生命周期的关键状态变化事件（ADR-0045）。resourceId 优先用 Skill ID——
 // 它在 Skill Rename 后仍然稳定，比可变的名字更适合做检索键；errorCode 与响应
 // 体里的 API Error Code 对齐，便于把客户端看到的拒绝与服务端日志关联。
@@ -111,6 +121,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
   const canRestoreSkill = canDeleteWholeSkill;
 
+  // ADR-0064:组织级授权(全组织档位与技能团队授权)只对活跃租户组织存在。
+  // 个人命名空间没有租户记录;已删除/删除中的组织不再治理。冻结中的组织仍属
+  // 活跃租户,团队授权照常(平台管理员治理可见性由 preHandler 单独放宽)。
+  const isOrgNamespace = (scope: string): boolean =>
+    tenantOrganizationRepository.get(scope)?.status === 'active';
+
   // 权限矩阵的响应体;读路径(GET)与变更路径(POST)共用同一形状——客户端用响应整体
   // 替换本地状态,两个路由少一个字段就会让界面状态退化(变更后控件集体失效)。
   const buildPermissionsResponse = async (
@@ -124,6 +140,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       skillTeamGrantRepository,
       skill
     )),
+    // 归属(A6/ADR-0064):面板据隐藏全组织授权与团队授权卡;个人技能只有协作者授权
+    personalNamespace: !isOrgNamespace(skill.scope),
     skill: buildSkillContext(repository, skill),
     // 查看者自己的权限档:与变更守门、技能列表的 access 用同一套判定(getAccessLevel),
     // 前端据此决定变更类控件是否可用,避免「点了才知道 403」。
@@ -342,13 +360,32 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user) {
       return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
-    const view: Array<SkillRecord & { access: SkillAccessLevel; relation: 'managed' | 'shared' }> = [];
+    // ADR-0064 契约显式化:不再 SkillRecord 全字段展开,只返回列表需要的字段,
+    // 杜绝 description/owner 等字段的「沉默透传」;scope/skillName 保留结构化
+    // 冗余,客户端不解析 name 字符串。personalNamespace 驱动列表的归属徽标与
+    // 共享状态的空占位(A6 决策)。
+    const view: Array<{
+      name: string;
+      scope: string;
+      skillName: string;
+      displayName: string | null;
+      createdBy: string;
+      status?: string;
+      personalNamespace: boolean;
+      access: SkillAccessLevel;
+      relation: 'managed' | 'shared';
+    }> = [];
     for (const skill of repository.listSkills()) {
       const access = await getAccessLevel(giteaService, skill, user.username);
       if (access === 'none') continue;
       view.push({
-        ...skill,
+        name: skill.name,
+        scope: skill.scope,
+        skillName: skill.skillName,
         displayName: resolveSkillDisplayName(repository, skill),
+        createdBy: skill.createdBy,
+        status: skill.status,
+        personalNamespace: !isOrgNamespace(skill.scope),
         access,
         relation: access === 'manage' ? 'managed' : 'shared'
       });
@@ -475,6 +512,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       username?: string;
       permission?: string;
     };
+    // ADR-0064:组织级授权动作先于参数校验显式拒绝,不再落进 listTeams 的
+    // defaultTeamNotFound 404——错误语义是「此处没有组织」,而非「团队未配置」。
+    if (ORG_LEVEL_PERMISSION_ACTIONS.has(body.action ?? '') && !isOrgNamespace(skill.scope)) {
+      return reply.status(409).send(apiError('personalNamespaceNoOrgSharing'));
+    }
     const repo = skillRepo(skill);
     // 路由侧做无副作用的参数与目标校验,实际的 Gitea 变更同步执行
     // (ADR-0032:Operation 机器退役);Gitea 始终是权限的事实来源。

@@ -20,27 +20,34 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane :label="t('skill.managedTab')" name="managed">
           <el-table :data="visibleManagedRows" data-test="skill-list-managed" v-loading="loading">
-            <el-table-column :label="t('skill.name')">
+            <el-table-column :label="t('skill.name')" min-width="240">
               <template #default="{ row }">
-                <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
-                <code class="skill-path">{{ row.name }}</code>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('columns.namespace')" width="140">
-              <template #default="{ row }">@{{ row.scope }}</template>
-            </el-table-column>
-            <el-table-column :label="t('columns.ownerRelation')" width="120">
-              <template #default>
-                <el-tag type="primary" data-test="relation-managed">{{ t('skill.managedTab') }}</el-tag>
+                <div class="skill-name-cell">
+                  <!-- 归属徽标(A6/ADR-0064):个人/组织;锁定视图(组织详情页签)
+                       的技能必然是组织技能,徽标是噪音,不显示 -->
+                  <el-tag
+                    v-if="!lockedNamespace"
+                    size="small"
+                    :type="row.personalNamespace ? 'info' : 'primary'"
+                    data-test="scope-badge"
+                  >
+                    {{ t(row.personalNamespace ? 'skill.namespaceTypePersonal' : 'skill.namespaceTypeOrganization') }}
+                  </el-tag>
+                  <span class="skill-title" data-test="skill-display-name">{{ row.displayName ?? row.skillName }}</span>
+                  <!-- 全名(A6)只在此出现一次,小字辅引用/CLI 操作 -->
+                  <code class="skill-path">{{ row.name }}</code>
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
             <el-table-column :label="t('columns.status')" width="100">
               <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
             </el-table-column>
-            <el-table-column :label="t('skill.orgWideAuthorization')" width="140">
+            <el-table-column :label="t('columns.shareState')" width="140">
               <template #default="{ row }">
-                <el-tag :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ t(row.state.text) }}</el-tag>
+                <!-- ADR-0064:组织级共享只对组织技能存在;个人技能该格留空占位 -->
+                <span v-if="row.personalNamespace" class="share-empty">-</span>
+                <el-tag v-else :type="row.state.tagType" :data-test="`skill-state-${row.skillName}`">{{ t(row.state.text) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('columns.actions')" width="140">
@@ -59,18 +66,20 @@
         </el-tab-pane>
         <el-tab-pane :label="t('skill.sharedTab')" name="shared">
           <el-table :data="visibleSharedRows" data-test="skill-list-shared" v-loading="loading">
-            <el-table-column :label="t('skill.name')">
+            <el-table-column :label="t('skill.name')" min-width="240">
               <template #default="{ row }">
-                <span v-if="row.displayName" data-test="skill-display-name">{{ row.displayName }}</span>
-                <code class="skill-path">{{ row.name }}</code>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('columns.namespace')" width="140">
-              <template #default="{ row }">@{{ row.scope }}</template>
-            </el-table-column>
-            <el-table-column :label="t('columns.ownerRelation')" width="120">
-              <template #default>
-                <el-tag type="info" data-test="relation-shared">{{ t('skill.sharedTab') }}</el-tag>
+                <div class="skill-name-cell">
+                  <el-tag
+                    v-if="!lockedNamespace"
+                    size="small"
+                    :type="row.personalNamespace ? 'info' : 'primary'"
+                    data-test="scope-badge"
+                  >
+                    {{ t(row.personalNamespace ? 'skill.namespaceTypePersonal' : 'skill.namespaceTypeOrganization') }}
+                  </el-tag>
+                  <span class="skill-title" data-test="skill-display-name">{{ row.displayName ?? row.skillName }}</span>
+                  <code class="skill-path">{{ row.name }}</code>
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
@@ -188,5 +197,21 @@ onMounted(async () => {
 <style scoped>
 .page-error {
   margin-top: 16px;
+}
+
+/* A6 名称列:主标题为主行,归属徽标与其同行,全名小字随后 */
+.skill-name-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.skill-title {
+  font-weight: 600;
+}
+
+.share-empty {
+  color: var(--el-text-color-secondary);
 }
 </style>

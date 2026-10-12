@@ -134,8 +134,8 @@ const zhCN: TranslationTree = {
     notes: '发布说明',
     sourceCommit: '来源 commit',
     publisher: '发布人',
-    ownerRelation: '归属关系',
-    myPermission: '我的权限'
+    myPermission: '我的权限',
+    shareState: '共享状态'
   },
   actions: {
     approve: '批准',
@@ -360,6 +360,8 @@ const zhCN: TranslationTree = {
     createdByUser: '创建者：{{name}}',
     currentAuthorization: '当前授权',
     orgWideAuthorization: '全组织授权',
+    namespaceTypePersonal: '个人',
+    namespaceTypeOrganization: '组织',
     allManage: '技能管理团队可管理',
     allWrite: '读写团队可读写',
     allRead: '只读团队可读',
@@ -590,8 +592,8 @@ const enUS: TranslationTree = {
     notes: 'Release notes',
     sourceCommit: 'Source commit',
     publisher: 'Publisher',
-    ownerRelation: 'Relationship',
-    myPermission: 'My permission'
+    myPermission: 'My permission',
+    shareState: 'Share state'
   },
   actions: {
     approve: 'Approve',
@@ -816,6 +818,8 @@ const enUS: TranslationTree = {
     createdByUser: 'Created by {{name}}',
     currentAuthorization: 'Current authorization',
     orgWideAuthorization: 'Organization-wide authorization',
+    namespaceTypePersonal: 'Personal',
+    namespaceTypeOrganization: 'Organization',
     allManage: 'Manage teams can manage',
     allWrite: 'Read-write teams can read and write',
     allRead: 'Read-only teams can read',

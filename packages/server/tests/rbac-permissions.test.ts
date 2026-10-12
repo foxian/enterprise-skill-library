@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { initDatabase, SkillRepository } from '../src/db/database.js';
+import { initDatabase, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
 
 const orgTeams = [
   { id: 1, name: 'Owners', permission: 'owner' },
@@ -151,6 +151,9 @@ describe('skill RBAC permissions', () => {
         createdBy: 'alice'
       });
     }
+    // ADR-0064:组织级授权只对活跃租户组织存在;夹具里 acme 是组织命名空间,
+    // 需要登记租户,否则权限路由按"命名空间没有组织"显式拒绝。
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'active' });
     db.close();
   });
 
@@ -178,6 +181,8 @@ describe('skill RBAC permissions', () => {
       sharedAllManage: false,
       teams: [],
       members: [{ username: 'acme_alice', permission: 'write' }],
+      // ADR-0064:acme 是活跃租户组织,非个人命名空间
+      personalNamespace: false,
       skill: {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
@@ -225,6 +230,8 @@ describe('skill RBAC permissions', () => {
       sharedAllManage: true,
       teams: [],
       members: [{ username: 'acme_alice', permission: 'write' }],
+      // ADR-0064:acme 是活跃租户组织,非个人命名空间
+      personalNamespace: false,
       skill: {
         name: '@acme/reviewer',
         description: 'Reviewer skill',
@@ -289,6 +296,58 @@ describe('skill RBAC permissions', () => {
     expect(mockGitea.addTeamRepo).toHaveBeenCalledWith(4, 'acme', 'reviewer');
     // 组织共享级别互斥:设置更高级别自动卸载低级别全员团队挂载(ADR-0026)
     expect(mockGitea.removeTeamRepo).toHaveBeenCalledWith(2, 'acme', 'reviewer');
+  });
+
+  it('explicitly rejects org-level permission actions on a personal namespace skill', async () => {
+    // ADR-0064:个人命名空间的授权面只有成员(协作者)授权;组织级动作显式拒绝,
+    // 不再以 defaultTeamNotFound 404 误导为「团队未配置」。
+    const db = initDatabase(dbPath);
+    const repository = new SkillRepository(db);
+    // 个人技能:命名空间就是调用者用户名(acme_bob),owner 也是本人 → 持有管理权
+    repository.createServerSkill({
+      name: '@acme_bob/notes',
+      scope: 'acme_bob',
+      skillName: 'notes',
+      description: 'Personal skill',
+      createdBy: 'acme_bob',
+      owner: 'acme_bob',
+      maintainers: ['acme_bob'],
+      visibility: 'private',
+      gitRepoPath: 'acme_bob/notes',
+      status: 'active-unreleased'
+    });
+    db.close();
+    const mockGitea = createRbacGitea();
+    app = await buildApp({ dbPath, giteaService: mockGitea as any, repoOwner: 'esl-skills' });
+
+    const shared = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme_bob/notes/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'share_all_read' }
+    });
+    expect(shared.statusCode).toBe(409);
+    expect(shared.json().code).toBe('personalNamespaceNoOrgSharing');
+
+    const teams = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme_bob/notes/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'set_team', team: 'frontend', permission: 'write' }
+    });
+    expect(teams.statusCode).toBe(409);
+    expect(teams.json().code).toBe('personalNamespaceNoOrgSharing');
+    // 个人技能的成员(协作者)授权不受影响
+    const members = await app.inject({
+      method: 'POST',
+      url: '/api/skills/acme_bob/notes/permissions',
+      headers: { authorization: 'token bob-token' },
+      payload: { action: 'add_member', username: 'acme_bob', permission: 'read' }
+    });
+    expect(members.statusCode).toBe(200);
+    expect(members.json().members).toEqual([
+      { username: 'acme_bob', permission: 'read' }
+    ]);
   });
 
   it('share_all_write drops the all-readers mount when moving up a level', async () => {

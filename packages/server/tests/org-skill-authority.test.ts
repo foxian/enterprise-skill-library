@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { initDatabase, SkillRepository } from '../src/db/database.js';
+import { initDatabase, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
 // 技能授权目标语义（ADR-0032 / #57）：新技能默认 private、组织成员默认零权限、
@@ -59,6 +59,8 @@ describe('org skill authority', () => {
       gitRepoPath: 'acme/tool',
       status: 'active-unreleased'
     });
+    // ADR-0064:组织级授权要求活跃租户组织;夹具登记 acme
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'active' });
     db.close();
     app = await buildApp({ dbPath, giteaService: gitea as any, repoOwner: 'esl-skills' });
     gitea.validateToken.mockImplementation(async (token: string) => {

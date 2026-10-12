@@ -187,7 +187,7 @@
       </el-space>
     </el-card>
 
-    <el-card class="section-card" data-test="org-wide-authorization-card">
+    <el-card v-if="!isPersonalNamespace" class="section-card" data-test="org-wide-authorization-card">
       <template #header>{{ t('skill.orgWideAuthorization') }}</template>
       <el-radio-group
         :model-value="shareLevel"
@@ -203,7 +203,7 @@
     </el-card>
 
     <el-row :gutter="16">
-      <el-col :span="12">
+      <el-col v-if="!isPersonalNamespace" :span="12">
         <el-card class="section-card">
           <template #header>{{ t('skill.teamAuthorizationTitle') }}</template>
           <div class="grant-row">
@@ -366,6 +366,10 @@ const deleteConfirm = ref('');
 const viewerAccess = ref<PermissionsResponse['viewerAccess']>(undefined);
 const canManage = computed(() => viewerAccess.value === 'manage');
 const canArchive = computed(() => lifecycle.value?.canArchive ?? canManage.value);
+// ADR-0064:服务端按 skill 的命名空间归属判个人技能;旧服务端不带该字段时视为
+// 组织技能,保持向后兼容的默认展示。
+const personalNamespace = ref<boolean>(false);
+const isPersonalNamespace = computed(() => personalNamespace.value);
 const errorMessage = ref('');
 
 const selectedTeam = ref('');
@@ -481,11 +485,12 @@ async function loadMatrix(): Promise<void> {
 // permissions 响应携带只读技能上下文与查看者权限档,统一在此拆分:矩阵进 matrix,
 // skill 块进 context,viewerAccess 单独存——它描述的是「我是谁」,不是矩阵内容。
 function assignPermissionsResponse(response: PermissionsResponse): void {
-  const { skill, viewerAccess: accessLevel, ...matrixResponse } = response;
+  const { skill, viewerAccess: accessLevel, personalNamespace: isPersonal, ...matrixResponse } = response;
   context.value = skill;
   viewerAccess.value = accessLevel;
   lifecycle.value = response.viewerLifecycle;
   matrix.value = matrixResponse;
+  personalNamespace.value = isPersonal === true;
   // 可见性随技能记录一并下发（public/private）
   visibility.value = skill?.visibility ?? 'private';
 }

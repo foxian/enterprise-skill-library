@@ -125,6 +125,8 @@ describe('Fastify Server API', () => {
       sharedAllManage: false,
       teams: [],
       members: [],
+      // ADR-0064:scope 'foxian' 无租户记录 → 个人命名空间
+      personalNamespace: true,
       skill: {
         name: '@foxian/ghost-skill',
         description: 'orphan',

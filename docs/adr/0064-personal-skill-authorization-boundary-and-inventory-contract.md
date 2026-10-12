@@ -1,0 +1,34 @@
+# 个人技能授权边界与技能清单契约收敛
+
+## 背景
+
+个人命名空间技能在管理面板曾无条件渲染"全组织授权"与"团队授权"控件（个人
+命名空间不属于任何组织，这两个概念本身不适配），服务端依赖 `listTeams` 找不到
+团队时的 404 兜底，错误信息误导用户。同时 `GET /api/skills/inventory` 直接展开
+`SkillRecord` 返回，`description`、`owner` 等字段长期零消费并沉默透传。
+
+## 决策
+
+1. **个人技能的授权面只有成员（协作者）授权。** 全组织授权档位
+   （private/全员只读/全员读写/全员管理）与技能团队授权只适用于组织技能；管理
+   面板按 scope 隐藏这两张卡片。
+2. **个人命名空间收到组织级授权动作时服务端显式拒绝**，返回语义错误码
+   `personalNamespaceNoOrgSharing`，不再以"团队未找到"的 404 兜底。
+3. **inventory 契约显式化**：响应只返回显式挑选的字段
+   （`name / scope / skillName / displayName / createdBy / status / access /
+   relation`），不再展开 `SkillRecord`。保留 `scope` 与 `skillName` 的结构化
+   冗余，前端不解析 `name` 字符串。
+
+## Considered Options
+
+- 保留授权控件但全部禁用：视觉噪音依旧，且暗示功能存在，放弃。
+- 个人技能完全私密、不支持任何授权：与 ADR-0062 的成员授权模型冲突，放弃。
+- 服务端仅收窄前端类型、保持 `...skill` 展开：会延续对 `SkillRecord` 未来字段
+  的沉默透传，放弃显式字段清单以外的中间态。
+
+## Consequences
+
+- 技能清单"共享状态"列对个人技能显示空占位（"-"），列头由"全组织授权"改为
+  准确的"共享状态"；归属（个人/组织）以徽标并入技能名称列，不再单设命名空间列。
+- 前端 web 测试与服务端 rbac-permissions、public-visibility、display-name
+  测试按新契约同步收紧。

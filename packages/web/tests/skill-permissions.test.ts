@@ -33,6 +33,13 @@ const skills = [
   }
 ];
 
+// ADR-0064 inventory 契约:owner 不在清单响应里(只有 createdBy);skills 常量
+// 里的 owner 仅供 matrixFor 推导协作者成员,不透传给列表视图。
+function inventoryView(skill: (typeof skills)[number], extra: Record<string, unknown> = {}) {
+  const { owner: _owner, ...rest } = skill;
+  return { ...rest, ...extra };
+}
+
 function matrixFor(skillName: string, overrides: Record<string, unknown> = {}) {
   const owner = skills.find((skill) => skill.skillName === skillName)?.owner ?? '';
   return {
@@ -65,8 +72,8 @@ describe('技能列表视图', () => {
         return {
           status: 200,
           json: [
-            { ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' },
-            { ...skills[1], status: 'active-unreleased', access: 'manage', relation: 'managed' }
+            inventoryView(skills[0], { status: 'active-published', access: 'manage', relation: 'managed' }),
+            inventoryView(skills[1], { status: 'active-unreleased', access: 'manage', relation: 'managed' })
           ]
         };
       }
@@ -91,20 +98,45 @@ describe('技能列表视图', () => {
     expect(table).toContain('未发布');
     expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
     expect(wrapper.find('[data-test="skill-state-secret"]').text()).toBe('仅创建者');
+    // 锁定视图:技能必然是组织技能,归属徽标是噪音(A6),不显示
+    expect(wrapper.find('[data-test="scope-badge"]').exists()).toBe(false);
     // 锁定视图不出筛选器：范围由路由决定，不是可变的展示筛选
     expect(wrapper.find('[data-test="namespace-filter"]').exists()).toBe(false);
   });
 
-  it('技能列表列标题用「全组织授权」，与列内容的组织共享档位同名', async () => {
+  it('技能清单的共享状态列:列头用「共享状态」,个人技能留空占位', async () => {
     useApiMock((_method, url) => {
       if (url === '/api/skills/inventory') {
         return {
           status: 200,
-          json: [{ ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' }]
+          json: [
+            // 组织技能:显示共享档位 Tag
+            inventoryView(skills[0], {
+              status: 'active-published',
+              personalNamespace: false,
+              access: 'manage',
+              relation: 'managed'
+            }),
+            // 个人技能:归属徽标"个人",共享状态格为 "-",不渲染档位 Tag
+            {
+              name: '@bob/my-skill',
+              scope: 'bob',
+              skillName: 'my-skill',
+              displayName: '我的技能',
+              createdBy: 'bob',
+              status: 'active-published',
+              personalNamespace: true,
+              access: 'manage',
+              relation: 'managed'
+            }
+          ]
         };
       }
       if (url === '/api/skills/acme/reviewer/permissions') {
         return { status: 200, json: matrixFor('reviewer', { sharedAllRead: true }) };
+      }
+      if (url === '/api/skills/bob/my-skill/permissions') {
+        return { status: 200, json: matrixFor('my-skill', { scope: 'bob', members: [{ username: 'bob', permission: 'write' }] }) };
       }
       return { status: 200, json: [] };
     });
@@ -112,10 +144,21 @@ describe('技能列表视图', () => {
     await flushPromises();
 
     const headers = wrapper.findAll('[data-test="skill-list-managed"] th').map((header) => header.text());
-    expect(headers).toContain('全组织授权');
-    // 该列渲染的是组织共享档位，不是 public/private 可见性，列名不冒用「可见性」
+    // 该列渲染的是组织共享档位,列头用「共享状态」;不是 public/private 可见性
+    expect(headers).toContain('共享状态');
     expect(headers).not.toContain('可见性');
-    expect(headers).not.toContain('共享状态');
+    expect(headers).not.toContain('全组织授权');
+
+    // 归属徽标:组织技能"组织",个人技能"个人",同一名称列(命名空间列已并入,不单设)
+    const badges = wrapper.findAll('[data-test="scope-badge"]').map((badge) => badge.text());
+    expect(badges).toEqual(['组织', '个人']);
+    expect(wrapper.find('[data-test="skill-list-managed"]').text()).toContain('我的技能');
+    // 命名空间列已删除:全名与徽标并入名称列,不再单设
+    expect(headers).not.toContain('命名空间');
+
+    // 个人技能的共享状态格:不渲染档位 Tag,只留 "-" 占位
+    expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
+    expect(wrapper.find('[data-test="skill-state-my-skill"]').exists()).toBe(false);
   });
 
   it('成员按「我管理的/共享给我的」双视图查看技能', async () => {
@@ -126,7 +169,7 @@ describe('技能列表视图', () => {
           status: 200,
           json: [
             // bob 自己创建（未发布）的技能 → 我管理的
-            { ...skills[0], createdBy: 'acme_bob', owner: 'acme_bob', status: 'active-unreleased', access: 'manage', relation: 'managed' },
+            inventoryView(skills[0], { createdBy: 'acme_bob', status: 'active-unreleased', access: 'manage', relation: 'managed' }),
             // 他人创建、共享给 bob 只读的技能 → 共享给我的
             { ...skills[1], status: 'active-published', access: 'read', relation: 'shared' }
           ]
@@ -152,9 +195,10 @@ describe('技能列表视图', () => {
     expect(sharedTable).toContain('只读');
     expect(wrapper.find('[data-test="skill-list-shared"]').find('[data-test="configure-secret"]').exists()).toBe(false);
 
-    // 归属关系标注（ADR-0032）：managed / shared 在表内显式可见
-    expect(wrapper.find('[data-test="relation-managed"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="relation-shared"]').exists()).toBe(true);
+    // 归属关系不设列：managed / shared 已由「我管理的 / 共享给我的」两个视图表达,
+    // 表内恒值列是零信息（ADR-0025 的双视图语义）
+    expect(wrapper.find('[data-test="relation-managed"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="relation-shared"]').exists()).toBe(false);
   });
 
   it('个人中心按命名空间筛选跨命名空间聚合的技能', async () => {
@@ -163,13 +207,14 @@ describe('技能列表视图', () => {
         return {
           status: 200,
           json: [
-            { ...skills[0], name: '@acme/reviewer', scope: 'acme', skillName: 'reviewer', access: 'manage', relation: 'managed' },
+            inventoryView(skills[0], { name: '@acme/reviewer', scope: 'acme', skillName: 'reviewer', access: 'manage', relation: 'managed' }),
             {
               name: '@beta/tool',
               scope: 'beta',
               skillName: 'tool',
               createdBy: 'bob',
-              owner: 'bob',
+              status: 'active-published',
+              personalNamespace: true,
               access: 'manage',
               relation: 'managed'
             }
@@ -200,8 +245,8 @@ describe('技能列表视图', () => {
         return {
           status: 200,
           json: [
-            { ...skills[0], status: 'active-published', access: 'manage', relation: 'managed' },
-            { ...skills[2], status: 'active-unreleased', access: 'manage', relation: 'managed' }
+            inventoryView(skills[0], { status: 'active-published', access: 'manage', relation: 'managed' }),
+            inventoryView(skills[2], { status: 'active-unreleased', access: 'manage', relation: 'managed' })
           ]
         };
       }
@@ -292,6 +337,32 @@ describe('SkillManagePanel 权限配置', () => {
     await wrapper!.find('[data-test="grant-team"]').trigger('click');
     await flushPromises();
     expect(requests.some((request) => request.method === 'POST')).toBe(false);
+  });
+
+  it('个人命名空间技能隐藏全组织授权与团队授权,保留成员授权', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/bob/my-skill/permissions') {
+        return {
+          status: 200,
+          json: {
+            ...matrixFor('my-skill', { scope: 'bob', members: [{ username: 'acme_bob', permission: 'read' }] }),
+            personalNamespace: true
+          }
+        };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(
+      { components: { SkillManagePanel }, template: '<SkillManagePanel scope="bob" skill-name="my-skill" />' } as never,
+      { account: 'owner', route: '/admin/me/skills' }
+    );
+    await flushPromises();
+
+    // ADR-0064:组织级共享对个人命名空间不存在,两张卡不渲染;
+    // 成员(协作者)授权卡保留
+    expect(wrapper.find('[data-test="org-wide-authorization-card"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('团队授权');
+    expect(wrapper.text()).toContain('成员授权');
   });
 
   it('组织共享级别控件按档位调用对应接口并实时刷新状态', async () => {
