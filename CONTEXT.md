@@ -451,6 +451,19 @@ _Avoid_: ESL 产品研发工单（当指技能使用反馈）；私有意见（�
 未发布源码，也不表达 managed/shared 等管理关系。与管理向技能清单（inventory）分流。
 _Avoid_: inventory（当指消费者搜索/浏览时）；远端 list（当指可安装发现时）。
 
+## 下载日志 (Download Log)
+
+每次成功获取 Published Skill Package 时服务器记录的事件；install、update、重装
+与依赖解析拉取均构成一次下载。明细（下载人、IP 段、客户端环境等）仅 Super
+Administrator 可查。
+_Avoid_: 安装日志（当指服务器侧包获取事件时）；本机安装记录（那是 Install Manifest）。
+
+## 下载量 (Download Count)
+
+某技能的 Published Skill Package 被获取的总次数，按获取事件跨版本累加，对平台
+内所有主体公开展示于技能卡片、详情页与 CLI 搜索结果。
+_Avoid_: 安装量；唯一用户数（口径不同，前者不去重、后者按账号去重）。
+
 ## 技能团队授权 (Skill Team Grant)
 
 针对单个技能授予一个逻辑团队的 Read、Write 或 Manage 权限。同一逻辑团队在不同
