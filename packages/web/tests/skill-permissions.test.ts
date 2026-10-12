@@ -273,6 +273,7 @@ describe('技能列表视图', () => {
 describe('SkillManagePanel 权限配置', () => {
   function mockMatrixApi(overrides: Record<string, unknown> = {}) {
     return useApiMock((method, url) => {
+      if (url.includes('/permission-candidates')) return { status: 200, json: { teams: [], members: [{ username: 'acme_bob' }] } };
       if (url === '/api/skills/acme/reviewer/permissions') {
         const base = matrixFor('reviewer', { members: [{ username: 'acme_alice', permission: 'write' }] });
         return { status: 200, json: { ...base, ...overrides } };
@@ -284,6 +285,9 @@ describe('SkillManagePanel 权限配置', () => {
   async function mountPanel(options?: { teamOptions?: boolean }) {
     if (options?.teamOptions) {
       useApiMock((method, url) => {
+        if (url === '/api/skills/acme/reviewer/permission-candidates?q=') {
+          return { status: 200, json: { teams: [{ id: 7, name: 'frontend' }], members: [{ username: 'acme_bob' }] } };
+        }
         if (url === '/api/orgs/acme/teams') {
           return { status: 200, json: [{ id: 7, name: 'frontend' }] };
         }
@@ -423,35 +427,34 @@ describe('SkillManagePanel 权限配置', () => {
     const { requests } = mockMatrixApi();
     wrapper = await mountPanel();
 
-    const input = wrapper.find('[data-test="member-input"]').element as HTMLInputElement;
-    input.value = 'acme_bob';
-    await wrapper.find('[data-test="member-input"]').trigger('input');
+    await setPanelState('selectedMember', 'acme_bob');
     await setPanelState('memberPermission', 'write');
     await wrapper.find('[data-test="grant-member"]').trigger('click');
     await flushPromises();
 
     const post = requests.find((request) => request.method === 'POST');
-    expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'write' });
+    expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'write', mode: 'create' });
   });
 
   it('成员授权支持管理档（manage，ADR-0025）', async () => {
     const { requests } = mockMatrixApi();
     wrapper = await mountPanel();
 
-    const input = wrapper.find('[data-test="member-input"]').element as HTMLInputElement;
-    input.value = 'acme_bob';
-    await wrapper.find('[data-test="member-input"]').trigger('input');
+    await setPanelState('selectedMember', 'acme_bob');
     await setPanelState('memberPermission', 'manage');
     await wrapper.find('[data-test="grant-member"]').trigger('click');
     await flushPromises();
 
     const post = requests.find((request) => request.method === 'POST');
-    expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'manage' });
+    expect(post?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'manage', mode: 'create' });
   });
 
   it('团队授权按逻辑团队 ID 与选定权限提交', async () => {
     const { requests } = useApiMock((method, url) => {
-      if (url === '/api/orgs/acme/teams') {
+      if (url === '/api/skills/acme/reviewer/permission-candidates?q=') {
+          return { status: 200, json: { teams: [{ id: 7, name: 'frontend' }], members: [{ username: 'acme_bob' }] } };
+        }
+        if (url === '/api/orgs/acme/teams') {
         return { status: 200, json: [{ id: 7, name: 'frontend' }] };
       }
       if (url === '/api/orgs/acme/members') {
@@ -480,7 +483,7 @@ describe('SkillManagePanel 权限配置', () => {
     await flushPromises();
 
     const post = requests.find((request) => request.method === 'POST');
-    expect(post?.body).toEqual({ action: 'set_team', team_id: 7, permission: 'write' });
+    expect(post?.body).toEqual({ action: 'set_team', team_id: 7, permission: 'write', mode: 'create' });
     // 已授权团队来自响应矩阵
     expect(wrapper.find('[data-test="granted-team"]').exists()).toBe(true);
   });
@@ -497,6 +500,48 @@ describe('SkillManagePanel 权限配置', () => {
     const granted = wrapper.findAll('[data-test="granted-team"]');
     expect(granted[0].text()).toContain('前端团队');
     expect(granted[1].text()).toContain('ops');
+  });
+
+  it('个人技能必须精确查找并确认后才能授权', async () => {
+    const { requests } = useApiMock((method, url) => {
+      if (url.includes('/permission-candidates')) return { status: 200, json: { teams: [], members: url.endsWith('q=external') ? [{ username: 'external' }] : [] } };
+      if (url === '/api/skills/acme/reviewer/permissions') return { status: 200, json: { ...matrixFor('reviewer'), personalNamespace: true } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountPanel();
+    await setPanelState('selectedMember', 'external');
+    await wrapper.find('[data-test="grant-member"]').trigger('click');
+    await flushPromises();
+    expect(requests.filter(request => request.method === 'POST')).toHaveLength(0);
+    await wrapper.find('[data-test="find-member"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-test="confirm-member"]').text()).toContain('external');
+    await wrapper.find('[data-test="confirm-member"]').trigger('click');
+    await wrapper.find('[data-test="grant-member"]').trigger('click');
+    await flushPromises();
+    expect(requests.filter(request => request.method === 'POST').at(-1)?.body).toEqual({ action: 'add_member', username: 'external', permission: 'read', mode: 'create' });
+  });
+
+  it('显示完整用户名与团队权限，并支持行内保存和取消', async () => {
+    const { requests } = mockMatrixApi({ teams: [{ id: 7, name: 'frontend', permission: 'read' }], members: [{ username: 'acme_bob', permission: 'read' }] });
+    wrapper = await mountPanel();
+    expect(wrapper.find('[data-test="granted-member"]').text()).toContain('acme_bob');
+    expect(wrapper.find('[data-test="granted-team"]').text()).toContain('只读');
+    await wrapper.find('[data-test="edit-team-7"]').trigger('click');
+    const panel = wrapper.findComponent(SkillManagePanel).vm as unknown as { editing: { permission: string } | undefined; saveEdit: () => Promise<void> };
+    panel.editing!.permission = 'write';
+    await panel.saveEdit();
+    expect(requests.filter(request => request.method === 'POST').at(-1)?.body).toEqual({ action: 'set_team', team_id: 7, permission: 'write', mode: 'edit' });
+    await wrapper.find('[data-test="edit-member-acme_bob"]').trigger('click');
+    panel.editing!.permission = 'manage';
+    await panel.saveEdit();
+    expect(requests.filter(request => request.method === 'POST').at(-1)?.body).toEqual({ action: 'add_member', username: 'acme_bob', permission: 'manage', mode: 'edit' });
+    const count = requests.filter(request => request.method === 'POST').length;
+    await wrapper.find('[data-test="edit-team-7"]').trigger('click');
+    const cancel = wrapper.findAll('button').find(button => button.text() === '取消')!;
+    await cancel.trigger('click');
+    expect(panel.editing).toBeUndefined();
+    expect(requests.filter(request => request.method === 'POST')).toHaveLength(count);
   });
 
   it('移除已授权团队与成员调用对应接口', async () => {
@@ -538,7 +583,10 @@ describe('SkillManagePanel 权限配置', () => {
 
   it('管理成员视角同样提供团队与成员下拉建议', async () => {
     const { requests } = useApiMock((method, url) => {
-      if (url === '/api/orgs/acme/teams') {
+      if (url === '/api/skills/acme/reviewer/permission-candidates?q=') {
+          return { status: 200, json: { teams: [{ id: 7, name: 'frontend' }], members: [{ username: 'acme_bob' }] } };
+        }
+        if (url === '/api/orgs/acme/teams') {
         return { status: 200, json: [{ id: 7, name: 'frontend' }] };
       }
       if (url === '/api/orgs/acme/members') {
@@ -562,12 +610,14 @@ describe('SkillManagePanel 权限配置', () => {
 
     expect(wrapper.find('[data-test="team-select"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="member-select"]').exists()).toBe(true);
-    expect(requests.some((request) => request.url === '/api/orgs/acme/teams')).toBe(true);
-    expect(requests.some((request) => request.url === '/api/orgs/acme/members')).toBe(true);
+    expect(requests.some((request) => request.url === '/api/skills/acme/reviewer/permission-candidates?q=')).toBe(true);
   });
 
   it('授权失败时展示错误、保留输入且状态不变', async () => {
     useApiMock((method, url) => {
+      if (url.includes('/permission-candidates')) {
+        return { status: 200, json: { teams: [], members: [] } };
+      }
       if (url === '/api/skills/acme/reviewer/permissions') {
         if (method === 'POST') {
           return { status: 403, json: { error: 'Forbidden: skill owner or organization management team membership required' } };
@@ -578,15 +628,13 @@ describe('SkillManagePanel 权限配置', () => {
     });
     wrapper = await mountPanel();
 
-    const input = wrapper.find('[data-test="member-input"]').element as HTMLInputElement;
-    input.value = 'acme_bob';
-    await wrapper.find('[data-test="member-input"]').trigger('input');
+    await setPanelState('selectedMember', 'acme_bob');
     await wrapper.find('[data-test="grant-member"]').trigger('click');
     await flushPromises();
 
     expect(wrapper.find('.el-alert').text()).toContain('Forbidden');
     // 失败后保留输入内容，避免重新填写
-    expect((wrapper.find('[data-test="member-input"]').element as HTMLInputElement).value).toBe('acme_bob');
+    expect((wrapper.findComponent(SkillManagePanel).vm as unknown as { selectedMember: string }).selectedMember).toBe('acme_bob');
     expect(wrapper.find('[data-test="share-state"]').text()).toBe('仅创建者');
   });
 

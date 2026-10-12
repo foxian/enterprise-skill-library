@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
-import { initDatabase, PlatformSettingsRepository, SkillRepository } from '../src/db/database.js';
+import { initDatabase, PlatformSettingsRepository, SkillRepository, TenantOrganizationRepository } from '../src/db/database.js';
+import { getAccessLevel } from '../src/services/skill-access.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
 
 // 组织成员治理（ADR-0032 / #55）：成员 = 全局账号；拉人方式为平台设置
@@ -79,6 +80,35 @@ describe('organization console API', () => {
     expect(response.statusCode).toBe(201);
     return response.json();
   }
+
+  it('离开组织撤销直接授权，重新入组只恢复团队权限，个人协作者保留', async () => {
+    await app.inject({ method: 'POST', url: '/api/orgs/acme/members', headers: aliceHeaders, payload: { username: 'carol' } });
+    const team = await createLogicalTeam('frontend');
+    const db = initDatabase(dbPath);
+    new TenantOrganizationRepository(db).create({ orgName: 'acme', status: 'active' });
+    const repository = new SkillRepository(db);
+    for (const scope of ['acme', 'admin-alice']) {
+      repository.createServerSkill({ name: `@${scope}/notes`, scope, skillName: 'notes', description: '授权生命周期', owner: 'admin-alice', createdBy: 'admin-alice', maintainers: ['admin-alice'], visibility: 'private', gitRepoPath: `${scope}/notes`, status: 'active-unreleased' });
+      await gitea.addCollaborator(scope, 'notes', 'carol', 'admin');
+    }
+    const skill = repository.getSkill('@acme/notes')!;
+    db.close();
+    await app.inject({ method: 'POST', url: `/api/orgs/acme/teams/${team.id}/members`, headers: aliceHeaders, payload: { username: 'carol' } });
+    const grant = await app.inject({ method: 'POST', url: '/api/skills/acme/notes/permissions', headers: aliceHeaders, payload: { action: 'set_team', team_id: team.id, permission: 'write', mode: 'create' } });
+    expect(grant.statusCode).toBe(200);
+    expect(await getAccessLevel(gitea as any, skill, 'carol')).toBe('manage');
+    const removed = await app.inject({ method: 'DELETE', url: '/api/orgs/acme/members/carol', headers: aliceHeaders });
+    expect(removed.statusCode).toBe(200);
+    expect(await gitea.getCollaboratorPermission('acme', 'notes', 'carol')).toBe('none');
+    expect(await gitea.getCollaboratorPermission('admin-alice', 'notes', 'carol')).toBe('admin');
+    expect(await getAccessLevel(gitea as any, skill, 'carol')).toBe('none');
+    const joined = await app.inject({ method: 'POST', url: '/api/orgs/acme/members', headers: aliceHeaders, payload: { username: 'carol' } });
+    expect(joined.statusCode).toBe(201);
+    expect(await getAccessLevel(gitea as any, skill, 'carol')).toBe('none');
+    await app.inject({ method: 'POST', url: `/api/orgs/acme/teams/${team.id}/members`, headers: aliceHeaders, payload: { username: 'carol' } });
+    expect(await getAccessLevel(gitea as any, skill, 'carol')).toBe('write');
+    expect(await gitea.getCollaboratorPermission('acme', 'notes', 'carol')).toBe('none');
+  });
 
   it('rejects callers who are not Owners members of the target organization', async () => {
     for (const [token, org] of [

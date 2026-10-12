@@ -44,7 +44,7 @@
           {{ t('skill.teamWithPermission', { team: teamDisplayName(team), permission: t(permissionText(team.permission)) }) }}
         </el-tag>
         <el-tag v-for="member in matrix.members" :key="member.username" type="info" data-test="granted-member">
-          {{ t('skill.memberWithPermission', { member: shortUsername(props.scope, member.username), permission: t(permissionText(member.permission)) }) }}
+          {{ t('skill.memberWithPermission', { member: member.username, permission: t(permissionText(member.permission)) }) }}
         </el-tag>
       </el-space>
     </el-card>
@@ -84,7 +84,7 @@
                     <el-button
                       link
                       type="danger"
-                      :disabled="!canManage"
+                      :disabled="!canManage || saving"
                       :data-test="`delete-release-${row.version}`"
                       @click="deleteRelease(row.version)"
                     >
@@ -180,7 +180,7 @@
         </el-tag>
         <el-switch
           :model-value="visibility === 'public'"
-          :disabled="!canManage"
+          :disabled="!canManage || saving"
           data-test="visibility-switch"
           @change="onVisibilityChange"
         />
@@ -191,7 +191,7 @@
       <template #header>{{ t('skill.orgWideAuthorization') }}</template>
       <el-radio-group
         :model-value="shareLevel"
-        :disabled="!canManage"
+        :disabled="!canManage || saving"
         data-test="share-level"
         @change="onShareLevelChange"
       >
@@ -202,46 +202,52 @@
       </el-radio-group>
     </el-card>
 
+    <p>{{ t('skill.effectivePermissionHint') }}</p>
     <el-row :gutter="16">
       <el-col v-if="!isPersonalNamespace" :span="12">
         <el-card class="section-card">
           <template #header>{{ t('skill.teamAuthorizationTitle') }}</template>
           <div class="grant-row">
             <el-select
-              v-if="teamOptions.length"
               v-model="selectedTeam"
-              :disabled="!canManage"
+              :disabled="!canManage || saving"
+              filterable
               data-test="team-select"
               :placeholder="t('skill.teamSelectPlaceholder')"
               style="width: 220px"
             >
               <el-option v-for="team in teamOptions" :key="team.name" :label="teamLabel(team)" :value="team.name" />
             </el-select>
-            <el-input
-              v-else
-              v-model="selectedTeam"
-              :disabled="!canManage"
-              data-test="team-input"
-              :placeholder="t('skill.teamNamePlaceholder')"
-              style="width: 220px"
-            />
-            <el-select v-model="teamPermission" :disabled="!canManage" data-test="team-permission" style="width: 110px">
+            <el-select v-model="teamPermission" :disabled="!canManage || saving" data-test="team-permission" style="width: 110px">
               <el-option :label="t('skill.access.read')" value="read" />
               <el-option :label="t('skill.access.write')" value="write" />
               <el-option :label="t('skill.access.manage')" value="manage" />
             </el-select>
-            <el-button type="primary" :disabled="!canManage" data-test="grant-team" @click="grantTeam">{{ t('actions.addAuthorization') }}</el-button>
+            <el-button type="primary" :disabled="!canManage || saving" data-test="grant-team" @click="grantTeam">{{ t('actions.addAuthorization') }}</el-button>
           </div>
           <el-table v-if="matrix.teams.length" :data="matrix.teams" size="small">
             <el-table-column :label="t('nav.orgTeams')">
               <template #default="{ row }">{{ teamDisplayName(row) }}</template>
             </el-table-column>
-            <el-table-column :label="t('columns.actions')" width="80">
+            <el-table-column :label="t('skill.grantPermission')" width="120">
               <template #default="{ row }">
+                <el-select v-if="editing?.kind === 'team' && editing.key === row.id" v-model="editing.permission" :disabled="saving" :data-test="`edit-team-permission`">
+                  <el-option v-for="permission in ['read', 'write', 'manage']" :key="permission" :value="permission" :label="t(permissionText(permission))" />
+                </el-select>
+                <span v-else>{{ t(permissionText(row.permission)) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('columns.actions')" width="150">
+              <template #default="{ row }">
+                <template v-if="editing?.kind === 'team' && editing.key === row.id">
+                  <el-button link :disabled="saving" :data-test="`save-team-${row.id}`" @click="saveEdit">{{ t('actions.save') }}</el-button>
+                  <el-button link :disabled="saving" @click="editing = undefined">{{ t('actions.cancel') }}</el-button>
+                </template>
+                <el-button v-else link :disabled="!canManage || saving" :data-test="`edit-team-${row.id}`" @click="startEdit('team', row.id, row.permission)">{{ t('actions.edit') }}</el-button>
                 <el-button
                   link
                   type="danger"
-                  :disabled="!canManage"
+                  :disabled="!canManage || saving"
                   :data-test="`revoke-team-${row.name}`"
                   @click="applyAction('remove_team', { team_id: row.id })"
                 >
@@ -257,11 +263,10 @@
           <template #header>{{ t('skill.memberAuthorizationTitle') }}</template>
           <div class="grant-row">
             <el-select
-              v-if="memberOptions.length"
+              v-if="!isPersonalNamespace"
               v-model="selectedMember"
-              :disabled="!canManage"
+              :disabled="!canManage || saving"
               filterable
-              allow-create
               data-test="member-select"
               :placeholder="t('skill.memberUsernamePlaceholder')"
               style="width: 220px"
@@ -269,38 +274,51 @@
               <el-option
                 v-for="member in memberOptions"
                 :key="member.username"
-                :label="shortUsername(props.scope, member.username)"
+                :label="member.username"
                 :value="member.username"
               />
             </el-select>
             <el-input
               v-else
               v-model="selectedMember"
-              :disabled="!canManage"
+              :disabled="!canManage || saving"
               data-test="member-input"
-              :placeholder="t('skill.memberUsernameWithOrgPlaceholder')"
+              :placeholder="t('skill.memberUsernamePlaceholder')"
               style="width: 220px"
             />
-            <el-select v-model="memberPermission" :disabled="!canManage" data-test="member-permission" style="width: 110px">
+            <el-button v-if="isPersonalNamespace" :disabled="!canManage || saving" data-test="find-member" @click="findMember">{{ t('actions.search') }}</el-button>
+            <el-button v-if="foundMember && isPersonalNamespace" data-test="confirm-member" @click="confirmedMember = foundMember">{{ t('skill.confirmMember', { username: foundMember }) }}</el-button>
+            <span v-if="confirmedMember && isPersonalNamespace" data-test="confirmed-member">{{ confirmedMember }}</span>
+            <el-select v-model="memberPermission" :disabled="!canManage || saving" data-test="member-permission" style="width: 110px">
               <el-option :label="t('skill.access.read')" value="read" />
               <el-option :label="t('skill.access.write')" value="write" />
               <el-option :label="t('skill.access.manage')" value="manage" />
             </el-select>
-            <el-button type="primary" :disabled="!canManage" data-test="grant-member" @click="grantMember">{{ t('actions.addAuthorization') }}</el-button>
+            <el-button type="primary" :disabled="!canManage || saving" data-test="grant-member" @click="grantMember">{{ t('actions.addAuthorization') }}</el-button>
           </div>
           <el-table v-if="matrix.members.length" :data="matrix.members" size="small">
             <el-table-column :label="t('columns.member')">
-              <template #default="{ row }">{{ shortUsername(props.scope, row.username) }}</template>
+              <template #default="{ row }">{{ row.username }}</template>
             </el-table-column>
-            <el-table-column :label="t('columns.permission')" width="80">
-              <template #default="{ row }">{{ t(permissionText(row.permission)) }}</template>
-            </el-table-column>
-            <el-table-column :label="t('columns.actions')" width="80">
+            <el-table-column :label="t('skill.grantPermission')" width="120">
               <template #default="{ row }">
+                <el-select v-if="editing?.kind === 'member' && editing.key === row.username" v-model="editing.permission" :disabled="saving" :data-test="`edit-member-permission`">
+                  <el-option v-for="permission in ['read', 'write', 'manage']" :key="permission" :value="permission" :label="t(permissionText(permission))" />
+                </el-select>
+                <span v-else>{{ t(permissionText(row.permission)) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('columns.actions')" width="150">
+              <template #default="{ row }">
+                <template v-if="editing?.kind === 'member' && editing.key === row.username">
+                  <el-button link :disabled="saving" :data-test="`save-member-${row.username}`" @click="saveEdit">{{ t('actions.save') }}</el-button>
+                  <el-button link :disabled="saving" @click="editing = undefined">{{ t('actions.cancel') }}</el-button>
+                </template>
+                <el-button v-else link :disabled="!canManage || saving" :data-test="`edit-member-${row.username}`" @click="startEdit('member', row.username, row.permission)">{{ t('actions.edit') }}</el-button>
                 <el-button
                   link
                   type="danger"
-                  :disabled="!canManage"
+                  :disabled="!canManage || saving"
                   :data-test="`revoke-member-${row.username}`"
                   @click="applyAction('remove_member', { username: row.username })"
                 >
@@ -342,8 +360,6 @@ const router = useRouter();
 const props = defineProps<{
   scope: string;
   skillName: string;
-  teamOptions?: TeamOption[];
-  memberOptions?: MemberOption[];
 }>();
 
 const matrix = ref<PermissionMatrix>({
@@ -377,9 +393,46 @@ const teamPermission = ref<'read' | 'write' | 'manage'>('read');
 const selectedMember = ref('');
 const memberPermission = ref<'read' | 'write' | 'manage'>('read');
 
-// 所有者成员提供团队/成员下拉建议；普通成员视角退化为手工输入
-const teamOptions = computed(() => props.teamOptions ?? []);
-const memberOptions = computed(() => props.memberOptions ?? []);
+const candidates = ref<{ teams: TeamOption[]; members: MemberOption[] }>({ teams: [], members: [] });
+const teamOptions = computed(() => candidates.value.teams.filter(team => !matrix.value.teams.some(grant => grant.id === team.id)));
+const memberOptions = computed(() => candidates.value.members.filter(member => !matrix.value.members.some(grant => grant.username === member.username)));
+const confirmedMember = ref('');
+const foundMember = ref('');
+const editing = ref<{ kind: 'team' | 'member'; key: number | string; permission: 'read' | 'write' | 'manage' }>();
+const saving = ref(false);
+
+function startEdit(kind: 'team' | 'member', key: number | string, permission: string): void {
+  editing.value = { kind, key, permission: permission === 'write' ? 'write' : permission === 'manage' ? 'manage' : 'read' };
+}
+
+async function saveEdit(): Promise<void> {
+  if (!editing.value || saving.value) return;
+  const current = editing.value;
+  saving.value = true;
+  try {
+    if (await applyAction(current.kind === 'team' ? 'set_team' : 'add_member', {
+      ...(current.kind === 'team' ? { team_id: current.key } : { username: current.key }),
+      permission: current.permission, mode: 'edit'
+    })) editing.value = undefined;
+  } finally { saving.value = false; }
+}
+
+async function loadCandidates(query = ''): Promise<void> {
+  if (!canManage.value) return;
+  const result = await apiRequest<{ teams: TeamOption[]; members: MemberOption[] }>(`/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/permission-candidates?q=${encodeURIComponent(query)}`);
+  candidates.value = { teams: result.teams ?? [], members: result.members ?? [] };
+}
+
+async function findMember(): Promise<void> {
+  confirmedMember.value = '';
+  foundMember.value = '';
+  errorMessage.value = '';
+  try {
+    await loadCandidates(selectedMember.value.trim());
+    foundMember.value = candidates.value.members[0]?.username ?? '';
+    if (!foundMember.value) errorMessage.value = t('skill.memberNotAvailable');
+  } catch (error) { errorMessage.value = formatRequestError(error); }
+}
 
 // 面板标题（ADR-0048）：优先对外显示名，仅当与 Identity 短名不同时展示，避免重复。
 const panelIdentity = computed(() => {
@@ -614,7 +667,10 @@ async function applyAction(action: string, extra: Record<string, unknown> = {}):
     );
     return true;
   } catch (error) {
-    errorMessage.value = formatRequestError(error);
+    const message = formatRequestError(error);
+    await loadMatrix();
+    try { await loadCandidates(); } catch { /* 保留原始变更错误，允许用户重试。 */ }
+    errorMessage.value = message;
     return false;
   }
 }
@@ -629,7 +685,7 @@ async function grantTeam(): Promise<void> {
   const payload = option
     ? { team_id: option.id, permission: teamPermission.value }
     : { team, permission: teamPermission.value };
-  if (await applyAction('set_team', payload)) {
+  if (await applyAction('set_team', { ...payload, mode: 'create' })) {
     selectedTeam.value = '';
     ElMessage.success(t('skill.teamAuthorizationUpdated'));
   }
@@ -640,14 +696,23 @@ async function grantMember(): Promise<void> {
     errorMessage.value = t('skill.memberUsernameRequired');
     return;
   }
-  const username = selectedMember.value;
-  if (await applyAction('add_member', { username, permission: memberPermission.value })) {
+  const username = selectedMember.value.trim();
+  if (isPersonalNamespace.value && confirmedMember.value !== username) {
+    errorMessage.value = t('skill.confirmMemberFirst');
+    return;
+  }
+  if (await applyAction('add_member', { username, permission: memberPermission.value, mode: 'create' })) {
     selectedMember.value = '';
+    confirmedMember.value = '';
+    foundMember.value = '';
     ElMessage.success(t('skill.memberAuthorizationUpdated'));
   }
 }
 
-onMounted(loadMatrix);
+onMounted(async () => {
+  await loadMatrix();
+  try { await loadCandidates(); } catch (error) { errorMessage.value = formatRequestError(error); }
+});
 </script>
 
 <style scoped>

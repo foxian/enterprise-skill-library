@@ -1,4 +1,6 @@
 import { AUTO_JOIN_TEAM_NAMES, MANAGING_TEAM_NAME, type OrgIdentity } from '@esl/core';
+import type { SkillRepository } from '../db/database.js';
+import { skillRepo } from './skill-access.js';
 import type { GiteaOrg, GiteaService } from './gitea.js';
 
 /**
@@ -189,8 +191,16 @@ async function syncTeamMember(
 export async function removeMemberFromOrganization(
   giteaService: GiteaService,
   org: string,
-  username: string
+  username: string,
+  repository?: SkillRepository
 ): Promise<void> {
+  // 离开组织时撤销组织技能的直接授权，个人技能协作者不受影响。
+  for (const skill of repository?.listSkills().filter(skill => skill.scope === org) ?? []) {
+    const repo = skillRepo(skill);
+    if ((await giteaService.listCollaborators(repo.owner, repo.name)).some(member => member.username === username)) {
+      await giteaService.removeCollaborator(repo.owner, repo.name, username);
+    }
+  }
   for (const team of await giteaService.listTeams(org)) {
     if (await giteaService.isTeamMember(team.id, username)) {
       await giteaService.removeTeamMember(team.id, username);

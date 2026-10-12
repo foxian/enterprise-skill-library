@@ -482,7 +482,7 @@ export function registerOrgAdminRoutes(app: FastifyInstance, options: OrgAdminRo
     if (blocked) {
       return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
-    await removeMemberFromOrganization(giteaService, orgName, username);
+    await removeMemberFromOrganization(giteaService, orgName, username, options.skillRepository);
     return { removed: true, orgName, username };
   });
 

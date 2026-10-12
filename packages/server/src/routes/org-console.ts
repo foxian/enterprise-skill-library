@@ -219,7 +219,7 @@ function logMemberEvent(
     if (blocked) {
       return reply.status(400).send(apiError('validationFailed', { detail: blocked }));
     }
-    await removeMemberFromOrganization(giteaService, org, username);
+    await removeMemberFromOrganization(giteaService, org, username, repository);
     logMemberEvent(request, actor, org, username, 'succeeded', 'Organization member removed');
     return { removed: true, username };
   });

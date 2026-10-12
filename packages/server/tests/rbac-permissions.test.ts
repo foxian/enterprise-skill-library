@@ -61,6 +61,8 @@ function createRbacGitea() {
       org === 'acme' ? [{ id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' }] : []
     ),
     adminUsername: 'eslroot',
+    listOrgMembers: vi.fn(async () => ['acme_alice', 'acme_admin', 'acme_bob', 'acme_zed'].map(username => ({ username }))),
+    listUsers: vi.fn(async () => ['acme_alice', 'acme_bob', 'external'].map(username => ({ username, active: true, prohibit_login: false }))),
     listTeams: vi.fn(async (org: string) => (org === 'acme' ? orgTeams : [])),
     listRepoTeams: vi.fn(async (_owner: string, repo: string) =>
       orgTeams.filter((team) => repoMountedTeams(repo).has(team.id))
@@ -160,6 +162,53 @@ describe('skill RBAC permissions', () => {
   afterEach(async () => {
     await app?.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('按技能管理权查询最小候选并拒绝组织外成员', async () => {
+    const backend = createRbacGitea();
+    backend.__state.repoCollaborators('reviewer').set('acme_bob', 'admin');
+    app = await buildApp({ dbPath, giteaService: backend as any, repoOwner: 'esl-skills' });
+    const candidates = await app.inject({ method: 'GET', url: '/api/skills/acme/reviewer/permission-candidates', headers: { authorization: 'token bob-token' } });
+    expect(candidates.statusCode).toBe(200);
+    expect(candidates.json()).toEqual({ teams: [{ id: 7, name: 'frontend' }], members: [{ username: 'acme_admin' }, { username: 'acme_zed' }] });
+    const denied = await app.inject({ method: 'POST', url: '/api/skills/acme/reviewer/permissions', headers: { authorization: 'token alice-token' }, payload: { action: 'add_member', username: 'external', permission: 'read', mode: 'create' } });
+    expect(denied.statusCode).toBe(400);
+    expect(denied.json().code).toBe('skillMemberMustBelongToOrganization');
+    backend.__state.repoCollaborators('reviewer').delete('acme_bob');
+    const forbidden = await app.inject({ method: 'GET', url: '/api/skills/acme/reviewer/permission-candidates', headers: { authorization: 'token bob-token' } });
+    expect(forbidden.statusCode).toBe(403);
+  });
+
+  it('串行处理重复新增并支持团队和成员编辑', async () => {
+    const backend = createRbacGitea();
+    app = await buildApp({ dbPath, giteaService: backend as any, repoOwner: 'esl-skills' });
+    const change = (payload: object) => app!.inject({ method: 'POST', url: '/api/skills/acme/reviewer/permissions', headers: { authorization: 'token alice-token' }, payload });
+    const results = await Promise.all([change({ action: 'add_member', username: 'acme_bob', permission: 'read', mode: 'create' }), change({ action: 'add_member', username: 'acme_bob', permission: 'write', mode: 'create' })]);
+    expect(results.map(result => result.statusCode).sort()).toEqual([200, 409]);
+    const edited = await change({ action: 'add_member', username: 'acme_bob', permission: 'manage', mode: 'edit' });
+    expect(edited.json().members).toContainEqual({ username: 'acme_bob', permission: 'manage' });
+    expect((await change({ action: 'set_team', team_id: 7, permission: 'read', mode: 'create' })).statusCode).toBe(200);
+    expect((await change({ action: 'set_team', team_id: 7, permission: 'write', mode: 'create' })).statusCode).toBe(409);
+    const team = await change({ action: 'set_team', team_id: 7, permission: 'manage', mode: 'edit' });
+    expect(team.json().teams).toContainEqual({ id: 7, name: 'frontend', permission: 'manage' });
+    const candidates = await app.inject({ method: 'GET', url: '/api/skills/acme/reviewer/permission-candidates?q=bob', headers: { authorization: 'token alice-token' } });
+    expect(candidates.json()).toEqual({ teams: [], members: [] });
+  });
+
+  it('个人技能精确查询已启用平台用户并允许跨组织授权', async () => {
+    const db = initDatabase(dbPath);
+    new SkillRepository(db).createServerSkill({ name: '@acme_alice/notes', scope: 'acme_alice', skillName: 'notes', description: '个人技能', createdBy: 'acme_alice', owner: 'acme_alice', maintainers: ['acme_alice'], visibility: 'private', gitRepoPath: 'acme_alice/notes', status: 'active-unreleased' });
+    db.close();
+    const backend = createRbacGitea();
+    backend.listUsers.mockResolvedValue([{ username: 'external', active: true, prohibit_login: false }, { username: 'disabled', active: true, prohibit_login: true }]);
+    app = await buildApp({ dbPath, giteaService: backend as any, repoOwner: 'esl-skills' });
+    const lookup = (q: string) => app!.inject({ method: 'GET', url: `/api/skills/acme_alice/notes/permission-candidates?q=${q}`, headers: { authorization: 'token alice-token' } });
+    expect((await lookup('ext')).json().members).toEqual([]);
+    expect((await lookup('disabled')).json().members).toEqual([]);
+    expect((await lookup('external')).json()).toEqual({ teams: [], members: [{ username: 'external' }] });
+    const added = await app.inject({ method: 'POST', url: '/api/skills/acme_alice/notes/permissions', headers: { authorization: 'token alice-token' }, payload: { action: 'add_member', username: 'external', permission: 'write', mode: 'create' } });
+    expect(added.statusCode).toBe(200);
+    expect((await lookup('external')).json().members).toEqual([]);
   });
 
   it('returns the private permission matrix to the owner', async () => {

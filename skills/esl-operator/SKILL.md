@@ -147,3 +147,5 @@ pm exec -- esl` 方式。
 - **跨实例播种**：参照 `references/author.md` 的 `source export` 流程导出 `<短名>-export/`，先审查副本，再由目标企业 Maintainer 确认 namespace 并上传；不要改源目录的 `.git`/remote。
 - **原地去身份**：用户明确要把当前技能目录清成只剩文档和代码时，用 `esl source clean [path] --force`；它删除 `.git` 与 `release.json`，不替代 export。
 
+
+技能授权遵循组织边界：组织技能的 `--user` 目标必须是当前组织成员；个人技能可授权已启用的平台用户，填写完整平台用户名。团队和成员权限可通过相同目标旗标重新设置，无需先撤销。详见 `references/author.md` 的授权说明。
