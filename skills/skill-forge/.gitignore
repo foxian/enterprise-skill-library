@@ -1,0 +1,4 @@
+# 忽略本地 Python 缓存和技能打包产物
+__pycache__/
+*.pyc
+*.skill
