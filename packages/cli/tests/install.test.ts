@@ -414,8 +414,8 @@ describe('esl install request reporting (#136)', () => {
     expect(packageCall[0]).toBe(
       `${server}/api/packages/sk_r/1.2.3/${root.checksum}.json?requested=1.2.3`
     );
-    expect(packageCall[1].headers['User-Agent']).toBe(expectedUserAgent());
-    expect(packageCall[1].headers.Authorization).toBe('token gitea-token');
+    expect(packageCall[1].headers['user-agent']).toBe(expectedUserAgent());
+    expect(packageCall[1].headers.authorization).toBe('token gitea-token');
   });
 
   it('reports "latest" on the root package request when no version specifier is given', async () => {
@@ -442,7 +442,7 @@ describe('esl install request reporting (#136)', () => {
     expect(packageCall[0]).toBe(
       `${server}/api/packages/sk_r/1.0.0/${root.checksum}.json?requested=latest`
     );
-    expect(packageCall[1].headers['User-Agent']).toBe(expectedUserAgent());
+    expect(packageCall[1].headers['user-agent']).toBe(expectedUserAgent());
   });
 
   it('reports the locked exact version on a dependency package request', async () => {
@@ -483,7 +483,7 @@ describe('esl install request reporting (#136)', () => {
     expect(dependencyCall[0]).toBe(
       `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.json?requested=1.2.0`
     );
-    expect(dependencyCall[1].headers['User-Agent']).toBe(expectedUserAgent());
+    expect(dependencyCall[1].headers['user-agent']).toBe(expectedUserAgent());
     // 根包仍按用户 specifier（未显式给出时 latest）上报。
     const rootCall = fetchImpl.mock.calls.find((call) =>
       String(call[0]).includes('/api/packages/sk_a/')

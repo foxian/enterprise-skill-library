@@ -118,26 +118,15 @@ export function resolveUserAgent(): string {
   return cachedUserAgent;
 }
 
-// 合并请求头：保留调用方自带的头（Authorization 等，键名大小写不敏感），
-// 仅在没有 User-Agent 时补默认值，绝不覆盖调用方已显式给出的头。
+// 合并请求头：用平台 Headers 统一归一化（对象/数组/Headers 三种入参都支持），
+// 仅在没有 User-Agent 时补默认值，绝不覆盖调用方已显式给出的头（Authorization 等）。
+// HTTP 头名大小写不敏感，归一化后统一为小写形态交给 fetch。
 function withDefaultHeaders(headers: HeadersInit | undefined): Record<string, string> {
-  const merged: Record<string, string> = {};
-  if (headers instanceof Headers) {
-    headers.forEach((value, key) => {
-      merged[key] = value;
-    });
-  } else if (Array.isArray(headers)) {
-    for (const [key, value] of headers) {
-      merged[key] = value;
-    }
-  } else if (headers) {
-    Object.assign(merged, headers);
+  const merged = new Headers(headers);
+  if (!merged.has('user-agent')) {
+    merged.set('User-Agent', resolveUserAgent());
   }
-  const hasUserAgent = Object.keys(merged).some((key) => key.toLowerCase() === 'user-agent');
-  if (!hasUserAgent) {
-    merged['User-Agent'] = resolveUserAgent();
-  }
-  return merged;
+  return Object.fromEntries(merged.entries());
 }
 
 export async function fetchWithTimeout(

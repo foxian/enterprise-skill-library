@@ -865,27 +865,30 @@ export interface DownloadLogView {
 }
 
 export class DownloadLogRepository {
-  constructor(private readonly db: Database.Database) {}
+  // record() 位于每次包发放的热路径上：better-sqlite3 的 prepare() 每次都重新编译
+  // SQL，所以把三条语句在实例上预编译一次复用，而不是每次调用现 prepare。
+  private readonly insertLogStatement: Database.Statement;
+  private readonly bumpCountStatement: Database.Statement;
+  private readonly recordTransaction: (input: DownloadLogRecord, downloadedAt: string) => void;
 
-  // 明细与聚合在同一事务内写入：只有成功发放才递增计数，失败尝试只留痕，
-  // 使下载量只反映成功发放而失败模式仍可观测（ADR-0067）。
-  record(input: DownloadLogRecord, at: Date = new Date()): void {
-    const downloadedAt = at.toISOString();
-    const insertLog = this.db.prepare(`
+  constructor(private readonly db: Database.Database) {
+    this.insertLogStatement = db.prepare(`
       INSERT INTO download_logs (
         skill_id, skill_identity, version, requested_specifier, user_id, username,
         client_ip_truncated, os_platform, os_arch, esl_version, node_version,
         downloaded_at, result, failure_reason
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const bumpCount = this.db.prepare(`
+    this.bumpCountStatement = db.prepare(`
       INSERT INTO download_counts (skill_id, version, day, count, updated_at)
       VALUES (?, ?, ?, 1, ?)
       ON CONFLICT (skill_id, version, day)
       DO UPDATE SET count = count + 1, updated_at = excluded.updated_at
     `);
-    const transaction = this.db.transaction(() => {
-      insertLog.run(
+    // 明细与聚合在同一事务内写入：只有成功发放才递增计数，失败尝试只留痕，
+    // 使下载量只反映成功发放而失败模式仍可观测（ADR-0067）。
+    this.recordTransaction = db.transaction((input: DownloadLogRecord, downloadedAt: string) => {
+      this.insertLogStatement.run(
         input.skillId ?? null,
         input.skillIdentity ?? null,
         input.version ?? null,
@@ -902,11 +905,16 @@ export class DownloadLogRepository {
         input.failureReason ?? null
       );
       if (input.result !== 'success' || !input.skillId) return;
-      bumpCount.run(input.skillId, '', '', downloadedAt);
-      if (input.version) bumpCount.run(input.skillId, input.version, '', downloadedAt);
-      bumpCount.run(input.skillId, '', downloadedAt.slice(0, 10), downloadedAt);
+      this.bumpCountStatement.run(input.skillId, '', '', downloadedAt);
+      if (input.version) {
+        this.bumpCountStatement.run(input.skillId, input.version, '', downloadedAt);
+      }
+      this.bumpCountStatement.run(input.skillId, '', downloadedAt.slice(0, 10), downloadedAt);
     });
-    transaction();
+  }
+
+  record(input: DownloadLogRecord, at: Date = new Date()): void {
+    this.recordTransaction(input, at.toISOString());
   }
 
   // 技能跨版本总量——公开下载量的展示口径（CONTEXT：下载量）。

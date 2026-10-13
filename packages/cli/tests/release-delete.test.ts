@@ -36,7 +36,7 @@ describe('esl release-delete', () => {
       'http://localhost:3000/api/skills/alice/code-review/releases/1.0.0/delete',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'token gitea-token' }),
+        headers: expect.objectContaining({ authorization: 'token gitea-token' }),
         body: JSON.stringify({ confirm: '1.0.0' })
       })
     );

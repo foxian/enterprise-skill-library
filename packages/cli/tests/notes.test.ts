@@ -36,7 +36,7 @@ describe('esl notes', () => {
       'http://localhost:3000/api/skills/platform-ai/reviewer/releases/1.1.0/notes',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'token token' }),
+        headers: expect.objectContaining({ authorization: 'token token' }),
         body: JSON.stringify({ message: 'revised note' })
       })
     );

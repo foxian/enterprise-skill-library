@@ -102,7 +102,7 @@ describe('esl search download count (#137)', () => {
 
     const [url, init] = fetchImpl.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(url).toBe('http://localhost:3000/api/skills/search?q=tool');
-    expect(init.headers.Authorization).toBe('token skill-token');
+    expect(init.headers.authorization).toBe('token skill-token');
   });
 
   it('prints downloadCount in the non-interactive search stdout line', async () => {

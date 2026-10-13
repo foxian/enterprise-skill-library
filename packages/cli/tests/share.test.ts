@@ -166,7 +166,7 @@ describe('esl share', () => {
         'http://skills.company.com/api/skills/acme/reviewer/permissions',
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({ Authorization: 'token mock_token' }),
+          headers: expect.objectContaining({ authorization: 'token mock_token' }),
           body: JSON.stringify({ action: 'share_all_read' })
         })
       );
@@ -326,7 +326,7 @@ describe('esl share', () => {
         'http://skills.company.com/api/skills/acme/reviewer/visibility',
         expect.objectContaining({
           method: 'POST',
-          headers: expect.objectContaining({ Authorization: 'token mock_token' }),
+          headers: expect.objectContaining({ authorization: 'token mock_token' }),
           body: JSON.stringify({ visibility: 'public' })
         })
       );
@@ -340,7 +340,7 @@ describe('esl share', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         'http://skills.company.com/api/skills/acme/reviewer/permissions',
         expect.objectContaining({
-          headers: expect.objectContaining({ Authorization: 'token mock_token' })
+          headers: expect.objectContaining({ authorization: 'token mock_token' })
         })
       );
       // 查看是只读：不带 method: POST

@@ -92,7 +92,7 @@ describe('esl info authentication', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'token gitea-token' })
+        headers: expect.objectContaining({ authorization: 'token gitea-token' })
       })
     );
   });
@@ -112,7 +112,7 @@ describe('esl info authentication', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
-        headers: expect.not.objectContaining({ Authorization: expect.anything() })
+        headers: expect.not.objectContaining({ authorization: expect.anything() })
       })
     );
   });
@@ -135,7 +135,7 @@ describe('esl info authentication', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
-        headers: expect.not.objectContaining({ Authorization: expect.anything() })
+        headers: expect.not.objectContaining({ authorization: expect.anything() })
       })
     );
   });
@@ -253,7 +253,7 @@ describe('esl info download counts (#137)', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'token gitea-token' })
+        headers: expect.objectContaining({ authorization: 'token gitea-token' })
       })
     );
   });
@@ -288,7 +288,7 @@ describe('esl request reporting (#136)', () => {
     // 非包请求（info）不带 ?requested=。
     expect(url).toBe('http://localhost:3000/api/skills/%40acme%2Fcode-review');
     expect(url).not.toContain('requested=');
-    expect(init.headers['User-Agent']).toBe(expectedUserAgent());
-    expect(init.headers.Authorization).toBe('token gitea-token');
+    expect(init.headers['user-agent']).toBe(expectedUserAgent());
+    expect(init.headers.authorization).toBe('token gitea-token');
   });
 });

@@ -184,7 +184,7 @@ describe('esl update', () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://localhost:3000/api/skills/%40alice%2Fcode-review',
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'token gitea-token' })
+        headers: expect.objectContaining({ authorization: 'token gitea-token' })
       })
     );
     expect(execFileAsync).toHaveBeenCalledWith(

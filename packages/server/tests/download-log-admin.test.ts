@@ -190,7 +190,7 @@ describe('download log retention', () => {
     return createGlobalGitea({ users: [] });
   }
 
-  it('deletes expired detail rows at startup while keeping aggregate counts', () => {
+  it('deletes expired detail rows at startup while keeping aggregate counts', async () => {
     const db = initDatabase(dbPath);
     const repository = new DownloadLogRepository(db);
     repository.record(
@@ -203,8 +203,10 @@ describe('download log retention', () => {
     );
     db.close();
 
-    // 启动触发一次清理（本仓库首个周期任务）。
+    // 启动触发一次清理（本仓库首个周期任务）。首次清理在下一个事件循环 tick
+    // 触发（不在 buildApp 内同步执行），所以等一个 tick 再断言。
     app = buildApp({ dbPath, giteaService: buildGitea() as never, repoOwner: 'acme' });
+    await new Promise((resolve) => setImmediate(resolve));
 
     const raw = new Database(dbPath);
     const rows = raw.prepare(`SELECT skill_identity FROM download_logs ORDER BY id`).all() as Array<{

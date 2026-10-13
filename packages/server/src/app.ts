@@ -146,7 +146,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const downloadLogRepository = new DownloadLogRepository(db);
   expireStalePendingApplications();
 
-  // 下载日志的 90 天清理（ADR-0067）：启动时先清一次，再挂 24 小时周期定时器。
+  // 下载日志的 90 天清理（ADR-0067）：启动后触发一次，再挂 24 小时周期定时器。
   // 定时器 unref 并在 onClose 清除——既不阻止进程退出，也不在测试进程里残留。
   const runDownloadLogCleanup = (): void => {
     const cleanupLogger = taskLogger(app.log, DOWNLOAD_LOG_CLEANUP_TASK_ID);
@@ -158,13 +158,19 @@ export function buildApp(options: AppOptions): FastifyInstance {
       logTaskFinished(cleanupLogger, DOWNLOAD_LOG_CLEANUP_TASK_ID, error);
     }
   };
-  runDownloadLogCleanup();
+  // 首次清理不在 buildApp 内同步跑：90 天明细表上的 DELETE 会阻塞启动（以及每次
+  // 测试的 buildApp）；改到下一个事件循环 tick 触发，语义上仍是"启动时清一次"。
+  const initialDownloadLogCleanup = setImmediate(runDownloadLogCleanup);
   const downloadLogCleanupTimer = setInterval(
     runDownloadLogCleanup,
     DOWNLOAD_LOG_CLEANUP_INTERVAL_MS
   );
   downloadLogCleanupTimer.unref();
-  app.addHook('onClose', () => clearInterval(downloadLogCleanupTimer));
+  app.addHook('onClose', () => {
+    // 关闭时一并取消尚未触发的首次清理，避免对已关闭的库执行 DELETE。
+    clearImmediate(initialDownloadLogCleanup);
+    clearInterval(downloadLogCleanupTimer);
+  });
 
   // 待审组织申请默认保留 30 天：过期即释放名字（ADR-0032）。
   function expireStalePendingApplications(): void {
