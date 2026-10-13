@@ -22,6 +22,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+        <el-table-column :label="t('columns.downloadCount')" width="100">
+          <template #default="{ row }">
+            <span :data-test="`download-count-${row.skillName}`">{{ formatNumber(row.downloadCount ?? 0) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('columns.status')" width="100">
           <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
         </el-table-column>
@@ -64,7 +69,7 @@ import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRouter } from 'vue-router';
 import { loadSkillInventorySummaries, statusText, type SkillInventoryItem } from '../../skills/skill-list';
 
-const { t } = useLocaleState();
+const { t, formatNumber } = useLocaleState();
 
 const router = useRouter();
 

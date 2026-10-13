@@ -11,6 +11,7 @@ import { executeSource } from '../src/commands/source.js';
 import { executeRename } from '../src/commands/rename.js';
 import { executeVersion } from '../src/commands/version.js';
 import { executeSearch } from '../src/commands/search.js';
+import { readCliVersion } from '../src/version.js';
 
 describe('built-in readonly commands and forbiddance', () => {
   let homeDir: string;
@@ -149,6 +150,11 @@ describe('built-in readonly commands and forbiddance', () => {
     expect(url.searchParams.has('q')).toBe(false);
     const init = fetchImpl.mock.calls[0][1] as { headers: Record<string, string> };
     expect(init.headers.Authorization).toBe('token skill-token');
+    // 请求上报（#136）：search 是非包请求，带 User-Agent 但不带 ?requested=。
+    expect(init.headers['User-Agent']).toBe(
+      `esl/${readCliVersion()} node/${process.version.replace(/^v/, '')} ${process.platform}/${process.arch}`
+    );
+    expect(url.searchParams.has('requested')).toBe(false);
 
     await expect(
       executeSearch(undefined, {

@@ -20,6 +20,7 @@ import crypto from 'node:crypto';
 import semver from 'semver';
 import type {
   AdminRepository,
+  DownloadLogRepository,
   SkillRecord,
   SkillRepository,
   SkillTeamGrantRepository,
@@ -27,6 +28,7 @@ import type {
 } from '../db/database.js';
 import type { GiteaAdminUser, GiteaService, GiteaTeam } from '../services/gitea.js';
 import { isOwnerMemberOf } from '../services/organization-membership.js';
+import { parseClientUserAgent, truncateClientIp } from '../services/download-log.js';
 import {
   canManageSkill,
   getAccessLevel,
@@ -47,6 +49,7 @@ export interface SkillsRouteOptions {
   tenantOrganizationRepository: TenantOrganizationRepository;
   skillTeamGrantRepository: SkillTeamGrantRepository;
   packageRoot?: string;
+  downloadLogRepository?: DownloadLogRepository;
 }
 
 // ADR-0064:依赖 Gitea Organization 团队的技能授权动作。个人命名空间(技能的
@@ -102,6 +105,38 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     skillTeamGrantRepository
   } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
+  const downloadLogRepository = options.downloadLogRepository;
+
+  // 包发放端点是唯一的下载事件记录点（ADR-0067）：依赖解析由 CLI 逐包 GET
+  // 实现，因此根技能与每个依赖节点天然各构成一次独立下载，无需区分触发来源。
+  // 客户端 IP 只落截断网段，User-Agent 拆成环境字段，requested specifier 由
+  // CLI 以 ?requested= 附带——三者缺失时对应字段为 null，不影响计数。
+  const recordDownload = (
+    request: FastifyRequest,
+    input: {
+      skillId?: string | null;
+      skillIdentity?: string | null;
+      version?: string | null;
+      user?: { username: string; id?: string } | null;
+      result: 'success' | 'failure';
+      failureReason?: string | null;
+    }
+  ): void => {
+    if (!downloadLogRepository) return;
+    const requested = (request.query as { requested?: unknown }).requested;
+    downloadLogRepository.record({
+      skillId: input.skillId ?? null,
+      skillIdentity: input.skillIdentity ?? null,
+      version: input.version ?? null,
+      requestedSpecifier: typeof requested === 'string' && requested.trim() ? requested.trim() : null,
+      userId: input.user?.id ?? null,
+      username: input.user?.username ?? null,
+      clientIpTruncated: truncateClientIp(clientIpOf(request)),
+      ...parseClientUserAgent(request.headers['user-agent']),
+      result: input.result,
+      failureReason: input.failureReason ?? null
+    });
+  };
 
   // 整技能 Delete/Restore 使用同一权限模型（ADR-0040）：平台管理员兜底；
   // 未发布技能由 manage 权限处理；曾发布技能只升级到组织 Owners 或个人
@@ -142,7 +177,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     )),
     // 归属(A6/ADR-0064):面板据隐藏全组织授权与团队授权卡;个人技能只有协作者授权
     personalNamespace: !isOrgNamespace(skill.scope),
-    skill: buildSkillContext(repository, skill),
+    skill: buildSkillContext(repository, skill, downloadLogRepository),
     // 查看者自己的权限档:与变更守门、技能列表的 access 用同一套判定(getAccessLevel),
     // 前端据此决定变更类控件是否可用,避免「点了才知道 403」。
     viewerAccess: await getAccessLevel(giteaService, skill, username),
@@ -309,6 +344,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       displayName: string;
       latestStableVersion?: string;
       visibility: string;
+      skillId?: string;
     }> = [];
     // query 还要匹配显示名与 keywords（不在 skills 表），文本匹配统一在
     // 内存里做，DB 只承担已发布状态与 namespace 过滤。
@@ -344,11 +380,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         description: skill.description,
         displayName,
         latestStableVersion: highestStableVersion(releases.map((release) => release.version)) ?? undefined,
-        visibility: skill.visibility
+        visibility: skill.visibility,
+        skillId: skill.skillId
       });
       if (results.length >= limitCount) break;
     }
-    return results;  });
+    // 下载量（跨版本汇总）是公开信号：匿名浏览公开技能时同样返回（ADR-0067）。
+    return withDownloadCounts(results, downloadLogRepository);
+  });
 
   // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
   // 这里返回调用方可见的全部技能(含未发布)及其权限关系,供管理后台的
@@ -375,6 +414,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       personalNamespace: boolean;
       access: SkillAccessLevel;
       relation: 'managed' | 'shared';
+      skillId?: string;
     }> = [];
     for (const skill of repository.listSkills()) {
       const access = await getAccessLevel(giteaService, skill, user.username);
@@ -389,10 +429,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         status: skill.status,
         personalNamespace: !isOrgNamespace(skill.scope),
         access,
-        relation: access === 'manage' ? 'managed' : 'shared'
+        relation: access === 'manage' ? 'managed' : 'shared',
+        skillId: skill.skillId
       });
     }
-    return view;
+    // 下载量（跨版本汇总）随技能清单一起返回，供管理后台列表与技能管理面板展示
+    // （ADR-0067）。
+    return withDownloadCounts(view, downloadLogRepository);
   });
 
   // 可见性切换(ADR-0033):Maintainer 或所有者成员可在 public/private
@@ -1130,26 +1173,71 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   });
 
   app.get('/api/packages/:skillId/:version/:checksum', async (request, reply) => {
+    const params = request.params as { skillId: string; version: string; checksum: string };
+    const pathValid = [params.skillId, params.version, params.checksum].every((value) =>
+      /^[A-Za-z0-9._-]+$/.test(value)
+    );
+    // 失败的发放尝试同样留明细（失败模式可观测），但失败行不计数。路径不合法时
+    // 连目标技能都无法确定，不为它写行；failure_reason 用响应体里的 API Error
+    // Code，使客户端看到的拒绝与服务端日志可直接关联（ADR-0045）。
+    const logFailure = (
+      failureReason: ApiErrorCode,
+      input: {
+        skillId?: string | null;
+        skillIdentity?: string | null;
+        version?: string | null;
+        user?: { username: string; id?: string } | null;
+      } = {}
+    ): void => {
+      if (!pathValid) return;
+      recordDownload(request, {
+        skillId: input.skillId ?? params.skillId,
+        skillIdentity: input.skillIdentity ?? null,
+        version: input.version ?? params.version,
+        user: input.user ?? null,
+        result: 'failure',
+        failureReason
+      });
+    };
+
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
+      logFailure('unauthorizedInvalidToken');
       return reply.status(401).send(apiError('unauthorizedInvalidToken'));
     }
-    const params = request.params as { skillId: string; version: string; checksum: string };
-    if (![params.skillId, params.version, params.checksum].every((value) => /^[A-Za-z0-9._-]+$/.test(value))) {
+    if (!pathValid) {
       return reply.status(400).send(apiError('invalidPublishedSkillPackagePath'));
     }
     const skill = repository.getSkillById(params.skillId);
     if (!skill) {
+      logFailure('skillNotFound', { user });
       return reply.status(404).send(apiError('skillNotFound'));
     }
     if (!(await hasReadAccess(giteaService, skill, user.username))) {
+      logFailure('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers', {
+        skillId: skill.skillId,
+        skillIdentity: skill.name,
+        user
+      });
       return reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'));
     }
     const packagePath = path.join(packageRoot, params.skillId, params.version, params.checksum);
     try {
       const bytes = await fs.readFile(packagePath);
+      recordDownload(request, {
+        skillId: skill.skillId,
+        skillIdentity: skill.name,
+        version: params.version,
+        user,
+        result: 'success'
+      });
       return reply.type('application/json').send(bytes);
     } catch {
+      logFailure('publishedSkillPackageNotFound', {
+        skillId: skill.skillId,
+        skillIdentity: skill.name,
+        user
+      });
       return reply.status(404).send(apiError('publishedSkillPackageNotFound'));
     }
   });
@@ -1400,13 +1488,21 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
 
     const releases = repository.getReleases(name);
     const latest = newestStableRelease(releases);
+    // 下载量口径（ADR-0067）：顶层 downloadCount 是跨版本汇总的总量；各版本
+    // 计数挂在 releases 上。versions 保持字符串数组不变——它是 CLI 选择安装
+    // 版本的输入，改成对象会破坏既有客户端的安装路径。
+    const versionDownloadCounts = skill.skillId
+      ? downloadLogRepository?.getVersionDownloadCounts(skill.skillId) ?? {}
+      : {};
     return withCloneUrl(request, {
       ...skill,
       displayName: resolveSkillDisplayName(repository, skill),
       versions: sortVersionsDescending(repository.getVersions(name)),
+      downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
       releases: releases.map((release) => ({
         ...release,
         deprecatedMessage: release.deprecatedMessage ?? null,
+        downloadCount: versionDownloadCounts[release.version] ?? 0,
         packageUrl: `${requestOrigin(request)}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
       })),
       packageUrl: latest
@@ -1558,7 +1654,11 @@ function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord
 
 // 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
 // Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
-function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
+function buildSkillContext(
+  repository: SkillRepository,
+  skill: SkillRecord,
+  downloadLogRepository?: DownloadLogRepository
+) {
   const releases = repository.getReleases(skill.name);
   const everPublished = repository.hasEverPublished(skill.name);
   const latest = newestStableRelease(releases);
@@ -1581,6 +1681,11 @@ function buildSkillContext(repository: SkillRepository, skill: SkillRecord) {
     everPublished,
     deletionError: skill.deletionError ?? null,
     createdBy: skill.createdBy,
+    // 公开下载量（ADR-0067）：跨版本总量随技能上下文一并下发，管理面板据此
+    // 展示使用规模，不必再发一次技能清单请求去取一个数字。
+    downloadCount: skill.skillId
+      ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0
+      : 0,
     latestRelease: latest
       ? { version: latest.version, createdAt: latest.createdAt, notes: latest.notes }
       : undefined,
@@ -1606,7 +1711,7 @@ async function authenticateSkillUser(
   request: FastifyRequest,
   adminRepository: AdminRepository | undefined,
   giteaService: GiteaService
-): Promise<{ username: string } | null> {
+): Promise<{ username: string; id?: string } | null> {
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('token ')) return null;
   const token = authorization.replace('token ', '').trim();
@@ -1614,7 +1719,29 @@ async function authenticateSkillUser(
   if (eslUser) return eslUser;
   if (adminRepository?.hasIssuedToken(token) || token.startsWith('esl_')) return null;
   const user = await giteaService.validateToken(token);
-  return user ? { username: user.username } : null;
+  // Git Backend 的数值型用户 id 稳定且不随改名变化，适合作为下载日志的
+  // user_id；ESL 原生 token 没有独立数值 id，此时 user_id 留空。
+  if (!user) return null;
+  return typeof user.id === 'number'
+    ? { username: user.username, id: String(user.id) }
+    : { username: user.username };
+}
+
+// 客户端 IP 取自可信代理头（部署拓扑为 nginx 前置），无代理头时回退连接地址；
+// 结果交给 truncateClientIp 截断后才落库（ADR-0067）。
+//
+// 取最后一个 hop 而非第一个：nginx 用 $proxy_add_x_forwarded_for 追加，落到后端
+// 的头形如「客户端自带的 X-Forwarded-For, nginx 看到的 $remote_addr」。取第一个
+// 等于采信调用方自带的头，下载方就能伪造来源网段——而来源网段正是超管排查滥用
+// 时依赖的字段。最后一个才是本拓扑下唯一由我们自己的代理写入的值。
+function clientIpOf(request: FastifyRequest): string | undefined {
+  const forwarded = request.headers['x-forwarded-for'];
+  const raw = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
+  const hops = raw
+    ?.split(',')
+    .map((hop) => hop.trim())
+    .filter((hop) => hop.length > 0);
+  return hops && hops.length > 0 ? hops[hops.length - 1] : request.ip;
 }
 
 // 组织命名空间的技能仓库创建时是私有的，只挂组织 owners 团队，而 ADR-0032
@@ -1629,6 +1756,22 @@ async function ensureSourceCreatorGitAccess(
 ): Promise<void> {
   if (scope === username || typeof giteaService.addCollaborator !== 'function') return;
   await giteaService.addCollaborator(scope, shortName, username, 'admin');
+}
+
+// 技能列表类的下载量富化（ADR-0067）：搜索面与技能清单共用同一口径。skillId
+// 只是内部分组键，不进入响应契约；无记录或无 skillId 的技能计 0，使"没下载过"
+// 与"字段缺失"对客户端是同一件事。
+function withDownloadCounts<T extends { skillId?: string }>(
+  rows: readonly T[],
+  repository: DownloadLogRepository | undefined
+): Array<Omit<T, 'skillId'> & { downloadCount: number }> {
+  const counts = repository?.getSkillDownloadCounts(
+    rows.map((row) => row.skillId).filter((id): id is string => Boolean(id))
+  );
+  return rows.map(({ skillId, ...row }) => ({
+    ...(row as Omit<T, 'skillId'>),
+    downloadCount: (skillId && counts?.get(skillId)) || 0
+  }));
 }
 
 function withCloneUrl<T extends { gitRepoPath: string }>(request: FastifyRequest, skill: T): T & { cloneUrl: string } {

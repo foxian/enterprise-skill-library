@@ -329,7 +329,9 @@ describe('esl login', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/account/profile',
-      expect.objectContaining({ headers: { Authorization: 'token mock_skill_user_token' } })
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'token mock_skill_user_token' })
+      })
     );
     const credentials = await loadCredentials({ homeDir });
     expect(credentials.token).toBe('mock_skill_user_token');

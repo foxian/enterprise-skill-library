@@ -268,7 +268,9 @@ async function installFromServer(
       projectRoot,
       options,
       authToken,
-      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined
+      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined,
+      // 根包上报用户原始 specifier；未显式给出 --version 时按 latest 上报（#136）。
+      options.version ?? 'latest'
     );
   }
 
@@ -362,15 +364,22 @@ export interface PackageSwap {
   previousDir: string | null;
 }
 
+/** 包请求附加 `?requested=<specifier>`（#136）：上报用户原始 specifier 或锁定的精确版本。 */
+function withRequestedSpecifier(url: string, requested: string): string {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}requested=${encodeURIComponent(requested)}`;
+}
+
 /** 下载 Published Skill Package：403 统一映射为 releaseDependencyNotVisible。 */
 async function downloadPublishedPackage(
   resolvedPackageUrl: string,
   identity: string,
   options: InstallOptions,
-  authToken: string
+  authToken: string,
+  requested: string
 ): Promise<{ integrity: string; data: ParsedPublishedPackage }> {
   const fetchImpl = options.customFetch ?? fetch;
-  const response = await fetchWithTimeout(fetchImpl, resolvedPackageUrl, {
+  const response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
     headers: { Authorization: `token ${authToken}` }
   });
   if (!response.ok) {
@@ -384,6 +393,7 @@ async function downloadPublishedPackage(
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
+  // 校验和取 URL 的 pathname（不含 query），附加 `?requested=` 不影响解析。
   const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.json$/, '');
   if (expectedIntegrity.startsWith('sha256-') && integrity !== expectedIntegrity) {
     throw new Error(`Published Skill Package checksum does not match Registry metadata: expected ${expectedIntegrity}, got ${integrity}`);
@@ -498,7 +508,14 @@ async function planIncomingGraph(
     const { identity, entry } = queue.shift()!;
     if (nodes.has(identity)) continue;
     const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    const { integrity, data } = await downloadPublishedPackage(packageUrl, identity, options, authToken);
+    // 依赖解析请求上报锁定的精确版本。
+    const { integrity, data } = await downloadPublishedPackage(
+      packageUrl,
+      identity,
+      options,
+      authToken,
+      entry.version
+    );
     if (data.skillId !== entry.skillId || data.version !== entry.version) {
       throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
     }
@@ -715,7 +732,14 @@ export async function installLocalSourceDependencies(input: {
   addRanges(incomingRanges, dependencies);
   for (const [identity, entry] of Object.entries(lock)) {
     const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    const { integrity, data } = await downloadPublishedPackage(packageUrl, identity, options, authToken);
+    // 本地源依赖解析同样上报锁定的精确版本。
+    const { integrity, data } = await downloadPublishedPackage(
+      packageUrl,
+      identity,
+      options,
+      authToken,
+      entry.version
+    );
     await assertPackageCompatible(identity, data, options);
     addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
     nodes.set(identity, {
@@ -745,7 +769,8 @@ async function installPublishedPackage(
   projectRoot: string | null,
   options: InstallOptions,
   authToken: string,
-  rootVisibility: Visibility | undefined
+  rootVisibility: Visibility | undefined,
+  requestedSpecifier: string
 ): Promise<string> {
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
   const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
@@ -753,7 +778,8 @@ async function installPublishedPackage(
     resolvedPackageUrl,
     name,
     options,
-    authToken
+    authToken,
+    requestedSpecifier
   );
   await assertPackageCompatible(name, rootData, options);
 

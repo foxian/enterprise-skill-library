@@ -202,4 +202,52 @@ export const databaseSchema = `
     ON email_actions (purpose, username)
     WHERE consumed_at IS NULL
       AND superseded_at IS NULL;
+
+  -- 下载日志明细（ADR-0067）：每次包发放尝试记录一条——成功发放计一次下载，
+  -- 失败发放（未认证/无读权限/包不存在）同样落行但不计数，使失败模式可观测。
+  -- client_ip_truncated 只存截断后的网段（IPv4 /24、IPv6 /48），任何路径都不落
+  -- 全量 IP；客户端环境字段来自 User-Agent 解析，缺失或解析失败为 NULL。
+  -- 明细仅 Super Administrator 可查，保留 90 天后由清理任务删除。
+  CREATE TABLE IF NOT EXISTS download_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_id TEXT,
+    skill_identity TEXT,
+    version TEXT,
+    requested_specifier TEXT,
+    user_id TEXT,
+    username TEXT,
+    client_ip_truncated TEXT,
+    os_platform TEXT,
+    os_arch TEXT,
+    esl_version TEXT,
+    node_version TEXT,
+    downloaded_at DATETIME NOT NULL,
+    result TEXT NOT NULL CHECK (result IN ('success', 'failure')),
+    failure_reason TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS download_logs_skill_index
+    ON download_logs (skill_id, downloaded_at);
+
+  CREATE INDEX IF NOT EXISTS download_logs_user_index
+    ON download_logs (username, downloaded_at);
+
+  -- 清理任务按 downloaded_at 扫描过期明细（ADR-0067）。
+  CREATE INDEX IF NOT EXISTS download_logs_downloaded_at_index
+    ON download_logs (downloaded_at);
+
+  -- 聚合计数（ADR-0067）：与明细独立、永久保留，公开下载量由此读取。
+  -- 汇总层用空串而非 NULL 表达"不限"维度——SQLite 唯一约束把 NULL 视为互不
+  -- 相等，(skill_id,'',day) 会重复插入。三个维度分别是：
+  --   version='' AND day=''  → 技能跨版本总量
+  --   version!='' AND day='' → 该版本总量
+  --   version='' AND day!='' → 该日桶（近 30 天口径的数据基础）
+  CREATE TABLE IF NOT EXISTS download_counts (
+    skill_id TEXT NOT NULL,
+    version TEXT NOT NULL DEFAULT '',
+    day TEXT NOT NULL DEFAULT '',
+    count INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (skill_id, version, day)
+  );
 `;

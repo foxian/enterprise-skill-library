@@ -29,11 +29,15 @@ export interface SkillInfo {
   skillId?: string;
   status?: string;
   packageUrl?: string;
+  /** 跨版本累计下载量（#137）：顶层总量，各版本明细见 releases[].downloadCount。 */
+  downloadCount?: number;
   releases?: Array<{
     version: string;
     checksum: string;
     skillId?: string;
     packageUrl?: string;
+    /** 该版本自身的下载量（#137）。 */
+    downloadCount?: number;
     /** 该 Release 的清单快照：多根/本地源按即将发布的规则解析时读它的 dependencies。 */
     releaseManifest?: { dependencies?: Record<string, string> };
     /** Present when the release is deprecated: the warning shown on install. */
@@ -110,8 +114,19 @@ export function formatSkillInfo(info: SkillInfo): string {
   if (info.description) {
     lines.push(`Description: ${info.description}`);
   }
+  if (info.downloadCount !== undefined) {
+    lines.push(`Downloads: ${info.downloadCount}`);
+  }
   if (info.versions && info.versions.length > 0) {
-    lines.push(`Versions: ${sortVersionsDescending(info.versions).join(', ')}`);
+    // 逐版本下载量（#137）：按 releases 里各版本的 downloadCount 渲染，
+    // 无对应 Release 的版本计 0；版本顺序沿用 sortVersionsDescending（新版本在前）。
+    const countsByVersion = new Map(
+      (info.releases ?? []).map((release) => [release.version, release.downloadCount ?? 0])
+    );
+    lines.push('Versions:');
+    for (const version of sortVersionsDescending(info.versions)) {
+      lines.push(`  ${version}  ${countsByVersion.get(version) ?? 0} downloads`);
+    }
   }
   if (info.gitRepoPath) {
     lines.push(`Repository: ${info.gitRepoPath}`);

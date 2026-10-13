@@ -6,6 +6,7 @@ import Fastify, {
 } from 'fastify';
 import {
   AdminRepository,
+  DownloadLogRepository,
   initDatabase,
   OrgApplicationRepository,
   PlatformSettingsRepository,
@@ -21,6 +22,7 @@ import { registerOrgAdminRoutes } from './routes/org-admin.js';
 import { registerUserAdminRoutes } from './routes/user-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
+import { registerDownloadLogAdminRoutes } from './routes/download-log-admin.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
 import path from 'node:path';
 import { registerUserRoutes } from './routes/register.js';
@@ -49,6 +51,20 @@ export interface AppOptions {
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// 下载日志保留 90 天（ADR-0067）：过期后只删明细，聚合计数永久保留。清理在
+// 服务启动时执行一次，此后每 24 小时一次——本仓库首个周期任务。
+export const DOWNLOAD_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+export const DOWNLOAD_LOG_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DOWNLOAD_LOG_CLEANUP_TASK_ID = 'download-log-cleanup';
+
+// 单一清理函数，启动与定时两种触发共用（ADR-0067）。返回删除的明细行数。
+export function purgeExpiredDownloadLogs(
+  repository: DownloadLogRepository,
+  now: Date = new Date()
+): number {
+  const cutoff = new Date(now.getTime() - DOWNLOAD_LOG_RETENTION_MS).toISOString();
+  return repository.deleteOlderThan(cutoff);
+}
 
 // 5xx 响应体保持 Fastify 既有形状（statusCode / 可选 code / error / message）。
 // 我们接管了错误边界，就必须自己复刻这个序列化结果，否则日志改造会顺手改掉
@@ -127,7 +143,28 @@ export function buildApp(options: AppOptions): FastifyInstance {
     crypto.randomBytes(32).toString('hex');
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
+  const downloadLogRepository = new DownloadLogRepository(db);
   expireStalePendingApplications();
+
+  // 下载日志的 90 天清理（ADR-0067）：启动时先清一次，再挂 24 小时周期定时器。
+  // 定时器 unref 并在 onClose 清除——既不阻止进程退出，也不在测试进程里残留。
+  const runDownloadLogCleanup = (): void => {
+    const cleanupLogger = taskLogger(app.log, DOWNLOAD_LOG_CLEANUP_TASK_ID);
+    logTaskStarted(cleanupLogger, DOWNLOAD_LOG_CLEANUP_TASK_ID, 'Purging expired download logs');
+    try {
+      purgeExpiredDownloadLogs(downloadLogRepository);
+      logTaskFinished(cleanupLogger, DOWNLOAD_LOG_CLEANUP_TASK_ID);
+    } catch (error) {
+      logTaskFinished(cleanupLogger, DOWNLOAD_LOG_CLEANUP_TASK_ID, error);
+    }
+  };
+  runDownloadLogCleanup();
+  const downloadLogCleanupTimer = setInterval(
+    runDownloadLogCleanup,
+    DOWNLOAD_LOG_CLEANUP_INTERVAL_MS
+  );
+  downloadLogCleanupTimer.unref();
+  app.addHook('onClose', () => clearInterval(downloadLogCleanupTimer));
 
   // 待审组织申请默认保留 30 天：过期即释放名字（ADR-0032）。
   function expireStalePendingApplications(): void {
@@ -289,7 +326,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repoOwner: options.repoOwner,
     tenantOrganizationRepository,
     skillTeamGrantRepository,
-    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
+    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
+    downloadLogRepository
+  });
+  registerDownloadLogAdminRoutes(app, {
+    giteaService: options.giteaService,
+    downloadLogRepository
   });
   app.addHook('onClose', () => db.close());
 

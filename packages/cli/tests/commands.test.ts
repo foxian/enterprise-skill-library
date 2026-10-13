@@ -85,7 +85,15 @@ describe('network CLI commands', () => {
     });
 
     expect(result).toBe(
-      'Registry (ESL Server):\nName: @myorg/my-skill\nDescription: A test skill\nVersions: 1.0.0, 0.9.0\nRepository: esl-skills/myorg_my-skill'
+      [
+        'Registry (ESL Server):',
+        'Name: @myorg/my-skill',
+        'Description: A test skill',
+        'Versions:',
+        '  1.0.0  0 downloads',
+        '  0.9.0  0 downloads',
+        'Repository: esl-skills/myorg_my-skill'
+      ].join('\n')
     );
   });
 

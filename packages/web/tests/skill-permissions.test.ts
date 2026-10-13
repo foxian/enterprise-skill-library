@@ -328,6 +328,69 @@ describe('技能列表视图', () => {
     expect(table).toContain('未发布');
     expect(wrapper.find('[data-test="configure-tool"]').exists()).toBe(true);
   });
+
+  // 下载量（ADR-0067）是跨版本汇总的公开信号，随技能清单一起下发；两个页签都展示
+  it('个人控制台的技能列表两个页签都展示下载量列', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            inventoryView(skills[0], {
+              status: 'active-published',
+              personalNamespace: false,
+              access: 'manage',
+              relation: 'managed',
+              downloadCount: 128
+            }),
+            inventoryView(skills[1], {
+              status: 'active-published',
+              personalNamespace: false,
+              access: 'read',
+              relation: 'shared',
+              downloadCount: 0
+            })
+          ]
+        };
+      }
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return { status: 200, json: matrixFor('reviewer') };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SkillListView, { account: 'member', route: '/admin/me/skills' });
+    await flushPromises();
+
+    const managed = wrapper.find('[data-test="skill-list-managed"]');
+    expect(managed.text()).toContain('下载量');
+    expect(managed.find('[data-test="download-count-reviewer"]').text()).toBe('128');
+
+    const shared = wrapper.find('[data-test="skill-list-shared"]');
+    expect(shared.text()).toContain('下载量');
+    expect(shared.find('[data-test="download-count-secret"]').text()).toBe('0');
+  });
+
+  it('超管技能总览展示下载量列', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [
+            inventoryView(skills[0], { status: 'active-published', access: 'manage', relation: 'managed', downloadCount: 42 }),
+            inventoryView(skills[2], { status: 'active-unreleased', access: 'manage', relation: 'managed', downloadCount: 7 })
+          ]
+        };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SuperSkillsView, { account: 'platformAdmin', route: '/admin/super/skills' });
+    await flushPromises();
+
+    const table = wrapper.find('[data-test="super-skills-table"]');
+    expect(table.text()).toContain('下载量');
+    expect(table.find('[data-test="download-count-reviewer"]').text()).toBe('42');
+    expect(table.find('[data-test="download-count-tool"]').text()).toBe('7');
+  });
 });
 
 describe('SkillManagePanel 权限配置', () => {
@@ -769,6 +832,39 @@ describe('SkillManagePanel 权限配置', () => {
     expect(wrapper.find('[data-test="skill-context-status"]').text()).toBe('未发布');
     expect(wrapper.find('[data-test="skill-latest-release"]').text()).toContain('尚未发布');
     expect(wrapper.find('[data-test="release-history-card"]').exists()).toBe(false);
+  });
+
+  it('技能信息卡展示跨版本总下载量（随技能上下文下发）', async () => {
+    useApiMock((_method, url) => {
+      if (url.includes('/permission-candidates')) {
+        return { status: 200, json: { teams: [], members: [] } };
+      }
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return {
+          status: 200,
+          json: {
+            ...matrixFor('reviewer', { members: [{ username: 'acme_alice', permission: 'write' }] }),
+            skill: {
+              name: '@acme/reviewer',
+              description: '共享评审技能',
+              status: 'active-published',
+              createdBy: 'acme_alice',
+              downloadCount: 256,
+              releases: []
+            }
+          }
+        };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(
+      { components: { SkillManagePanel }, template: '<SkillManagePanel scope="acme" skill-name="reviewer" />' } as never,
+      { account: 'member', route: '/admin/me/skills' }
+    );
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="skill-context-card"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="skill-download-count"]').text()).toBe('下载量：256');
   });
 });
 

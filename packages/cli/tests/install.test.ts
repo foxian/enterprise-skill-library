@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeLocalStore, saveCredentials } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
+import { readCliVersion } from '../src/version.js';
 
 describe('esl install (global mode)', () => {
   let homeDir: string;
@@ -323,5 +324,170 @@ describe('esl install (global mode)', () => {
       execFileAsync: execFileAsync as any
     });
     expect(fs.existsSync(path.join(target, 'SKILL.md'))).toBe(true);
+  });
+});
+
+describe('esl install request reporting (#136)', () => {
+  let homeDir: string;
+  const server = 'http://localhost:3000';
+
+  beforeEach(async () => {
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-install-report-'));
+    await initializeLocalStore({ homeDir });
+    await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
+  });
+
+  afterEach(() => {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  // 期望的 User-Agent 精确格式：esl/<CLI 版本> node/<Node 版本> <platform>/<arch>。
+  function expectedUserAgent(): string {
+    return `esl/${readCliVersion()} node/${process.version.replace(/^v/, '')} ${process.platform}/${process.arch}`;
+  }
+
+  interface PackageSpec {
+    name: string;
+    skillId: string;
+    version: string;
+    dependencies?: Record<string, string>;
+    dependencyLock?: Record<string, { skillId: string; version: string; checksum: string }>;
+  }
+
+  function buildPackage(spec: PackageSpec): { bytes: Buffer; checksum: string } {
+    const bytes = Buffer.from(
+      JSON.stringify({
+        name: spec.name,
+        skillId: spec.skillId,
+        version: spec.version,
+        sourceCommit: `${spec.skillId}-${spec.version}`,
+        releaseManifest: { compatibility: {}, dependencies: spec.dependencies ?? {} },
+        dependencyLock: spec.dependencyLock ?? {},
+        files: {
+          'SKILL.md': `---\nname: ${spec.name.replace('@', '').replace('/', ':')}\ndescription: x\n---\n`,
+          'skill.json': JSON.stringify({ name: spec.name, version: spec.version, description: 'x', author: 'tester' })
+        }
+      })
+    );
+    return { bytes, checksum: `sha256-${crypto.createHash('sha256').update(bytes).digest('hex')}` };
+  }
+
+  function packageResponse(bytes: Buffer) {
+    return { ok: true, arrayBuffer: async () => bytes };
+  }
+
+  function installOptions(customFetch: unknown) {
+    return {
+      homeDir,
+      global: true,
+      noAdapt: true,
+      server,
+      customFetch: customFetch as never,
+      execFileAsync: vi.fn() as never
+    };
+  }
+
+  it('sends the exact User-Agent alongside Authorization and ?requested=<version> on the root package request', async () => {
+    const root = buildPackage({ name: '@platform-ai/reviewer', skillId: 'sk_r', version: '1.2.3' });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/reviewer',
+          skillId: 'sk_r',
+          visibility: 'public',
+          versions: ['1.2.3'],
+          packageUrl: `/api/packages/sk_r/1.2.3/${root.checksum}.json`
+        })
+      })
+      .mockResolvedValueOnce(packageResponse(root.bytes));
+
+    await executeInstall('@platform-ai/reviewer', {
+      ...installOptions(fetchImpl),
+      version: '1.2.3'
+    } as any);
+
+    const packageCall = fetchImpl.mock.calls.find((call) =>
+      String(call[0]).includes('/api/packages/')
+    ) as [string, { headers: Record<string, string> }];
+    expect(packageCall[0]).toBe(
+      `${server}/api/packages/sk_r/1.2.3/${root.checksum}.json?requested=1.2.3`
+    );
+    expect(packageCall[1].headers['User-Agent']).toBe(expectedUserAgent());
+    expect(packageCall[1].headers.Authorization).toBe('token gitea-token');
+  });
+
+  it('reports "latest" on the root package request when no version specifier is given', async () => {
+    const root = buildPackage({ name: '@platform-ai/reviewer', skillId: 'sk_r', version: '1.0.0' });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/reviewer',
+          skillId: 'sk_r',
+          visibility: 'public',
+          versions: ['1.0.0'],
+          packageUrl: `/api/packages/sk_r/1.0.0/${root.checksum}.json`
+        })
+      })
+      .mockResolvedValueOnce(packageResponse(root.bytes));
+
+    await executeInstall('@platform-ai/reviewer', installOptions(fetchImpl) as any);
+
+    const packageCall = fetchImpl.mock.calls.find((call) =>
+      String(call[0]).includes('/api/packages/')
+    ) as [string, { headers: Record<string, string> }];
+    expect(packageCall[0]).toBe(
+      `${server}/api/packages/sk_r/1.0.0/${root.checksum}.json?requested=latest`
+    );
+    expect(packageCall[1].headers['User-Agent']).toBe(expectedUserAgent());
+  });
+
+  it('reports the locked exact version on a dependency package request', async () => {
+    const shared = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    const root = buildPackage({
+      name: '@platform-ai/root-a',
+      skillId: 'sk_a',
+      version: '1.0.0',
+      dependencies: { '@platform-ai/shared': '^1.0.0' },
+      dependencyLock: {
+        '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum: shared.checksum }
+      }
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/root-a',
+          skillId: 'sk_a',
+          visibility: 'public',
+          versions: ['1.0.0'],
+          packageUrl: `/api/packages/sk_a/1.0.0/${root.checksum}.json`
+        })
+      })
+      .mockResolvedValueOnce(packageResponse(root.bytes))
+      .mockResolvedValueOnce(packageResponse(shared.bytes))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ name: '@platform-ai/shared', visibility: 'public', versions: ['1.2.0'] })
+      });
+
+    await executeInstall('@platform-ai/root-a', installOptions(fetchImpl) as any);
+
+    const dependencyCall = fetchImpl.mock.calls.find((call) =>
+      String(call[0]).includes('/api/packages/sk_shared/')
+    ) as [string, { headers: Record<string, string> }];
+    expect(dependencyCall[0]).toBe(
+      `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.json?requested=1.2.0`
+    );
+    expect(dependencyCall[1].headers['User-Agent']).toBe(expectedUserAgent());
+    // 根包仍按用户 specifier（未显式给出时 latest）上报。
+    const rootCall = fetchImpl.mock.calls.find((call) =>
+      String(call[0]).includes('/api/packages/sk_a/')
+    ) as [string, unknown];
+    expect(rootCall[0]).toBe(`${server}/api/packages/sk_a/1.0.0/${root.checksum}.json?requested=latest`);
   });
 });

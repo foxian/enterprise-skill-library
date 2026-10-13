@@ -631,6 +631,7 @@ export class SkillRepository {
     const stmt = this.db.prepare(`
       SELECT
         name,
+        skill_id AS skillId,
         scope,
         skill_name AS skillName,
         description,
@@ -812,6 +813,191 @@ export class SkillRepository {
       releaseManifest: JSON.parse(row.releaseManifestJson),
       dependencyLock: JSON.parse(row.dependencyLockJson)
     }));
+  }
+}
+
+// 下载事件输入（ADR-0067）。成功事件计入聚合计数，失败事件只落明细行；
+// 客户端环境字段与 requested specifier 在缺失/解析失败时为 null。
+export interface DownloadLogRecord {
+  skillId?: string | null;
+  skillIdentity?: string | null;
+  version?: string | null;
+  requestedSpecifier?: string | null;
+  userId?: string | null;
+  username?: string | null;
+  clientIpTruncated?: string | null;
+  osPlatform?: string | null;
+  osArch?: string | null;
+  eslVersion?: string | null;
+  nodeVersion?: string | null;
+  result: 'success' | 'failure';
+  failureReason?: string | null;
+}
+
+// 超管查询明细的过滤条件（ADR-0067）。from/to 为 ISO 8601 UTC 时间戳，比较
+// 走字符串序（ISO 8601 的字典序即时间序）。
+export interface DownloadLogQuery {
+  skill?: string;
+  username?: string;
+  result?: 'success' | 'failure';
+  from?: string;
+  to?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface DownloadLogView {
+  id: number;
+  skillId: string | null;
+  skillIdentity: string | null;
+  version: string | null;
+  requestedSpecifier: string | null;
+  userId: string | null;
+  username: string | null;
+  clientIpTruncated: string | null;
+  osPlatform: string | null;
+  osArch: string | null;
+  eslVersion: string | null;
+  nodeVersion: string | null;
+  downloadedAt: string;
+  result: 'success' | 'failure';
+  failureReason: string | null;
+}
+
+export class DownloadLogRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  // 明细与聚合在同一事务内写入：只有成功发放才递增计数，失败尝试只留痕，
+  // 使下载量只反映成功发放而失败模式仍可观测（ADR-0067）。
+  record(input: DownloadLogRecord, at: Date = new Date()): void {
+    const downloadedAt = at.toISOString();
+    const insertLog = this.db.prepare(`
+      INSERT INTO download_logs (
+        skill_id, skill_identity, version, requested_specifier, user_id, username,
+        client_ip_truncated, os_platform, os_arch, esl_version, node_version,
+        downloaded_at, result, failure_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const bumpCount = this.db.prepare(`
+      INSERT INTO download_counts (skill_id, version, day, count, updated_at)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT (skill_id, version, day)
+      DO UPDATE SET count = count + 1, updated_at = excluded.updated_at
+    `);
+    const transaction = this.db.transaction(() => {
+      insertLog.run(
+        input.skillId ?? null,
+        input.skillIdentity ?? null,
+        input.version ?? null,
+        input.requestedSpecifier ?? null,
+        input.userId ?? null,
+        input.username ?? null,
+        input.clientIpTruncated ?? null,
+        input.osPlatform ?? null,
+        input.osArch ?? null,
+        input.eslVersion ?? null,
+        input.nodeVersion ?? null,
+        downloadedAt,
+        input.result,
+        input.failureReason ?? null
+      );
+      if (input.result !== 'success' || !input.skillId) return;
+      bumpCount.run(input.skillId, '', '', downloadedAt);
+      if (input.version) bumpCount.run(input.skillId, input.version, '', downloadedAt);
+      bumpCount.run(input.skillId, '', downloadedAt.slice(0, 10), downloadedAt);
+    });
+    transaction();
+  }
+
+  // 技能跨版本总量——公开下载量的展示口径（CONTEXT：下载量）。
+  getSkillDownloadCount(skillId: string): number {
+    const row = this.db.prepare(`
+      SELECT count FROM download_counts
+      WHERE skill_id = ? AND version = '' AND day = ''
+    `).get(skillId) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
+  getVersionDownloadCounts(skillId: string): Record<string, number> {
+    const rows = this.db.prepare(`
+      SELECT version, count FROM download_counts
+      WHERE skill_id = ? AND version != '' AND day = ''
+    `).all(skillId) as { version: string; count: number }[];
+    return Object.fromEntries(rows.map((row) => [row.version, row.count]));
+  }
+
+  // 搜索面按批取总量，避免逐条查询。
+  getSkillDownloadCounts(skillIds: readonly string[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    if (skillIds.length === 0) return counts;
+    const placeholders = skillIds.map(() => '?').join(', ');
+    const rows = this.db.prepare(`
+      SELECT skill_id AS skillId, count FROM download_counts
+      WHERE version = '' AND day = '' AND skill_id IN (${placeholders})
+    `).all(...skillIds) as { skillId: string; count: number }[];
+    for (const row of rows) counts.set(row.skillId, row.count);
+    return counts;
+  }
+
+  // 超管明细查询：按技能（Identity 或 Skill ID）、用户、结果、时间范围过滤，
+  // 按时间倒序分页。total 与 items 用同一组条件，分页游标不会与计数漂移。
+  queryLogs(query: DownloadLogQuery): { items: DownloadLogView[]; total: number } {
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (query.skill) {
+      clauses.push('(skill_identity = ? OR skill_id = ?)');
+      params.push(query.skill, query.skill);
+    }
+    if (query.username) {
+      clauses.push('username = ?');
+      params.push(query.username);
+    }
+    if (query.result) {
+      clauses.push('result = ?');
+      params.push(query.result);
+    }
+    if (query.from) {
+      clauses.push('downloaded_at >= ?');
+      params.push(query.from);
+    }
+    if (query.to) {
+      clauses.push('downloaded_at <= ?');
+      params.push(query.to);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS total FROM download_logs ${where}`).get(...params) as {
+        total: number;
+      }
+    ).total;
+    const items = this.db.prepare(`
+      SELECT
+        id,
+        skill_id AS skillId,
+        skill_identity AS skillIdentity,
+        version,
+        requested_specifier AS requestedSpecifier,
+        user_id AS userId,
+        username,
+        client_ip_truncated AS clientIpTruncated,
+        os_platform AS osPlatform,
+        os_arch AS osArch,
+        esl_version AS eslVersion,
+        node_version AS nodeVersion,
+        downloaded_at AS downloadedAt,
+        result,
+        failure_reason AS failureReason
+      FROM download_logs
+      ${where}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, query.pageSize, (query.page - 1) * query.pageSize) as DownloadLogView[];
+    return { items, total };
+  }
+
+  // 90 天保留策略（ADR-0067）：只删过期明细，聚合计数独立且永久保留。
+  deleteOlderThan(cutoffIso: string): number {
+    return this.db.prepare(`DELETE FROM download_logs WHERE downloaded_at < ?`).run(cutoffIso).changes;
   }
 }
 

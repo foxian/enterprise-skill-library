@@ -45,7 +45,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 ### 面向用户的推荐路径
 
-- **发现**：自然语言目标 → `search --json` → 用描述/版本/可见性筛选 → `info` 复核 → 给出 1–3 个候选及选择理由。
+- **发现**：自然语言目标 → `search --json` → 用描述/版本/可见性/下载量（`downloadCount`）筛选 → `info` 复核 → 给出 1–3 个候选及选择理由。
 - **试用**：用户只想阅读或验证效果 → `skill use`，不安装、不写盘；明确试用与安装的区别。
 - **安装**：确认技能、版本、项目/全局和工具 → 回显完整 `install` 命令 → 用户确认 → 处理工具选择题 → 用 `list --json` 验证安装与 Tool Link。
 - **编写**：先问技能要解决的任务、输入、输出、示例和边界 → `source init` → 逐步编辑文件 → `validate` → 用真实小案例试跑 → 再上传。
@@ -110,6 +110,7 @@ ame`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空�
 ## 输出与解析
 
 - 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`esl skill search`/`esl skill info`/`esl skill list` 支持），你直接解析结构化数据。`search` 面向人类有 TTY 发现会话；Agent 一律用 `--json`。
+- 下载量（#137）：`search` 每条结果带 `downloadCount`（跨版本累计，0 表示从未下载）；`info` 顶层 `downloadCount` 是总量，`releases[]` 每条带该版本自身的 `downloadCount`（`versions` 仍是纯 `string[]`，下载量明细只在 `releases[]`）。人类可读输出里 `info` 的 `Versions:` 逐行列出「版本 + 该版本下载量」，`search` 非交互行按固定列序 `name / displayName / latestStableVersion / visibility / downloadCount / description`（`description` 固定最后一列）制表符分隔。
 - 给用户看时用人类可读的默认输出。
 - `esl skill use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl skill use @ns/name | <agent>`。
 - 跨平台执行：示例块标 `bash` 只是 shell 高亮，命令本身在 PowerShell/CMD 与 bash/zsh 下等价。PowerShell 中含 `$`、反引号或 `!` 的参数文本（如提交说明、弃用提示）建议改用单引号包裹，避免被当作变量插值。

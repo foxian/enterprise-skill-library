@@ -9,6 +9,7 @@ import {
 } from '@esl/core';
 import path from 'node:path';
 import { requireOkResponse } from '../api-error.js';
+import { readCliVersion } from '../version.js';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   server?: string;
@@ -105,6 +106,40 @@ export async function resolveOptionalFreshToken(options: LocalStoreOptions = {})
   return token;
 }
 
+let cachedUserAgent: string | null = null;
+
+// 请求上报（#136）：所有 API 请求统一携带 `esl/<CLI 版本> node/<Node 版本> <platform>/<arch>`。
+// CLI 版本取自 CLI 包自身的 package.json，结果进程内缓存（一次磁盘读取足够）。
+export function resolveUserAgent(): string {
+  if (cachedUserAgent === null) {
+    const nodeVersion = process.version.replace(/^v/, '');
+    cachedUserAgent = `esl/${readCliVersion()} node/${nodeVersion} ${process.platform}/${process.arch}`;
+  }
+  return cachedUserAgent;
+}
+
+// 合并请求头：保留调用方自带的头（Authorization 等，键名大小写不敏感），
+// 仅在没有 User-Agent 时补默认值，绝不覆盖调用方已显式给出的头。
+function withDefaultHeaders(headers: HeadersInit | undefined): Record<string, string> {
+  const merged: Record<string, string> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      merged[key] = value;
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      merged[key] = value;
+    }
+  } else if (headers) {
+    Object.assign(merged, headers);
+  }
+  const hasUserAgent = Object.keys(merged).some((key) => key.toLowerCase() === 'user-agent');
+  if (!hasUserAgent) {
+    merged['User-Agent'] = resolveUserAgent();
+  }
+  return merged;
+}
+
 export async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   url: string,
@@ -114,7 +149,11 @@ export async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetchImpl(url, { ...init, signal: controller.signal });
+    return await fetchImpl(url, {
+      ...init,
+      headers: withDefaultHeaders(init.headers),
+      signal: controller.signal
+    });
   } catch (error) {
     if (controller.signal.aborted && (error as Error)?.name === 'AbortError') {
       throw new Error(`Request timed out after ${timeoutMs} ms`);

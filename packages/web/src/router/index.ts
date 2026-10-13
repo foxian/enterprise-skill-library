@@ -14,6 +14,7 @@ import SuperUsers from '../views/super/UsersView.vue';
 import SuperSettings from '../views/super/SettingsView.vue';
 import SuperSkills from '../views/super/SkillsView.vue';
 import SuperSkillManage from '../views/super/SkillManageView.vue';
+import SuperDownloadLogs from '../views/super/DownloadLogsView.vue';
 import PersonalLayout from '../views/me/PersonalLayout.vue';
 import OverviewView from '../views/me/OverviewView.vue';
 import MeOrgsView from '../views/me/OrgsView.vue';
@@ -63,6 +64,8 @@ export const router = createRouter({
         { path: 'users', name: 'super-users', component: SuperUsers, meta: { title: 'routes.userManagement', description: 'routes.userManagementDescription' } },
         { path: 'skills', name: 'super-skills', component: SuperSkills, meta: { title: 'routes.skillOverview', description: 'routes.skillOverviewDescription' } },
         { path: 'skills/:scope/:skillName/manage', name: 'super-skill-manage', component: SuperSkillManage, meta: { title: 'routes.skillManagement' } },
+        // 下载日志明细仅超管可查（ADR-0067）：挂在 platform 视图下即由路由守卫拒非平台管理员
+        { path: 'download-logs', name: 'super-download-logs', component: SuperDownloadLogs, meta: { title: 'routes.downloadLogs', description: 'routes.downloadLogsDescription' } },
         { path: 'settings', name: 'super-settings', component: SuperSettings, meta: { title: 'routes.platformSettings', description: 'routes.platformSettingsDescription' } }
       ]
     },

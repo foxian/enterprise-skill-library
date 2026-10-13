@@ -38,6 +38,31 @@ describe('router guards', () => {
     expect(router.currentRoute.value.name).toBe('login');
   });
 
+  it('非超管访问超管下载日志页被重定向到登录页', async () => {
+    const auth = useAuthStore();
+    auth.establish({
+      token: 'member-token',
+      username: 'bob',
+      isPlatformAdmin: false,
+      organizations: [{ org: 'acme', identity: 'ordinary', isOwnerMember: false }]
+    });
+
+    await router.push('/admin/super/download-logs');
+    await router.isReady();
+
+    expect(router.currentRoute.value.name).toBe('login');
+  });
+
+  it('超管可达下载日志页——父路由的 platform 视图守卫放行', async () => {
+    const auth = useAuthStore();
+    auth.establish({ token: 'super-token', username: 'eslroot', isPlatformAdmin: true, organizations: [] });
+
+    await router.push('/admin/super/download-logs');
+    await router.isReady();
+
+    expect(router.currentRoute.value.name).toBe('super-download-logs');
+  });
+
   it('超级管理员访问个人控制台被重定向到登录页——两个控制台互不越界', async () => {
     const auth = useAuthStore();
     auth.establish({ token: 'super-token', username: 'eslroot', isPlatformAdmin: true, organizations: [] });

@@ -139,6 +139,7 @@ export const apiErrorMessages = {
   installedDependencyRangesConflict:
     'Installed and incoming locks for {identity} cannot both satisfy the declared ranges',
   validationFailed: 'Validation failed: {detail}',
+  invalidDownloadLogQuery: 'Invalid download log query: {detail}',
   internalError: 'Internal error: {detail}',
   // CLI 本地环境错误（非服务端响应），显式登记以复用错误码翻译机制（ADR-0053）。
   dependEdgeNotFound: 'Release manifest has no dependency edge for {identity}',
@@ -272,6 +273,7 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   installedDependencyRangesConflict:
     '{identity} 的已装版本与新锁无法同时满足各方声明的范围',
   validationFailed: '校验失败：{detail}',
+  invalidDownloadLogQuery: '下载日志查询参数无效：{detail}',
   internalError: '内部错误：{detail}',
   identityNotATeamGrant: '该团队承载组织身份，不是技能授权；请改为调整成员身份',
   organizationNotActiveForUpload: '组织 {org} 未激活；需先完成开通才能上传技能',

@@ -241,6 +241,7 @@ describe('skill RBAC permissions', () => {
         everPublished: true,
         deletionError: null,
         createdBy: 'acme_alice',
+        downloadCount: 0,
         latestRelease: expect.objectContaining({ version: '0.9.0' }),
         releases: [expect.objectContaining({ version: '0.9.0' })]
       },
@@ -290,6 +291,7 @@ describe('skill RBAC permissions', () => {
         everPublished: true,
         deletionError: null,
         createdBy: 'acme_alice',
+        downloadCount: 0,
         latestRelease: expect.objectContaining({ version: '0.9.0' }),
         releases: [expect.objectContaining({ version: '0.9.0' })]
       },
