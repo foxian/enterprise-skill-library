@@ -7,7 +7,7 @@ describe('Git Backend Maintenance Entry smoke check', () => {
     const requestedUrls = [];
     const fetch = vi.fn(async (url) => {
       requestedUrls.push(url);
-      if (url === 'http://localhost:3000/git/user/login') {
+      if (url === 'http://localhost:4070/git/user/login') {
         return {
           ok: true,
           status: 200,
@@ -22,23 +22,23 @@ describe('Git Backend Maintenance Entry smoke check', () => {
     });
 
     await checkGitBackendMaintenanceEntry({
-      baseUrl: 'http://localhost:3000',
+      baseUrl: 'http://localhost:4070',
       fetch
     });
 
     expect(requestedUrls).toEqual([
-      'http://localhost:3000/health',
-      'http://localhost:3000/api/auth/login',
-      'http://localhost:3000/git/user/login',
-      'http://localhost:3000/git/assets/css/index.css?v=1.22.6',
-      'http://localhost:3000/git/assets/js/index.js?v=1.22.6',
-      'http://localhost:3000/git/assets/img/logo.svg'
+      'http://localhost:4070/health',
+      'http://localhost:4070/api/auth/login',
+      'http://localhost:4070/git/user/login',
+      'http://localhost:4070/git/assets/css/index.css?v=1.22.6',
+      'http://localhost:4070/git/assets/js/index.js?v=1.22.6',
+      'http://localhost:4070/git/assets/img/logo.svg'
     ]);
   });
 
   it('fails when a representative asset is unavailable', async () => {
     const fetch = vi.fn(async (url) => {
-      if (url === 'http://localhost:3000/git/user/login') {
+      if (url === 'http://localhost:4070/git/user/login') {
         return {
           ok: true,
           status: 200,
@@ -58,22 +58,22 @@ describe('Git Backend Maintenance Entry smoke check', () => {
 
     await expect(
       checkGitBackendMaintenanceEntry({
-        baseUrl: 'http://localhost:3000',
+        baseUrl: 'http://localhost:4070',
         fetch
       })
-    ).rejects.toThrow('GET http://localhost:3000/git/assets/js/index.js?v=1.22.6 returned 404');
+    ).rejects.toThrow('GET http://localhost:4070/git/assets/js/index.js?v=1.22.6 returned 404');
   });
 
   it('fails when the login page does not reference a representative asset type', async () => {
     const fetch = vi.fn(async (url) => ({
       ok: true,
       status: 200,
-      text: async () => (url === 'http://localhost:3000/git/user/login' ? '<script src="/git/assets/js/index.js"></script>' : '')
+      text: async () => (url === 'http://localhost:4070/git/user/login' ? '<script src="/git/assets/js/index.js"></script>' : '')
     }));
 
     await expect(
       checkGitBackendMaintenanceEntry({
-        baseUrl: 'http://localhost:3000',
+        baseUrl: 'http://localhost:4070',
         fetch
       })
     ).rejects.toThrow('Login page did not reference a CSS asset');

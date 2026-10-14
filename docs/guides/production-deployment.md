@@ -30,7 +30,7 @@ git clone <repo> && cd enterprise-skill-library
 cp .env.example .env
 vi .env          # 必填：GITEA_ADMIN_PASSWORD（强密码，同步存入密码管理器）
                  #      ESL_ENVIRONMENT=production
-                 # ESL_SERVER_URL 默认 http://localhost:3000；
+                 # ESL_SERVER_URL 默认 http://localhost:4070；
                  # 有域名或对外地址时改为对应值
 chmod 600 .env   # .env 含秘密，仅文件主人可读
 

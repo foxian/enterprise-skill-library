@@ -16,7 +16,7 @@ vi.mock('../src/prompt.js', async (importOriginal) => {
 });
 
 const SKILL_NAME = '@platform-ai/code-review';
-const REMOTE_URL = 'http://localhost:3000/git/platform-ai/code-review.git';
+const REMOTE_URL = 'http://localhost:4070/git/platform-ai/code-review.git';
 const HEAD = 'abc123';
 
 interface GitMockOptions {
@@ -168,7 +168,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -176,7 +176,7 @@ description: Use when reviewing code changes.
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      `http://localhost:3000/api/skills/${encodeURIComponent(SKILL_NAME)}/releases`,
+      `http://localhost:4070/api/skills/${encodeURIComponent(SKILL_NAME)}/releases`,
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('"version":"1.0.0"')
@@ -192,7 +192,7 @@ description: Use when reviewing code changes.
       executePublish({
         directory: skillDir,
         version: '2.0.0',
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -212,7 +212,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         license: 'Apache-2.0',
         force: true,
@@ -243,7 +243,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
@@ -271,7 +271,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -279,7 +279,7 @@ description: Use when reviewing code changes.
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      `http://localhost:3000/api/skills/${encodeURIComponent(SKILL_NAME)}/releases`,
+      `http://localhost:4070/api/skills/${encodeURIComponent(SKILL_NAME)}/releases`,
       expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining(`"sourceCommit":"${HEAD}"`)
@@ -294,7 +294,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -311,7 +311,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -328,7 +328,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -345,7 +345,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -362,11 +362,11 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
-        execFileAsync: createGitMock({ remoteUrl: 'http://localhost:3000/git/local/code-review.git' }) as any
+        execFileAsync: createGitMock({ remoteUrl: 'http://localhost:4070/git/local/code-review.git' }) as any
       })
     ).rejects.toThrow('@local/* skills use the local namespace and must be renamed to a stable namespace');
 
@@ -379,7 +379,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -398,7 +398,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -423,7 +423,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         customFetch: fetchImpl as any,
@@ -447,7 +447,7 @@ description: Use when reviewing code changes.
 
     const result = await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       dryRun: true,
@@ -469,7 +469,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         force: true,
         dryRun: true,
@@ -492,7 +492,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
@@ -514,7 +514,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -532,7 +532,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       noteInput: async () => '',
       customFetch: fetchImpl as any,
@@ -551,7 +551,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         confirmInput,
         customFetch: fetchImpl as any,
@@ -568,7 +568,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       message: 'fix: dead-link regex',
@@ -587,7 +587,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       customFetch: fetchImpl as any,
@@ -610,7 +610,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       noteInput: async () => 'custom manual note',
@@ -629,7 +629,7 @@ description: Use when reviewing code changes.
 
     await executePublish({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       force: true,
       noteInput: async () => '',
@@ -649,7 +649,7 @@ description: Use when reviewing code changes.
     await expect(
       executePublish({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,

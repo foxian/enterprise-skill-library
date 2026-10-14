@@ -471,7 +471,7 @@ git commit -m "feat(server): add development seed script"
 **Interfaces:**
 - Consumes: `npm run start --workspace @esl/server`
 - Consumes: `npm run seed --workspace @esl/server`
-- Produces: local API at `http://localhost:3000`
+- Produces: local API at `http://localhost:4070`
 - Produces: local Gitea at `http://localhost:3001`
 
 - [ ] **Step 1: Write Dockerfile**
@@ -579,9 +579,9 @@ docker compose exec api npm run seed --workspace @esl/server
 ## CLI Smoke
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
-npm exec -- esl search my-skill --registry http://localhost:3000/api
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl login --registry http://localhost:4070/api --git-base http://localhost:3001 --username <user> --token <token>
+npm exec -- esl search my-skill --registry http://localhost:4070/api
+npm exec -- esl info @myorg/my-skill --registry http://localhost:4070/api
 ```
 
 `publish` and `install` are not part of the Phase 3 smoke path.
@@ -632,7 +632,7 @@ Expected: `api` and `gitea` services start. Leave this process running for the n
 In a second terminal, run:
 
 ```powershell
-Invoke-RestMethod http://localhost:3000/health
+Invoke-RestMethod http://localhost:4070/health
 ```
 
 Expected response:
@@ -662,7 +662,7 @@ Seeded development skill metadata
 Run:
 
 ```powershell
-npm exec -- esl search my-skill --registry http://localhost:3000/api
+npm exec -- esl search my-skill --registry http://localhost:4070/api
 ```
 
 Expected output includes:
@@ -676,7 +676,7 @@ Expected output includes:
 Run:
 
 ```powershell
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl info @myorg/my-skill --registry http://localhost:4070/api
 ```
 
 Expected output includes:
@@ -690,7 +690,7 @@ Expected output includes:
 Create a Gitea user and token in `http://localhost:3001`, then run:
 
 ```powershell
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
+npm exec -- esl login --registry http://localhost:4070/api --git-base http://localhost:3001 --username <user> --token <token>
 ```
 
 Expected output:

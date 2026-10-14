@@ -38,7 +38,7 @@ describe('esl depend', () => {
 
     const result = await executeDependAdd('@acme/base', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 
@@ -51,14 +51,14 @@ describe('esl depend', () => {
 
     const first = await executeDependAdd('@acme/base@^1.2.0', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
     expect(first.range).toBe('^1.2.0');
 
     const second = await executeDependAdd('@acme/base@~1.5.0', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
     expect(second).toMatchObject({ range: '~1.5.0', updated: true });
@@ -80,7 +80,7 @@ describe('esl depend', () => {
     await expect(
       executeDependAdd(target, {
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any
       })
     ).rejects.toMatchObject({ code: target.endsWith('not-a-range') ? 'releaseVersionMustBeValidSemver' : 'releaseDependencyTargetInvalid' });
@@ -98,7 +98,7 @@ describe('esl depend', () => {
     await expect(
       executeDependAdd('@acme/base', {
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: forbidden as any
       })
     ).rejects.toMatchObject({ code: 'releaseDependencyNotVisible' });
@@ -111,7 +111,7 @@ describe('esl depend', () => {
     await expect(
       executeDependAdd('@acme/base', {
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: missing as any
       })
     ).rejects.toMatchObject({ code: 'releaseDependencyNoRelease' });
@@ -124,7 +124,7 @@ describe('esl depend', () => {
     await expect(
       executeDependAdd('@acme/base', {
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: prereleaseOnly as any
       })
     ).rejects.toMatchObject({ code: 'releaseDependencyNoSatisfyingVersion' });
@@ -133,7 +133,7 @@ describe('esl depend', () => {
     await expect(
       executeDependAdd('@acme/base@~1.5.0', {
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any
       })
     ).rejects.toMatchObject({ code: 'releaseDependencyNoSatisfyingVersion' });
@@ -143,7 +143,7 @@ describe('esl depend', () => {
     const fetchImpl = infoFetch(['1.2.0']);
     await executeDependAdd('@acme/base', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 
@@ -160,7 +160,7 @@ describe('esl depend', () => {
     const fetchImpl = infoFetch(['1.2.0']);
     await executeDependAdd('@acme/base@^1.2.0', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 
@@ -176,7 +176,7 @@ describe('esl depend', () => {
 
     await executeDependAdd('@acme/base', {
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 

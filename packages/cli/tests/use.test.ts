@@ -45,7 +45,7 @@ describe('esl use', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -61,7 +61,7 @@ describe('esl use', () => {
 
     const result = await executeUse('@alice/code-review', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
@@ -73,7 +73,7 @@ describe('esl use', () => {
       'clone',
       '--depth',
       '1',
-      'http://localhost:3000/git/esl-skills/alice_code-review.git',
+      'http://localhost:4070/git/esl-skills/alice_code-review.git',
       expect.any(String)
     ]);
     await fs.rm(homeDir, { recursive: true });
@@ -87,7 +87,7 @@ describe('esl use', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['1.0.0', '1.2.0', '1.3.0-beta.1']
       })
     });
@@ -106,7 +106,7 @@ describe('esl use', () => {
 
     await executeUse('@alice/code-review', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });

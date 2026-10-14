@@ -384,7 +384,7 @@ describe('Skill Release API', () => {
       url: '/api/skills/@alice/reviewer',
       headers: {
         host: 'api:3000',
-        'x-forwarded-host': 'localhost:3000',
+        'x-forwarded-host': 'localhost:4070',
         'x-forwarded-proto': 'http',
         authorization: 'token alice-token'
       }
@@ -392,8 +392,8 @@ describe('Skill Release API', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      cloneUrl: 'http://localhost:3000/git/alice/reviewer.git',
-      packageUrl: expect.stringContaining('http://localhost:3000/api/packages/')
+      cloneUrl: 'http://localhost:4070/git/alice/reviewer.git',
+      packageUrl: expect.stringContaining('http://localhost:4070/api/packages/')
     });
   });
 

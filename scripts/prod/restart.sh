@@ -25,7 +25,7 @@ docker compose "${compose_files[@]}" restart "$@"
 # api 有健康检查：重启后等待其就绪再冒烟，避免留下中间态
 echo "restart: waiting for api health..."
 deadline=$((SECONDS + 120))
-until curl -fsS -o /dev/null http://localhost:3000/health; do
+until curl -fsS -o /dev/null "${ESL_SERVER_URL:-http://localhost:4070}/health"; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "restart: api did not become healthy in time" >&2
     docker compose "${compose_files[@]}" ps >&2

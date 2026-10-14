@@ -48,7 +48,7 @@ function infoEntry(name: string, visibility = 'public') {
 describe('esl dependency reclamation', () => {
   let projectDir: string;
   let homeDir: string;
-  const server = 'http://localhost:3000';
+  const server = 'http://localhost:4070';
 
   beforeEach(async () => {
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-reclaim-'));

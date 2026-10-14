@@ -24,7 +24,7 @@ describe('esl install (global mode)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -42,7 +42,7 @@ describe('esl install (global mode)', () => {
         homeDir,
         global: true,
         noAdapt: true,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       });
@@ -58,7 +58,7 @@ describe('esl install (global mode)', () => {
         '-c',
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
-        'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        'http://localhost:4070/git/esl-skills/alice_code-review.git',
         path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
       ]
     );
@@ -104,7 +104,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
@@ -161,7 +161,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: vi.fn() as any
     });
@@ -216,7 +216,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: vi.fn() as any
     });
@@ -248,7 +248,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     })).rejects.toThrow('checksum does not match');
     expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer'))).toBe(false);
@@ -294,7 +294,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     })).rejects.toThrow('incompatible');
@@ -318,7 +318,7 @@ describe('esl install (global mode)', () => {
       global: true,
       noAdapt: true,
       ignoreCompatibility: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });

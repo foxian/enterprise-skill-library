@@ -50,7 +50,7 @@ esl config set-server https://esl.example.com
 ```
 
 `@foxian/esl` **不内置**出厂默认 Server URL。本地按 [本地开发指南](local-development.md)
-用 Docker 起 Server 时，常见地址是 `http://localhost:3000`。也可用环境变量
+用 Docker 起 Server 时，常见地址是 `http://localhost:4070`。也可用环境变量
 `ESL_SERVER` 做临时覆盖。
 
 #### 交互式登录（推荐）

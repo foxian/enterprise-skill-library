@@ -34,7 +34,7 @@ const DATA_SUBDIRS = {
   secrets: { markers: ['gitea-admin-token'], hint: 'Bootstrap 机密' }
 };
 
-const HEALTH_URL = 'http://localhost:3000/health';
+const HEALTH_URL = 'http://localhost:4070/health';
 const HEALTH_TIMEOUT_MS = 120_000;
 const HEALTH_POLL_MS = 2_000;
 

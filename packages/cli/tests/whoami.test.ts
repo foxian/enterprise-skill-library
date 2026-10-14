@@ -26,7 +26,7 @@ describe('esl whoami', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        server: overrides.server ?? 'http://localhost:3000',
+        server: overrides.server ?? 'http://localhost:4070',
         username: overrides.username ?? 'alice',
         email: overrides.email ?? null,
         tools: []
@@ -43,12 +43,12 @@ describe('esl whoami', () => {
   }
 
   it('reports the logged-in username and server with active status', async () => {
-    await seedStore({ username: 'eslroot', server: 'http://localhost:3000', token: 'token-123' });
+    await seedStore({ username: 'eslroot', server: 'http://localhost:4070', token: 'token-123' });
 
     const result = await executeWhoami({ homeDir });
 
     expect(result.username).toBe('eslroot');
-    expect(result.server).toBe('http://localhost:3000');
+    expect(result.server).toBe('http://localhost:4070');
     expect(result.loggedIn).toBe(true);
     expect(result.expired).toBe(false);
     expect(result.expiresAt).toBeTruthy();
@@ -85,7 +85,7 @@ describe('esl whoami', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         username: 'alice',
         tools: [],
         organizations: [
@@ -104,7 +104,7 @@ describe('esl whoami', () => {
 
   it('reports not logged in when there is no token', async () => {
     await initializeLocalStore({ homeDir });
-    await saveConfig({ server: 'http://localhost:3000', username: null, tools: [] }, { homeDir });
+    await saveConfig({ server: 'http://localhost:4070', username: null, tools: [] }, { homeDir });
     await saveCredentials({ token: null, loginAt: null }, { homeDir });
 
     const result = await executeWhoami({ homeDir });
@@ -163,7 +163,7 @@ describe('esl whoami', () => {
 
     it('fails when not logged in', async () => {
       await initializeLocalStore({ homeDir });
-      await saveConfig({ server: 'http://localhost:3000', username: null, tools: [] }, { homeDir });
+      await saveConfig({ server: 'http://localhost:4070', username: null, tools: [] }, { homeDir });
       await saveCredentials({ token: null, loginAt: null }, { homeDir });
 
       await expect(

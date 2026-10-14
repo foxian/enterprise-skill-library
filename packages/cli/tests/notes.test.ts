@@ -26,14 +26,14 @@ describe('esl notes', () => {
 
     const result = await executeNotes('@platform-ai/reviewer', '1.1.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       message: 'revised note',
       customFetch: fetchImpl as any
     });
 
     expect(result).toMatchObject({ version: '1.1.0', notes: 'revised note' });
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/platform-ai/reviewer/releases/1.1.0/notes',
+      'http://localhost:4070/api/skills/platform-ai/reviewer/releases/1.1.0/notes',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'token token' }),
@@ -46,7 +46,7 @@ describe('esl notes', () => {
     await expect(
       executeNotes('@builtin/esl-operator', '1.0.0', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         message: 'x',
         customFetch: vi.fn() as any
       })

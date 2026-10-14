@@ -114,7 +114,7 @@ describe('built-in readonly commands and forbiddance', () => {
     const results = await executeSearch('esl', {
       homeDir,
       builtinDir: builtinRoot,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 
@@ -132,7 +132,7 @@ describe('built-in readonly commands and forbiddance', () => {
 
     await executeSearch(undefined, {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       namespace: 'acme',
       keyword: 'review',
       visibility: 'private',
@@ -153,7 +153,7 @@ describe('built-in readonly commands and forbiddance', () => {
     await expect(
       executeSearch(undefined, {
         homeDir: emptyHomeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         visibility: 'private',
         customFetch: fetchImpl as any
       })
@@ -172,7 +172,7 @@ describe('built-in readonly commands and forbiddance', () => {
 
     const results = await executeSearch(undefined, {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     });
 

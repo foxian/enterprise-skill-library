@@ -11,7 +11,7 @@
 本文档为 ESL 管理后台（Web Console，`/admin/`）的端到端（E2E）功能测试用例，供浏览器自动化逐步执行。
 
 - **测试对象**：Web Console 全部三类角色 —— Super Administrator（`/admin/super/`）、Organization Admin（`/admin/org/`）、Member（`/admin/member/`）
-- **测试层级**：浏览器 E2E，真实 Docker 栈（nginx + api + gitea），入口 `http://localhost:3000/admin/`
+- **测试层级**：浏览器 E2E，真实 Docker 栈（nginx + api + gitea），入口 `http://localhost:4070/admin/`
 - **测试目的**：全量功能回归，并重点回归组织生命周期流程（注册 → 审批/开通 → 初始化 → 成员/团队 → 技能权限 → 删除）
 - **相关代码**：
   - 前端视图：[packages/web/src/views/](file:///d:/DevProjects/enterprise-skill-library/packages/web/src/views/)
@@ -58,7 +58,7 @@
 - **前置条件**：浏览器无会话。
 - **测试数据**：无。
 - **操作步骤**：
-  1. 直接访问 `http://localhost:3000/admin/super/dashboard`。
+  1. 直接访问 `http://localhost:4070/admin/super/dashboard`。
   2. 观察页面。
 - **预期结果**：
   1. 被重定向到 `/admin/login`。

@@ -75,7 +75,7 @@ description: >
 
 ### 3.1 `references/setup.md` — 登录与环境
 
-- `esl config set-server <url>`：一次性设 Server 地址（本地默认 `http://localhost:3000`）。
+- `esl config set-server <url>`：一次性设 Server 地址（本地默认 `http://localhost:4070`）。
 - `esl login`：交互式（推荐，提示 `Username:` + 隐藏密码）。旗标：`--username`、`--server`、`--token-file`、`--password-file`。
 - 管理员首次登录：`ESL_BOOTSTRAP_ADMIN_TOKEN` 配 `--username eslroot --token-file`。
 - `esl whoami`：输出用户名 / Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。

@@ -38,7 +38,7 @@ describe('esl status', () => {
     const {
       inRepo = true,
       hasRemote = true,
-      remoteUrl = 'http://localhost:3000/git/org/reviewer.git',
+      remoteUrl = 'http://localhost:4070/git/org/reviewer.git',
       dirty = '',
       ahead = 0,
       behind = 0,
@@ -113,7 +113,7 @@ describe('esl status', () => {
       const status = await executeStatus({
         directory: skillDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         execFileAsync: execFileAsync as any
       });
 
@@ -132,7 +132,7 @@ describe('esl status', () => {
       const status = await executeStatus({
         directory: skillDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         execFileAsync: execFileAsync as any
       });
 

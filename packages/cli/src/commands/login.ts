@@ -101,7 +101,7 @@ async function resolveServerForLogin(options: LoginOptions): Promise<string> {
     if (!isInteractive()) {
       throw error;
     }
-    const url = (await readText('Server URL (e.g. http://localhost:3000): ')).trim();
+    const url = (await readText('Server URL (e.g. http://localhost:4070): ')).trim();
     if (!url) {
       throw error;
     }

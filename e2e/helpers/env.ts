@@ -49,7 +49,7 @@ export function resolveTestEnv(): E2ECredentials {
     );
   }
   return {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:4070',
     superAdmin: { username: process.env.GITEA_ADMIN_USERNAME ?? 'eslroot', password: superPassword },
     devPassword: process.env.ESL_DEV_PASSWORD ?? 'esl-dev-password'
   };

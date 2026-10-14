@@ -37,13 +37,13 @@ describe('esl info authentication', () => {
     });
 
     await executeInfo('@acme/code-review', {
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40acme%2Fcode-review',
+      'http://localhost:4070/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'token gitea-token' })
       })
@@ -57,13 +57,13 @@ describe('esl info authentication', () => {
     });
 
     await executeInfo('@acme/code-review', {
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40acme%2Fcode-review',
+      'http://localhost:4070/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
         headers: expect.not.objectContaining({ Authorization: expect.anything() })
       })
@@ -80,13 +80,13 @@ describe('esl info authentication', () => {
     });
 
     await executeInfo('@acme/code-review', {
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40acme%2Fcode-review',
+      'http://localhost:4070/api/skills/%40acme%2Fcode-review',
       expect.objectContaining({
         headers: expect.not.objectContaining({ Authorization: expect.anything() })
       })
@@ -103,7 +103,7 @@ describe('esl info authentication', () => {
     });
 
     const error = await executeInfo('@acme/private-skill', {
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any
     }).then(
@@ -128,7 +128,7 @@ describe('esl info authentication', () => {
 
     await expect(
       executeInfo('@acme/code-review', {
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         customFetch: fetchImpl as any
       })

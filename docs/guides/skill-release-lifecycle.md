@@ -1,7 +1,7 @@
 # Skill Release Lifecycle Walkthrough
 
 This walkthrough proves the server-backed project Skill Release lifecycle from a
-fresh local Docker volume. It uses the ESL Server at `http://localhost:3000` for
+fresh local Docker volume. It uses the ESL Server at `http://localhost:4070` for
 normal user workflows. Gitea remains the internal Git Backend and is only needed
 for diagnostics or recovery.
 
@@ -31,7 +31,7 @@ GITEA_ADMIN_PASSWORD=change-this-admin-password
 `GITEA_ADMIN_PASSWORD` must be at least `ESL_PASSWORD_MIN_LENGTH` (default 8)
 characters. It is the initial
 password of the ESL Administrator Account, which signs in through the Admin
-Console (`http://localhost:3000/admin`) — never through the CLI.
+Console (`http://localhost:4070/admin`) — never through the CLI.
 
 ## 1. Start From A Fresh Volume
 
@@ -49,7 +49,7 @@ Keep this terminal running.
 ## 2. Bootstrap The Platform
 
 The platform administrator does not use the CLI. Open the Admin Console at
-`http://localhost:3000/admin` in a browser and sign in as `eslroot` with the
+`http://localhost:4070/admin` in a browser and sign in as `eslroot` with the
 `GITEA_ADMIN_PASSWORD` value from `.env`. The 平台概览 (Dashboard) shows the
 bootstrap status.
 
@@ -77,7 +77,7 @@ Log in as `author` (organization `smoke`) with the recorded password, initialize
 a skill, commit it, and publish version `0.1.0`.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --username author
+npm exec -- esl account login --server http://localhost:4070 --username author
 
 Push-Location .scratch\smoke-workspace
 npm exec -- esl source init .\demo --namespace smoke
@@ -115,7 +115,7 @@ Log in as `consumer` (organization `smoke`), inspect the published Skill Release
 then install it into a project.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --username consumer
+npm exec -- esl account login --server http://localhost:4070 --username consumer
 npm exec -- esl skill search demo
 npm exec -- esl skill info @smoke/demo
 
@@ -137,7 +137,7 @@ publish the next Skill Release. Source-form skills store the version in
 `esl release publish` reads it back and syncs the source before releasing.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --username author
+npm exec -- esl account login --server http://localhost:4070 --username author
 
 Push-Location .scratch\smoke-workspace\demo
 git add SKILL.md release.json
@@ -162,7 +162,7 @@ Log back in as `consumer`, update the project install, and clone the Skill Sourc
 Repository to the fixed smoke target.
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --username consumer
+npm exec -- esl account login --server http://localhost:4070 --username consumer
 
 Push-Location .scratch\smoke-workspace\consumer-project
 npm exec -- esl skill update @smoke/demo
@@ -193,4 +193,4 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 ```
 
 Gitea is then available at `http://localhost:3001`. Continue using
-`http://localhost:3000` for normal ESL CLI workflows.
+`http://localhost:4070` for normal ESL CLI workflows.

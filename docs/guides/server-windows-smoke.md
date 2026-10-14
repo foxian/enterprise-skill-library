@@ -31,13 +31,13 @@ GitHub 托管的 Windows runner 跑不了 Linux 容器，因此这一步只能�
 
 3. **基础连通**（对应生产 smoke 脚本的 Windows 手工版）：
    ```powershell
-   (Invoke-WebRequest -UseBasicParsing http://localhost:3000/health).StatusCode   # 200
+   (Invoke-WebRequest -UseBasicParsing http://localhost:4070/health).StatusCode   # 200
    (Invoke-WebRequest -UseBasicParsing -Method Post -ContentType "application/json" `
-     -Body '{"username":"x","password":"y"}' http://localhost:3000/api/auth/login).StatusCode
+     -Body '{"username":"x","password":"y"}' http://localhost:4070/api/auth/login).StatusCode
    # 登录接口返回任意非 5xx（401/400 均算通过——验证的是服务可达与路由完整）
    ```
 
-4. **核心用户路径**：浏览器打开 `http://localhost:3000/admin/`，完成一次
+4. **核心用户路径**：浏览器打开 `http://localhost:4070/admin/`，完成一次
    注册 → 登录 → 个人控制台可见；Git Backend 维护入口可达。若本机装有
    Playwright 与系统 Chrome，可改跑 `npx playwright test e2e/golden-path`
    代替手工路径。

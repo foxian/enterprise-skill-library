@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     // 本地开发时代理到 ESL Server 统一入口
     proxy: {
-      '/api': 'http://localhost:3000'
+      '/api': 'http://localhost:4070'
     }
   }
 });

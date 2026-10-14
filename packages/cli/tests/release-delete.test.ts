@@ -26,14 +26,14 @@ describe('esl release-delete', () => {
 
     const result = await executeReleaseDelete('@alice/code-review', '1.0.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       confirm: '1.0.0',
       customFetch: fetchImpl as any
     });
 
     expect(result.deleted).toBe(true);
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/alice/code-review/releases/1.0.0/delete',
+      'http://localhost:4070/api/skills/alice/code-review/releases/1.0.0/delete',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ Authorization: 'token gitea-token' }),
@@ -48,7 +48,7 @@ describe('esl release-delete', () => {
     await expect(
       executeReleaseDelete('@alice/code-review', '1.0.0', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         confirm: '2.0.0',
         customFetch: fetchImpl as any
       })
@@ -65,7 +65,7 @@ describe('esl release-delete', () => {
 
     await executeReleaseDelete('@alice/code-review', '1.0.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       confirm: '1.0.0',
       force: true,
       customFetch: fetchImpl as any
@@ -91,7 +91,7 @@ describe('esl release-delete', () => {
 
     const error = await executeReleaseDelete('@alice/code-review', '1.0.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       confirm: '1.0.0',
       customFetch: fetchImpl as any
     }).catch((caught: unknown) => caught);
@@ -103,7 +103,7 @@ describe('esl release-delete', () => {
     await expect(
       executeReleaseDelete('@builtin/esl-operator', '1.0.0', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         confirm: '1.0.0',
         customFetch: vi.fn() as any
       })

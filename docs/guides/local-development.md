@@ -16,7 +16,7 @@
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符。用于登录管理后台（`http://localhost:3000/admin`），而非 CLI 登录。 |
+| `GITEA_ADMIN_PASSWORD` | ✅ | 平台超级管理员（默认 `eslroot`）的初始密码，至少 `ESL_PASSWORD_MIN_LENGTH`（默认 8）个字符。用于登录管理后台（`http://localhost:4070/admin`），而非 CLI 登录。 |
 
 开启邮箱验证或密码重置时，还应配置 `ESL_EMAIL_ACTION_SECRET` 为稳定的随机字符串。
 该密钥用于保护注册待验流程中暂存的密码，服务重启后必须保持不变；不要把真实密钥提交到仓库。
@@ -47,10 +47,10 @@ docker compose up --build
 
 Gitea 作为 ESL 的内部 Git 后端运行。本地 Docker 运行时会锁定 Gitea 安装并禁用公开注册，因此正常的设置和用户入职通过 ESL 完成，而非 Gitea UI。
 
-用户面向的 ESL 服务器地址是 `http://localhost:3000`。API 路由在 `/api` 下提供服务，
+用户面向的 ESL 服务器地址是 `http://localhost:4070`。API 路由在 `/api` 下提供服务，
 Git HTTP 流量在 `/git` 下路由，Web 管理后台（从 `packages/web` 构建）在
 `/admin` 下提供服务——执行 `npm run build` 后在浏览器中打开
-`http://localhost:3000/admin`，构建同时会生成挂载到 nginx 容器的 web 静态包。
+`http://localhost:4070/admin`，构建同时会生成挂载到 nginx 容器的 web 静态包。
 
 `server`（nginx）容器会等待 `api` 容器健康检查通过后再启动，因此启动后即可直接访问，
 不会出现冷启动 502 窗口。Nginx 的上传大小限制为 200 MB（`client_max_body_size 200m`）。
@@ -139,14 +139,14 @@ npm run reload:dev
 ## 登录
 
 CLI 使用**全局身份**登录：一条凭据走遍个人命名空间与所有所在组织，`esl account login`
-只需用户名与密码（无组织参数）。使用 `npm exec -- esl config set-server http://localhost:3000`
+只需用户名与密码（无组织参数）。使用 `npm exec -- esl config set-server http://localhost:4070`
 设置一次服务器（或设置 `ESL_SERVER` 环境变量），然后：
 
 ```powershell
 npm exec -- esl account login --username alice
 ```
 
-平台管理员不登录 CLI。打开管理后台 `http://localhost:3000/admin`，
+平台管理员不登录 CLI。打开管理后台 `http://localhost:4070/admin`，
 使用 `GITEA_ADMIN_USERNAME`（默认 `eslroot`）和管理员密码登录。
 使用 `npm exec -- esl account whoami` 检查当前 CLI 登录状态（显示所属组织）。
 
@@ -245,9 +245,9 @@ npm run reset:dev
 ## CLI 冒烟测试
 
 ```powershell
-npm exec -- esl account login --server http://localhost:3000 --username <user>
-npm exec -- esl skill search my-skill --server http://localhost:3000
-npm exec -- esl skill info @myorg/my-skill --server http://localhost:3000
+npm exec -- esl account login --server http://localhost:4070 --username <user>
+npm exec -- esl skill search my-skill --server http://localhost:4070
+npm exec -- esl skill info @myorg/my-skill --server http://localhost:4070
 ```
 
 完整的发布、跨用户安装、更新和源码冒烟路径，请参阅
@@ -255,6 +255,6 @@ npm exec -- esl skill info @myorg/my-skill --server http://localhost:3000
 
 Gitea 由 `docker-compose.yml` 暴露到宿主 `http://localhost:3001`（E2E 与调试经
 Git Backend admin API 读取隐藏团队等成员关系；`docker-compose.debug.yml` 声明的
-同一端口已并入主配置）。正常的 ESL 工作流应继续使用 `http://localhost:3000`。
+同一端口已并入主配置）。正常的 ESL 工作流应继续使用 `http://localhost:4070`。
 如需更细粒度的后端诊断或恢复入口，可结合
 [Docker 故障排查](docker-troubleshooting.md) 使用。

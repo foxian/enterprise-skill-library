@@ -117,7 +117,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
 
@@ -148,7 +148,7 @@ describe('email actions', () => {
     const first = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'reserved', password: 'reserved-password', email: 'reserved@example.com' }
     });
     expect(first.statusCode).toBe(202);
@@ -215,7 +215,7 @@ describe('email actions', () => {
     const requested = await app.inject({
       method: 'POST',
       url: '/api/auth/password-reset/request',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'alice' }
     });
     expect(requested.statusCode).toBe(202);
@@ -299,7 +299,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
@@ -308,7 +308,7 @@ describe('email actions', () => {
     const resend = await app.inject({
       method: 'POST',
       url: '/api/auth/verify-email/resend',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', purpose: 'register' }
     });
     expect(resend.statusCode).toBe(202);
@@ -333,7 +333,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
@@ -343,7 +343,7 @@ describe('email actions', () => {
     const resend = await app.inject({
       method: 'POST',
       url: '/api/auth/verify-email/resend',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', purpose: 'register' }
     });
     expect(resend.statusCode).toBe(502);
@@ -364,7 +364,7 @@ describe('email actions', () => {
     const firstChange = await app.inject({
       method: 'PUT',
       url: '/api/account/email',
-      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      headers: { authorization: `token ${token}`, host: 'localhost:4070' },
       payload: { email: 'alice.one@example.com', currentPassword: 'alice-password' }
     });
     expect(firstChange.statusCode).toBe(200);
@@ -374,7 +374,7 @@ describe('email actions', () => {
     const secondChange = await app.inject({
       method: 'PUT',
       url: '/api/account/email',
-      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      headers: { authorization: `token ${token}`, host: 'localhost:4070' },
       payload: { email: 'alice.two@example.com', currentPassword: 'alice-password' }
     });
     expect(secondChange.statusCode).toBe(502);
@@ -401,7 +401,7 @@ describe('email actions', () => {
     const failed = await app.inject({
       method: 'POST',
       url: '/api/auth/password-reset/request',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'alice' }
     });
     const unknown = await app.inject({
@@ -416,7 +416,7 @@ describe('email actions', () => {
     const retry = await app.inject({
       method: 'POST',
       url: '/api/auth/password-reset/request',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'alice' }
     });
     expect(retry.statusCode).toBe(202);
@@ -435,7 +435,7 @@ describe('email actions', () => {
     const changed = await app.inject({
       method: 'PUT',
       url: '/api/account/email',
-      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      headers: { authorization: `token ${token}`, host: 'localhost:4070' },
       payload: { email: 'alice.new@example.com', currentPassword: 'alice-password' }
     });
     expect(changed.statusCode).toBe(200);
@@ -444,7 +444,7 @@ describe('email actions', () => {
     const anonymousResend = await app.inject({
       method: 'POST',
       url: '/api/auth/verify-email/resend',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'alice', purpose: 'email_change' }
     });
     expect(anonymousResend.statusCode).toBe(401);
@@ -452,7 +452,7 @@ describe('email actions', () => {
     const ownerResend = await app.inject({
       method: 'POST',
       url: '/api/auth/verify-email/resend',
-      headers: { authorization: `token ${token}`, host: 'localhost:3000' },
+      headers: { authorization: `token ${token}`, host: 'localhost:4070' },
       payload: { purpose: 'email_change' }
     });
     expect(ownerResend.statusCode).toBe(202);
@@ -477,7 +477,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
@@ -501,7 +501,7 @@ describe('email actions', () => {
     const retry = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'carol', password: 'carol-password', email: 'bob@example.com' }
     });
     expect(retry.statusCode).toBe(202);
@@ -513,7 +513,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'dave', password: 'dave-password', email: 'dave@example.com' }
     });
     expect(registration.statusCode).toBe(502);
@@ -524,7 +524,7 @@ describe('email actions', () => {
     const retry = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'dave', password: 'dave-password', email: 'dave@example.com' }
     });
     expect(retry.statusCode).toBe(202);
@@ -536,7 +536,7 @@ describe('email actions', () => {
     const registration = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'bobby-password', email: 'bobby@example.com' }
     });
     expect(registration.statusCode).toBe(202);
@@ -548,7 +548,7 @@ describe('email actions', () => {
     const reused = await app.inject({
       method: 'POST',
       url: '/api/auth/register',
-      headers: { host: 'localhost:3000' },
+      headers: { host: 'localhost:4070' },
       payload: { username: 'bobby', password: 'other-password', email: 'other-bobby@example.com' }
     });
     expect(reused.statusCode).toBe(202);
