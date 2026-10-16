@@ -1193,7 +1193,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       projectRoot: projectDir,
       homeDir,
-      registry: 'http://localhost:3000/api',
+      registry: 'http://localhost:4070/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
       customFetch: fetchImpl as any,
@@ -1219,7 +1219,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       homeDir,
       global: true,
-      registry: 'http://localhost:3000/api',
+      registry: 'http://localhost:4070/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
       customFetch: fetchImpl as any,
@@ -1430,7 +1430,7 @@ describe('esl install (global mode)', () => {
       homeDir,
       global: true,
       noAdapt: true,
-      registry: 'http://localhost:3000/api',
+      registry: 'http://localhost:4070/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
       customFetch: fetchImpl as any,
@@ -1504,7 +1504,7 @@ describe('esl clone', () => {
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
     const targetDir = await executeClone('@alice/code-review', {
-      registry: 'http://localhost:3000/api',
+      registry: 'http://localhost:4070/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
       customFetch: fetchImpl as any,
@@ -1531,7 +1531,7 @@ describe('esl clone', () => {
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
     const targetDir = await executeClone('@alice/code-review', {
-      registry: 'http://localhost:3000/api',
+      registry: 'http://localhost:4070/api',
       gitBase: 'http://localhost:3001',
       token: 'gitea-token',
       customFetch: fetchImpl as any,

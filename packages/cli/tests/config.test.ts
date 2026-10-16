@@ -19,10 +19,10 @@ describe('esl config', () => {
   it('sets the server in the saved config', async () => {
     await initializeLocalStore({ homeDir });
 
-    await executeSetServer('http://localhost:3000', { homeDir });
+    await executeSetServer('http://localhost:4070', { homeDir });
 
     const config = await loadConfig({ homeDir });
-    expect(config.server).toBe('http://localhost:3000');
+    expect(config.server).toBe('http://localhost:4070');
   });
 
   it('resolves the server from the explicit option first', async () => {

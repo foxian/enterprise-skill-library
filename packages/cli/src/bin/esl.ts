@@ -1257,7 +1257,7 @@ function addLogin(parent: Command, program: Command, path = 'esl account login')
     .option('--server <url>', 'ESL Server URL (defaults to the saved server or ESL_SERVER)')
     .option('--password-file <path>', 'Read the ESL password from a file')
     .option('--token-file <path>', 'Read a Skill User Token from a file')
-    .addHelpText('after', example(`$ ${path} --server http://localhost:3000 --username alice`))
+    .addHelpText('after', example(`$ ${path} --server http://localhost:4070 --username alice`))
     .action(async (options: { server?: string; username?: string; passwordFile?: string; tokenFile?: string }) => {
       const login = await executeLogin({
         ...options,
@@ -1305,7 +1305,7 @@ function addChangePassword(parent: Command, program: Command): Command {
     .option('--current-password-file <path>', 'Read the current ESL password from a file')
     .option('--password-file <path>', 'Read the new ESL password from a file')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl account change-password --server http://localhost:3000'))
+    .addHelpText('after', example('$ esl account change-password --server http://localhost:4070'))
     .action(async (options: { currentPasswordFile?: string; passwordFile?: string; server?: string }) => {
       await executeChangeOwnPassword({
         ...options,
@@ -1322,7 +1322,7 @@ function addSetServer(parent: Command): Command {
     .command('set-server')
     .description('Set the ESL Server URL used by all commands')
     .argument('<url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl config set-server http://localhost:3000'))
+    .addHelpText('after', example('$ esl config set-server http://localhost:4070'))
     .action(async (url: string) => {
       const { server } = await executeSetServer(url);
       console.log(`Server set to ${server}`);
@@ -1605,14 +1605,14 @@ export function createProgram(): Command {
   addRepairTag(release);
 
   const account = program.command('account').description('Manage your own ESL account');
-  account.addHelpText('after', example('$ esl account login --server http://localhost:3000\n  $ esl account whoami'));
+  account.addHelpText('after', example('$ esl account login --server http://localhost:4070\n  $ esl account whoami'));
   addLogin(account, program, 'esl account login');
   addLogout(account, 'esl account logout');
   addWhoami(account, 'esl account whoami');
   addChangePassword(account, program);
 
   const config = program.command('config').description('Manage ESL client configuration');
-  config.addHelpText('after', example('$ esl config set-server http://localhost:3000\n  $ esl config preferred-tools --add claude'));
+  config.addHelpText('after', example('$ esl config set-server http://localhost:4070\n  $ esl config preferred-tools --add claude'));
   addSetServer(config);
   addPreferredTools(config, program);
 

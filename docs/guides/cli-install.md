@@ -144,13 +144,13 @@ esl config set-server https://your-esl-server.example
 
 也可用环境变量 `ESL_SERVER`（适合 CI / 临时覆盖）。
 
-**本地 Docker 开发约定**（仅当你按 [本地开发指南](local-development.md) 在本机起了 Server 时）：常见地址是 `http://localhost:3000`。这不是公开发布 CLI 的出厂默认值。
+**本地 Docker 开发约定**（仅当你按 [本地开发指南](local-development.md) 在本机起了 Server 时）：常见地址是 `http://localhost:4070`。这不是公开发布 CLI 的出厂默认值。
 
 ### 5.2 最小注册路径（没有账号时）
 
 1. 在浏览器打开：`{你的 Server 根地址}/admin/register-user`  
    例：`https://your-esl-server.example/admin/register-user`  
-   本地 Docker：`http://localhost:3000/admin/register-user`
+   本地 Docker：`http://localhost:4070/admin/register-user`
 2. 按页面提示填写用户名、邮箱、密码并提交。
 3. 视平台策略，可能需要**邮箱验证**，或进入**待管理员审批**；`open` 且无额外限制时可能注册即用。
 4. 账号可用后，回到终端继续登录。

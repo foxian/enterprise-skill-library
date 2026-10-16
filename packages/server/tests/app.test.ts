@@ -160,7 +160,7 @@ describe('Fastify Server API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
-      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      headers: { host: 'localhost:4070', authorization: 'token alice-token' },
       payload: {
         name: 'reviewer',
         description: 'Shared reviewer'
@@ -219,11 +219,11 @@ describe('Fastify Server API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/@alice/reviewer/source-access',
-      headers: { authorization: 'token consumer-token', host: 'localhost:3000' }
+      headers: { authorization: 'token consumer-token', host: 'localhost:4070' }
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().cloneUrl).toBe('http://localhost:3000/git/alice/reviewer.git');
+    expect(response.json().cloneUrl).toBe('http://localhost:4070/git/alice/reviewer.git');
     expect(mockGitea.addCollaborator).toHaveBeenCalledWith(
       'alice',
       'reviewer',
@@ -243,7 +243,7 @@ describe('Fastify Server API', () => {
     const upload = await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
-      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      headers: { host: 'localhost:4070', authorization: 'token alice-token' },
       payload: { name: 'reviewer', description: 'Reviewer' }
     });
     const skillId = upload.json().skillId;
@@ -251,7 +251,7 @@ describe('Fastify Server API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/skills/@alice/reviewer/rename',
-      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      headers: { host: 'localhost:4070', authorization: 'token alice-token' },
       payload: { name: 'reviewer-pro' }
     });
 
@@ -336,7 +336,7 @@ describe('Fastify Server API', () => {
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',
-      headers: { host: 'localhost:3000', authorization: 'token alice-token' },
+      headers: { host: 'localhost:4070', authorization: 'token alice-token' },
       payload: { name: 'reviewer', description: 'Reviewer' }
     });
 

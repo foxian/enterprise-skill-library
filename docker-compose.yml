@@ -11,7 +11,7 @@ services:
       - ./docker/gitea-custom-hooks:/data/gitea/custom/hooks:ro
     environment:
       GITEA__database__DB_TYPE: sqlite3
-      GITEA__server__ROOT_URL: ${ESL_SERVER_URL:-http://localhost:3000}/git/
+      GITEA__server__ROOT_URL: ${ESL_SERVER_URL:-http://localhost:4070}/git/
       GITEA__server__HTTP_PORT: "3000"
       GITEA__server__CUSTOM_HOOKS_PATH: /data/gitea/custom/hooks
       GITEA__security__INSTALL_LOCK: "true"
@@ -74,7 +74,7 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "4070:80"
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
       # packages/web 的构建产物（先在宿主机执行 npm run build --workspace @esl/web）

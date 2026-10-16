@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_BASE_URL = 'http://localhost:3000';
+const DEFAULT_BASE_URL = 'http://localhost:4070';
 
 const STATIC_ASSET_TYPES = [
   { name: 'CSS', pattern: /\.css(?:[?#].*)?$/ },

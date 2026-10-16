@@ -601,7 +601,7 @@ describe('esl link pulls published dependencies', () => {
     await executeLink(sourceDir, {
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       tools: ['claude']
     });

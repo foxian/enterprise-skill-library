@@ -77,7 +77,7 @@ describe('esl logout', () => {
         projectRoot: homeDir,
         homeDir,
         global: true,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         noAdapt: true
       })
     ).rejects.toThrow('Missing token; run esl login or pass --token');

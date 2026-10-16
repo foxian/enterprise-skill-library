@@ -509,7 +509,7 @@ Run:
 
 ```powershell
 & 'C:\Users\cnfox\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe' compose up -d --build
-Invoke-RestMethod http://localhost:3000/health
+Invoke-RestMethod http://localhost:4070/health
 & 'C:\Users\cnfox\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe' compose exec api npm run seed --workspace @esl/server
 ```
 
@@ -520,8 +520,8 @@ Expected: API health returns `ok=True`, seed prints `Seeded development skill me
 Run:
 
 ```powershell
-npm exec -- esl search my-skill --registry http://localhost:3000/api
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl search my-skill --registry http://localhost:4070/api
+npm exec -- esl info @myorg/my-skill --registry http://localhost:4070/api
 ```
 
 Expected: seeded skill remains discoverable and its metadata includes `gitRepoPath`.

@@ -64,7 +64,7 @@ describe('esl upload', () => {
       remoteHead = 'remote-head',
       behind = 0,
       rebaseConflict = false,
-      remoteUrl = 'http://localhost:3000/git/platform-ai/reviewer.git',
+      remoteUrl = 'http://localhost:4070/git/platform-ai/reviewer.git',
       fetchFail = false
     } = opts;
     return vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -115,7 +115,7 @@ describe('esl upload', () => {
   const uploadResponse = {
     name: '@platform-ai/reviewer',
     skillId: 'sk_01J00000000000000000000000',
-    cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+    cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
   };
 
   it('requires an explicit identity confirmation for the first upload in non-interactive mode', async () => {
@@ -125,7 +125,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
@@ -142,7 +142,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         confirmIdentity: '@acme/reviewer',
@@ -160,7 +160,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       confirmPrompt,
       customFetch: fetchImpl as any,
@@ -173,7 +173,7 @@ describe('esl upload', () => {
     expect(confirmPrompt.mock.calls[0]?.[0]).not.toContain('[y/N]');
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/upload',
+      'http://localhost:4070/api/skills/upload',
       expect.objectContaining({
         body: JSON.stringify({ name: 'reviewer', description: 'Shared reviewer' })
       })
@@ -194,19 +194,19 @@ describe('esl upload', () => {
       })
     );
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
-    const execFileAsync = gitMock({ dirty: '', remoteUrl: 'http://localhost:3000/git/platform-ai/reviewer.git' });
+    const execFileAsync = gitMock({ dirty: '', remoteUrl: 'http://localhost:4070/git/platform-ai/reviewer.git' });
 
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
     ).rejects.toThrow(/namespace "beta".*namespace "platform-ai"/s);
     expect(fetchImpl).not.toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/upload',
+      'http://localhost:4070/api/skills/upload',
       expect.anything()
     );
     expect(execFileAsync).not.toHaveBeenCalledWith(
@@ -222,7 +222,7 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -234,7 +234,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       confirmIdentity: 'reviewer',
       customFetch: fetchImpl as any,
@@ -243,7 +243,7 @@ describe('esl upload', () => {
 
     expect(result).toMatchObject({ name: '@platform-ai/reviewer', skillId: 'sk_01J00000000000000000000000' });
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/upload',
+      'http://localhost:4070/api/skills/upload',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ name: 'reviewer', description: 'Shared reviewer' })
@@ -251,7 +251,7 @@ describe('esl upload', () => {
     );
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
-      ['remote', 'add', 'esl', 'http://localhost:3000/git/platform-ai/reviewer.git'],
+      ['remote', 'add', 'esl', 'http://localhost:4070/git/platform-ai/reviewer.git'],
       { cwd: skillDir }
     );
     expect(execFileAsync).toHaveBeenCalledWith(
@@ -268,14 +268,14 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = gitMock({ dirty: '?? release.json\n' });
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       license: 'Apache-2.0',
       customFetch: fetchImpl as any,
@@ -307,14 +307,14 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = gitMock({ dirty: '?? release.json\n' });
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       noInput: true,
       customFetch: fetchImpl as any,
@@ -340,12 +340,12 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
       if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
@@ -355,14 +355,14 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
     });
 
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
-    expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:3000/api/skills/upload', expect.anything());
+    expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:4070/api/skills/upload', expect.anything());
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
       ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
@@ -376,12 +376,12 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/other/skill.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/other/skill.git\n', stderr: '' });
       }
       return Promise.resolve({ stdout: '', stderr: '' });
     });
@@ -389,7 +389,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         confirmIdentity: 'reviewer',
         customFetch: fetchImpl as any,
@@ -409,7 +409,7 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -425,7 +425,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         confirmIdentity: 'reviewer',
         customFetch: fetchImpl as any,
@@ -442,7 +442,7 @@ describe('esl upload', () => {
     try {
       await executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
@@ -459,13 +459,13 @@ describe('esl upload', () => {
   });
 
   it('resolves the server from local config when --server is omitted', async () => {
-    await saveConfig({ server: 'http://localhost:3000' }, { homeDir });
+    await saveConfig({ server: 'http://localhost:4070' }, { homeDir });
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -479,7 +479,7 @@ describe('esl upload', () => {
     });
 
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
-    expect(fetchImpl).toHaveBeenCalledWith('http://localhost:3000/api/skills/upload', expect.anything());
+    expect(fetchImpl).toHaveBeenCalledWith('http://localhost:4070/api/skills/upload', expect.anything());
   });
 
   it('initializes a git repository and writes a base .gitignore when the skill directory is not a repository', async () => {
@@ -488,7 +488,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       confirmIdentity: 'reviewer',
       customFetch: fetchImpl as any,
@@ -499,7 +499,7 @@ describe('esl upload', () => {
     expect(execFileAsync).toHaveBeenCalledWith('git', ['init'], { cwd: skillDir });
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
-      ['remote', 'add', 'esl', 'http://localhost:3000/git/platform-ai/reviewer.git'],
+      ['remote', 'add', 'esl', 'http://localhost:4070/git/platform-ai/reviewer.git'],
       { cwd: skillDir }
     );
     expect(fs.existsSync(path.join(skillDir, '.gitignore'))).toBe(true);
@@ -511,7 +511,7 @@ describe('esl upload', () => {
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -539,7 +539,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -547,7 +547,7 @@ describe('esl upload', () => {
 
     expect(result).toMatchObject({ name: '@platform-ai/reviewer' });
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40platform-ai/reviewer/description',
+      'http://localhost:4070/api/skills/%40platform-ai/reviewer/description',
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({ description: 'Shared reviewer' })
@@ -567,7 +567,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -591,7 +591,7 @@ describe('esl upload', () => {
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -620,7 +620,7 @@ describe('esl upload', () => {
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -636,12 +636,12 @@ describe('esl upload', () => {
     const execFileAsync = gitMock({
       userName: '',
       userEmail: '',
-      remoteUrl: 'http://localhost:3000/git/author01/reviewer.git'
+      remoteUrl: 'http://localhost:4070/git/author01/reviewer.git'
     });
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -668,7 +668,7 @@ describe('esl upload', () => {
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       noInput: true,
       confirmIdentity: '@acme/reviewer',
@@ -690,7 +690,7 @@ describe('esl upload', () => {
 
     await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       message: 'fix: correct the dead-link regex',
       customFetch: fetchImpl as any,
@@ -710,7 +710,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -731,7 +731,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -753,7 +753,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
@@ -773,7 +773,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -788,7 +788,7 @@ describe('esl upload', () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args.includes('fetch')) {
         return Promise.reject(new Error('remote: Repository not found.'));
@@ -798,7 +798,7 @@ describe('esl upload', () => {
 
     const error = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -819,12 +819,12 @@ describe('esl upload', () => {
       status: 200,
       json: async () => ({
         ...uploadResponse,
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer-renamed.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer-renamed.git'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args.includes('fetch')) {
         return Promise.reject(new Error('remote: Repository not found.'));
@@ -834,7 +834,7 @@ describe('esl upload', () => {
 
     const error = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -857,7 +857,7 @@ describe('esl upload', () => {
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args.includes('fetch')) {
         return Promise.reject(new Error('remote: Repository not found.'));
@@ -867,7 +867,7 @@ describe('esl upload', () => {
 
     const error = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -887,7 +887,7 @@ describe('esl upload', () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: async () => uploadResponse });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args[0] === 'rev-parse' && args[1] === 'HEAD') return Promise.resolve({ stdout: 'local\n', stderr: '' });
       if (args[0] === 'rev-parse' && args.includes('--verify')) return Promise.resolve({ stdout: 'remote\n', stderr: '' });
@@ -900,7 +900,7 @@ describe('esl upload', () => {
 
     const error = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -920,7 +920,7 @@ describe('esl upload', () => {
     const fetchImpl = vi.fn();
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
-        return Promise.resolve({ stdout: 'http://localhost:3000/git/platform-ai/reviewer.git\n', stderr: '' });
+        return Promise.resolve({ stdout: 'http://localhost:4070/git/platform-ai/reviewer.git\n', stderr: '' });
       }
       if (args.includes('fetch')) {
         return Promise.reject(new Error('remote: Repository not found.'));
@@ -931,7 +931,7 @@ describe('esl upload', () => {
     await expect(
       executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         noInput: true,
         customFetch: fetchImpl as any,
@@ -951,7 +951,7 @@ describe('esl upload', () => {
           json: async () => ({
             name: '@platform-ai/reviewer',
             skillId: 'sk_01J00000000000000000000000',
-            cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+            cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
           })
         });
       }
@@ -962,7 +962,7 @@ describe('esl upload', () => {
     try {
       const result = await executeUpload({
         directory: skillDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         homeDir,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
@@ -970,14 +970,14 @@ describe('esl upload', () => {
 
       expect(result).toMatchObject({
         name: '@platform-ai/reviewer',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       });
       expect(execFileAsync).toHaveBeenCalledWith(
         'git',
-        ['remote', 'set-url', 'esl', 'http://localhost:3000/git/platform-ai/reviewer.git'],
+        ['remote', 'set-url', 'esl', 'http://localhost:4070/git/platform-ai/reviewer.git'],
         { cwd: skillDir }
       );
-      expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:3000/api/skills/upload', expect.anything());
+      expect(fetchImpl).not.toHaveBeenCalledWith('http://localhost:4070/api/skills/upload', expect.anything());
       expect(execFileAsync).toHaveBeenCalledWith(
         'git',
         ['-c', 'http.extraHeader=Authorization: Bearer token', 'push', 'esl', 'HEAD:main'],
@@ -1000,7 +1000,7 @@ describe('esl upload', () => {
 
     const error = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -1044,7 +1044,7 @@ describe('esl upload', () => {
           status: 200,
           json: async () => ({
             name: '@platform-ai/review-crew',
-            cloneUrl: 'http://localhost:3000/git/platform-ai/review-crew.git'
+            cloneUrl: 'http://localhost:4070/git/platform-ai/review-crew.git'
           })
         });
       }
@@ -1054,7 +1054,7 @@ describe('esl upload', () => {
 
     const result = await executeUpload({
       directory: skillDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       homeDir,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any
@@ -1063,7 +1063,7 @@ describe('esl upload', () => {
     expect(result).toMatchObject({ name: '@platform-ai/review-crew' });
     expect(execFileAsync).toHaveBeenCalledWith(
       'git',
-      ['remote', 'set-url', 'esl', 'http://localhost:3000/git/platform-ai/review-crew.git'],
+      ['remote', 'set-url', 'esl', 'http://localhost:4070/git/platform-ai/review-crew.git'],
       { cwd: skillDir }
     );
   });

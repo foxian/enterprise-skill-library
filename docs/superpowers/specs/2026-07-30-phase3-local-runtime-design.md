@@ -104,9 +104,9 @@ seed 脚本从环境变量读取 `DATABASE_PATH`。如果缺少 `DATABASE_PATH`�
 npm run build
 docker compose up --build
 npm run seed --workspace @esl/server
-npm exec -- esl login --registry http://localhost:3000/api --git-base http://localhost:3001 --username <user> --token <token>
-npm exec -- esl search my-skill --registry http://localhost:3000/api
-npm exec -- esl info @myorg/my-skill --registry http://localhost:3000/api
+npm exec -- esl login --registry http://localhost:4070/api --git-base http://localhost:3001 --username <user> --token <token>
+npm exec -- esl search my-skill --registry http://localhost:4070/api
+npm exec -- esl info @myorg/my-skill --registry http://localhost:4070/api
 ```
 
 Gitea 账号和 token 创建在本阶段可以保持手动操作。本地开发文档必须清楚说明需要完成哪些 Gitea 设置步骤。

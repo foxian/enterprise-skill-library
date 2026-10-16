@@ -8,11 +8,11 @@
 #
 #   bash scripts/prod/smoke.sh [BASE_URL]
 #
-# BASE_URL defaults to $1, then $ESL_SERVER_URL, then http://localhost:3000.
+# BASE_URL defaults to $1, then $ESL_SERVER_URL, then http://localhost:4070.
 
 set -euo pipefail
 
-BASE_URL="${1:-${ESL_SERVER_URL:-http://localhost:3000}}"
+BASE_URL="${1:-${ESL_SERVER_URL:-http://localhost:4070}}"
 BASE_URL="${BASE_URL%/}"
 
 fail() { echo "smoke: FAIL — $1" >&2; exit 1; }

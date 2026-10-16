@@ -69,7 +69,7 @@ describe('公开仓库产品边界 — 配置文件不含真实实例域名', ()
 
   it('.env.example 使用 localhost 作为默认 ESL_SERVER_URL', () => {
     const envExample = readRepoFile('.env.example');
-    expect(envExample).toMatch(/^ESL_SERVER_URL=http:\/\/localhost:3000/m);
+    expect(envExample).toMatch(/^ESL_SERVER_URL=http:\/\/localhost:4070/m);
   });
 });
 

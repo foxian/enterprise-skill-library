@@ -142,7 +142,7 @@ describe('esl install (project-level)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -168,7 +168,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -197,7 +197,7 @@ describe('esl install (project-level)', () => {
     const error = await executeInstall('@acme/private-skill', {
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -222,7 +222,7 @@ describe('esl install (project-level)', () => {
       executeInstall('@alice/code-review', {
         projectRoot: projectDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         noAdapt: true
@@ -245,7 +245,7 @@ describe('esl install (project-level)', () => {
       executeInstall('@alice/code-review', {
         projectRoot: projectDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         noAdapt: true
@@ -349,7 +349,7 @@ describe('esl install (project-level)', () => {
     await executeInstall('@platform-ai/reviewer', {
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: vi.fn() as any,
       tools: ['claude']
@@ -433,7 +433,7 @@ describe('esl install (project-level)', () => {
     await executeInstall(localSource, {
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: vi.fn() as any,
       noAdapt: true
@@ -456,7 +456,7 @@ describe('esl install (project-level)', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -465,7 +465,7 @@ describe('esl install (project-level)', () => {
     const targetDir = await executeInstall('@alice/code-review', {
       homeDir,
       global: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true

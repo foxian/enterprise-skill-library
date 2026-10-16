@@ -92,9 +92,9 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
 
 Gitea is then available at `http://localhost:3001`. Sign in as `eslroot` with
 the `GITEA_ADMIN_PASSWORD` value from `.env`. Continue using the ESL Server at
-`http://localhost:3000` for normal API and Git workflows.
+`http://localhost:4070` for normal API and Git workflows.
 
 Change the ESL Administrator Account password through ESL rather than editing
-runtime storage: sign in to the Admin Console (`http://localhost:3000/admin`) as
+runtime storage: sign in to the Admin Console (`http://localhost:4070/admin`) as
 the administrator account and change it under 平台设置 (Platform Settings). The
 CLI does not host the platform administrator.

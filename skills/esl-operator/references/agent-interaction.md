@@ -32,7 +32,7 @@ stdout 只按 JSON 协议解析；stderr 只作为人类可读日志或诊断信
 
 ## AskUserQuestion 风格输出
 
-stdout 直接输出与 Claude Code `AskUserQuestion` 工具输入一致的 JSON：
+stdout 输出 AskUserQuestion 风格的 JSON 负载；`questions` 可用于宿主适配，`metadata` 是 ESL 来源标记，不应直接传入不接受该字段的宿主工具：
 
 ```json
 {
@@ -48,13 +48,12 @@ stdout 直接输出与 Claude Code `AskUserQuestion` 工具输入一致的 JSON�
 }
 ```
 
-字段映射规则：
+对外字段只有 `question`、`header`、`options`、`multiSelect`：
 
-- `select` / `multiselect`：`options` 取自字段 `options`；`multiSelect` 按字段
-  `kind` 设置。选项可包含 `{ label, description }`，Agent 应向用户同时展示。
-- `confirm`：`options` 固定为 `yes` / `no`。
-- `text` / `textarea` / `path`：把默认值作为唯一快捷选项（`description` 标记
-  “默认值”），自定义文本由用户走 Other 输入；没有默认值时不臆造选项。
+- 按 `multiSelect` 区分单选与多选，同时展示选项的 `label` 和可选 `description`。
+- 自定义文本允许自由输入；默认值以快捷选项展示，没有选项时直接询问文本。
+- `yes` / `no` 选项表示确认题；默认选项不等于用户已经确认。
+- `kind`、`id`、`default` 是 CLI 内部字段，不出现在 stdout，不能依赖它们渲染或映射参数。
 
 ## install / link：只问工具多选
 
@@ -95,11 +94,19 @@ esl link --agent-interaction --params-json '{"projectRootChoice":"directory","pr
 `--no-input` / 非交互在缺硬证据时以普通错误失败并列出可行动选项，不会猜一个项目
 根。项目根问完后才会继续问工具。
 
-答案以 `question` 文本为键返回。对 `esl source init`，问题按顺序对应参数
-`description`、`license`、`keywords`、`namespace`：单选取所选 `label`；多选
-（`keywords`）的多个 label 用逗号拼接；自由文本取用户输入。映射后重新执行同一
-命令。对裸 `esl release version`，`Release type` 的 `patch` / `minor` / `major` 直接
-作为 `release` 参数；自定义 SemVer 走 Other，再作为 `release` 原样传回。
+宿主答案格式不统一；先把答案关联回原 `question`，再按当前命令映射参数，不依赖问题数组的固定顺序。
+
+| init 问题 | 专用 flag / params-json 键 | 值 |
+|---|---|---|
+| Skill description | `--description` / `description` | 文本 |
+| License | `--license` / `license` | 文本，例如用户选择的 MIT |
+| Keywords | `--keywords` / `keywords` | flag 用逗号分隔，JSON 用字符串数组 |
+| Display name | `--display-name` / `display-name` | 文本；不是内部字段名 displayName |
+| Namespace | `--namespace` / `namespace` | 用户选择的 label |
+
+例如上面的 stdout 只询问 License，用户明确选择 MIT 后，保留原命令及已确认的其他参数，追加 `--license MIT` 重跑；不要把 `question`、`header` 或整份宿主答案当成 CLI 参数。
+
+对裸 `esl release version`，`Release type` 的 patch/minor/major 或 `Version` 的明确 SemVer 映射到 `release`。工具和项目根的参数映射按上面的对应章节处理。无法识别的问题先查命令帮助，不猜参数键。
 
 ## 传回参数
 
@@ -128,19 +135,11 @@ esl release version --agent-interaction --agent-tool <tool> --params-json '{"rel
 `--params-json` 的值必须是顶层 JSON object。只传命令支持的字段；不要把同一字段
 同时放进专用 flag 和 JSON。未知字段、重复字段或类型错误都应让 CLI 返回普通失败。
 
-## 字段类型
+## 宿主适配与无工具降级
 
-根据 `kind` 渲染控件：
+先确认宿主交互工具在当前模式可用，再把 `questions` 映射到该工具接受的输入格式；不要假定所有宿主都接受 ESL 的整份 JSON。选项数、自由文本或多选不受支持时，用简短文字补问缺失字段。
 
-- `text`：单行输入；
-- `textarea`：多行输入；
-- `select`：单选；
-- `multiselect`：多选；
-- `confirm`：确认；
-- `path`：文件或目录路径。
-
-使用 `id` 作为参数键，保留 `default` 和 `options` 的类型。用户未确认的默认值
-不能擅自提交。
+没有可用交互工具时，直接向用户询问当前必要字段并等待真实答案，不代填默认值、不让 CLI 等待 stdin，也不无参数地反复重跑。每次重跑保留已经收集的参数；后续仍返回退出码 2 时处理新问题，直到成功或普通失败。写命令仍按主文档回显并确认，协议不豁免确认门槛。
 
 ## 凭据安全
 

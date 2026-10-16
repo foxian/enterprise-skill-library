@@ -153,7 +153,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -163,7 +163,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['1.1.0', '1.0.0']
       })
     });
@@ -174,7 +174,7 @@ describe('esl update', () => {
       projectRoot: projectDir,
       homeDir,
       global: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -182,7 +182,7 @@ describe('esl update', () => {
 
     expect(result).toEqual([{ name: '@alice/code-review', from: '1.0.0', to: '1.1.0' }]);
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40alice%2Fcode-review',
+      'http://localhost:4070/api/skills/%40alice%2Fcode-review',
       expect.objectContaining({
         headers: expect.objectContaining({ authorization: 'token gitea-token' })
       })
@@ -193,7 +193,7 @@ describe('esl update', () => {
         '-c',
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
-        'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        'http://localhost:4070/git/esl-skills/alice_code-review.git',
         path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
       ]
     );
@@ -211,7 +211,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.2.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -220,7 +220,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['1.0.0', '1.2.0']
       })
     });
@@ -231,7 +231,7 @@ describe('esl update', () => {
       projectRoot: projectDir,
       homeDir,
       global: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -249,7 +249,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code_review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code_review.git',
           integrity: ''
         }
       }
@@ -258,7 +258,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code_review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code_review.git',
         versions: ['1.3.0-beta.1', '1.0.0']
       })
     });
@@ -269,7 +269,7 @@ describe('esl update', () => {
       projectRoot: projectDir,
       homeDir,
       global: true,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       noAdapt: true
@@ -289,7 +289,7 @@ describe('esl update', () => {
           skillId: 'sk_test',
           identity: '@alice/code-review',
           version: '1.0.0',
-          resolved: 'http://localhost:3000/api/packages/sk_test/1.0.0/package.json',
+          resolved: 'http://localhost:4070/api/packages/sk_test/1.0.0/package.json',
           integrity: ''
         }
       }
@@ -311,7 +311,7 @@ describe('esl update', () => {
     const result = await executeUpdate({
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       noAdapt: true
     });
@@ -337,7 +337,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -351,7 +351,7 @@ describe('esl update', () => {
       executeUpdate({
         projectRoot: projectDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         noAdapt: true
       })
@@ -369,7 +369,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -398,7 +398,7 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
@@ -409,7 +409,7 @@ describe('esl update', () => {
       executeUpdate({
         projectRoot: projectDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         noAdapt: true
       })
@@ -462,7 +462,7 @@ describe('esl update', () => {
       skills: {
         '@myorg/my-skill': {
           version: '1.2.0',
-          resolved: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          resolved: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
           integrity: ''
         }
       }
@@ -472,7 +472,7 @@ describe('esl update', () => {
       ok: true,
       json: async () => ({
         name: '@myorg/my-skill',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
         versions: ['1.2.0', '1.0.0']
       })
     });
@@ -481,7 +481,7 @@ describe('esl update', () => {
     const result = await executeUpdate({
       projectRoot: projectDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       noAdapt: true,
       customFetch: fetchImpl as any
     });
@@ -498,12 +498,12 @@ describe('esl update', () => {
       skills: {
         '@acme/private-skill': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/acme_private-skill.git',
+          resolved: 'http://localhost:4070/git/esl-skills/acme_private-skill.git',
           integrity: ''
         },
         '@myorg/my-skill': {
           version: '1.0.0',
-          resolved: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          resolved: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
           integrity: ''
         }
       }
@@ -522,7 +522,7 @@ describe('esl update', () => {
         ok: true,
         json: async () => ({
           name: '@myorg/my-skill',
-          cloneUrl: 'http://localhost:3000/git/esl-skills/myorg_my-skill.git',
+          cloneUrl: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
           versions: ['1.1.0', '1.0.0']
         })
       } as any;
@@ -545,7 +545,7 @@ describe('esl update', () => {
       const result = await executeUpdate({
         projectRoot: projectDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         noAdapt: true,
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any

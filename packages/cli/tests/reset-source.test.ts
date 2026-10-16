@@ -44,7 +44,7 @@ describe('esl reset-source', () => {
     return vi.fn().mockImplementation((_cmd: string, args: string[]) => {
       if (args[0] === 'remote' && args[1] === 'get-url') {
         if (opts.remoteUrl === null) return Promise.reject(new Error('no such remote'));
-        return Promise.resolve({ stdout: `${opts.remoteUrl ?? 'http://localhost:3000/git/platform-ai/reviewer.git'}\n`, stderr: '' });
+        return Promise.resolve({ stdout: `${opts.remoteUrl ?? 'http://localhost:4070/git/platform-ai/reviewer.git'}\n`, stderr: '' });
       }
       // remote remove succeeds silently; other git calls echo.
       return Promise.resolve({ stdout: `git ${args.join(' ')}\n`, stderr: '' });
@@ -63,7 +63,7 @@ describe('esl reset-source', () => {
       execFileAsync: execFileAsync as any
     });
 
-    expect(result.remoteUrl).toBe('http://localhost:3000/git/platform-ai/reviewer.git');
+    expect(result.remoteUrl).toBe('http://localhost:4070/git/platform-ai/reviewer.git');
     expect(result.releaseManifestRenamedTo).toBe(path.join(skillDir, 'release.json.before-reset'));
     expect(fs.existsSync(path.join(skillDir, 'release.json'))).toBe(false);
     expect(fs.existsSync(path.join(skillDir, 'release.json.before-reset'))).toBe(true);
@@ -77,7 +77,7 @@ describe('esl reset-source', () => {
       status: 200,
       json: async () => ({
         name: '@platform-ai/reviewer',
-        cloneUrl: 'http://localhost:3000/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
       })
     });
     const execFileAsync = gitMock();
@@ -86,7 +86,7 @@ describe('esl reset-source', () => {
       executeResetSource({
         directory: skillDir,
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
@@ -98,7 +98,7 @@ describe('esl reset-source', () => {
     const result = await executeResetSource({
       directory: skillDir,
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       force: true,
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any

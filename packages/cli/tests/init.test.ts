@@ -104,7 +104,7 @@ describe('esl init', () => {
   it('shows a namespace menu fetched from the server', async () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-init-home-'));
     await initializeLocalStore({ homeDir });
-    await saveConfig({ server: 'http://localhost:3000', username: 'alice', organizations: [] }, { homeDir });
+    await saveConfig({ server: 'http://localhost:4070', username: 'alice', organizations: [] }, { homeDir });
     await saveCredentials({ token: 'token', loginAt: new Date().toISOString() }, { homeDir });
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -127,7 +127,7 @@ describe('esl init', () => {
       });
 
       expect(fetchImpl).toHaveBeenCalledWith(
-        'http://localhost:3000/api/orgs/mine',
+        'http://localhost:4070/api/orgs/mine',
         expect.objectContaining({
           headers: expect.objectContaining({ authorization: 'token token' })
         })
@@ -144,7 +144,7 @@ describe('esl init', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         username: 'alice',
         organizations: [{ org: 'cached-org', identity: 'member', isOwnerMember: false }]
       },

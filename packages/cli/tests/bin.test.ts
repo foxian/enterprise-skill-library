@@ -2029,7 +2029,7 @@ describe('agent interaction', () => {
 
 describe('upload / publish positional path', () => {
   function uploadedResult() {
-    return { name: '@ns/reviewer', skillId: 'sk_01', cloneUrl: 'http://localhost:3000/git/ns/reviewer.git' };
+    return { name: '@ns/reviewer', skillId: 'sk_01', cloneUrl: 'http://localhost:4070/git/ns/reviewer.git' };
   }
 
   beforeEach(() => {

@@ -44,7 +44,7 @@ esl skill use @scope/skill-name
 esl skill install @scope/skill-name
 ```
 
-本地 Docker 开发时，Server **常见**为 `http://localhost:3000`。这是本地开发约定，不是 CLI 出厂默认。
+本地 Docker 开发时，Server **常见**为 `http://localhost:4070`。这是本地开发约定，不是 CLI 出厂默认。
 
 还没有账号？浏览器打开 `{server}/admin/register-user`（**CLI 不能注册用户**）。详见 [cli-install.md](cli-install.md)。
 

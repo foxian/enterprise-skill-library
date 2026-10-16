@@ -23,7 +23,7 @@ describe('esl source', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -40,7 +40,7 @@ describe('esl source', () => {
     try {
       targetDir = await executeSource('@alice/code-review', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         cwd: '/tmp/test-dir'
@@ -55,11 +55,11 @@ describe('esl source', () => {
       '-c',
       'http.extraHeader=Authorization: Bearer gitea-token',
       'clone',
-      'http://localhost:3000/git/esl-skills/alice_code-review.git',
+      'http://localhost:4070/git/esl-skills/alice_code-review.git',
       expect.stringContaining('code-review')
     ]);
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/%40alice%2Fcode-review/source-access',
+      'http://localhost:4070/api/skills/%40alice%2Fcode-review/source-access',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ authorization: 'token gitea-token' })
@@ -72,7 +72,7 @@ describe('esl source', () => {
       ok: true,
       json: async () => ({
         name: '@alice/code-review',
-        cloneUrl: 'http://localhost:3000/git/esl-skills/alice_code-review.git',
+        cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
         versions: ['0.1.0']
       })
     });
@@ -80,7 +80,7 @@ describe('esl source', () => {
 
     const targetDir = await executeSource('@alice/code-review', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       customFetch: fetchImpl as any,
       execFileAsync: execFileAsync as any,
       target: '/tmp/my-clone-dir'
@@ -91,7 +91,7 @@ describe('esl source', () => {
       '-c',
       'http.extraHeader=Authorization: Bearer gitea-token',
       'clone',
-      'http://localhost:3000/git/esl-skills/alice_code-review.git',
+      'http://localhost:4070/git/esl-skills/alice_code-review.git',
       '/tmp/my-clone-dir'
     ]);
   });
@@ -104,7 +104,7 @@ describe('esl source', () => {
     await expect(
       executeSource('@alice/code-review', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         target: '/tmp/my-clone-dir'
@@ -126,7 +126,7 @@ describe('esl source', () => {
     await expect(
       executeSource('@alice/code-review', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any,
         target: '/tmp/my-clone-dir'

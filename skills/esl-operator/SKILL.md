@@ -1,7 +1,7 @@
 ---
 name: esl-operator
 description: >
-  Operate the Enterprise Skill Library (ESL) CLI from natural language. Search, try, install, list, update, uninstall, link shared skills into AI tools, or link a local skill source into the Skill Store (Claude Code, Codex, Cursor, Trae, WorkBuddy, opencode, OpenClaw, Hermes); inspect tool-link status through list and repair recorded links through update; create, validate, version, publish, or clone the source of skills. Use whenever the user wants to find or use a shared skill, install/update skills (project or global), inspect which tools have which skills, author or publish a skill, pull someone's skill source for edits, or otherwise drive the `esl` command — even when they never say "esl". Routes login and server setup but never types passwords.
+  通过自然语言操作 Enterprise Skill Library（ESL）CLI：搜索、试用、安装、查看、更新或卸载 ESL 技能，管理工具链接，以及初始化、校验、克隆、上传和发布技能源码。当用户明确提到 esl、ESL 企业技能库、@builtin/esl-operator，或上下文已确定使用 ESL 实例时使用。不要求每条请求都包含 esl。仅创作或优化技能内容、进行技能评测时使用 skill-forge；未确定使用 ESL 的通用技能发现或 GitHub 安装请求不默认走本技能。指导登录和 Server 配置，但不代输密码。
 ---
 
 # esl operator
@@ -9,28 +9,16 @@ description: >
 ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）听懂用户的自然语言意图后，在终端里真跑 `esl` 命令——Windows 的 PowerShell、macOS/Linux 的 bash 或 zsh 均可，不重新实现 CLI 逻辑，只做"意图 → 命令 → 分级执行"的翻译。用户说"搜个 code-review 技能""把我写的技能发出去"，你就知道跑哪条命令。
 
 
-## 先做环境体检，再开始工作
+## 按任务做最小环境检查
 
-不要一上来猜命令或直接执行安装/发布。先判断用户要完成的结果，再做一次**最小环境体检**；体检只读，可直接执行：
+先判断用户目标和技能来源，再按 `references/workflows.md` 的「环境按任务检查」矩阵选择前置条件；该矩阵是唯一的任务前置清单。只读检查可直接执行，不把所有检查串成必经流程。
 
-```text
-1. `esl --version`       # CLI 是否已安装、当前版本
-2. `node --version`      # Node.js 是否存在且受支持（20.17.x、22.x >=22.13、24.x）
-3. `npm --version`       # 需要安装/升级 CLI 时是否可用
-4. `esl account whoami`  # Server 配置和登录态；公开搜索/详情可按需继续
-5. `git --version`       # 仅在源码 clone/upload、发布等 Git 流程需要时检查
-```
+- 首先用 `esl --version` 确认 CLI 可用；不存在或启动失败时才进入下文的失败卡，检查 Node/npm。
+- 本地查看、内置安装和本地校验不要求 Server 或登录。只有远端任务需要 Server；需要鉴权时再检查 `esl account whoami`。
+- 只在源码或发布流程需要时检查 `git --version`；已发布包的 HTTP 安装不依赖 Git。
+- 缺失当前任务的前置条件时，读取 `references/setup.md` 的对应章节。不要猜企业 Server URL；写配置前仍须确认，密码由用户在自己的终端输入。
 
-按结果分流：
-
-- `esl` 不存在：明确告诉用户“当前不能执行 ESL 操作”，先按 `references/setup.md` 安装 `@foxian/esl`；不要假装用 `npm` 代替 ESL 操作。
-- `node` / `npm` 缺失或 Node 不在支持范围：先解决运行时，再安装 CLI。
-- CLI 存在但 Server 未配置：向用户索取管理员提供的 ESL Server URL，再执行 `esl config set-server <url>`（这是写配置，先确认）。不要猜地址，也不要把仓库开发地址当成用户的企业地址。
-- Server 可达但未登录：公共搜索和部分只读查询可继续；私有技能、安装、更新、上传、发布前引导用户在自己的终端执行交互式 `esl login`。AI 绝不输入密码。
-- Git 缺失：可以继续做 `search` / `info` / `use` / 已发布技能的远端 `install` / 本地 `validate`；只有 `source clone/upload/export`、`release publish` 等源码发布流程需要先安装 Git。
-- 体检通过后，复述当前目标、范围（项目级/全局、目标工具、版本/命名空间）和下一步，再执行对应流程。
-
-只有当用户目标明确且体检结果满足前置条件时，才进入下面的消费者或作者工作流。不要为了“看起来完整”要求用户提前安装 Docker；普通 CLI 用户不需要 Docker。
+目标明确且满足当前任务前置条件后再执行。普通 CLI 用户不需要 Docker。
 
 ## 用结果引导用户，而不是展示命令清单
 
@@ -38,24 +26,14 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 1. **发现并使用**：我想找一个能解决某问题的现成技能；先搜索 → 看详情/版本 → 试用或安装 → 选择项目/全局与工具。
 2. **管理已安装技能**：我想查看、更新、修复工具链接或卸载；先列出本地状态 → 明确影响范围 → 再变更。
-3. **创建并发布**：我想把想法变成可复用技能；先确认目标用户/输入输出/示例 → 初始化 → 编写 `SKILL.md` 与 references → validate → upload → version → publish。
+3. **创建并发布**：用户已明确要通过 ESL 管理技能源码；内容创作与评测交给 `skill-forge`，本技能负责初始化 → validate → upload → version → publish。只改内容时不擅自进入上传或发布流程。
 4. **二次开发/贡献**：我想修改已有技能；先确认来源与权限 → `source clone` → 在本地修改 → validate → upload/publish（不要把 `use` 当成源码下载）。
 
-只问**一个最小澄清问题**，优先问“你想找现成技能，还是创建/修改并发布自己的技能？”；用户回答后再补问真正影响命令的变量：技能身份、项目/全局、目标工具、版本、是否发布/共享。每一步都说明：当前阶段、将改变什么、成功判据、失败后的下一步。
+目标不明确时只问**一个最小澄清问题**；随后仅补问影响命令的变量：技能身份、项目/全局、目标工具、版本、是否发布/共享。只读查询直接给结果；写操作说明影响范围与成功判据，失败时给出下一步。
 
-### 面向用户的推荐路径
+## 按需读取参考文件
 
-- **发现**：自然语言目标 → `search --json` → 用描述/版本/可见性/下载量（`downloadCount`）筛选 → `info` 复核 → 给出 1–3 个候选及选择理由。
-- **试用**：用户只想阅读或验证效果 → `skill use`，不安装、不写盘；明确试用与安装的区别。
-- **安装**：确认技能、版本、项目/全局和工具 → 回显完整 `install` 命令 → 用户确认 → 处理工具选择题 → 用 `list --json` 验证安装与 Tool Link。
-- **编写**：先问技能要解决的任务、输入、输出、示例和边界 → `source init` → 逐步编辑文件 → `validate` → 用真实小案例试跑 → 再上传。
-- **上传/发布**：先 `source status` 和 `validate` → **盘点技能目录，列出可能不必上传的文件并问用户** → 用户确认保留集后再 `source upload` → `release version` → `release publish`。盘点与排除规则见 `references/author.md`。发布已确认后直接 publish（Agent 加 `--force`），不要默认再跑 `--dry-run`。
-
-不要一次输出完整命令长列表；只在当前阶段展示下一条或一组紧邻命令。对写命令继续遵守下文的确认门槛。
-
-## 先读取用户工作流，再读取命令细节
-
-用户已经明确目标时，先读 `references/workflows.md` 选择最短路径，再读取对应命令 reference。不要把完整命令表一次性展示给用户。
+简单查询直接读取下表中对应文件的相关章节；多阶段或目标含糊的任务，再读取 `references/workflows.md` 的对应场景。不要一次读取所有参考文件，也不要展示完整命令清单。所有 `references/` 路径均相对本技能根目录。
 
 ## 怎么用这个技能
 
@@ -98,14 +76,11 @@ Hint。细节见 `references/consumer.md`。
 
 为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作没有 Agent Interaction 协议，AI 无法替用户应答确认框。
 
-**2. 登录不碰密码。** ESL 的认证靠 `esl account login` 拿 token。如果你跑 `esl account whoami` 看到
-ot logged in`，或某条命令报 401/认证失败：把用户引到 `references/setup.md`。交互式 `esl account login` 会提示输入密码——这步让用户自己跑，你不要替它键入密码。只有当用户已备好凭据文件时，你才可以执行 `esl account login --username X --token-file ./f` 或 `--password-file ./f`。绝不在命令行里写明文密码或 token。状态不明就先跑 `esl account whoami`。
+**2. 登录不碰密码。** ESL 的认证靠 `esl account login` 拿 token。如果你跑 `esl account whoami` 看到 `Not logged in`，或某条命令报 401/认证失败：把用户引到 `references/setup.md`。交互式 `esl account login` 会提示输入密码——这步让用户自己跑，你不要替它键入密码。只有当用户已备好凭据文件时，你才可以执行 `esl account login --username X --token-file ./f` 或 `--password-file ./f`。绝不在命令行里写明文密码或 token。状态不明就先跑 `esl account whoami`。
 
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
-**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `esl source upload` / `esl release publish` / `esl source clone` / `esl release version` / `esl source rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的
-ame` 是身份的唯一权威来源（v4，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`esl source init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `esl source upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`esl release publish` 只断言一致，改归属不得靠改
-ame`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空格），不参与身份与授权——搜索/列表的标题位优先显示名、`@scope/短名` 作技术名。
+**3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `esl source upload` / `esl release publish` / `esl source clone` / `esl release version` / `esl source rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v4，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`esl source init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `esl source upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`esl release publish` 只断言一致，改归属不得靠改 `name`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空格），不参与身份与授权——搜索/列表的标题位优先显示名、`@scope/短名` 作技术名。
 
 ## 输出与解析
 
@@ -118,8 +93,8 @@ ame`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空�
 ## Agent 交互
 
 本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`
-与 `--agent-tool <tool>`，并先读 `references/agent-interaction.md`。当前
-`esl source init` 与裸 `esl release version` 已接入；其他命令按其 reference 或 `--help` 确认。不要让 CLI 在该模式
+与 `--agent-tool <tool>`；支持的命令集合和完整消费流程统一见
+`references/agent-interaction.md`，执行前读取对应章节。不要让 CLI 在该模式
 下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。
 
 如果命令返回退出码 `2` 且 stdout 是 JSON，读取 `questions` 数组，按宿主
@@ -131,19 +106,14 @@ ame`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空�
 ## 命令找不到 / 服务不通
 
 - `esl: command not found` / 无法执行 `esl`（bash 报 `command not found`，PowerShell 报「无法将"esl"项识别为 cmdlet」）：别重试同一条业务命令。先做**最短失败卡**（你可代跑只读检查）：
-  1.
-ode -v`、
-pm -v`——需在支持范围（`20.17.x` / `22.x≥22.13` / `24.x`，推荐 24）。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
-  2. 指引用户执行
-pm install -g @foxian/esl`，然后新开终端跑 `esl --version`。本仓库开发场景可
-pm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`）或用仓库文档中的
-pm exec -- esl` 方式。
+  1. `node -v`、`npm -v`——Node 支持范围以 `references/setup.md` 的 CLI engines 为准，推荐 24.x。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
+  2. 指引用户执行 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。本仓库开发场景可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`）或用仓库文档中的 `npm exec -- esl` 方式。
   3. 人类完整步骤（前置、PATH、注册、登录）：仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md
   4. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
 - 报「该命令需要 git」（`esl source upload`/`esl release publish`/`esl source clone` 等源码与发布流程）：PATH 里没有 git。提示用户安装 Git（Windows 装 [Git for Windows](https://git-scm.com/download/win)）并确认其在 PATH 后重试；不要绕过或改跑别的命令。
-- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；部署者使用自己的 ESL Server URL，本地 Docker 开发常见 `http://localhost:3000`。本地起 Server 指向 `docs/guides/local-development.md`。
+- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；部署者使用自己的 ESL Server URL，本地 Docker 开发常见 `http://localhost:4070`。本地起 Server 指向 `docs/guides/local-development.md`。
 
-现在，先按 `references/workflows.md` 确定用户目标与成功判据，再按上面的路由表读取命令细节。
+执行后按对应场景验证结果；安装使用 `esl skill list --json` 核对作用域与 Tool Link，上传和发布分别确认源码状态与已发布版本，不把上传成功当作发布成功。
 
 - **跨实例播种**：参照 `references/author.md` 的 `source export` 流程导出 `<短名>-export/`，先审查副本，再由目标企业 Maintainer 确认 namespace 并上传；不要改源目录的 `.git`/remote。
 - **原地去身份**：用户明确要把当前技能目录清成只剩文档和代码时，用 `esl source clean [path] --force`；它删除 `.git` 与 `release.json`，不替代 export。

@@ -30,14 +30,14 @@ describe('esl deprecate', () => {
 
     const result = await executeDeprecate('@alice/code-review', '1.0.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       message: 'Use 1.1.0',
       customFetch: fetchImpl as any
     });
 
     expect(result.deprecatedMessage).toBe('Use 1.1.0');
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:3000/api/skills/alice/code-review/releases/1.0.0/deprecate',
+      'http://localhost:4070/api/skills/alice/code-review/releases/1.0.0/deprecate',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({ authorization: 'token gitea-token' }),
@@ -54,7 +54,7 @@ describe('esl deprecate', () => {
 
     await executeDeprecate('@alice/code-review', '1.0.0', {
       homeDir,
-      server: 'http://localhost:3000',
+      server: 'http://localhost:4070',
       message: '',
       customFetch: fetchImpl as any
     });
@@ -69,7 +69,7 @@ describe('esl deprecate', () => {
     await expect(
       executeDeprecate('@builtin/esl-operator', '1.0.0', {
         homeDir,
-        server: 'http://localhost:3000',
+        server: 'http://localhost:4070',
         message: 'nope',
         customFetch: vi.fn() as any
       })

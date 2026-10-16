@@ -701,7 +701,7 @@ Add this test to `packages/cli/tests/publish.test.ts`:
     await expect(
       executePublish({
         directory: skillDir,
-        registry: 'http://localhost:3000/api',
+        registry: 'http://localhost:4070/api',
         gitBase: 'http://localhost:3001',
         homeDir,
         force: true,
@@ -819,7 +819,7 @@ In `USAGE.md`, in the `### 2. 登录认证 (Login)` section, directly after the 
 
 ```powershell
 esl login \
-  --registry http://localhost:3000/api \
+  --registry http://localhost:4070/api \
   --git-base http://localhost:3001 \
   --username eslroot
 ```

@@ -44,7 +44,7 @@ esl skill use @scope/skill-name
 esl skill install @scope/skill-name
 ```
 
-For local Docker development, the Server is often `http://localhost:3000`. That is a local-dev convention, not a packaged default.
+For local Docker development, the Server is often `http://localhost:4070`. That is a local-dev convention, not a packaged default.
 
 No account yet? Open `{server}/admin/register-user` in a browser (CLI cannot register users). Details: [cli-install.md](https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md).
 
