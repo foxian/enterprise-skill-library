@@ -17,6 +17,8 @@ export interface SkillSearchResult {
   skillName?: string;
   latestStableVersion?: string;
   visibility?: string;
+  /** 跨版本累计下载量（#137）：从未下载时为 0。 */
+  downloadCount: number;
 }
 
 export interface SkillSearchFilters {

@@ -8,7 +8,7 @@
 import { computed } from 'vue';
 import ConsoleShell from '../../components/layout/ConsoleShell.vue';
 import type { ConsoleMenuItem } from '../../components/layout/ConsoleShell.vue';
-import { Odometer, OfficeBuilding, Tickets, User, UserFilled, Collection, Setting } from '@element-plus/icons-vue';
+import { Odometer, OfficeBuilding, Tickets, User, UserFilled, Collection, Document, Setting } from '@element-plus/icons-vue';
 import { useLocaleState } from '../../i18n/locale';
 
 const { t } = useLocaleState();
@@ -19,6 +19,7 @@ const menuItems = computed<ConsoleMenuItem[]>(() => [
   { index: '/admin/super/registrations', label: t('nav.userRegistrations'), icon: User },
   { index: '/admin/super/users', label: t('nav.userManagement'), icon: UserFilled },
   { index: '/admin/super/skills', label: t('nav.skillOverview'), icon: Collection },
+  { index: '/admin/super/download-logs', label: t('nav.downloadLogs'), icon: Document },
   { index: '/admin/super/settings', label: t('nav.platformSettings'), icon: Setting }
 ]);
 </script>

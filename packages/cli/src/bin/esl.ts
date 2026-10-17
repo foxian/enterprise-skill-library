@@ -188,7 +188,23 @@ function searchChoiceLabel(skill: SkillSearchResult): string {
   if (skill.displayName && skill.displayName !== skill.skillName) parts.push(skill.displayName);
   if (skill.latestStableVersion) parts.push(`v${skill.latestStableVersion}`);
   if (skill.visibility) parts.push(`(${skill.visibility})`);
+  // 交互式列表沿用两空格分段；下载量紧跟可见性（#137）。
+  parts.push(`${skill.downloadCount ?? 0} downloads`);
   return parts.join('  ');
+}
+
+// 非交互搜索输出的列顺序契约（#137，制表符分隔，供脚本/Agent 解析）：
+//   name \t displayName \t latestStableVersion \t visibility \t downloadCount \t description
+// description 是唯一变长的自由文本字段，必须固定在最后一列。
+export function formatSearchLine(result: SkillSearchResult): string {
+  return [
+    result.name,
+    result.displayName ?? result.skillName ?? '',
+    result.latestStableVersion ?? '',
+    result.visibility ?? '',
+    String(result.downloadCount ?? 0),
+    result.description
+  ].join('\t');
 }
 
 function installCommandFor(skillName: string, server?: string): string {
@@ -203,6 +219,7 @@ function printSearchDetails(skill: SkillSearchResult, server?: string): void {
   console.log(`Description: ${skill.description}`);
   if (skill.latestStableVersion) console.log(`Latest stable version: v${skill.latestStableVersion}`);
   if (skill.visibility) console.log(`Visibility: ${skill.visibility}`);
+  console.log(`Downloads: ${skill.downloadCount ?? 0}`);
   console.log(`More: ${installCommandFor(skill.name, server)} (or "esl info ${skill.name}")`);
 }
 
@@ -617,10 +634,9 @@ function addSearch(parent: Command, program: Command, path = 'esl skill search')
           console.log('No skills found.');
           return;
         }
+        // 非交互输出列顺序契约见 formatSearchLine（#137）：description 固定最后一列。
         for (const result of results) {
-          console.log(
-            `${result.name}\t${result.displayName ?? result.skillName ?? ''}\t${result.latestStableVersion ?? ''}\t${result.visibility ?? ''}\t${result.description}`
-          );
+          console.log(formatSearchLine(result));
         }
         return;
       }

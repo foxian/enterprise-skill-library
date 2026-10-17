@@ -31,6 +31,8 @@ export interface SkillContext {
   everPublished?: boolean;
   deletionError?: string | null;
   createdBy: string;
+  /** 公开下载量（跨版本总量，ADR-0067）：技能管理面板据此展示使用规模。 */
+  downloadCount?: number;
   latestRelease?: { version: string; createdAt?: string; notes?: string };
   releases: ReleaseView[];
 }
@@ -98,6 +100,8 @@ export interface SkillInventoryItem {
   personalNamespace: boolean;
   access: 'read' | 'write' | 'manage';
   relation: 'managed' | 'shared';
+  /** 下载量（ADR-0067）：跨版本汇总的成功发放总量，从未下载为 0。 */
+  downloadCount: number;
 }
 
 export type SkillInventorySummary = SkillInventoryItem & { matrix?: PermissionMatrix };

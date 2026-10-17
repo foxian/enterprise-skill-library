@@ -62,7 +62,7 @@ describe('esl source', () => {
       'http://localhost:4070/api/skills/%40alice%2Fcode-review/source-access',
       expect.objectContaining({
         method: 'POST',
-        headers: { Authorization: 'token gitea-token' }
+        headers: expect.objectContaining({ authorization: 'token gitea-token' })
       })
     );
   });

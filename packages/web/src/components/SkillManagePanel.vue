@@ -31,6 +31,9 @@
           <span v-if="context?.createdBy" class="skill-meta">
             {{ t('skill.createdByUser', { name: shortUsername(props.scope, context.createdBy) }) }}
           </span>
+          <span class="skill-meta" data-test="skill-download-count">
+            {{ t('skill.downloadCount', { count: formatNumber(downloadCount) }) }}
+          </span>
         </el-space>
       </div>
     </el-card>
@@ -388,6 +391,8 @@ const canArchive = computed(() => lifecycle.value?.canArchive ?? canManage.value
 const personalNamespace = ref<boolean>(false);
 const isPersonalNamespace = computed(() => personalNamespace.value);
 const errorMessage = ref('');
+// 下载量（ADR-0067）：跨版本汇总的公开信号，权限响应不携带，单独从技能清单取一次。
+const downloadCount = ref(0);
 
 const selectedTeam = ref('');
 const teamPermission = ref<'read' | 'write' | 'manage'>('read');
@@ -539,6 +544,8 @@ function assignPermissionsResponse(response: PermissionsResponse): void {
   personalNamespace.value = isPersonal === true;
   // 可见性随技能记录一并下发（public/private）
   visibility.value = skill?.visibility ?? 'private';
+  // 公开下载量随技能上下文一并下发（ADR-0067），无需另发清单请求。
+  downloadCount.value = skill?.downloadCount ?? 0;
 }
 
 // 生命周期操作(CONTEXT:技能生命周期):Archive 是可恢复停用；Delete 是两阶段

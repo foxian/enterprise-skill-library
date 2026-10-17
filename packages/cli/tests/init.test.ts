@@ -128,7 +128,9 @@ describe('esl init', () => {
 
       expect(fetchImpl).toHaveBeenCalledWith(
         'http://localhost:4070/api/orgs/mine',
-        expect.objectContaining({ headers: { Authorization: 'token token' } })
+        expect.objectContaining({
+          headers: expect.objectContaining({ authorization: 'token token' })
+        })
       );
       const releaseJson = JSON.parse(fs.readFileSync(path.join(targetDir, 'release.json'), 'utf8'));
       expect(releaseJson.name).toBe('@acme/my-skill');

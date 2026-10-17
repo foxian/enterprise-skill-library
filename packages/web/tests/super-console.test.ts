@@ -314,6 +314,18 @@ describe('OrgDetailView 组织详情', () => {
 
     expect(wrapper.find('[data-test="org-last-error"]').exists()).toBe(false);
   });
+
+  // 回归：面包屑必须用纯标签键（nav.orgManagement）。曾误用带 {{orgs}} 插值的
+  // common.organizationManagement 且未传参，导致界面直接显示 "组织管理：{{orgs}}"。
+  it('面包屑展示纯文本「组织管理」而不残留插值占位符', async () => {
+    mockOrgsApi();
+    wrapper = await mountConsoleView(OrgDetailView, { account: 'platformAdmin', route: '/admin/super/orgs/acme' });
+    await flushPromises();
+
+    const breadcrumb = wrapper.find('.page-breadcrumb');
+    expect(breadcrumb.text()).toContain('组织管理');
+    expect(breadcrumb.text()).not.toContain('{{');
+  });
 });
 
 describe('OrgDetailView 删除组织二次确认', () => {

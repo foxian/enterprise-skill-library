@@ -27,7 +27,11 @@ Agent 必须使用 `--json`，再从结果中比较：
 - 显示名 `displayName`；
 - 描述与 keywords；
 - `latestStableVersion`；
-- `visibility`。
+- `visibility`；
+- 跨版本累计下载量 `downloadCount`（数字，从未下载为 0，可用于判断成熟度）。
+
+面向人类的非交互输出是一行制表符分隔的文本，列顺序固定为
+`name`、`displayName`、`latestStableVersion`、`visibility`、`downloadCount`、`description`——`description` 是唯一变长字段、固定在最后一列。TTY 发现会话里每个候选的标题也带 `N downloads` 片段，详情页另有一行 `Downloads: N`。
 
 搜索后不要直接安装。必要时用 `esl skill info @scope/name --json` 复核版本、源码和发布信息，再向用户给出 1–3 个候选及选择理由。
 
@@ -38,6 +42,14 @@ Agent 必须使用 `--json`，再从结果中比较：
 `esl skill info @scope/skill-name [--json]`
 
 始终查询 Registry：返回元数据、版本、源码信息和 display name。它不反映本机是否已安装；本地状态用 `esl skill list --json`。
+
+下载量（#137）：顶层 `downloadCount` 是跨版本累计总量，`releases[]` 里每条 Release 还带该版本自身的 `downloadCount`。`versions` 仍是纯 `string[]`（供安装时选版本），下载量明细只在 `releases[]` 里。人类可读输出在 `Versions:` 之后逐行列出每个版本及其下载量：
+
+```
+Versions:
+  2.0.0  3 downloads
+  1.0.0  5 downloads
+```
 
 - 未登录通常只能看到 public 技能。
 - private 技能需要当前账号具备读取权限。

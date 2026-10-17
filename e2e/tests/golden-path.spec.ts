@@ -16,6 +16,18 @@ import { publishSkillRelease } from '../helpers/release-api';
 
 const PASSWORD = 'e2e-golden-pass';
 
+// 公开下载量（ADR-0067）：从公开搜索面读取某技能的跨版本总下载量。搜索是匿名
+// 可见的公开信号，用它断言"安装一次 → 下载量 +1"无需超管权限。
+async function readDownloadCount(
+  api: APIRequestContext,
+  query: string,
+  identity: string
+): Promise<number> {
+  const response = await api.get(`/api/skills/search?q=${encodeURIComponent(query)}`);
+  const rows = (await response.json()) as Array<{ name: string; downloadCount: number }>;
+  return rows.find((row) => row.name === identity)?.downloadCount ?? 0;
+}
+
 test.describe('npm 式金路径（真实栈）', () => {
   const createdApis: APIRequestContext[] = [];
 
@@ -69,10 +81,16 @@ test.describe('npm 式金路径（真实栈）', () => {
       })
       .toContain(identity);
 
+    // 8. 安装前记录公开下载量；安装一次后应恰好 +1（npm 式口径，不去重）
+    const countBefore = await readDownloadCount(outsider.api, 'toolkit', identity);
     const installed = await downloadPackage(outsider.api, identity);
     expect(installed.status).toBe(200);
     expect(installed.body?.name).toBe(identity);
     expect(installed.body?.version).toBe('1.0.0');
+
+    await expect
+      .poll(() => readDownloadCount(outsider.api, 'toolkit', identity))
+      .toBe(countBefore + 1);
   });
 
   test('他组织用户安装 private 技能被拒且错误清晰', async ({ request }) => {

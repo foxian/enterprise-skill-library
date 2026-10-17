@@ -26,6 +26,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+            <el-table-column :label="t('columns.downloadCount')" width="100">
+              <template #default="{ row }">
+                <span :data-test="`download-count-${row.skillName}`">{{ formatNumber(row.downloadCount ?? 0) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column :label="t('columns.status')" width="100">
               <template #default="{ row }">{{ t(statusText(row.status)) }}</template>
             </el-table-column>
@@ -58,6 +63,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="createdBy" :label="t('skill.createdBy')" width="160" />
+            <el-table-column :label="t('columns.downloadCount')" width="100">
+              <template #default="{ row }">
+                <span :data-test="`download-count-${row.skillName}`">{{ formatNumber(row.downloadCount ?? 0) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column :label="t('columns.myPermission')" width="120">
               <template #default="{ row }">
                 <el-tag type="info">{{ t(accessText(row.access)) }}</el-tag>
@@ -100,7 +110,7 @@ import {
   type SkillInventoryItem
 } from '../../skills/skill-list';
 
-const { t } = useLocaleState();
+const { t, formatNumber } = useLocaleState();
 
 // 技能列表页（ADR-0035）：一处实现，两处入口——个人控制台的「技能」是跨命名
 // 空间聚合，组织详情页的「技能」页签是同一列表锁定到该组织命名空间。服务端

@@ -25,6 +25,12 @@ describe('background task log', () => {
   // seedDevelopmentAccounts 是 fire-and-forget：等事件循环把它跑完再断言。
   const flushTasks = () => new Promise((resolve) => setImmediate(resolve));
 
+  // 后台任务日志是累加的：启动时的下载日志清理（ADR-0067）同样是后台任务，
+  // 也会记录 started / succeeded。断言按 taskId 收窄到本用例关心的那个任务，
+  // 否则新增任何系统任务都会误伤这些用例。
+  const recordsForTask = (event: string, taskId: string) =>
+    recordsForEvent(capture, event).filter((record) => record.taskId === taskId);
+
   it('records started and succeeded for the independent development seed task', async () => {
     const gitea = createGlobalGitea({
       users: [{ username: 'alice', password: 'a' }],
@@ -41,8 +47,8 @@ describe('background task log', () => {
     await flushTasks();
     await app.close();
 
-    const started = recordsForEvent(capture, 'task.started');
-    const succeeded = recordsForEvent(capture, 'task.succeeded');
+    const started = recordsForTask('task.started', 'seed-development-accounts');
+    const succeeded = recordsForTask('task.succeeded', 'seed-development-accounts');
     expect(started).toHaveLength(1);
     expect(succeeded).toHaveLength(1);
     expect(started[0]).toMatchObject({ taskId: 'seed-development-accounts' });
@@ -111,12 +117,12 @@ describe('background task log', () => {
     await app.close();
 
     expect(response.statusCode).toBe(200);
-    const started = recordsForEvent(capture, 'task.started');
+    const started = recordsForTask('task.started', 'organization-deletion');
     expect(started).toHaveLength(1);
     expect(started[0]).toMatchObject({
       taskId: 'organization-deletion',
       triggerRequestId: expect.any(String)
     });
-    expect(recordsForEvent(capture, 'task.succeeded')).toHaveLength(1);
+    expect(recordsForTask('task.succeeded', 'organization-deletion')).toHaveLength(1);
   });
 });

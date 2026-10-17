@@ -11,6 +11,7 @@ import { executeSource } from '../src/commands/source.js';
 import { executeRename } from '../src/commands/rename.js';
 import { executeVersion } from '../src/commands/version.js';
 import { executeSearch } from '../src/commands/search.js';
+import { readCliVersion } from '../src/version.js';
 
 describe('built-in readonly commands and forbiddance', () => {
   let homeDir: string;
@@ -148,7 +149,12 @@ describe('built-in readonly commands and forbiddance', () => {
     expect(url.searchParams.get('limit')).toBe('10');
     expect(url.searchParams.has('q')).toBe(false);
     const init = fetchImpl.mock.calls[0][1] as { headers: Record<string, string> };
-    expect(init.headers.Authorization).toBe('token skill-token');
+    expect(init.headers.authorization).toBe('token skill-token');
+    // 请求上报（#136）：search 是非包请求，带 User-Agent 但不带 ?requested=。
+    expect(init.headers['user-agent']).toBe(
+      `esl/${readCliVersion()} node/${process.version.replace(/^v/, '')} ${process.platform}/${process.arch}`
+    );
+    expect(url.searchParams.has('requested')).toBe(false);
 
     await expect(
       executeSearch(undefined, {
@@ -178,7 +184,7 @@ describe('built-in readonly commands and forbiddance', () => {
 
     expect(results).toEqual([{ name: '@acme/tool', description: 'Org tool' }]);
     const init = fetchImpl.mock.calls[0][1] as { headers?: Record<string, string> };
-    expect(init.headers?.Authorization).toBeUndefined();
+    expect(init.headers?.authorization).toBeUndefined();
   });
 
   it('rejects source of a built-in identity', async () => {

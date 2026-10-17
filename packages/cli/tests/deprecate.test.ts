@@ -40,7 +40,7 @@ describe('esl deprecate', () => {
       'http://localhost:4070/api/skills/alice/code-review/releases/1.0.0/deprecate',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({ Authorization: 'token gitea-token' }),
+        headers: expect.objectContaining({ authorization: 'token gitea-token' }),
         body: JSON.stringify({ message: 'Use 1.1.0' })
       })
     );

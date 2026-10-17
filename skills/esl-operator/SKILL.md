@@ -85,6 +85,7 @@ Hint。细节见 `references/consumer.md`。
 ## 输出与解析
 
 - 要从结果里取字段、比对、或后续按数据决策时，加 `--json`（`esl skill search`/`esl skill info`/`esl skill list` 支持），你直接解析结构化数据。`search` 面向人类有 TTY 发现会话；Agent 一律用 `--json`。
+- 下载量（#137）：`search` 每条结果带 `downloadCount`（跨版本累计，0 表示从未下载）；`info` 顶层 `downloadCount` 是总量，`releases[]` 每条带该版本自身的 `downloadCount`（`versions` 仍是纯 `string[]`，下载量明细只在 `releases[]`）。人类可读输出里 `info` 的 `Versions:` 逐行列出「版本 + 该版本下载量」，`search` 非交互行按固定列序 `name / displayName / latestStableVersion / visibility / downloadCount / description`（`description` 固定最后一列）制表符分隔。
 - 给用户看时用人类可读的默认输出。
 - `esl skill use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl skill use @ns/name | <agent>`。
 - 跨平台执行：示例块标 `bash` 只是 shell 高亮，命令本身在 PowerShell/CMD 与 bash/zsh 下等价。PowerShell 中含 `$`、反引号或 `!` 的参数文本（如提交说明、弃用提示）建议改用单引号包裹，避免被当作变量插值。

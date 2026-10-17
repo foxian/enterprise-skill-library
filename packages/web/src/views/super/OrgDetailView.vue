@@ -1,7 +1,7 @@
 <template>
   <div>
     <el-breadcrumb class="page-breadcrumb" separator="/">
-      <el-breadcrumb-item :to="{ name: 'super-orgs' }">{{ t('common.organizationManagement') }}</el-breadcrumb-item>
+      <el-breadcrumb-item :to="{ name: 'super-orgs' }">{{ t('nav.orgManagement') }}</el-breadcrumb-item>
       <el-breadcrumb-item>{{ orgName }}</el-breadcrumb-item>
     </el-breadcrumb>
     <el-card class="data-card" shadow="never" data-test="org-summary">
