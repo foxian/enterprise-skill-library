@@ -8,6 +8,14 @@ export const apiErrorMessages = {
   emailIsRequired: 'Skill User Email is required',
   emailAlreadyTaken: 'Skill User Email is already taken: {email}',
   emailHasPendingRegistration: 'Skill User Email has a pending registration: {email}',
+  usernameMustBe4To39Characters: 'Username must be 4-39 characters',
+  usernameMayOnlyContainLowercaseLettersDigitsAndHyphens:
+    'Username may only contain lowercase letters, digits, and hyphens',
+  usernameMustNotStartOrEndWithAHyphen: 'Username must not start or end with a hyphen',
+  usernameIsReserved: 'Username is reserved',
+  passwordMustBeAtLeastNCharacters: 'Password must be at least {min} characters',
+  emailMustBeAValidAddress: 'Skill User Email must be a valid address',
+  emailDomainIsReserved: 'Skill User Email domain is reserved',
   currentPasswordAndEmailAreRequired: 'Current password and Skill User Email are required',
   userStatusMustBeEnabledOrDisabled: 'User status must be enabled or disabled',
   adminprovisionedpasswordchangepolicyMustBeForceOrAllow:
@@ -162,6 +170,13 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   emailIsRequired: '需要提供用户邮箱',
   emailAlreadyTaken: '用户邮箱已被占用：{email}',
   emailHasPendingRegistration: '用户邮箱有等待处理的注册申请：{email}',
+  usernameMustBe4To39Characters: '用户名必须为 4-39 个字符',
+  usernameMayOnlyContainLowercaseLettersDigitsAndHyphens: '用户名只能使用小写字母、数字和连字符',
+  usernameMustNotStartOrEndWithAHyphen: '用户名不能以连字符开头或结尾',
+  usernameIsReserved: '用户名为保留名',
+  passwordMustBeAtLeastNCharacters: '密码至少需要 {min} 个字符',
+  emailMustBeAValidAddress: '请输入合法的用户邮箱',
+  emailDomainIsReserved: '用户邮箱不能使用保留域名',
   currentPasswordAndEmailAreRequired: '需要提供当前密码和用户邮箱',
   userStatusMustBeEnabledOrDisabled: '用户状态必须是 enabled 或 disabled',
   adminprovisionedpasswordchangepolicyMustBeForceOrAllow:

@@ -1,4 +1,4 @@
-import { apiError } from '../errors.js';
+import { apiError, firstValidationError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isStandingTeam, validateMemberUsername, type OrgIdentity } from '@esl/core';
 import type {
@@ -154,7 +154,7 @@ function logMemberEvent(
     const { username = '' } = request.body as { username?: string };
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(usernameValidation.errors));
     }
     // 全局账号必须已存在：所有者成员只授予组织身份，不创建账号。
     const user = await giteaService.getUser(username);
@@ -504,7 +504,7 @@ function logMemberEvent(
     const { username = '' } = request.body as { username?: string };
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(usernameValidation.errors));
     }
     const team = (await giteaService.listTeams(org)).find((entry) => entry.id === teamId);
     if (!team) {

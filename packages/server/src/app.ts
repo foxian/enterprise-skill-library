@@ -232,7 +232,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get('/health', { logLevel: 'silent' }, async () => ({ ok: true, service: 'esl-api' }));
   // 匿名平台信息(ADR-0032):CLI 与 Web 登录/注册页在登录前消费它自适应交互
   // (注册模式与拉人方式)。
-  app.get('/api/public/platform-info', async () => readPlatformInfo(platformSettingsRepository));
+  app.get('/api/public/platform-info', async () =>
+    readPlatformInfo(platformSettingsRepository, options.passwordMinLength)
+  );
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {

@@ -1,4 +1,4 @@
-import { apiError } from '../errors.js';
+import { apiError, passwordValidationError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { validatePassword } from '@esl/core';
 import type { AdminRepository } from '../db/database.js';
@@ -24,7 +24,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const { password } = request.body as { password: string };
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
+      return reply.status(400).send(passwordValidationError(passwordValidation.errors, options.passwordMinLength));
     }
     await giteaService.changeAdminPassword(password);
     return { passwordChanged: true };

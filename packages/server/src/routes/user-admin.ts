@@ -6,7 +6,7 @@ import {
   validatePassword,
   validateSkillUserEmail
 } from '@esl/core';
-import { apiError } from '../errors.js';
+import { apiError, firstValidationError, passwordValidationError } from '../errors.js';
 import type {
   AdminRepository,
   OrgApplicationRepository,
@@ -89,15 +89,15 @@ export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdmin
     }
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(usernameValidation.errors));
     }
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
+      return reply.status(400).send(passwordValidationError(passwordValidation.errors, options.passwordMinLength));
     }
     const emailValidation = validateSkillUserEmail(rawEmail);
     if (!emailValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: emailValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(emailValidation.errors));
     }
     const email = emailValidation.data;
 
@@ -190,7 +190,7 @@ export function registerUserAdminRoutes(app: FastifyInstance, options: UserAdmin
     }
     const validation = validateSkillUserEmail(rawEmail);
     if (!validation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: validation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(validation.errors));
     }
     const email = validation.data;
     const conflict = await findSkillUserEmailConflict(

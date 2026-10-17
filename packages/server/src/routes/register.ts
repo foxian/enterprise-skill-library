@@ -1,4 +1,4 @@
-import { apiError } from '../errors.js';
+import { apiError, firstValidationError, passwordValidationError } from '../errors.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   RESERVED_SCOPE_NAMES,
@@ -84,7 +84,7 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
     }
     const emailValidation = validateSkillUserEmail(rawEmail);
     if (!emailValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: emailValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(emailValidation.errors));
     }
     const email = emailValidation.data;
     if (username === giteaService.adminUsername) {
@@ -94,12 +94,12 @@ export function registerUserRoutes(app: FastifyInstance, options: RegisterRouteO
 
     const usernameValidation = validateMemberUsername(username);
     if (!usernameValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: usernameValidation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(usernameValidation.errors));
     }
 
     const passwordValidation = validatePassword(password, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
+      return reply.status(400).send(passwordValidationError(passwordValidation.errors, options.passwordMinLength));
     }
 
     // 扁平命名池查重（先到先得）：待审注册 / 待审组织申请 / 用户名 /

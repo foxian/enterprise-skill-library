@@ -57,7 +57,8 @@ describe('platform settings', () => {
     expect(info.json()).toEqual({
       registrationMode: 'open',
       memberAddMode: 'direct',
-      orgRegistrationMode: 'auto'
+      orgRegistrationMode: 'auto',
+      passwordMinLength: 8
     });
   });
 

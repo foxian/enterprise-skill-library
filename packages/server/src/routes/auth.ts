@@ -1,4 +1,4 @@
-import { apiError } from '../errors.js';
+import { apiError, firstValidationError, passwordValidationError } from '../errors.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   giteaUserEmail,
@@ -162,7 +162,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     }
     const validation = validateSkillUserEmail(rawEmail);
     if (!validation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: validation.errors.join(', ') }));
+      return reply.status(400).send(firstValidationError(validation.errors));
     }
     const email = validation.data;
     const conflict = await findSkillUserEmailConflict(
@@ -231,7 +231,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     }
     const passwordValidation = validatePassword(newPassword, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
+      return reply.status(400).send(passwordValidationError(passwordValidation.errors, options.passwordMinLength));
     }
 
     const username = await resolveTokenUsername(request, reply, giteaService);
@@ -409,7 +409,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
     if (!token || !newPassword) return reply.status(400).send(apiError('newPasswordIsRequired'));
     const passwordValidation = validatePassword(newPassword, options.passwordMinLength);
     if (!passwordValidation.success) {
-      return reply.status(400).send(apiError('validationFailed', { detail: passwordValidation.errors.join(', ') }));
+      return reply.status(400).send(passwordValidationError(passwordValidation.errors, options.passwordMinLength));
     }
     const action = emailActionRepository.getValid(hashActionToken(token), 'password_reset');
     if (!action) return reply.status(400).send(apiError('passwordResetLinkIsInvalidOrExpired'));

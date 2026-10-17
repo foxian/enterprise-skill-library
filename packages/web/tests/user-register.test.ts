@@ -9,7 +9,7 @@ import { setFetchImpl } from '../src/api/client';
 import { initializeLocale } from '../src/i18n/locale';
 
 // 用户自助注册页（ADR-0032 / #52）：open 注册即用，approval 展示待审批状态。
-function mockFetch(platformInfo: { registrationMode: 'open' | 'approval' }, registerStatus: number, registerBody: unknown): {
+function mockFetch(platformInfo: { registrationMode: 'open' | 'approval'; passwordMinLength?: number }, registerStatus: number, registerBody: unknown): {
   impl: typeof fetch;
   calls: Array<{ url: string; init: RequestInit }>;
 } {
@@ -46,6 +46,13 @@ async function setField(wrapper: VueWrapper, testId: string, value: string): Pro
   const input = wrapper.find(testId);
   (input.element as HTMLInputElement).value = value;
   await input.trigger('input');
+}
+
+// el-form-item 的字段错误文案经 100ms 防抖后渲染（Element Plus refDebounced）。
+async function settleValidation(): Promise<void> {
+  await flushPromises();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await flushPromises();
 }
 
 describe('UserRegisterView', () => {
@@ -139,9 +146,77 @@ describe('UserRegisterView', () => {
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'different-pass');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await settleValidation();
+
+    expect(wrapper.text()).toContain('两次输入的密码不一致');
+    expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
+  });
+
+  it('展示用户名、邮箱与密码的约束提示', async () => {
+    const fetchMock = mockFetch({ registrationMode: 'open' }, 201, { status: 'registered', username: 'dave' });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
     await flushPromises();
 
-    expect(wrapper.find('[data-test="register-error"]').text()).toContain('两次输入的密码不一致');
+    expect(wrapper.find('[data-test="register-username-hint"]').text()).toContain('4-39');
+    expect(wrapper.find('[data-test="register-email-hint"]').text()).toContain('邮箱');
+    expect(wrapper.find('[data-test="register-password-hint"]').text()).toContain('至少 8 个字符');
+  });
+
+  it('本地按共享规则预校验并拦截保留用户名，不发起请求', async () => {
+    const fetchMock = mockFetch({ registrationMode: 'open' }, 201, { status: 'registered', username: 'dave' });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
+    await flushPromises();
+
+    await setField(wrapper, '[data-test="register-username"]', 'admin');
+    await setField(wrapper, '[data-test="register-email"]', 'admin@example.com');
+    await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
+    await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await settleValidation();
+
+    expect(wrapper.text()).toContain('用户名为保留名');
+    expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
+  });
+
+  it('本地预校验拦截过短密码并提示最小长度', async () => {
+    const fetchMock = mockFetch({ registrationMode: 'open' }, 201, { status: 'registered', username: 'dave' });
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
+    await flushPromises();
+
+    await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-email"]', 'dave@example.com');
+    await setField(wrapper, '[data-test="register-password"]', 'short');
+    await setField(wrapper, '[data-test="register-confirm"]', 'short');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await settleValidation();
+
+    expect(wrapper.text()).toContain('密码至少需要 8 个字符');
+    expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
+  });
+
+  it('按平台下发的密码最小长度展示提示并做本地预校验', async () => {
+    const fetchMock = mockFetch(
+      { registrationMode: 'open', passwordMinLength: 12 },
+      201,
+      { status: 'registered', username: 'dave' }
+    );
+    setFetchImpl(fetchMock.impl);
+    wrapper = await mountUserRegister();
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="register-password-hint"]').text()).toContain('至少 12 个字符');
+
+    await setField(wrapper, '[data-test="register-username"]', 'dave');
+    await setField(wrapper, '[data-test="register-email"]', 'dave@example.com');
+    await setField(wrapper, '[data-test="register-password"]', 'short-pass');
+    await setField(wrapper, '[data-test="register-confirm"]', 'short-pass');
+    await wrapper.find('[data-test="register-submit"]').trigger('submit');
+    await settleValidation();
+
+    expect(wrapper.text()).toContain('密码至少需要 12 个字符');
     expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
   });
 
@@ -171,9 +246,9 @@ describe('UserRegisterView', () => {
     await setField(wrapper, '[data-test="register-password"]', 'a-valid-password');
     await setField(wrapper, '[data-test="register-confirm"]', 'a-valid-password');
     await wrapper.find('[data-test="register-submit"]').trigger('submit');
-    await flushPromises();
+    await settleValidation();
 
-    expect(wrapper.find('[data-test="register-error"]').text()).toContain('用户邮箱');
+    expect(wrapper.text()).toContain('请输入用户邮箱');
     expect(fetchMock.calls.filter((candidate) => candidate.url === '/api/auth/register')).toHaveLength(0);
   });
 });

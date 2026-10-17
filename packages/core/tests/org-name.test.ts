@@ -1,13 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACCOUNT_NAME_MAX_LENGTH,
+  ACCOUNT_NAME_MIN_LENGTH,
+  ACCOUNT_POLICY_ERRORS,
   DEFAULT_PASSWORD_MIN_LENGTH,
   RESERVED_SCOPE_NAMES,
+  giteaUserEmail,
+  resolvePasswordMinLength,
   validateMemberUsername,
   validateOrgName,
-  validatePassword
+  validatePassword,
+  validateSkillUserEmail
 } from '../src/index.js';
 
 const RESERVED_NAMES = ['local', 'builtin', 'admin', 'api', 'git', 'system'];
+
+function errorsOf(result: { success: boolean; errors?: string[] }): string[] {
+  return result.errors ?? [];
+}
 
 describe('flat scope name pool', () => {
   it('exposes the reserved names that constrain both usernames and organization names', () => {
@@ -77,7 +87,7 @@ describe('account and password policy', () => {
     const result = validatePassword('a'.repeat(7), 8);
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.errors.join(' ')).toContain('at least 8 characters');
+      expect(result.errors).toEqual([ACCOUNT_POLICY_ERRORS.passwordTooShort]);
     }
     const configured = validatePassword('a'.repeat(11), 12);
     expect(configured.success).toBe(false);
@@ -97,6 +107,32 @@ describe('account and password policy', () => {
     expect(validateMemberUsername('admin').success).toBe(false);
     expect(validateMemberUsername('Alice').success).toBe(false);
     expect(validateMemberUsername('alice_user').success).toBe(false);
+  });
+
+  // 失败原因用稳定错误码表达（#145、#146）：服务端直接下发错误码，Web 注册页
+  // 复用同一套错误码做本地预校验后的字段级提示。
+  it('reports stable error codes for invalid usernames', () => {
+    expect(errorsOf(validateMemberUsername('abc'))).toEqual([ACCOUNT_POLICY_ERRORS.usernameLength]);
+    expect(errorsOf(validateMemberUsername('Alice'))).toEqual([ACCOUNT_POLICY_ERRORS.usernameAlphabet]);
+    expect(errorsOf(validateMemberUsername('-alice'))).toEqual([ACCOUNT_POLICY_ERRORS.usernameHyphen]);
+    expect(errorsOf(validateMemberUsername('admin'))).toEqual([ACCOUNT_POLICY_ERRORS.usernameReserved]);
+  });
+
+  it('reports stable error codes for invalid Skill User Emails', () => {
+    expect(errorsOf(validateSkillUserEmail('not-an-email'))).toEqual([ACCOUNT_POLICY_ERRORS.emailInvalid]);
+    expect(errorsOf(validateSkillUserEmail('dave@local.esl'))).toEqual([ACCOUNT_POLICY_ERRORS.emailDomainReserved]);
+  });
+
+  it('exposes the shared username length bounds consumed by the Web registration hints', () => {
+    expect(ACCOUNT_NAME_MIN_LENGTH).toBe(4);
+    expect(ACCOUNT_NAME_MAX_LENGTH).toBe(39);
+  });
+
+  // 密码最小长度只有一个权威来源（#146）：服务端下发与 Web 提示都经它解析。
+  it('resolves the effective password minimum length in one place', () => {
+    expect(resolvePasswordMinLength()).toBe(DEFAULT_PASSWORD_MIN_LENGTH);
+    expect(resolvePasswordMinLength(12)).toBe(12);
+    expect(giteaUserEmail('alice')).toBe('alice@local.esl');
   });
 
 });
