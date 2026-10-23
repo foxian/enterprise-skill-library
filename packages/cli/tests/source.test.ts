@@ -15,6 +15,7 @@ describe('esl source', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
@@ -137,20 +138,39 @@ describe('esl source', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails clearly when no ESL Server is configured', async () => {
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-
-    await expect(
-      executeSource('@alice/code-review', {
-        homeDir,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any,
-        target: '/tmp/my-clone-dir'
+  it('uses the public cloud server when no ESL Server is configured', async () => {
+    vi.stubEnv('ESL_SERVER', '');
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@alice/code-review',
+          cloneUrl: 'https://cloud.enterprise-skills.com/git/esl-skills/alice_code-review.git',
+          versions: ['0.1.0']
+        })
       })
-    ).rejects.toThrow('Missing server; run esl login or pass --server');
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ cloneUrl: 'https://cloud.enterprise-skills.com/git/esl-skills/alice_code-review.git' })
+      });
+    const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(execFileAsync).not.toHaveBeenCalled();
+    await executeSource('@alice/code-review', {
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      target: '/tmp/my-clone-dir'
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'https://cloud.enterprise-skills.com/api/skills/%40alice%2Fcode-review',
+      expect.anything()
+    );
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'https://cloud.enterprise-skills.com/api/skills/%40alice%2Fcode-review/source-access',
+      expect.objectContaining({ method: 'POST' })
+    );
   });
 });

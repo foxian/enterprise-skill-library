@@ -53,12 +53,17 @@ describe('resolveNetworkConfig', () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  it('asks for --server when no ESL Server URL is configured', async () => {
+  it('uses the public cloud server when no ESL Server URL is configured', async () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-network-'));
     await initializeLocalStore({ homeDir });
+    vi.stubEnv('ESL_SERVER', '');
 
-    await expect(resolveNetworkConfig({ homeDir })).rejects.toThrow('Missing server; run esl login or pass --server');
+    await expect(resolveNetworkConfig({ homeDir })).resolves.toEqual({
+      server: 'https://cloud.enterprise-skills.com/',
+      token: null
+    });
 
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 });

@@ -39,6 +39,7 @@ describe('esl install (project-level)', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(projectDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
@@ -256,22 +257,42 @@ describe('esl install (project-level)', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails clearly when no ESL Server is configured for a server-backed install', async () => {
-    const fetchImpl = vi.fn();
-    const execFileAsync = vi.fn();
-
-    await expect(
-      executeInstall('@alice/code-review', {
-        projectRoot: projectDir,
-        homeDir,
-        customFetch: fetchImpl as any,
-        execFileAsync: execFileAsync as any,
-        noAdapt: true
+  it('uses the public cloud server when no ESL Server is configured', async () => {
+    vi.stubEnv('ESL_SERVER', '');
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: '@alice/code-review',
+        cloneUrl: 'https://cloud.enterprise-skills.com/git/esl-skills/alice_code-review.git',
+        versions: ['0.1.0']
       })
-    ).rejects.toThrow('Missing server; run esl login or pass --server');
+    });
+    const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
+      if (args.includes('clone')) {
+        const cloneDir = args.at(-1)!;
+        fs.mkdirSync(cloneDir, { recursive: true });
+        fs.writeFileSync(path.join(cloneDir, 'SKILL.md'), '---\nname: code-review\ndescription: Test.\n---\n');
+        fs.writeFileSync(
+          path.join(cloneDir, 'skill.json'),
+          JSON.stringify({ name: '@alice/code-review', version: '0.1.0', description: 'Test', author: 'tester' })
+        );
+        fs.mkdirSync(path.join(cloneDir, '.git'));
+      }
+      return { stdout: '', stderr: '' };
+    });
 
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(execFileAsync).not.toHaveBeenCalled();
+    await executeInstall('@alice/code-review', {
+      projectRoot: projectDir,
+      homeDir,
+      customFetch: fetchImpl as any,
+      execFileAsync: execFileAsync as any,
+      noAdapt: true
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://cloud.enterprise-skills.com/api/skills/%40alice%2Fcode-review',
+      expect.anything()
+    );
   });
 
   it('keeps transitive dependencies out of .skills.json and in the lockfile', async () => {

@@ -13,6 +13,7 @@ describe('esl whoami', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
@@ -26,7 +27,7 @@ describe('esl whoami', () => {
     await initializeLocalStore({ homeDir });
     await saveConfig(
       {
-        server: overrides.server ?? 'http://localhost:4070',
+        server: overrides.server === undefined ? 'http://localhost:4070' : overrides.server,
         username: overrides.username ?? 'alice',
         email: overrides.email ?? null,
         tools: []
@@ -125,6 +126,23 @@ describe('esl whoami', () => {
         throw new Error(`unexpected url ${url}`);
       });
     }
+
+    it('uses the public cloud server when no server is configured', async () => {
+      await seedStore({ server: null });
+      vi.stubEnv('ESL_SERVER', '');
+      const mockFetch = mockOnline({ email: 'new@example.com' }, { organizations: [] });
+
+      const result = await executeWhoami({ homeDir, online: true, customFetch: mockFetch as any });
+
+      expect(result.server).toBe('https://cloud.enterprise-skills.com/');
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        1,
+        'https://cloud.enterprise-skills.com/api/account/profile',
+        expect.objectContaining({ signal: expect.anything() })
+      );
+
+      vi.unstubAllEnvs();
+    });
 
     it('verifies account details with the server and updates the local snapshot', async () => {
       await seedStore({ email: 'old@example.com' });

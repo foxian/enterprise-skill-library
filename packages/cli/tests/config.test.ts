@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,7 @@ describe('esl config', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
@@ -43,9 +44,18 @@ describe('esl config', () => {
     expect(server).toBe('http://saved.example.com');
   });
 
-  it('throws when no server is configured or passed', async () => {
+  it('uses the public cloud server when no server is configured or passed', async () => {
     await initializeLocalStore({ homeDir });
+    vi.stubEnv('ESL_SERVER', '');
 
-    await expect(resolveServer({ homeDir })).rejects.toThrow(/server/i);
+    await expect(resolveServer({ homeDir })).resolves.toBe('https://cloud.enterprise-skills.com/');
+  });
+
+  it('resolves ESL_SERVER before the saved config', async () => {
+    await initializeLocalStore({ homeDir });
+    await executeSetServer('http://saved.example.com', { homeDir });
+    vi.stubEnv('ESL_SERVER', 'http://env.example.com');
+
+    await expect(resolveServer({ homeDir })).resolves.toBe('http://env.example.com');
   });
 });

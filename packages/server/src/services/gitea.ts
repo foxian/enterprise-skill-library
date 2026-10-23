@@ -1107,18 +1107,18 @@ export class GiteaService {
     };
   }
 
-  async readSourceTree(owner: string, repository: string, ref: string): Promise<Record<string, string>> {
-    const files: Record<string, string> = {};
-    const readFileContent = async (entry: GiteaContentEntry): Promise<string> => {
-      if (entry.content) {
+  async readSourceTree(owner: string, repository: string, ref: string): Promise<Record<string, Buffer>> {
+    const files: Record<string, Buffer> = Object.create(null);
+    const readFileContent = async (entry: GiteaContentEntry): Promise<Buffer> => {
+      if (typeof entry.content === 'string') {
         return entry.encoding === 'base64'
-          ? Buffer.from(entry.content.replace(/\s/g, ''), 'base64').toString('utf8')
-          : entry.content;
+          ? Buffer.from(entry.content.replace(/\s/g, ''), 'base64')
+          : Buffer.from(entry.content, 'utf8');
       }
       // The contents directory listing omits file contents; fetch each file
       // individually to get its content.
-      const res = await this.request('readSourceTree', 
-        `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/${entry.path}?ref=${encodeURIComponent(ref)}`,
+      const res = await this.request('readSourceTree',
+        `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents/${entry.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
       if (!res.ok) {
@@ -1126,13 +1126,14 @@ export class GiteaService {
         throw new GiteaRequestError(res.status, `Failed to read source file ${entry.path}: ${error}`);
       }
       const file = (await res.json()) as { content?: string; encoding?: string };
+      if (typeof file.content !== 'string') throw new Error(`Source file content is missing: ${entry.path}`);
       return file.encoding === 'base64'
-        ? Buffer.from((file.content ?? '').replace(/\s/g, ''), 'base64').toString('utf8')
-        : (file.content ?? '');
+        ? Buffer.from(file.content.replace(/\s/g, ''), 'base64')
+        : Buffer.from(file.content, 'utf8');
     };
     const visit = async (directory: string): Promise<void> => {
-      const suffix = directory ? `/${directory}` : '';
-      const response = await this.request('readSourceTree', 
+      const suffix = directory ? `/${directory.split('/').map(encodeURIComponent).join('/')}` : '';
+      const response = await this.request('readSourceTree',
         `${this.baseUrl}/api/v1/repos/${owner}/${repository}/contents${suffix}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: `token ${this.adminToken}` } }
       );
@@ -1144,8 +1145,10 @@ export class GiteaService {
       for (const entry of entries) {
         if (entry.type === 'dir') {
           await visit(entry.path);
-        } else {
+        } else if (entry.type === 'file') {
           files[entry.path] = await readFileContent(entry);
+        } else {
+          throw new Error(`Unsupported source entry type: ${entry.type} (${entry.path})`);
         }
       }
     };

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeLocalStore, saveCredentials } from '@esl/core';
+import { initializeLocalStore, saveCredentials, createPublishedSkillPackage, sha256Integrity } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 import { readCliVersion } from '../src/version.js';
 
@@ -115,6 +115,28 @@ describe('esl install (global mode)', () => {
     );
     expect(fs.existsSync(path.join(target, 'skill.json'))).toBe(true);
     expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toContain('name: platform-ai:reviewer');
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+
+  it('安装 ZIP 后二进制文件字节不变且不执行 Git 或脚本', async () => {
+    const binary = Buffer.from([0x50, 0x4b, 0x00, 0xff, 0x80]);
+    const bytes = await createPublishedSkillPackage({
+      name: '@platform-ai/reviewer', skillId: 'sk_binary', version: '1.0.0', sourceCommit: 'abc123', releaseManifest: {}
+    }, {
+      'SKILL.md': Buffer.from('---\nname: platform-ai:reviewer\ndescription: Review code\n---\n'),
+      'skill.json': Buffer.from(JSON.stringify({ name: '@platform-ai/reviewer', version: '1.0.0' })),
+      'assets/示例.docx': binary
+    });
+    const execFileAsync = vi.fn();
+    const customFetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({
+      name: '@platform-ai/reviewer', skillId: 'sk_binary', versions: ['1.0.0'],
+      packageUrl: `/api/packages/sk_binary/1.0.0/${sha256Integrity(bytes)}.zip`
+    }) }).mockResolvedValueOnce({ ok: true, arrayBuffer: async () => bytes });
+    const target = await executeInstall('@platform-ai/reviewer', {
+      homeDir, global: true, noAdapt: true, server: 'http://localhost:4070', customFetch: customFetch as any, execFileAsync: execFileAsync as any
+    });
+    expect(fs.readFileSync(path.join(target, 'assets/示例.docx'))).toEqual(binary);
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
@@ -481,7 +503,7 @@ describe('esl install request reporting (#136)', () => {
       String(call[0]).includes('/api/packages/sk_shared/')
     ) as [string, { headers: Record<string, string> }];
     expect(dependencyCall[0]).toBe(
-      `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.json?requested=1.2.0`
+      `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.zip?requested=1.2.0`
     );
     expect(dependencyCall[1].headers['user-agent']).toBe(expectedUserAgent());
     // 根包仍按用户 specifier（未显式给出时 latest）上报。

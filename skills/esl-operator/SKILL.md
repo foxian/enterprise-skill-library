@@ -13,10 +13,13 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 先判断用户目标和技能来源，再按 `references/workflows.md` 的「环境按任务检查」矩阵选择前置条件；该矩阵是唯一的任务前置清单。只读检查可直接执行，不把所有检查串成必经流程。
 
-- 首先用 `esl --version` 确认 CLI 可用；不存在或启动失败时才进入下文的失败卡，检查 Node/npm。
+- 首先用 `esl --version` 确认 CLI 可用；不存在或启动失败时，按下文失败卡选择可用的 CLI 执行器。Node/npm 存在不代表全局 npm 目录可写。
+- 在同一任务中固定一个 CLI 执行器：优先已有的 `esl`，其次是沙箱可写目录中的项目级安装，再其次是带明确版本的 `npx --yes @foxian/esl@<version>`；不要在 `esl`、裸 `npx esl` 和不同版本之间混用。
 - 本地查看、内置安装和本地校验不要求 Server 或登录。只有远端任务需要 Server；需要鉴权时再检查 `esl account whoami`。
 - 只在源码或发布流程需要时检查 `git --version`；已发布包的 HTTP 安装不依赖 Git。
-- 缺失当前任务的前置条件时，读取 `references/setup.md` 的对应章节。不要猜企业 Server URL；写配置前仍须确认，密码由用户在自己的终端输入。
+- 缺失当前任务的前置条件时，读取 `references/setup.md` 的对应章节。公开云端未指定地址时使用默认
+  `https://cloud.enterprise-skills.com/`；只有私有、自托管或本地 Server 才需要向用户确认地址。
+  写入 `config set-server` 前仍须确认用户确实要覆盖默认地址，密码由用户在自己的终端输入。
 
 目标明确且满足当前任务前置条件后再执行。普通 CLI 用户不需要 Docker。
 
@@ -42,7 +45,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 用户说了类似这些 | 读 |
 |---|---|
 | 先判断用户目标、发现/安装/编写/上传/发布的整体路径 | `references/workflows.md`，再读对应 reference |
-| 没装 esl / 安装 CLI / command not found | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
+| 没装 esl / 安装 CLI / command not found / 沙箱不能全局安装 | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装、看工具 link 状态 / 更新、升级（含修复已记录 link）/ 卸载 / unlink 源码 / 我的常用工具、偏好工具（`esl config preferred-tools`） | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验、看源状态 / 上传源码 / 发布 / 改版本号 / 发布依赖 / 弃用、修订说明、删除版本 / 重命名 / 拉别人源码、二次开发 / 共享治理（看谁有权限、授权与撤销、切可见性） | `references/author.md` |
@@ -106,12 +109,16 @@ Hint。细节见 `references/consumer.md`。
 ## 命令找不到 / 服务不通
 
 - `esl: command not found` / 无法执行 `esl`（bash 报 `command not found`，PowerShell 报「无法将"esl"项识别为 cmdlet」）：别重试同一条业务命令。先做**最短失败卡**（你可代跑只读检查）：
-  1. `node -v`、`npm -v`——Node 支持范围以 `references/setup.md` 的 CLI engines 为准，推荐 24.x。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
-  2. 指引用户执行 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。本仓库开发场景可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`）或用仓库文档中的 `npm exec -- esl` 方式。
-  3. 人类完整步骤（前置、PATH、注册、登录）：仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md
-  4. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`。
+  1. `node -v`、`npm -v`、`npx --version`——Node 支持范围以 `references/setup.md` 的 CLI engines 为准，推荐 24.x。缺 Node/npm 时，让用户按人类安装指南分平台安装，**不要**在 skill 里展开 winget/brew/apt 百科。
+  2. 如果宿主允许全局安装，展示并确认 `npm install -g @foxian/esl`，然后新开终端跑 `esl --version`。如果出现权限、只读全局目录或 PATH 错误，不要反复重试，也不要把它误判成 Node 缺失。
+  3. 沙箱有可写工作区或缓存目录时，展示并确认项目级安装，例如 `npm install --prefix .esl-runtime @foxian/esl@<version>`；验证 `./.esl-runtime/node_modules/.bin/esl --version`（PowerShell 使用对应的 `.cmd`），后续固定使用这个路径。若不希望留下安装目录，再使用 `npx --yes @foxian/esl@<version> --version`，后续命令也必须使用相同的固定版本。
+  4. 不要推荐裸 `npx esl`。项目级安装与 `npx` 都需要 npm 缓存或目标目录可写，并可能需要访问 registry；都失败时，说明需要宿主预装 `@foxian/esl` 或提供持久化的可写目录。
+  5. 本仓库开发场景可 `npm run build`（产出 `packages/cli/dist/bin/esl.js` 的 `esl`）或用仓库文档中的 `npm exec -- esl` 方式；人类完整步骤（前置、PATH、注册、登录）见仓库内 `docs/guides/cli-install.md`，或 https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md。
+  6. CLI 可用后，登录与 `config set-server` 走 `references/setup.md`；一次性沙箱可用 `ESL_SERVER=<url>` 临时指定 Server，避免把配置写进会被清理的用户目录。
 - 报「该命令需要 git」（`esl source upload`/`esl release publish`/`esl source clone` 等源码与发布流程）：PATH 里没有 git。提示用户安装 Git（Windows 装 [Git for Windows](https://git-scm.com/download/win)）并确认其在 PATH 后重试；不要绕过或改跑别的命令。
-- Server 不可达或连接失败：提示检查 `esl config set-server <url>`。发行包**无**出厂默认 Server；部署者使用自己的 ESL Server URL，本地 Docker 开发常见 `http://localhost:4070`。本地起 Server 指向 `docs/guides/local-development.md`。
+- Server 不可达或连接失败：先确认当前目标是公开云端还是私有 / 自托管 / 本地实例。未指定地址时公开云端默认是
+  `https://cloud.enterprise-skills.com/`；需要切换实例时再提示检查 `esl config set-server <url>`。
+  本地 Docker 开发常见 `http://localhost:4070`，本地起 Server 指向 `docs/guides/local-development.md`。
 
 执行后按对应场景验证结果；安装使用 `esl skill list --json` 核对作用域与 Tool Link，上传和发布分别确认源码状态与已发布版本，不把上传成功当作发布成功。
 
@@ -120,3 +127,10 @@ Hint。细节见 `references/consumer.md`。
 
 
 技能授权遵循组织边界：组织技能的 `--user` 目标必须是当前组织成员；个人技能可授权已启用的平台用户，填写完整平台用户名。团队和成员权限可通过相同目标旗标重新设置，无需先撤销。详见 `references/author.md` 的授权说明。
+
+## 发布包与二进制文件
+
+- 当前发布包使用 ZIP，不再把所有文件作为 JSON 文本传输；ZIP 内的 Word 文档、图片和其他二进制文件按原始字节保存。
+- 新版 CLI 安装器兼容 ZIP 和历史 JSON 发布包。升级 CLI 后再安装新发布的版本；已经损坏的旧 JSON 包无法由安装器恢复，必须从完好源码重新发布。
+- 正式发布以服务端固定源码 commit 为准，发布流程是：固定 commit → 按固定提交读取源码快照 → 加入发布元信息并做必要文本调整 → 生成 ZIP → 计算 checksum → 保存发布包。
+- `release publish --dry-run` 只预演校验和临时打包，不保存正式包、不创建 Release 或 tag、不安装依赖、不执行技能脚本；仅服务端返回 404 时，才使用本地固定提交 blob 的 Base64 回退，不读取工作树。符号链接和子模块不支持打包，Git LFS 外部内容不会自动下载。

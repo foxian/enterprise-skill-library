@@ -1,4 +1,4 @@
-import { apiUrl, fetchWithTimeout, requireFreshToken, type NetworkCommandOptions } from './network-options.js';
+import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 import { requireOkResponse } from '../api-error.js';
 
 export interface RepairTagOptions extends NetworkCommandOptions {
@@ -7,8 +7,7 @@ export interface RepairTagOptions extends NetworkCommandOptions {
 
 export async function executeRepairTag(identity: string, options: RepairTagOptions): Promise<unknown> {
   const token = await requireFreshToken(options);
-  const server = options.server;
-  if (!server) throw new Error('Missing server; run esl login or pass --server');
+  const { server } = await resolveNetworkConfig(options);
   const fetchImpl = options.customFetch ?? fetch;
   const response = await fetchWithTimeout(
     fetchImpl,

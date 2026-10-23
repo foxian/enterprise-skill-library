@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 SemVer。发布流程见
 [docs/guides/publishing-cli.md](docs/guides/publishing-cli.md)。
 
-## [Unreleased]
+## [0.2.0] - 2026-10-21
 
 ### Changed
 

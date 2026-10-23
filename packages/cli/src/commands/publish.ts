@@ -9,7 +9,7 @@ import {
   highestStableVersion,
   isBuiltinIdentity,
   validateSkillSourceDirectory
-  } from '@esl/core';
+} from '@esl/core';
 import { requireOkResponse } from '../api-error.js';
 import { confirm, isInteractive, readText } from '../prompt.js';
 import {
@@ -111,7 +111,7 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
       version,
       sourceCommit: head,
       releaseManifest: validation.data.releaseManifest,
-      files: await collectSourceFiles(directory),
+      ...(dryRun ? { filesBase64: await collectSourceFiles(options, directory, head) } : {}),
       notes,
       dryRun
     })
@@ -122,20 +122,18 @@ async function executeSourceRelease(options: PublishOptions, directory: string):
   return response.json();
 }
 
-async function collectSourceFiles(directory: string): Promise<Record<string, string>> {
-  const files: Record<string, string> = {};
-  async function visit(current: string): Promise<void> {
-    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      if (entry.name === '.git') continue;
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        await visit(fullPath);
-      } else {
-        files[path.relative(directory, fullPath).replaceAll(path.sep, '/')] = await fs.readFile(fullPath, 'utf8');
-      }
+async function collectSourceFiles(options: PublishOptions, directory: string, commit: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = Object.create(null);
+  const entries = (await git(options, directory, ['ls-tree', '-r', '-z', commit])).split('\0').filter(Boolean);
+  const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  for (const entry of entries) {
+    const match = /^(\d+) blob ([0-9a-f]+)\t([\s\S]+)$/.exec(entry);
+    if (!match || !['100644', '100755'].includes(match[1])) {
+      throw new Error('发布包不支持符号链接或 Git 子模块');
     }
+    const result = await execFileAsync('git', ['cat-file', 'blob', match[2]], { cwd: directory, encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 });
+    files[match[3]] = Buffer.from(result.stdout).toString('base64');
   }
-  await visit(directory);
   return files;
 }
 

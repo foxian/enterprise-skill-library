@@ -11,12 +11,14 @@ import {
   parseSkillIdentity,
   sortVersionsDescending,
   validateReleaseManifest,
-  type ReleaseLockEntry
+  type ReleaseLockEntry,
+  createPublishedSkillPackage,
+  sha256Integrity,
+  type ByteFileMap
 } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import semver from 'semver';
 import type {
   AdminRepository,
@@ -26,6 +28,7 @@ import type {
   SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from '../db/database.js';
+import { GiteaRequestError } from '../services/gitea.js';
 import type { GiteaAdminUser, GiteaService, GiteaTeam } from '../services/gitea.js';
 import { isOwnerMemberOf } from '../services/organization-membership.js';
 import { parseClientUserAgent, truncateClientIp } from '../services/download-log.js';
@@ -915,7 +918,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       version?: string;
       sourceCommit?: string;
       releaseManifest?: unknown;
-      files?: Record<string, string>;
+      filesBase64?: Record<string, string>;
       notes?: string;
       dryRun?: boolean;
     };
@@ -926,22 +929,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return fail(400, 'sourcecommitIsRequired');
     }
     const repo = skillRepo(skill);
-    let sourceFiles: Record<string, string>;
-    if (typeof giteaService.readSourceTree === 'function') {
-      try {
-        sourceFiles = await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit);
-      } catch (error) {
-        // dry-run 不 push 源码：本地 commit 服务器读不到时，退回请求体自带文件。
-        if (!(body.dryRun && body.files)) throw error;
-        sourceFiles = body.files;
-      }
-    } else {
-      sourceFiles = body.files ?? {};
+    let sourceFiles: ByteFileMap;
+    try {
+      sourceFiles = await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit);
+    } catch (error) {
+      // 仅提交不存在时允许本地预演回退，不能掩盖权限或服务故障。
+      if (!(body.dryRun && body.filesBase64 && error instanceof GiteaRequestError && error.status === 404)) throw error;
+      sourceFiles = Object.fromEntries(Object.entries(body.filesBase64).map(([filePath, encoded]) => [filePath, Buffer.from(encoded, 'base64')]));
     }
     let sourceManifest: unknown = body.releaseManifest;
     if (sourceFiles['release.json']) {
       try {
-        sourceManifest = JSON.parse(sourceFiles['release.json']);
+        sourceManifest = JSON.parse(sourceFiles['release.json'].toString('utf8'));
       } catch {
         return fail(400, 'releaseJsonIsNotValidJson');
       }
@@ -1016,52 +1015,43 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       throw error;
     }
 
-    if (body.dryRun) {
-      return reply.status(200).send({
-        dryRun: true,
-        name,
-        version: body.version,
-        sourceCommit: body.sourceCommit,
-        dependencyLock
-      });
-    }
-
-    const publishedFiles = { ...sourceFiles };
+    const publishedFiles: ByteFileMap = { ...sourceFiles };
     if (publishedFiles['SKILL.md']) {
-      publishedFiles['SKILL.md'] = publishedFiles['SKILL.md'].replace(
+      const skillMd = publishedFiles['SKILL.md'].toString('utf8');
+      publishedFiles['SKILL.md'] = Buffer.from(skillMd.replace(
         /^(---\r?\n)([\s\S]*?)(\r?\n---)/,
         (_match, open: string, frontmatter: string, close: string) =>
           `${open}${frontmatter.replace(/(^name:\s*)[^\r\n]+/m, `$1${skill.scope}:${skill.skillName}`)}${close}`
-      );
+      ), 'utf8');
     }
-    const contentChecksum = `sha256-${crypto.createHash('sha256')
-      .update(JSON.stringify(publishedFiles))
-      .digest('hex')}`;
-    // The install manifest is generated, so its version is the Skill Release
-    // version — it must win over the Release Manifest's `version` field, which
-    // describes the source rather than the release.
-    publishedFiles['skill.json'] = `${JSON.stringify({
+    const contentHashInput = Object.keys(publishedFiles).sort().map((filePath) => `${filePath}\0${publishedFiles[filePath].toString('base64')}`).join('\n');
+    const contentChecksum = sha256Integrity(Buffer.from(contentHashInput, 'utf8'));
+    publishedFiles['skill.json'] = Buffer.from(`${JSON.stringify({
       ...manifest.data,
       name,
       version: body.version,
       skillId: skill.skillId,
       sourceCommit: body.sourceCommit,
       contentChecksum
-    }, null, 2)}\n`;
-    const packageManifest = {
+    }, null, 2)}\n`, 'utf8');
+    const packageBytes = await createPublishedSkillPackage({
       name,
       skillId: skill.skillId,
       version: body.version,
       sourceCommit: body.sourceCommit,
       releaseManifest: manifest.data,
-      dependencyLock,
-      files: publishedFiles
-    };
-    const bytes = Buffer.from(JSON.stringify(packageManifest, null, 2));
-    const checksum = `sha256-${crypto.createHash('sha256').update(bytes).digest('hex')}`;
-    const packagePath = path.join(packageRoot, skill.skillId, body.version, `${checksum}.json`);
+      dependencyLock
+    }, publishedFiles);
+    const checksum = sha256Integrity(packageBytes);
+    if (body.dryRun) {
+      return reply.status(200).send({
+        dryRun: true, name, version: body.version,
+        sourceCommit: body.sourceCommit, dependencyLock, checksum
+      });
+    }
+    const packagePath = path.join(packageRoot, skill.skillId, body.version, `${checksum}.zip`);
     await fs.mkdir(path.dirname(packagePath), { recursive: true });
-    await fs.writeFile(packagePath, bytes, { flag: 'wx' });
+    await fs.writeFile(packagePath, packageBytes, { flag: 'wx' });
 
     let release;
     try {
@@ -1114,7 +1104,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       ...release,
       status: 'published',
       tagPending,
-      packageUrl: `/api/packages/${skill.skillId}/${body.version}/${checksum}.json`
+      packageUrl: `/api/packages/${skill.skillId}/${body.version}/${checksum}.zip`
     });
   });
 
@@ -1231,7 +1221,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         user,
         result: 'success'
       });
-      return reply.type('application/json').send(bytes);
+      return reply.type(path.extname(packagePath) === '.zip' ? 'application/zip' : 'application/json').send(bytes);
     } catch {
       logFailure('publishedSkillPackageNotFound', {
         skillId: skill.skillId,

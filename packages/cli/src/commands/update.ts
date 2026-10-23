@@ -4,6 +4,8 @@ import semver from 'semver';
 import {
   resolveProjectStorePaths,
   BUILTIN_SPECIFIER_PREFIX,
+  BUILTIN_IDENTITY,
+  loadBuiltinPackageOrThrow,
   highestStableVersion,
   isBuiltinIdentity,
   loadInstallManifest,
@@ -16,6 +18,7 @@ import {
 } from '@esl/core';
 import { executeInfo } from './info.js';
 import { executeInstall } from './install.js';
+import { resolveBuiltinDir } from '../builtin-dir.js';
 import { removeInstalledIdentity } from './uninstall.js';
 import { computeRequiredIdentities } from './dependency-graph.js';
 import {
@@ -88,6 +91,10 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX) || isBuiltinIdentity(name)) {
       targetIdentities.add(name);
       const currentVersion = lockJson.skills[name]?.version;
+      const builtin = await loadBuiltinPackageOrThrow(options.builtinDir ?? resolveBuiltinDir(), name);
+      if (name !== BUILTIN_IDENTITY && currentVersion && semver.lt(builtin.version, currentVersion)) {
+        throw new Error(`Cannot downgrade ${name} from ${currentVersion} to bundled version ${builtin.version}; use a CLI carrying a newer skill version`);
+      }
       const targetDir = await executeInstall(name, {
         ...options,
         projectRoot: dependencyRoot,

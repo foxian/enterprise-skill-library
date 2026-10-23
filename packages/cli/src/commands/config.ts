@@ -1,5 +1,7 @@
 import { loadConfig, saveConfig, type LocalStoreOptions } from '@esl/core';
 
+export const DEFAULT_ESL_SERVER = 'https://cloud.enterprise-skills.com/';
+
 export interface ConfigCommandOptions extends LocalStoreOptions {
   server?: string;
 }
@@ -18,8 +20,5 @@ export async function resolveServer(options: ConfigCommandOptions = {}): Promise
     return fromEnv;
   }
   const config = await loadConfig({ homeDir: options.homeDir });
-  if (!config.server) {
-    throw new Error('Missing server; run esl config set-server <url> or pass --server');
-  }
-  return config.server;
+  return config.server ?? DEFAULT_ESL_SERVER;
 }

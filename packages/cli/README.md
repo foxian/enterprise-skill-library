@@ -2,7 +2,7 @@
 
 Command-line client for the Enterprise Skill Library (ESL): discover, install, link, and publish AI Agent skills inside your organization.
 
-This package is the **only public ESL CLI distribution**. It does **not** ship a default Server URL; you need your own ESL Server (or a local development instance).
+This package is the **only public ESL CLI distribution**. When no Server URL is supplied, it uses the public cloud Server `https://cloud.enterprise-skills.com/`. Use `--server`, `ESL_SERVER`, or `esl config set-server` for a private, self-hosted, or local instance.
 
 Chinese guide (repo only): [cli-package-readme.zh-CN.md](https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-package-readme.zh-CN.md)
 
@@ -12,7 +12,7 @@ Chinese guide (repo only): [cli-package-readme.zh-CN.md](https://github.com/foxi
 
 - Node.js: `20.17.x`, `22.x` (≥22.13), or `24.x` (24 recommended)
 - npm (ships with Node.js)
-- A reachable ESL Server URL (no default is bundled)
+- A reachable ESL Server URL for remote operations; the public cloud default is used when none is supplied
 - Git strongly recommended on `PATH` before remote `esl skill install` / authoring commands
 
 ## Install
@@ -29,7 +29,7 @@ If `esl` is not found after install, open a new terminal and confirm the npm glo
 ## Quick start
 
 ```bash
-# Configure the Server once (or set ESL_SERVER)
+# Optional: override the public cloud default for a private or self-hosted Server
 esl config set-server https://your-esl-server.example
 
 # Interactive login (username / password). Do not put passwords on the CLI.
@@ -44,7 +44,7 @@ esl skill use @scope/skill-name
 esl skill install @scope/skill-name
 ```
 
-For local Docker development, the Server is often `http://localhost:4070`. That is a local-dev convention, not a packaged default.
+If no address is configured, remote commands use `https://cloud.enterprise-skills.com/`. For local Docker development, the Server is often `http://localhost:4070`; that is a local-dev override, not the public default.
 
 No account yet? Open `{server}/admin/register-user` in a browser (CLI cannot register users). Details: [cli-install.md](https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md).
 

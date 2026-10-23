@@ -18,6 +18,7 @@ describe('esl update', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(projectDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
@@ -360,7 +361,8 @@ describe('esl update', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('fails clearly when registry skills are present and no ESL Server is configured', async () => {
+  it('uses the public cloud server when registry skills are present and no ESL Server is configured', async () => {
+    vi.stubEnv('ESL_SERVER', '');
     await saveSkillsJson(projectDir, {
       skills: { '@alice/code-review': '^1.0.0' }
     });
@@ -369,13 +371,16 @@ describe('esl update', () => {
       skills: {
         '@alice/code-review': {
           version: '1.0.0',
-          resolved: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
+          resolved: 'https://cloud.enterprise-skills.com/git/esl-skills/alice_code-review.git',
           integrity: ''
         }
       }
     });
     await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ name: '@alice/code-review', versions: ['1.0.0'] })
+    });
 
     await expect(
       executeUpdate({
@@ -384,9 +389,12 @@ describe('esl update', () => {
         customFetch: fetchImpl as any,
         noAdapt: true
       })
-    ).rejects.toThrow('Missing server; run esl login or pass --server');
+    ).resolves.toEqual([]);
 
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://cloud.enterprise-skills.com/api/skills/%40alice%2Fcode-review',
+      expect.anything()
+    );
   });
 
   it('fails fast when login is missing and registry skills are present', async () => {

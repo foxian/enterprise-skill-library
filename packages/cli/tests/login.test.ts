@@ -14,6 +14,7 @@ describe('esl login', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
@@ -375,17 +376,28 @@ describe('esl login', () => {
     );
   });
 
-  it('fails when no server is passed or saved', async () => {
+  it('uses the public cloud server when no server is passed or saved', async () => {
     await initializeLocalStore({ homeDir });
+    vi.stubEnv('ESL_SERVER', '');
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+    });
 
-    await expect(
-      executeLogin({
-        username: 'zhangsan',
-        noInput: true,
-        homeDir,
-        customFetch: vi.fn() as any
-      })
-    ).rejects.toThrow(/server/i);
+    await executeLogin({
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      'https://cloud.enterprise-skills.com/api/auth/login',
+      expect.objectContaining({ method: 'POST' })
+    );
   });
 
   it('always prompts for the username, ignoring a saved username', async () => {

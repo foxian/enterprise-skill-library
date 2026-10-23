@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
-import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
+import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials, createPublishedSkillPackage, sha256Integrity } from '@esl/core';
 
 interface PackageSpec {
   name: string;
@@ -114,6 +114,44 @@ describe('esl install multi-root merge', () => {
       .mockResolvedValueOnce(infoResponse('@platform-ai/shared', 'public'));
     await executeInstall('@platform-ai/root-a', installOptions(fetch));
   }
+
+  it.each(['zip', 'json'] as const)('安装冻锁依赖兼容 %s 包并记录实际下载地址', async (format) => {
+    const binary = Buffer.from([0x50, 0x4b, 0x00, 0xff, 0x80]);
+    const legacy = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    const original = JSON.parse(legacy.bytes.toString('utf8'));
+    const zipBytes = await createPublishedSkillPackage(original, {
+      ...Object.fromEntries(Object.entries(original.files).map(([name, text]) => [name, Buffer.from(text as string)])),
+      'assets/示例.docx': binary
+    });
+    const bytes = format === 'zip' ? zipBytes : legacy.bytes;
+    const checksum = sha256Integrity(bytes);
+    const root = buildPackage({
+      name: '@platform-ai/root-a', skillId: 'sk_a', version: '1.0.0',
+      dependencies: { '@platform-ai/shared': '^1.0.0' },
+      dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum } }
+    });
+    const rootUrl = `/api/packages/sk_a/1.0.0/${root.checksum}.json`;
+    const dependencyUrl = `${server}/api/packages/sk_shared/1.2.0/${checksum}`;
+    const fetch = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.endsWith(rootUrl)) return packageResponse(root.bytes);
+      if (url === `${dependencyUrl}.zip`) return format === 'zip' ? packageResponse(bytes) : { ok: false, status: 404 };
+      if (url === `${dependencyUrl}.json`) return packageResponse(bytes);
+      if (url.includes('/api/skills/')) return ok({ json: async () => ({
+        name: '@platform-ai/root-a', visibility: 'public', versions: ['1.0.0'], packageUrl: rootUrl
+      }) });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    await executeInstall('@platform-ai/root-a', installOptions(fetch));
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@platform-ai/shared'].resolved).toBe(`${dependencyUrl}.${format}`);
+    if (format === 'zip') {
+      expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'shared', 'assets', '示例.docx'))).toEqual(binary);
+      expect(fetch.mock.calls.some(([url]) => String(url) === `${dependencyUrl}.json`)).toBe(false);
+    } else {
+      expect(fetch.mock.calls.some(([url]) => String(url) === `${dependencyUrl}.json`)).toBe(true);
+    }
+  });
 
   it('elevates a shared dependency to the higher version the second root pins, when it still satisfies both ranges', async () => {
     await installRootA(vi.fn());

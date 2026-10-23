@@ -34,12 +34,14 @@ import {
   validateSkillDirectory,
   validateSkillMd,
   preparePublishedSkillPackage,
+  parsePublishedSkillPackage,
   ensureGitAvailable
-  } from '@esl/core';
+} from '@esl/core';
 import { ApiError, requireOkResponse } from '../api-error.js';
 import {
   installTargetDir,
   gitAuthHeaderConfig,
+  apiUrl,
   fetchWithTimeout,
   requireConfigured,
   requireFreshToken,
@@ -344,7 +346,7 @@ interface ParsedPublishedPackage {
     dependencies?: Record<string, string>;
   };
   dependencyLock?: Record<string, LockedDependency>;
-  files: Record<string, string>;
+  files: Record<string, Buffer>;
 }
 
 interface PlannedDependency {
@@ -376,12 +378,20 @@ async function downloadPublishedPackage(
   identity: string,
   options: InstallOptions,
   authToken: string,
-  requested: string
-): Promise<{ integrity: string; data: ParsedPublishedPackage }> {
+  requested: string,
+  allowLegacyFallback = false
+): Promise<{ integrity: string; data: ParsedPublishedPackage; packageUrl: string }> {
   const fetchImpl = options.customFetch ?? fetch;
-  const response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
+  let response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
     headers: { Authorization: `token ${authToken}` }
   });
+  // 冻锁不记录格式；只在 ZIP 不存在时尝试历史 JSON，其他错误不回退。
+  if (allowLegacyFallback && response.status === 404) {
+    resolvedPackageUrl = resolvedPackageUrl.replace(/\.zip$/, '.json');
+    response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
+      headers: { Authorization: `token ${authToken}` }
+    });
+  }
   if (!response.ok) {
     if (response.status === 403) {
       throw new ApiError(403, 'dependency not visible', {
@@ -393,12 +403,16 @@ async function downloadPublishedPackage(
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
-  // 校验和取 URL 的 pathname（不含 query），附加 `?requested=` 不影响解析。
-  const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.json$/, '');
+  const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.(?:json|zip)$/, '');
   if (expectedIntegrity.startsWith('sha256-') && integrity !== expectedIntegrity) {
     throw new Error(`Published Skill Package checksum does not match Registry metadata: expected ${expectedIntegrity}, got ${integrity}`);
   }
-  return { integrity, data: JSON.parse(packageBytes.toString('utf8')) as ParsedPublishedPackage };
+  const parsed = await parsePublishedSkillPackage(packageBytes);
+  const data: ParsedPublishedPackage = {
+    ...parsed,
+    dependencyLock: parsed.dependencyLock as Record<string, LockedDependency> | undefined
+  };
+  return { integrity, data, packageUrl: resolvedPackageUrl };
 }
 
 async function assertPackageCompatible(
@@ -431,7 +445,7 @@ async function stagePackageSwap(
   for (const [relativePath, content] of Object.entries(data.files ?? {})) {
     const destination = path.join(stagingDir, relativePath);
     await fs.mkdir(path.dirname(destination), { recursive: true });
-    await fs.writeFile(destination, content, 'utf8');
+    await fs.writeFile(destination, content);
   }
   if (data.version !== version || data.name !== identity) {
     await removeDirectory(stagingDir);
@@ -507,15 +521,8 @@ async function planIncomingGraph(
   while (queue.length > 0) {
     const { identity, entry } = queue.shift()!;
     if (nodes.has(identity)) continue;
-    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    // 依赖解析请求上报锁定的精确版本。
-    const { integrity, data } = await downloadPublishedPackage(
-      packageUrl,
-      identity,
-      options,
-      authToken,
-      entry.version
-    );
+    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
+    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
     if (data.skillId !== entry.skillId || data.version !== entry.version) {
       throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
     }
@@ -731,15 +738,8 @@ export async function installLocalSourceDependencies(input: {
   const incomingRanges = new Map<string, Set<string>>();
   addRanges(incomingRanges, dependencies);
   for (const [identity, entry] of Object.entries(lock)) {
-    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    // 本地源依赖解析同样上报锁定的精确版本。
-    const { integrity, data } = await downloadPublishedPackage(
-      packageUrl,
-      identity,
-      options,
-      authToken,
-      entry.version
-    );
+    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
+    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
     await assertPackageCompatible(identity, data, options);
     addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
     nodes.set(identity, {
@@ -773,7 +773,7 @@ async function installPublishedPackage(
   requestedSpecifier: string
 ): Promise<string> {
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
-  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
+  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : apiUrl(serverUrl, packageUrl);
   const { integrity, data: rootData } = await downloadPublishedPackage(
     resolvedPackageUrl,
     name,

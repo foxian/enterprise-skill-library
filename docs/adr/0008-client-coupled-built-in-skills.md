@@ -3,9 +3,10 @@
 Status: accepted
 
 `esl-operator` 是与 ESL CLI 版本严格配套的 Client-coupled Built-in Skill，而不是
-Server-hosted Skill。其唯一可编辑源码位于 `skills/esl-operator/`，CLI 构建从该
-目录生成并打包本地 Built-in Skill Package；用户使用 `@builtin/esl-operator` 通过
-普通 `install` 安装，但安装从当前 CLI 包读取，不访问 ESL Server，不要求登录或
+Server-hosted Skill；`skill-forge` 是随 CLI 发行包携带、但拥有独立版本的官方
+Built-in Skill。它们的唯一可编辑源码分别位于 `skills/esl-operator/` 与
+`skills/skill-forge/`，CLI 构建从这些目录生成并打包本地 Built-in Skill Package；
+用户使用 `@builtin/esl-operator` 或 `@builtin/skill-forge` 通过普通 `install` 安装，但安装从当前 CLI 包读取，不访问 ESL Server，不要求登录或
 网络。该技能不进入 Gitea，不创建 Skill ID、Git 仓库、Skill Release 或 Published
 Skill Package，不出现在服务器搜索结果中，也不可 upload、publish、source、rename
 或 version。

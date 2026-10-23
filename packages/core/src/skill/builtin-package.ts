@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { parseSkillName, SemVerSchema } from '../schema/skill-json.js';
+import { parseSkillName, SemVerSchema, validateSkillJson } from '../schema/skill-json.js';
 import { validateSkillMd } from './skill-md.js';
 
 export interface BuiltinPackageManifestEntry {
@@ -29,6 +29,7 @@ export interface BuildBuiltinPackageOptions {
   outputRoot: string;
   identity: string;
   cliVersion: string;
+  versionSource?: 'cli' | 'skill';
   author?: string;
 }
 
@@ -66,16 +67,31 @@ export async function buildBuiltinPackage(
     throw new Error(`SKILL.md name "${skillMdValidation.data.name}" must match built-in short name "${skillName}"`);
   }
 
+  let version = options.cliVersion;
+  let sourceManifest;
+  if (options.versionSource === 'skill') {
+    const parsed = validateSkillJson(JSON.parse(await fs.readFile(path.join(options.sourceDir, 'skill.json'), 'utf8')));
+    if (!parsed.success) {
+      throw new Error(`Invalid built-in skill.json: ${parsed.errors.join(', ')}`);
+    }
+    if (parsed.data.name !== options.identity) {
+      throw new Error(`skill.json name must match built-in identity: ${options.identity}`);
+    }
+    sourceManifest = parsed.data;
+    version = sourceManifest.version;
+  }
+
   const packageDir = path.join(options.outputRoot, skillName);
   await fs.rm(packageDir, { recursive: true, force: true });
   await fs.mkdir(packageDir, { recursive: true });
 
   const skillJson = {
     name: options.identity,
-    version: options.cliVersion,
+    version,
     description: skillMdValidation.data.description,
     author: options.author ?? '@foxian/esl',
-    keywords: []
+    keywords: [],
+    ...sourceManifest
   };
   await fs.writeFile(path.join(packageDir, 'skill.json'), `${JSON.stringify(skillJson, null, 2)}\n`, 'utf8');
 
@@ -86,7 +102,7 @@ export async function buildBuiltinPackage(
   const manifest = await loadManifest(options.outputRoot);
   manifest.packages[options.identity] = {
     name: options.identity,
-    version: options.cliVersion,
+    version,
     checksum,
     shortName: skillName
   };
@@ -94,7 +110,7 @@ export async function buildBuiltinPackage(
 
   return {
     name: options.identity,
-    version: options.cliVersion,
+    version,
     checksum,
     shortName: skillName
   };
@@ -155,13 +171,14 @@ async function saveManifest(builtinRoot: string, manifest: BuiltinPackageManifes
 async function copySourceFiles(sourceDir: string, packageDir: string): Promise<void> {
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === '.git') {
+    if (entry.name === '.git' || entry.name === '__pycache__' || entry.name === '.gitignore' || entry.name === 'skill.json' || entry.name.endsWith('.pyc') || entry.name.endsWith('.skill')) {
       continue;
     }
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(packageDir, entry.name);
     if (entry.isDirectory()) {
-      await fs.cp(sourcePath, targetPath, { recursive: true });
+      await fs.mkdir(targetPath, { recursive: true });
+      await copySourceFiles(sourcePath, targetPath);
     } else {
       await fs.copyFile(sourcePath, targetPath);
     }

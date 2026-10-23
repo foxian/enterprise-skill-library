@@ -18,6 +18,7 @@ import {
 import { notify } from '../output.js';
 import { isInteractive, readText } from '../prompt.js';
 import { apiUrl, fetchWithTimeout, resolveOptionalFreshToken } from './network-options.js';
+import { resolveServer } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,12 +81,13 @@ async function resolveNamespaceChoices(options: InitOptions): Promise<string[] |
   let memberships: (OrganizationMembership & { status?: string })[] | null = null;
 
   const token = await resolveOptionalFreshToken(options);
-  if (token && config?.server) {
+  if (token) {
     try {
+      const server = await resolveServer({ homeDir: options.homeDir });
       const fetchImpl = options.customFetch ?? fetch;
       const response = await fetchWithTimeout(
         fetchImpl,
-        apiUrl(config.server, '/api/orgs/mine'),
+        apiUrl(server, '/api/orgs/mine'),
         { headers: { Authorization: `token ${token}` } },
         // 菜单是锦上添花：网络不健康时快速回退，不让 init 卡在超时上。
         3_000

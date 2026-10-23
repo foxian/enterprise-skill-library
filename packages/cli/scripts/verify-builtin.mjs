@@ -1,25 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadBuiltinPackageOrThrow, validateSkillDirectory } from '../dist/vendor/core/index.js';
+import { builtinSkills } from './builtin-skills.mjs';
 
 const cliDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cliPkg = JSON.parse(await fs.readFile(path.join(cliDir, 'package.json'), 'utf8'));
-const manifestPath = path.join(cliDir, 'dist', 'builtin', 'builtin-packages.json');
-
-const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-const entry = manifest.packages['@builtin/esl-operator'];
-if (!entry) {
-  throw new Error('Built-in skill package manifest is missing @builtin/esl-operator; run the build first');
+const builtinRoot = path.join(cliDir, 'dist', 'builtin');
+for (const skill of builtinSkills) {
+  const identity = `@builtin/${skill.name}`;
+  const entry = await loadBuiltinPackageOrThrow(builtinRoot, identity);
+  const validation = await validateSkillDirectory(entry.directory);
+  if (!validation.success) throw new Error(`Invalid built-in package ${identity}: ${validation.errors.join(', ')}`);
+  const expectedVersion = skill.versionSource === 'cli' ? cliPkg.version :
+    JSON.parse(await fs.readFile(path.resolve(cliDir, '..', '..', 'skills', skill.name, 'skill.json'), 'utf8')).version;
+  if (entry.version !== expectedVersion || validation.data.skillJson.version !== expectedVersion || validation.data.skillJson.name !== identity) {
+    throw new Error(`Built-in skill package identity or version mismatch: ${identity}`);
+  }
+  console.log(`Verified built-in skill package ${identity}@${entry.version}`);
 }
-if (entry.version !== cliPkg.version) {
-  throw new Error(
-    `Built-in skill package version ${entry.version} does not match @foxian/esl version ${cliPkg.version}`
-  );
-}
-if (!entry.checksum || !entry.checksum.startsWith('sha256-')) {
-  throw new Error(`Built-in skill package is missing a valid checksum: ${entry.checksum}`);
-}
-
-console.log(
-  `Verified built-in skill package @builtin/esl-operator@${entry.version} matches @foxian/esl@${cliPkg.version}`
-);

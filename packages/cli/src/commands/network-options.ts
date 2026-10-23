@@ -1,5 +1,4 @@
 import {
-  loadConfig,
   loadCredentials,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
@@ -10,6 +9,7 @@ import {
 import path from 'node:path';
 import { requireOkResponse } from '../api-error.js';
 import { readCliVersion } from '../version.js';
+import { resolveServer } from './config.js';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   server?: string;
@@ -23,10 +23,9 @@ export interface ResolvedNetworkConfig {
 }
 
 export async function resolveNetworkConfig(options: NetworkCommandOptions): Promise<ResolvedNetworkConfig> {
-  const config = await loadConfig({ homeDir: options.homeDir });
   const credentials = await loadCredentials({ homeDir: options.homeDir });
   return {
-    server: options.server ?? requireConfigured(config.server, 'server'),
+    server: await resolveServer({ server: options.server, homeDir: options.homeDir }),
     token: credentials.token
   };
 }

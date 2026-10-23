@@ -35,7 +35,8 @@ _Avoid_: Namespace（当指 npm 包 scope 时）；个人命名空间（当指 n
 
 公开发布到 npm 的 ESL CLI 安装包，包名为 `@foxian/esl`。它携带 `esl`
 可执行文件与 Client-coupled Built-in Skill，并把运行所需的客户端库一并捆绑进
-该包；不内置默认 ESL Server URL（由用户配置、登录参数或环境变量提供）。它不是
+该包；未指定地址时默认使用公开云端 `https://cloud.enterprise-skills.com/`，也可由
+用户通过 `--server`、`ESL_SERVER` 或本地配置覆盖。它不是
 Published Skill Package，也不等于任何 ESL Namespace（ADR-0052）。
 _Avoid_: @esl/cli（当指公开安装名时）；npm 客户端；CLI npm 包
 
@@ -270,7 +271,8 @@ _Avoid_: Release Dependency Lock.
 
 发布 Skill Release 时生成的、不可变且带 Namespace 的安装产物。远程安装消费
 该产物，而非源码仓库；它绑定产生该 Release 的源码 commit，发布后不可覆盖或
-删除。
+删除。新产物采用 ZIP 保存原始文件字节；新版安装器兼容历史 JSON 文本包，
+但无法恢复旧包已经损坏的二进制内容。格式与源码快照边界见 ADR-0068。
 
 ## Release Manifest
 
@@ -573,7 +575,7 @@ CLI 执行时重试。CLI 降级时全局副本也同步降级。
 ## Built-in Skill Package
 
 ESL CLI 构建时从 Built-in Skill 源码生成并随 npm 包发布的本地安装产物。它包含
-`SKILL.md`、支持文件、由 CLI 版本生成的 `skill.json` 和内容校验元数据。它不
+`SKILL.md`、支持文件、按技能版本策略生成的 `skill.json` 和内容校验元数据。它不
 属于 Published Skill Package，安装身份为 `@builtin/<skill-name>`，并在
 锁文件中以 `source: "builtin"` 与 `builtin:<skill-name>` 标识。
 `skill.json` 的 SemVer（含 prerelease 标识）必须严格等于当前 `@foxian/esl`

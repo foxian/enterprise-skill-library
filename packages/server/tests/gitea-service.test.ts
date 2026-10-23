@@ -190,6 +190,7 @@ describe('GiteaService', () => {
   });
 
   it('reads file contents from individual file endpoints when the directory listing omits them', async () => {
+    const binary = Buffer.from([0x89, 0x50, 0xff, 0x00, 0x80]);
     const b64 = (s: string) => Buffer.from(s).toString('base64');
     const mockFetch = vi
       .fn()
@@ -210,15 +211,15 @@ describe('GiteaService', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ content: b64('PNGDATA'), encoding: 'base64' })
+        json: async () => ({ content: binary.toString('base64'), encoding: 'base64' })
       });
     const gitea = new GiteaService('http://gitea:3000', 'admin-token', mockFetch as any);
 
     const files = await gitea.readSourceTree('esl-skills', 'demo', 'abc123');
 
     expect(files).toEqual({
-      'SKILL.md': '---\nname: demo\n---\n',
-      'assets/logo.png': 'PNGDATA'
+      'SKILL.md': Buffer.from('---\nname: demo\n---\n'),
+      'assets/logo.png': binary
     });
     expect(mockFetch).toHaveBeenNthCalledWith(
       2,

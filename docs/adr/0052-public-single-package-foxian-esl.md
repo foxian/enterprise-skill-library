@@ -2,6 +2,11 @@
 
 Status: accepted
 
+> **后续修订（当前实现）**：原始发布决策曾要求发行包不携带生产 Server 地址；为降低首次使用门槛，当前 CLI 在没有
+> `--server`、`ESL_SERVER` 或本地保存地址时，默认使用公开云端
+> `https://cloud.enterprise-skills.com/`。该默认值可被上述三种方式覆盖，因此不影响私有、自托管或本地开发部署；
+> 安装内置 `@builtin/esl-operator` 仍完全在本地完成，不访问 Server，也不要求登录。
+
 ESL 客户端要以 npm 公开发布，且维护者账号 / npm Scope 为 `foxian`。仓库虽是
 `@esl/*` workspace monorepo，但对外不把 `@esl/core`、`@esl/i18n` 做成可安装的
 公共库契约。决定：**唯一公开的 ESL CLI 发行包为 `@foxian/esl`**（MIT、public、
@@ -11,8 +16,8 @@ registry 上不存在的 `@esl/*`。workspace 内
 仅将原 `@esl/cli` 包改名为 `@foxian/esl`；`@esl/core` 与 `@esl/i18n` 标为
 `private`，server/web 本次不发布。
 
-发行包不内置默认 ESL Server URL；Server 仍由用户配置、登录参数或 `ESL_SERVER`
-提供。Node `engines` 继续遵循 ADR-0051。`postinstall`（全局内置技能同步，见
+原始发布版本不内置默认 ESL Server URL；当前 CLI 的默认地址与覆盖优先级见上方“后续修订”。Node `engines` 继续遵循 ADR-0051。
+`postinstall`（全局内置技能同步，见
 ADR-0008）必须作为构建产物进入 `dist/`，不能只靠源码树里的 `scripts/`——否则
 在 `files: ["dist/"]` 下 npm 安装后 lifecycle 找不到脚本。
 

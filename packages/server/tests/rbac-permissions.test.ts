@@ -49,6 +49,7 @@ function createRbacGitea() {
   repoCollaborators('secret').set('acme_zed', 'write');
 
   return {
+    readSourceTree: vi.fn().mockResolvedValue({}),
     validateToken: vi.fn(async (token: string) => {
       if (token === 'alice-token') return { id: 1, username: 'acme_alice', email: 'acme_alice@local.esl' };
       if (token === 'admin-token') return { id: 2, username: 'acme_admin', email: 'acme_admin@local.esl' };
