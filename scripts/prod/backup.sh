@@ -71,7 +71,7 @@ done
 # 密钥文件改回 root 属主），宿主用户不可读——经 root sidecar 容器复制，
 # 不依赖宿主机侧属主
 docker run --rm -v "$DATA_DIR_ABS/gitea:/data" -v "$STAGING/gitea:/out" --user root \
-  gitea/gitea:1.22 sh -c 'rm -rf /out/ssh && cp -a /data/ssh /out/ssh'
+  gitea/gitea:1.22 sh -c 'rm -rf /out/ssh && cp -a /data/ssh /out/ssh && chown -R 1000:1000 /out/ssh'
 compose start gitea >/dev/null
 
 echo "backup: copying bootstrap secrets..."
