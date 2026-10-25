@@ -5,15 +5,16 @@ override 叠加在开发栈之上，开发/生产脚本按运行环境分目录�
 **Docker 与 git**（无 node）。
 
 域名、TLS 和公网入口都不是 ESL 产品的固定组成部分（ADR-0068 / ADR-0060）：
-默认部署不绑定任何域名，用 `localhost` 或服务器 IP 即可直接访问；需要域名、
-HTTPS 或把服务暴露到公网时，由部署者自行配置，实例配置不进入公开仓库。
+默认部署不绑定任何域名，生产 compose 也**不发布宿主机端口**；入口由部署者按
+实际环境通过反向代理、隧道或端口映射暴露，实例配置不进入公开仓库。
 
 ## 核心概念对照
 
 | 概念 | 开发环境 | 生产环境 |
 |------|---------|---------|
 | 运行配置 | `docker compose up` | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up`（下称「生产 compose 命令」） |
-| 域名 | 默认 localhost，不绑定 | 默认不绑定，localhost / IP 直接可用；域名路由按需添加 |
+| 域名 | 默认 localhost，不绑定 | 默认不绑定；域名路由按需添加 |
+| 宿主端口 | 发布 `4070:80` | **默认不发布**，入口由部署者通过反代、隧道或端口映射暴露 |
 | Git Backend 直连 | 宿主 3001 端口（E2E/调试） | 不暴露，仅经 `/git/` 反代（ADR-0004） |
 | 前端 | 本机构建 dist 挂载 | 烤入 `server` 镜像（回滚 = 换回旧镜像） |
 | 实例自定义路由 | 不挂载 | `nginx-conf.d/` 挂载到容器 `/etc/nginx/instance-conf` |
@@ -30,8 +31,8 @@ git clone <repo> && cd enterprise-skill-library
 cp .env.example .env
 vi .env          # 必填：GITEA_ADMIN_PASSWORD（强密码，同步存入密码管理器）
                  #      ESL_ENVIRONMENT=production
-                 # ESL_SERVER_URL 默认 http://localhost:4070；
-                 # 有域名或对外地址时改为对应值
+                 #      ESL_SERVER_URL=<本实例对外地址>
+                 #      （供 deploy.sh 冒烟检查与站内链接使用）
 chmod 600 .env   # .env 含秘密，仅文件主人可读
 
 # 3. 部署（构建镜像 → 等待健康 → 冒烟）
@@ -41,8 +42,28 @@ bash scripts/prod/deploy.sh
 bash scripts/prod/backup.sh --install-cron
 ```
 
-完成后通过 `http://<服务器IP>:3000/admin/`（或你配置的地址）用平台管理员账号登录。
-默认不绑定域名，IP 访问即可工作。
+### 暴露服务入口
+
+生产 compose 默认**不发布宿主机端口**，镜像内 nginx 监听容器 `80` 端口。因此
+部署完成后不能直接用 `http://<服务器IP>:<端口>` 访问，需要按环境任选一种方式：
+
+- **反向代理 / 隧道（推荐）**：让同一 Docker 网络上的 nginx、Caddy、
+  cloudflared 等把请求转发到 `server:80`。具体配置属于实例层，不进入公开仓库。
+- **直接映射端口（仅内网或临时验证）**：在实例层写一个不纳入版本控制的
+  compose override，例如：
+
+  ```yaml
+  # docker-compose.instance.yml（gitignored，不提交）
+  services:
+    server:
+      ports: !override
+        - "4070:80"
+  ```
+
+  `scripts/prod/deploy.sh` 不会自动叠加该文件，需手动追加
+  `-f docker-compose.instance.yml`，或按同样方式直接执行 compose 命令。
+
+入口就绪后，通过 `<你的入口地址>/admin/` 用平台管理员账号登录。
 
 ## 日常发版
 
@@ -159,9 +180,11 @@ Restore」词条）。
 - **部署失败**：`deploy.sh` 失败时自动输出各容器日志尾部；手动查看用
   `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs <服务>`
 - **冒烟失败**：单独重跑 `bash scripts/prod/smoke.sh [地址]`，逐项核对
-  `/health`、API 边界、Git Backend 维护入口
+  `/health`、API 边界、Git Backend 维护入口。冒烟地址取显式参数，其次
+  `.env` 的 `ESL_SERVER_URL`，最后回退 `http://localhost:4070`；生产未发布
+  宿主端口时，务必先设好 `ESL_SERVER_URL` 或显式传入可达的入口地址。
 - **Git Backend 恢复入口**：生产环境不暴露 3001 直连端口；Gitea 的维护
-  登录页经 `http://<地址>:3000/git/user/login` 访问（与用户同一入口）
+  登录页经 `<你的入口地址>/git/user/login` 访问（与用户同一入口）
 - **自定义路由未生效**：检查 `.conf` 文件是否在 `nginx-conf.d/` 中、
   `server_name` 是否拼写正确，并用 `docker exec <server容器> nginx -t`
   验证配置语法
