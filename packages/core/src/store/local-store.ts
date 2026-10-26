@@ -106,6 +106,12 @@ export interface EslConfig extends ConfigIdentity {
   tools: string[];
   /** 本机常用工具的选中次数（ADR-0054）：按工具累计，只存这台机器。 */
   toolSelectionCounts?: Record<string, number>;
+  cliUpdate?: {
+    enabled?: boolean;
+    lastCheckedAt?: string;
+    lastNotifiedVersion?: string;
+    lastNotifiedAt?: string;
+  };
 }
 
 export async function loadConfig(options: LocalStoreOptions = {}): Promise<EslConfig> {

@@ -63,7 +63,7 @@ import {
 } from '../commands/consumer-project-root.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
-import { executeSetServer } from '../commands/config.js';
+import { executeSetServer, setCliUpdateCheck } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import {
@@ -100,6 +100,7 @@ import {
 } from '../commands/version.js';
 import { readCliVersion } from '../version.js';
 import { retryPendingGlobalSync } from '../commands/sync-builtin.js';
+import { executeSelfUpdate, maybeNotifyCliUpdate } from '../commands/self-update.js';
 
 function example(text: string): string {
   return `\nExample:\n  ${text}\n`;
@@ -1329,6 +1330,19 @@ function addSetServer(parent: Command): Command {
     });
 }
 
+function addCliUpdateCheck(parent: Command): Command {
+  return parent
+    .command('set <key> <value>')
+    .description('Set an ESL client configuration value')
+    .addHelpText('after', example('$ esl config set cli-update-check false'))
+    .action(async (key: string, enabled: string) => {
+      if (key !== 'cli-update-check') throw new Error(`Unknown config key: ${key}`);
+      if (enabled !== 'true' && enabled !== 'false') throw new Error('cli-update-check must be true or false');
+      await setCliUpdateCheck(enabled === 'true');
+      console.log(`ESL CLI update checks ${enabled === 'true' ? 'enabled' : 'disabled'}.`);
+    });
+}
+
 function addPreferredTools(parent: Command, program: Command): Command {
   return parent
     .command('preferred-tools')
@@ -1614,6 +1628,7 @@ export function createProgram(): Command {
   const config = program.command('config').description('Manage ESL client configuration');
   config.addHelpText('after', example('$ esl config set-server http://localhost:4070\n  $ esl config preferred-tools --add claude'));
   addSetServer(config);
+  addCliUpdateCheck(config);
   addPreferredTools(config, program);
 
   // --- permanent top-level shortcuts (ADR-0059) ---
@@ -1631,6 +1646,13 @@ export function createProgram(): Command {
   addWhoami(program, 'esl whoami');
   addLink(program);
   addUnlink(program);
+  program
+    .command('self-update')
+    .description('Check for and update the ESL CLI itself')
+    .addHelpText('after', example('$ esl self-update'))
+    .action(async (_command: Command) => executeSelfUpdate({
+      noInput: program.opts().input === false
+    }));
 
   return program;
 }
@@ -1674,6 +1696,14 @@ export async function run(argv: string[]): Promise<void> {
 
   try {
     await retryPendingGlobalSync({});
+    const hasInfoOnlyFlag = argv.includes('--help') || argv.includes('-h') || argv.includes('--version') || argv.includes('-V');
+    const isSelfUpdate = argv.includes('self-update');
+    if (!hasInfoOnlyFlag && !isSelfUpdate) {
+      await maybeNotifyCliUpdate({
+        json: argv.includes('--json'),
+        agentInteraction: argv.includes('--agent-interaction')
+      });
+    }
     await createProgram().parseAsync(argv);
   } catch (error) {
     if (error instanceof AgentInteractionRequiredError) {

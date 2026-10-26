@@ -15,6 +15,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 - 首先用 `esl --version` 确认 CLI 可用；不存在或启动失败时，按下文失败卡选择可用的 CLI 执行器。Node/npm 存在不代表全局 npm 目录可写。
 - 在同一任务中固定一个 CLI 执行器：优先已有的 `esl`，其次是沙箱可写目录中的项目级安装，再其次是带明确版本的 `npx --yes @foxian/esl@<version>`；不要在 `esl`、裸 `npx esl` 和不同版本之间混用。
+- 全局安装的 `esl` 可能在普通命令启动时提示稳定版更新；提示不改变当前命令。只有用户明确要求更新时才运行 `esl self-update`，并让 CLI 自己请求确认。项目级安装和 `npx` 不执行 CLI 自更新；Agent/JSON 模式不输出旁路更新提示。
 - 本地查看、内置安装和本地校验不要求 Server 或登录。只有远端任务需要 Server；需要鉴权时再检查 `esl account whoami`。
 - 只在源码或发布流程需要时检查 `git --version`；已发布包的 HTTP 安装不依赖 Git。
 - 缺失当前任务的前置条件时，读取 `references/setup.md` 的对应章节。公开云端未指定地址时使用默认

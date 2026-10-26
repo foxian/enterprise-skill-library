@@ -24,6 +24,16 @@ npm install -g @foxian/esl
 esl --version
 ```
 
+For a globally installed CLI, normal commands may report a newer stable version once per day. Upgrade interactively with:
+
+```bash
+esl self-update
+```
+
+Disable the background check with `esl config set cli-update-check false`. Project installs and `npx` executions are never modified by this check; use an explicit version such as `npx --yes @foxian/esl@0.2.0` for reproducible runs.
+
+The check state is stored in the user-level config file (`%USERPROFILE%\\.eslib\\config.json` on Windows, `~/.eslib/config.json` on macOS/Linux), not in the project directory.
+
 If `esl` is not found after install, open a new terminal and confirm the npm global bin directory is on your `PATH`. Platform-specific Node setup and troubleshooting: [cli-install.md](https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md).
 
 ## Quick start

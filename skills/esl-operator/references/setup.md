@@ -14,6 +14,7 @@ CLI 安装成功的标准是 `esl --version` 有版本号；远端任务另检�
 ## 环境问题的分流话术
 
 - **没有 `esl`**：说明“CLI 尚未安装”，先判断全局 npm 目录是否可写。可写时引导 `npm install -g @foxian/esl`，新开终端后复查 `esl --version`；沙箱或受限环境不可写时，改用项目级安装或固定版本 `npx`，不要反复重试全局安装。
+- 全局 CLI 提示有稳定版更新时，先向用户说明当前版本和目标版本；只有用户明确同意才运行 `esl self-update`。不要让项目级安装或 `npx` 改写 CLI；可复现任务使用 `npx --yes @foxian/esl@<version>`。
 - **远端任务有 `esl` 但没有自定义 Server**：公开云端默认使用 `https://cloud.enterprise-skills.com/`，无需先写配置；只有用户要访问私有、自托管或本地实例时，才向用户确认 URL，再执行 `esl config set-server <url>`。
 - **需要鉴权的远端任务有 Server 但未登录**：说明“环境已就绪但账号未认证”，让用户在自己的终端运行交互式 `esl login`，不要代输密码。
 - **只想搜索公共技能**：可以先继续，不强制登录；涉及私有技能、安装、上传或发布时再处理认证。
