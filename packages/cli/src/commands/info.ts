@@ -18,6 +18,8 @@ export interface SkillInfo {
   visibility?: string;
   /** 对外当前显示名（ADR-0048）：曾发布取最近 Release 快照，否则取 upload 同步值。 */
   displayName?: string;
+  /** 最新 Release 快照的关键词（#142）；公开详情契约字段，CLI 暂不渲染。 */
+  keywords?: string[];
   description?: string;
   createdBy?: string;
   owner?: string;
