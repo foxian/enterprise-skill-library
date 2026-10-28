@@ -40,6 +40,30 @@ CLI 安装成功的标准是 `esl --version` 有版本号；远端任务另检�
 一次性或会清理用户目录的沙箱可用 `ESL_SERVER=<url>` 临时覆盖，而不是写入会丢失的本地配置；宿主应把
 Server、登录状态和 Store 放在持久化目录中，才能跨会话复用。
 
+### 多 Server 实例与地址登记
+
+每个 ESL Server 实例首次初始化时生成不可变 Instance ID；地址（域名、反向代理）变化
+不改变实例身份。CLI 默认从当前选中的实例安装/更新，不需要日常传 `--instance-id`。
+
+| 目的 | 命令 |
+|---|---|
+| 查看实例与地址 | `esl config server list [--json]` |
+| 为已知实例登记备用地址 | `esl config server add <url>` |
+| 切换当前实例 | `esl config server use <instance-id-or-url>` |
+| 删除本地登记 | `esl config server remove <instance-id-or-url>` |
+| 设置并登记默认地址 | `esl config set-server <url>` |
+
+- 新地址返回**已知** Instance ID 时，CLI 会提示该地址可能伪造并要求确认；非交互场景
+  必须由用户明确同意后再追加 `--accept-new-address`，不要替用户直接加。
+- 已登记地址返回**不同** Instance ID 时 CLI fail-closed；先 `esl config server remove <url>`
+  再重新添加，绝不要绕过或手工改配置文件。
+- `remove` 只清理本地地址/凭据登记，不删除已安装技能、项目依赖或服务器侧数据。
+- 首选地址不可用时，远程命令会尝试同一实例的其他已确认地址；本地命令不依赖 Server。
+- 不同实例的同名技能可以共存：Store 路径含完整 Instance ID，工具链接名含实例短前缀
+  （如 `acme_reviewer_111111`）。`@builtin/*` 不进入实例层级。
+- 项目 `.skills.json` 用 `instances` 记录直接依赖的 Instance ID，`.skills-lock.json`
+  记录实例、Skill ID、精确版本与完整性；两者都可提交到项目 Git。Server URL 不是身份。
+
 ## 语言偏好
 登录响应会把账户的 `locale` 保存到本机 CLI 配置；后续命令默认按该语言输出。任意命令可用 `--locale zh-CN` 或 `--locale en-US` 做单次覆盖，但不会写回账户偏好。账户偏好本身在 Web 设置中管理。
 
@@ -47,7 +71,8 @@ Server、登录状态和 Store 放在持久化目录中，才能跨会话复用�
 ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release 原样保留）时，改完 `esl config set-server <新地址>` 后：
 
 - **消费端自动跟随**：install/update/use/source clone 每次从服务器现取地址，无需额外操作。
-- **已托管源目录自动重指**：之前 `esl source upload` 过的目录（带 `esl` remote）在下一次 `esl source upload` 时自动验证技能身份并把 remote 重指到新地址，输出一行「re-homed the esl remote」提示；`esl source status` 在这类目录只读提示 origin 漂移（ahead/behind 在重指前可能过期），不改任何配置。不需要也不建议手动 `git remote set-url`。
+- **已托管源目录自动重指**：之前 `esl source upload` 过的目录（带 `esl` remote）在下一次 `esl source upload` 时，CLI 先验证旧地址与新地址属于**同一 Instance ID**，且 Skill ID、仓库路径一致，才把 `esl` remote 重指到新地址；用户自己的 `origin` 始终不动。输出一行「re-homed the esl remote」提示；`esl source status` 在这类目录只读提示 origin 漂移（ahead/behind 在重指前可能过期），不改任何配置。不需要也不建议手动 `git remote set-url`。
+- **跨实例拒绝重指**：如果新地址返回不同 Instance ID，或 Skill ID/仓库路径无法验证，CLI 拒绝自动重指、不创建新 Skill ID、不接管其他实例的仓库、不删除旧 remote。先确认用户是要做整体迁移还是跨实例播种；后者用 `esl source export`。
 - **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `esl source upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `esl source upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
 
 ## 查看登录状态
