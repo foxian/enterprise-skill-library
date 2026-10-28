@@ -363,13 +363,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // getReleases 按 id 倒序 = 发布时间最新（含 prerelease，ADR-0048）。
       const latestRelease = releases[0];
       // Keywords 与 displayName 一样取最新 Release 快照；历史 Release 已移除的关键词不应继续命中目录。
-      const keywords = new Set<string>();
-      const manifestKeywords = (latestRelease.releaseManifest as { keywords?: unknown }).keywords;
-      if (Array.isArray(manifestKeywords)) {
-        for (const entry of manifestKeywords) {
-          if (typeof entry === 'string') keywords.add(entry.toLowerCase());
-        }
-      }
+      const keywords = new Set(releaseKeywords(latestRelease.releaseManifest).map((keyword) => keyword.toLowerCase()));
       const displayName = searchDisplayName(latestRelease.releaseManifest, skill.skillName);
       if (lowerQuery) {
         const haystack = [skill.name, skill.description, displayName, ...keywords].join('\n').toLowerCase();
@@ -1487,6 +1481,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return withCloneUrl(request, {
       ...skill,
       displayName: resolveSkillDisplayName(repository, skill),
+      // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
+      // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。
+      keywords: latestReleaseKeywords(releases),
       versions: sortVersionsDescending(repository.getVersions(name)),
       downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
       releases: releases.map((release) => ({
@@ -1642,6 +1639,20 @@ function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord
   return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
 }
 
+// 关键词解析（#142）：与显示名同一数据源——最近一次 Skill Release（按发布时间，
+// 含预发布）快照的 keywords。保留清单中的原始文本；非字符串、空白与重复项丢弃。
+function releaseKeywords(manifest: unknown): string[] {
+  const raw = (manifest as { keywords?: unknown }).keywords;
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0))
+  ];
+}
+
+function latestReleaseKeywords(releases: ReadonlyArray<{ releaseManifest: unknown }>): string[] {
+  return releases.length > 0 ? releaseKeywords(releases[0].releaseManifest) : [];
+}
+
 // 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
 // Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
 function buildSkillContext(
@@ -1663,6 +1674,8 @@ function buildSkillContext(
   return {
     name: skill.name,
     displayName: resolveSkillDisplayName(repository, skill),
+    // 关键词（#142）：管理面板与公开详情使用同一份最新 Release 快照。
+    keywords: latestReleaseKeywords(releases),
     description: skill.description,
     // 逐技能可见性（ADR-0032/0062）：管理页的可见性区块与 CLI 的
     // `esl skill share`（查看矩阵）都从这里读，缺了就只能显示兜底值。
