@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { normalizePathForComparison } from '../path-normalize.js';
 
 const EXCLUDED_DIRS = new Set(['.git']);
 
@@ -35,8 +36,13 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 export async function copySkillDirectory(source: string, target: string): Promise<void> {
   const resolvedSource = await resolveExistingPath(source);
   const resolvedTarget = path.resolve(target);
+  // 两侧都做同一套归一化，避免 source 已 realpath 而 target 只 resolve 造成误判。
+  const [comparableSource, comparableTarget] = await Promise.all([
+    normalizePathForComparison(resolvedSource),
+    normalizePathForComparison(resolvedTarget)
+  ]);
 
-  if (pathsOverlap(resolvedSource, resolvedTarget)) {
+  if (pathsOverlap(comparableSource, comparableTarget)) {
     throw new Error(`Source and target directories must not overlap: ${resolvedSource} and ${resolvedTarget}`);
   }
 

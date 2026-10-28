@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ensureGitAvailable } from '../git.js';
 import { fileExists } from '../store/file-copy.js';
+import { normalizePathForComparison } from '../path-normalize.js';
 import { parseSkillIdentity } from '../schema/release-manifest.js';
 
 const defaultExecFileAsync = promisify(execFile);
@@ -31,7 +32,13 @@ export async function executeExportSource(options: ExportSourceOptions = {}): Pr
   await ensureGitAvailable();
 
   const root = (await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd: directory })).stdout.trim();
-  if (path.resolve(root) !== directory) {
+  // git 返回的仓库根是真实路径，directory 可能来自符号链接或 /var 之类
+  // 未归一化的路径；两侧用同一套归一化后再比较。
+  const [comparableRoot, comparableDirectory] = await Promise.all([
+    normalizePathForComparison(root),
+    normalizePathForComparison(directory)
+  ]);
+  if (comparableRoot !== comparableDirectory) {
     throw new Error('Export requires the skill directory to be the Git repository root');
   }
   const status = await execFileAsync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: directory });
