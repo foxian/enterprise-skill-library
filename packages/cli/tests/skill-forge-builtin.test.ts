@@ -66,7 +66,9 @@ describe('独立版本的内置 skill-forge', () => {
     }
   });
 
-  it.each([false, true], { timeout: 30000 })('无需网络安装、查看、更新和卸载（global=%s）', async global => {
+  // timeout 必须作为 it.each 返回函数的第三个参数传入；放在 cases 的第二个参数
+  // 会被当成额外表项，实际超时仍是默认 5s。
+  it.each([false, true])('无需网络安装、查看、更新和卸载（global=%s）', async global => {
     await build();
     const customFetch = vi.fn(() => { throw new Error('不应联网'); });
     const options = { projectRoot, homeDir, builtinDir, global, customFetch, noAdapt: true };
@@ -82,7 +84,7 @@ describe('独立版本的内置 skill-forge', () => {
     expect((await loadSkillsLock(dependencyRoot)).skills[identity]).toBeUndefined();
     await expect(fs.access(directory)).rejects.toThrow();
     expect(customFetch).not.toHaveBeenCalled();
-  });
+  }, 30000);
 
   it('拒绝降级并保持原安装内容和锁文件', async () => {
     await build('1.2.0');

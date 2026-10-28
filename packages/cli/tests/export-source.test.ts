@@ -36,6 +36,17 @@ describe('esl source export', () => {
     expect(fs.existsSync(path.join(directory, '.git'))).toBe(true);
   });
 
+  it('接受通过符号链接进入的 Git 仓库根', async () => {
+    const directory = source();
+    const linked = path.join(path.dirname(directory), 'reviewer-link');
+    fs.symlinkSync(directory, linked, 'junction');
+
+    const result = await executeExportSource({ directory: linked });
+
+    expect(result.output).toBe(path.join(path.dirname(linked), 'reviewer-export'));
+    expect(fs.existsSync(path.join(result.output, 'SKILL.md'))).toBe(true);
+  });
+
   it('拒绝有未提交修改或未跟踪文件，不产生副本', async () => {
     const directory = source();
     fs.writeFileSync(path.join(directory, 'ignored.txt'), 'ignored');
