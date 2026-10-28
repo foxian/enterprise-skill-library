@@ -90,7 +90,7 @@ description: 创建新技能、修改和改进现有技能，并衡量技能表�
 
 ### 技能编写指南
 
-完整的写作工艺（精简原则、自由度校准、命名与 description 规范、工作流模式、脚本编写规范、发布前检查清单）见 `references/authoring.md`——起草技能正文前先通读一遍；技能包含 scripts/ 时，其中"脚本编写规范"一节必读。
+完整的写作工艺（精简原则、自由度校准、命名与 description 规范、工作流模式、脚本编写规范、发布前检查清单）见 `references/authoring.md`——起草技能正文前先通读一遍；技能包含 scripts/ 时，其中"脚本编写规范"一节必读。技能涉及项目文件、输出目录或脚本路径时，读 `references/paths.md`。
 
 #### 技能的解剖结构
 
@@ -503,6 +503,7 @@ agents/ 目录包含专用子代理的指令。需要启动相应子代理时阅
 references/ 目录有补充文档：
 - `references/schemas.md` —— evals.json、grading.json 等的 JSON 结构
 - `references/authoring.md` —— 技能写作工艺：精简原则、自由度校准、命名与 description 规范、工作流模式、脚本规范、发布前检查清单
+- `references/paths.md` —— 路径规范：技能根 vs 项目根、正斜杠、脚本定位、输出占位符、跨 shell 命令
 
 ---
 
@@ -529,6 +530,7 @@ references/ 目录有补充文档：
 
 ## 更新记录
 
+- 2026-10-25：新增 `references/paths.md`，明确技能根目录与项目根目录的区分及项目根解析优先级（显式参数 → `CLAUDE_PROJECT_DIR` → `git rev-parse --show-toplevel` → 工程标记 → cwd），补充正斜杠、脚本 `__file__` 定位、输出路径占位符与跨 shell 单行命令要求；`authoring.md` 与 `SKILL.md` 建立索引。
 - 2026-10-13：新建技能增加“命名与确认”环节，默认提供 3 个候选、命名理由和推荐；支持用户自定义名称、反馈重新拟名及明确授权自行决定。明确指定的合法名称直接沿用，确认前不创建技能文件，目录冲突不覆盖；补充默认输出到 `skills/<skill-name>/`、打包到 `dist/`、完成后报告绝对路径的规则；命名指南补充候选质量、格式约束及目录名、name、打包名一致性规则。
 
 - 2026-10-09：去除全文中 Claude / Anthropic / Claude.ai / Cowork 等专属表述，改为面向所有支持技能机制的 AI 工具（以"模型 / AI 助手"泛指）；将原"Claude.ai 专属说明"和"Cowork 专属说明"两节合并为按能力（独立子代理、浏览器/显示器、无头 AI CLI）划分的《按运行环境适配》一节；查看器启动方式改为跨平台说明（去掉 nohup/kill、补充 Windows 临时目录与打开命令）；配套脚本支持通过 `SKILL_AGENT_CLI` 环境变量指定无头 AI 命令行，`run_eval.py` 的流式读取改为跨平台实现。

@@ -1,0 +1,3 @@
+# Confirmed ESL CLI self-update
+
+The ESL CLI distribution remains npm-owned, but a clearly detected global npm installation may check npm's stable `@foxian/esl` version at most once per day. The CLI only offers a confirmed exact-version upgrade through `esl self-update`; ordinary commands show a non-blocking hint, while project installs, `npx`, Agent/JSON mode, prereleases, and uncertain installation origins are not modified. Update state is stored in the existing user-level config file: `%USERPROFILE%\\.eslib\\config.json` on Windows and `~/.eslib/config.json` on macOS/Linux. Registry, proxy, authentication, and permissions remain npm's responsibility.

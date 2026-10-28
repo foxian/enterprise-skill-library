@@ -22,3 +22,8 @@ export async function resolveServer(options: ConfigCommandOptions = {}): Promise
   const config = await loadConfig({ homeDir: options.homeDir });
   return config.server ?? DEFAULT_ESL_SERVER;
 }
+
+export async function setCliUpdateCheck(enabled: boolean, options: LocalStoreOptions = {}): Promise<void> {
+  const config = await loadConfig({ homeDir: options.homeDir });
+  await saveConfig({ cliUpdate: { ...config.cliUpdate, enabled } }, { homeDir: options.homeDir });
+}
