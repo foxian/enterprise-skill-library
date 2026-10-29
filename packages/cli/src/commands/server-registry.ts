@@ -75,6 +75,19 @@ export function impersonationWarning(url: string, instanceId: string): string {
   );
 }
 
+function validateServerUrl(value: string): void {
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(value)) {
+    throw new Error('Server URL must include http:// or https://, e.g. https://esl.example.com or http://localhost:4070.');
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('invalid HTTP(S) URL');
+  } catch {
+    throw new Error('Server URL must be a valid HTTP(S) URL, e.g. https://esl.example.com or http://localhost:4070.');
+  }
+}
+
 /**
  * 登记并选中一个 Server 地址。发现失败时仍保存地址（本地命令可用），但不写入
  * 未经验证的 Instance ID；后续远程命令会重试发现并给出可行动错误。
@@ -83,6 +96,7 @@ export async function executeSetServer(
   url: string,
   options: ServerRegistryCommandOptions = {}
 ): Promise<SetServerResult> {
+  validateServerUrl(url);
   const server = normalizeServerUrl(url);
   const config = await loadOrInitConfig(options);
   let registry = registryOf(config);

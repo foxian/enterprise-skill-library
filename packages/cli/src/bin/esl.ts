@@ -1330,9 +1330,9 @@ function addSetServer(parent: Command): Command {
   return parent
     .command('set-server')
     .description('Set and register the ESL Server URL used by all commands')
-    .argument('<url>', 'ESL Server URL')
+    .argument('<url>', 'ESL Server URL (must start with http:// or https://)')
     .option('--accept-new-address', 'accept a new address that claims an already registered Instance ID')
-    .addHelpText('after', example('$ esl config set-server http://localhost:4070'))
+    .addHelpText('after', example('$ esl config set-server https://esl.example.com\n  $ esl config set-server http://localhost:4070'))
     .action(async (url: string, options: { acceptNewAddress?: boolean }) => {
       const root = parent.parent ?? parent;
       const result = await executeSetServer(url, {
