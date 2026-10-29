@@ -56,6 +56,8 @@ esl skill install @scope/skill-name
 
 If no address is configured, remote commands use `https://cloud.enterprise-skills.com/`. For local Docker development, the Server is often `http://localhost:4070`; that is a local-dev override, not the public default.
 
+Each ESL Server instance has a stable Instance ID. `esl config server list` shows registered instances/addresses, `esl config server add <url>` registers a fallback address, `esl config server use <instance-id-or-url>` selects the current instance, and `esl config server remove` deletes only the local registration. A new address claiming an already-known Instance ID requires explicit confirmation (`--accept-new-address` in non-interactive use); an address that changes identity fails closed.
+
 No account yet? Open `{server}/admin/register-user` in a browser (CLI cannot register users). Details: [cli-install.md](https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md).
 
 ## Common commands

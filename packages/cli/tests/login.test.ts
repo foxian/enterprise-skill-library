@@ -326,8 +326,9 @@ describe('esl login', () => {
       customFetch: mockFetch as any
     });
 
-    // 两次：一次换 token，一次取账户邮箱快照（/api/account/profile）。
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // 三次：换 token、取账户邮箱快照（/api/account/profile），以及登录后尽力
+    // 发现 Server 实例身份（ADR-0070）。
+    expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/account/profile',
       expect.objectContaining({

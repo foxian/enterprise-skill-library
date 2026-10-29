@@ -8,6 +8,8 @@ import {
   loadBuiltinPackageOrThrow,
   highestStableVersion,
   isBuiltinIdentity,
+  findInstalledSkill,
+  findLockEntry,
   loadInstallManifest,
   loadSkillsJson,
   loadSkillsLock,
@@ -81,16 +83,18 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
     if (options.skillName && options.skillName !== name) {
       continue;
     }
+    const instanceId = skillsJson.instances?.[name];
 
     const installManifest = await loadInstallManifest(storeRoot);
-    if (installManifest.skills[name]?.source === 'link' || specifier.startsWith('link:')) {
+    const installedEntry = findInstalledSkill(installManifest, name, instanceId)?.entry;
+    if (installedEntry?.source === 'link' || specifier.startsWith('link:')) {
       results.push({ name, from: 'link', to: 'linked (skipped)', skipped: 'link' });
       continue;
     }
 
     if (specifier.startsWith(BUILTIN_SPECIFIER_PREFIX) || isBuiltinIdentity(name)) {
       targetIdentities.add(name);
-      const currentVersion = lockJson.skills[name]?.version;
+      const currentVersion = findLockEntry(lockJson, name, instanceId)?.entry.version;
       const builtin = await loadBuiltinPackageOrThrow(options.builtinDir ?? resolveBuiltinDir(), name);
       if (name !== BUILTIN_IDENTITY && currentVersion && semver.lt(builtin.version, currentVersion)) {
         throw new Error(`Cannot downgrade ${name} from ${currentVersion} to bundled version ${builtin.version}; use a CLI carrying a newer skill version`);
@@ -118,7 +122,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
       const validation = await validateSkillDirectory(targetDir);
       results.push({
         name,
-        from: lockJson.skills[name]?.version ?? 'local',
+        from: findLockEntry(lockJson, name, instanceId)?.entry.version ?? 'local',
         to: validation.success ? validation.data.skillJson.version : 'local'
       });
       continue;
@@ -133,7 +137,7 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
         continue;
       }
 
-      const currentVersion = lockJson.skills[name]?.version;
+      const currentVersion = findLockEntry(lockJson, name, instanceId)?.entry.version;
       // An update only ever moves forward: a lower version published later must
       // not pull an installed skill backwards.
       const needsUpdate = !currentVersion || semver.gt(latestVersion, currentVersion);
@@ -143,17 +147,18 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
           ...options,
           projectRoot: dependencyRoot,
           version: latestVersion,
+          instanceId,
           noAdapt: true
         });
       }
 
       if (resolvedName !== name) {
         const oldDirectory = options.global
-          ? publishedInstallTargetDir(name, options)
-          : publishedProjectSkillsDir(dependencyRoot, name);
+          ? publishedInstallTargetDir(name, options, instanceId)
+          : publishedProjectSkillsDir(dependencyRoot, name, instanceId);
         const newDirectory = options.global
-          ? publishedInstallTargetDir(resolvedName, options)
-          : publishedProjectSkillsDir(dependencyRoot, resolvedName);
+          ? publishedInstallTargetDir(resolvedName, options, instanceId)
+          : publishedProjectSkillsDir(dependencyRoot, resolvedName, instanceId);
         if (!needsUpdate && await directoryExists(oldDirectory)) {
           await fs.mkdir(path.dirname(newDirectory), { recursive: true });
           await fs.rename(oldDirectory, newDirectory);
@@ -215,8 +220,8 @@ export async function executeUpdate(options: UpdateOptions = {}): Promise<Update
   const required = await computeRequiredIdentities(dependencyRoot, storeRoot);
   const remainingManifest = await loadInstallManifest(storeRoot);
   for (const [identity, installedEntry] of Object.entries(remainingManifest.skills)) {
-    if (required.has(identity)) continue;
-    await removeInstalledIdentity(identity, installedEntry, {
+    if (required.has(installedEntry.identity ?? identity)) continue;
+    await removeInstalledIdentity(installedEntry.identity ?? identity, installedEntry, {
       storeRoot,
       dependencyRoot,
       level: options.global ? 'global' : 'project',

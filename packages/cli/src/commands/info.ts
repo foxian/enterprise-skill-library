@@ -29,6 +29,8 @@ export interface SkillInfo {
   cloneUrl?: string;
   publishedPackage?: boolean;
   skillId?: string;
+  /** Server 实例身份（ADR-0070）：首次安装据此隔离 Store 与来源记录。 */
+  instanceId?: string;
   status?: string;
   packageUrl?: string;
   /** 跨版本累计下载量（#137）：顶层总量，各版本明细见 releases[].downloadCount。 */

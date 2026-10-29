@@ -250,4 +250,12 @@ export const databaseSchema = `
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (skill_id, version, day)
   );
+
+  -- Server 实例身份（ADR-0071）：首次初始化生成随机 UUID，之后只读。单行表，
+  -- id 固定为 1；重启、升级、备份恢复都复用同一值，独立部署各自生成新值。
+  CREATE TABLE IF NOT EXISTS server_identity (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    instance_id TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `;

@@ -10,6 +10,8 @@ export interface InstallManifestSkill {
   resolved?: string;
   integrity?: string;
   skillId?: string;
+  /** Server-hosted 技能的来源实例（ADR-0071）；builtin/local/link 没有。 */
+  instanceId?: string;
   sourceDir: string;
   installedAt: string;
 }
@@ -32,8 +34,59 @@ export function skillSourceDirectoryName(identity: string): string {
   return path.join(`@${scope}`, skillName);
 }
 
-export function skillSourceRelativeDir(identity: string): string {
-  return path.join('skills', skillSourceDirectoryName(identity));
+/**
+ * Store 内实例隔离层级（ADR-0071）：Server-hosted 技能放在完整 Instance ID
+ * 目录下；builtin/local/link 继续沿用无实例的旧路径。
+ */
+export function skillSourceRelativeDir(identity: string, instanceId?: string | null): string {
+  return instanceId
+    ? path.join('skills', instanceId, skillSourceDirectoryName(identity))
+    : path.join('skills', skillSourceDirectoryName(identity));
+}
+
+/** 安装清单键：不同实例的同名技能必须各自成条，不能互相覆盖。 */
+export function installManifestKey(identity: string, instanceId?: string | null): string {
+  return instanceId ? `${identity}#${instanceId}` : identity;
+}
+
+export function parseInstallManifestKey(key: string): { identity: string; instanceId?: string } {
+  const separator = key.lastIndexOf('#');
+  if (separator > 0) {
+    const instanceId = key.slice(separator + 1);
+    const identity = key.slice(0, separator);
+    if (identity.startsWith('@') && identity.includes('/')) {
+      return { identity, instanceId };
+    }
+  }
+  return { identity: key };
+}
+
+/** 在安装清单中按 Identity + 可选实例查找条目。 */
+export function findInstalledSkill(
+  manifest: InstallManifest,
+  identity: string,
+  instanceId?: string | null
+): { key: string; entry: InstallManifestSkill } | null {
+  if (instanceId) {
+    const key = installManifestKey(identity, instanceId);
+    const entry = manifest.skills[key];
+    if (entry) {
+      return { key, entry };
+    }
+  }
+  const legacy = manifest.skills[identity];
+  if (legacy) {
+    return { key: identity, entry: legacy };
+  }
+  for (const [key, entry] of Object.entries(manifest.skills)) {
+    if (
+      entry.identity === identity &&
+      (!instanceId || entry.instanceId === undefined || entry.instanceId === instanceId)
+    ) {
+      return { key, entry };
+    }
+  }
+  return null;
 }
 
 export function installManifestPath(storeRoot: string): string {

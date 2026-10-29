@@ -23,6 +23,7 @@ import semver from 'semver';
 import type {
   AdminRepository,
   DownloadLogRepository,
+  ServerIdentityRepository,
   SkillRecord,
   SkillRepository,
   SkillTeamGrantRepository,
@@ -53,6 +54,7 @@ export interface SkillsRouteOptions {
   skillTeamGrantRepository: SkillTeamGrantRepository;
   packageRoot?: string;
   downloadLogRepository?: DownloadLogRepository;
+  serverIdentityRepository?: ServerIdentityRepository;
 }
 
 // ADR-0064:依赖 Gitea Organization 团队的技能授权动作。个人命名空间(技能的
@@ -109,6 +111,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
   const downloadLogRepository = options.downloadLogRepository;
+  const serverIdentityRepository = options.serverIdentityRepository;
 
   // 包发放端点是唯一的下载事件记录点（ADR-0067）：依赖解析由 CLI 逐包 GET
   // 实现，因此根技能与每个依赖节点天然各构成一次独立下载，无需区分触发来源。
@@ -261,7 +264,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       });
       return reply
         .status(200)
-        .send(withCloneUrl(request, { ...existing, versions: repository.getVersions(name) }));
+        .send(withCloneUrl(request, {
+          ...existing,
+          instanceId: serverIdentityRepository?.get().instanceId,
+          versions: repository.getVersions(name)
+        }));
     }
 
     let gitRepo: { full_name: string } | undefined;
@@ -307,7 +314,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       name,
       skillId: skill!.skillId
     });
-    return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
+    return reply.status(201).send(withCloneUrl(request, {
+      ...skill!,
+      instanceId: serverIdentityRepository?.get().instanceId,
+      versions: repository.getVersions(name)
+    }));
   });
 
   app.get('/api/skills/search', async (request, reply) => {
@@ -1480,6 +1491,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       : {};
     return withCloneUrl(request, {
       ...skill,
+      // 来源隔离（ADR-0070）：详情响应携带 Server 实例身份，CLI 首次安装时
+      // 无需额外请求即可把技能归属到确定实例。
+      instanceId: serverIdentityRepository?.get().instanceId,
       displayName: resolveSkillDisplayName(repository, skill),
       // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
       // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。

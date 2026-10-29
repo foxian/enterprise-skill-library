@@ -6,10 +6,7 @@ export interface ConfigCommandOptions extends LocalStoreOptions {
   server?: string;
 }
 
-export async function executeSetServer(url: string, options: LocalStoreOptions = {}): Promise<{ server: string }> {
-  const config = await saveConfig({ server: url }, { homeDir: options.homeDir });
-  return { server: config.server! };
-}
+export { executeSetServer } from './server-registry.js';
 
 export async function resolveServer(options: ConfigCommandOptions = {}): Promise<string> {
   if (options.server) {

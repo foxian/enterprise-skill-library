@@ -101,6 +101,11 @@ export function initDatabase(dbPath: string, logger?: DiagnosticLogger): Databas
       ON user_registrations (email)
       WHERE status = 'pending' AND email IS NOT NULL
     `);
+    // 实例身份在首次初始化时生成一次；INSERT OR IGNORE 保证重启、升级和备份
+    // 恢复都沿用原值，而独立数据库各自生成不同的 UUID（ADR-0071）。
+    db.prepare('INSERT OR IGNORE INTO server_identity (id, instance_id) VALUES (1, ?)').run(
+      crypto.randomUUID()
+    );
   } catch (error) {
     logEvent(
       logger,
@@ -1721,6 +1726,31 @@ export class PlatformSettingsRepository {
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
     `).run(key, value);
+  }
+}
+
+export interface ServerIdentityRecord {
+  instanceId: string;
+  createdAt: string;
+}
+
+/**
+ * 只读的 Server 实例身份（ADR-0071）。初始化时已写入单行记录；这里不做
+ * 任何“缺失就生成”的隐式逻辑，避免并发或多进程启动时出现两个身份。
+ */
+export class ServerIdentityRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  get(): ServerIdentityRecord {
+    const row = this.db.prepare(`
+      SELECT instance_id AS instanceId, created_at AS createdAt
+      FROM server_identity
+      WHERE id = 1
+    `).get() as ServerIdentityRecord | undefined;
+    if (!row) {
+      throw new Error('Server identity is not initialized');
+    }
+    return row;
   }
 }
 

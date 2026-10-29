@@ -3,7 +3,10 @@ import path from 'node:path';
 
 import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
 import {
+  findInstalledSkill,
+  installManifestKey,
   loadInstallManifest,
+  parseInstallManifestKey,
   saveInstallManifest,
   skillDirectoryName,
   skillSourceRelativeDir,
@@ -13,11 +16,18 @@ import { listToolLinks, type ToolLinkStatus, type ToolLevel, type ToolName } fro
 
 export interface SkillsJson {
   skills: Record<string, string>;
+  /**
+   * 直接依赖的来源实例（ADR-0071）。与 skills 分开保存，保持旧版
+   * `.skills.json` 的值仍是纯版本范围字符串，便于渐进升级。
+   */
+  instances?: Record<string, string>;
 }
 
 export interface SkillsLockEntry {
   skillId?: string;
   identity?: string;
+  /** 来源 Server 实例（ADR-0071）；Server URL 不作为身份字段。 */
+  instanceId?: string;
   version: string;
   resolved: string;
   integrity: string;
@@ -75,6 +85,7 @@ function manifestEntryFromLock(
   specifier: string,
   current?: InstallManifestSkill
 ): InstallManifestSkill {
+  const instanceId = entry.instanceId ?? current?.instanceId;
   return {
     identity: entry.identity ?? identity,
     version: entry.version,
@@ -83,7 +94,8 @@ function manifestEntryFromLock(
     resolved: entry.resolved,
     integrity: entry.integrity,
     skillId: entry.skillId,
-    sourceDir: current?.sourceDir ?? skillSourceRelativeDir(identity),
+    ...(instanceId ? { instanceId } : {}),
+    sourceDir: current?.sourceDir ?? skillSourceRelativeDir(entry.identity ?? identity, instanceId),
     installedAt: current?.installedAt ?? new Date().toISOString()
   };
 }
@@ -94,8 +106,12 @@ export async function loadSkillsJson(root: string): Promise<SkillsJson> {
 
 // 项目依赖只声明技能，不再声明 AI 工具（ADR-0054）；遗留 tools 字段随正常写入消失。
 export async function saveSkillsJson(root: string, data: SkillsJson): Promise<void> {
+  const instances = Object.fromEntries(
+    Object.entries(data.instances ?? {}).filter(([, instanceId]) => typeof instanceId === 'string' && instanceId.length > 0)
+  );
   await writeJsonFile(path.join(root, SKILLS_JSON_FILE), {
-    skills: { ...data.skills }
+    skills: { ...data.skills },
+    ...(Object.keys(instances).length > 0 ? { instances } : {})
   });
 }
 
@@ -113,18 +129,29 @@ export async function saveSkillsLock(root: string, data: SkillsLockJson): Promis
 export async function addSkillDependency(
   root: string,
   name: string,
-  specifier: string
+  specifier: string,
+  instanceId?: string | null
 ): Promise<void> {
   const current = await loadSkillsJson(root);
+  const instances = { ...(current.instances ?? {}) };
+  if (instanceId) {
+    instances[name] = instanceId;
+  } else {
+    delete instances[name];
+  }
   await saveSkillsJson(root, {
     ...current,
-    skills: { ...current.skills, [name]: specifier }
+    skills: { ...current.skills, [name]: specifier },
+    instances
   });
 }
 
 export async function removeSkillDependency(root: string, name: string): Promise<void> {
   const skillsJson = await loadSkillsJson(root);
   delete skillsJson.skills[name];
+  if (skillsJson.instances) {
+    delete skillsJson.instances[name];
+  }
   await saveSkillsJson(root, skillsJson);
 }
 
@@ -134,7 +161,7 @@ export async function addLockEntry(
   entry: SkillsLockEntry
 ): Promise<void> {
   const lockJson = await loadSkillsLock(root);
-  lockJson.skills[name] = {
+  lockJson.skills[installManifestKey(name, entry.instanceId)] = {
     ...entry,
     identity: entry.identity ?? name,
     source: entry.source ?? sourceFromSpecifier(entry.resolved)
@@ -142,10 +169,34 @@ export async function addLockEntry(
   await saveSkillsLock(root, lockJson);
 }
 
-export async function removeLockEntry(root: string, name: string): Promise<void> {
+export async function removeLockEntry(
+  root: string,
+  name: string,
+  instanceId?: string | null
+): Promise<void> {
   const lockJson = await loadSkillsLock(root);
-  delete lockJson.skills[name];
+  delete lockJson.skills[installManifestKey(name, instanceId)];
   await saveSkillsLock(root, lockJson);
+}
+
+export function findLockEntry(
+  lock: SkillsLockJson,
+  identity: string,
+  instanceId?: string | null
+): { key: string; entry: SkillsLockEntry } | null {
+  const expected = installManifestKey(identity, instanceId);
+  const direct = lock.skills[expected];
+  if (direct) {
+    return { key: expected, entry: direct };
+  }
+  for (const [key, entry] of Object.entries(lock.skills)) {
+    if ((entry.identity ?? parseInstallManifestKey(key).identity) === identity) {
+      if (!instanceId || entry.instanceId === undefined || entry.instanceId === instanceId) {
+        return { key, entry };
+      }
+    }
+  }
+  return null;
 }
 
 export async function recordInstalledSkill(
@@ -155,18 +206,29 @@ export async function recordInstalledSkill(
   specifier?: string
 ): Promise<void> {
   const installManifest = await loadInstallManifest(storeRoot);
-  installManifest.skills[name] = manifestEntryFromLock(
+  const key = installManifestKey(name, entry.instanceId);
+  const current =
+    installManifest.skills[key] ??
+    (entry.instanceId ? undefined : findInstalledSkill(installManifest, name)?.entry);
+  installManifest.skills[key] = manifestEntryFromLock(
     name,
     entry,
-    specifier ?? installManifest.skills[name]?.specifier ?? entry.resolved,
-    installManifest.skills[name]
+    specifier ?? current?.specifier ?? entry.resolved,
+    current
   );
   await saveInstallManifest(storeRoot, installManifest);
 }
 
-export async function removeInstalledSkill(storeRoot: string, name: string): Promise<void> {
+export async function removeInstalledSkill(
+  storeRoot: string,
+  name: string,
+  instanceId?: string | null
+): Promise<void> {
   const installManifest = await loadInstallManifest(storeRoot);
-  delete installManifest.skills[name];
+  const found = findInstalledSkill(installManifest, name, instanceId);
+  if (found) {
+    delete installManifest.skills[found.key];
+  }
   await saveInstallManifest(storeRoot, installManifest);
 }
 
@@ -182,23 +244,35 @@ export async function renameSkillState(
     loadInstallManifest(storeRoot)
   ]);
   const dependency = skillsJson.skills[oldName];
-  const lockEntry = lockJson.skills[oldName];
-  const installed = installManifest.skills[oldName];
+  const instanceId = skillsJson.instances?.[oldName];
+  const installed = findInstalledSkill(installManifest, oldName, instanceId);
+  const lockFound = findLockEntry(lockJson, oldName, instanceId);
 
   if (dependency !== undefined) {
     delete skillsJson.skills[oldName];
     skillsJson.skills[newName] = dependency;
   }
-  if (lockEntry !== undefined) {
-    delete lockJson.skills[oldName];
-    lockJson.skills[newName] = { ...lockEntry, identity: newName };
+  if (instanceId !== undefined) {
+    delete skillsJson.instances![oldName];
+    skillsJson.instances![newName] = instanceId;
   }
-  if (installed !== undefined) {
-    delete installManifest.skills[oldName];
-    installManifest.skills[newName] = {
-      ...installed,
+  if (lockFound) {
+    delete lockJson.skills[lockFound.key];
+    const lockInstanceId = instanceId ?? lockFound.entry.instanceId;
+    lockJson.skills[installManifestKey(newName, lockInstanceId)] = {
+      ...lockFound.entry,
+      ...(lockInstanceId ? { instanceId: lockInstanceId } : {}),
+      identity: newName
+    };
+  }
+  if (installed) {
+    delete installManifest.skills[installed.key];
+    const installedInstanceId = instanceId ?? installed.entry.instanceId;
+    installManifest.skills[installManifestKey(newName, installedInstanceId)] = {
+      ...installed.entry,
+      ...(installedInstanceId ? { instanceId: installedInstanceId } : {}),
       identity: newName,
-      sourceDir: skillSourceRelativeDir(newName)
+      sourceDir: skillSourceRelativeDir(newName, installedInstanceId)
     };
   }
 
@@ -219,6 +293,8 @@ export interface SkillListEntry {
   name: string;
   version: string;
   source: 'registry' | 'local' | 'builtin' | 'link';
+  /** Server-hosted 技能的来源实例（ADR-0071）。 */
+  instanceId?: string;
   displayName?: string;
   tools?: SkillToolSummary[];
   linkSourcePath?: string;
@@ -262,8 +338,12 @@ export async function listSkills(
     : [];
 
   return Promise.all(
-    Object.entries(manifest.skills).map(async ([name, entry]) => {
+    Object.entries(manifest.skills).map(async ([key, entry]) => {
+      const name = entry.identity ?? parseInstallManifestKey(key).identity;
       const listEntry: SkillListEntry = { name, version: entry.version, source: entry.source };
+      if (entry.instanceId) {
+        listEntry.instanceId = entry.instanceId;
+      }
       const displayName = await readLocalDisplayName(root, entry);
       if (displayName) {
         listEntry.displayName = displayName;
@@ -276,7 +356,8 @@ export async function listSkills(
           .filter(
             (link): link is typeof link & { tool: ToolName } =>
               (link.identity === name || link.identity === skillDirectoryName(name)) &&
-              link.tool !== 'source'
+              link.tool !== 'source' &&
+              (link.instanceId ?? undefined) === (entry.instanceId ?? undefined)
           )
           .map((link) => ({ tool: link.tool, status: link.status, managed: link.managed }));
       }

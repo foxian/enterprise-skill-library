@@ -2,7 +2,16 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { ensureGitAvailable, fileExists, giteaUserEmail, isBuiltinIdentity, loadConfig, validateSkillSourceDirectory } from '@esl/core';
+import {
+  ensureGitAvailable,
+  fileExists,
+  findServerInstanceByAddress,
+  giteaUserEmail,
+  isBuiltinIdentity,
+  loadConfig,
+  normalizeServerUrl,
+  validateSkillSourceDirectory
+} from '@esl/core';
 import {
   apiUrl,
   fetchWithTimeout,
@@ -38,6 +47,8 @@ export interface UploadedSkill {
   name: string;
   skillId: string;
   cloneUrl: string;
+  /** Server 实例身份（ADR-0071）：用于 Source Remote 连续性验证。 */
+  instanceId?: string;
   status?: string;
   alreadyUpToDate?: boolean;
 }
@@ -235,14 +246,22 @@ async function uploadSource(
 
   let uploaded: UploadedSkill;
   let remoteUrl: string;
+  let sourceIdentity: { instanceId: string; skillId?: string; repoPath?: string } | null = null;
   if (await hasEslRemote(execFileAsync, directory)) {
     // Already server-hosted: skip the registration call and sync straight
     // against the existing source.
     remoteUrl = (await execFileAsync('git', ['remote', 'get-url', 'esl'], { cwd: directory })).stdout.trim();
-    // ADR-0023：Source Remote 重指——origin 漂移（Server Origin 迁移）时先按
-    // 身份向当前 server 验证，再采用服务器 cloneUrl 修复 remote；验证不过则
-    // 报可行动错误，绝不重新注册或接管。
-    remoteUrl = await rehomeEslRemoteIfNeeded(options, execFileAsync, directory, remoteUrl, server);
+    // ADR-0023 / ADR-0071：Source Remote 重指——只有同一 Instance ID 且 Skill ID、
+    // 仓库路径都验证一致时才采用服务器 cloneUrl；跨实例绝不自动接管。
+    const rehomed = await rehomeEslRemoteIfNeeded(options, execFileAsync, directory, remoteUrl, server);
+    remoteUrl = rehomed.remoteUrl;
+    sourceIdentity = rehomed.instanceId
+      ? {
+          instanceId: rehomed.instanceId,
+          ...(rehomed.skillId ? { skillId: rehomed.skillId } : {}),
+          ...(rehomed.repoPath ? { repoPath: rehomed.repoPath } : {})
+        }
+      : null;
     const remoteShortName = repoPathFromGitUrl(remoteUrl).split('/').pop() ?? '';
     if (remoteShortName && remoteShortName !== shortName) {
       throw new Error(
@@ -251,7 +270,12 @@ async function uploadSource(
       );
     }
     await assertHostedNamespace(options, identity, skillNameFromRemote(remoteUrl));
-    uploaded = { name: skillNameFromRemote(remoteUrl), skillId: '', cloneUrl: remoteUrl };
+    uploaded = {
+      name: skillNameFromRemote(remoteUrl),
+      skillId: rehomed.skillId ?? '',
+      cloneUrl: remoteUrl,
+      ...(rehomed.instanceId ? { instanceId: rehomed.instanceId } : {})
+    };
     // 技能描述(CONTEXT:Skill Description)与显示名随每次 Source Update 登记到服务器:
     // 都是纯元数据更新,尽力而为——失败不阻断源码同步,仅在输出中提示。
     const [hostScope, hostShortName] = uploaded.name.split('/');
@@ -323,12 +347,38 @@ async function uploadSource(
     if (!uploaded.cloneUrl || !uploaded.skillId || !uploaded.name) {
       throw new Error('Failed to upload skill source: API response is incomplete');
     }
+    if (!uploaded.instanceId) {
+      throw new Error(
+        'ESL Server did not return an Instance ID for the new source. Server-hosted sources require an ' +
+          'Instance ID; upgrade the Server before registering new skills.'
+      );
+    }
+    const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+    if (config) {
+      const binding = findServerInstanceByAddress(
+        { instances: config.servers ?? [], selectedInstanceId: config.selectedInstanceId ?? null },
+        normalizeServerUrl(server)
+      );
+      if (binding && binding.instance.instanceId !== uploaded.instanceId) {
+        throw new Error(
+          `Address ${server} is registered to ESL Server instance ${binding.instance.instanceId}, ` +
+            `but it now reports ${uploaded.instanceId}; refusing to register or sync a source under a silently rebound address.`
+        );
+      }
+    }
     remoteUrl = uploaded.cloneUrl;
+    sourceIdentity = {
+      instanceId: uploaded.instanceId,
+      skillId: uploaded.skillId
+    };
     await ensureEslRemote(execFileAsync, directory, uploaded.cloneUrl);
   }
 
   try {
     if ((await syncSource(options, execFileAsync, directory, authHeader, remoteUrl)) === 'up-to-date') {
+      if (sourceIdentity) {
+        await recordSourceIdentity(execFileAsync, directory, sourceIdentity, uploaded.skillId);
+      }
       return { ...uploaded, alreadyUpToDate: true };
     }
   } catch (error) {
@@ -343,7 +393,35 @@ async function uploadSource(
     // 切回维护账号重跑 upload，或显式两步手动重建——绝不触碰 remote。
     throw hostedSourceAccessError((error as Error).message, { includePushHint: true });
   }
+  if (sourceIdentity) {
+    await recordSourceIdentity(
+      execFileAsync,
+      directory,
+      sourceIdentity,
+      uploaded.skillId || sourceIdentity.skillId || ''
+    );
+  }
   return uploaded;
+}
+
+/**
+ * 把来源连续性证据写进仓库本地 Git 配置（不是文件、不提交）：后续 upload 在
+ * 地址迁移时据此拒绝跨实例重指。`esl` remote 之外用户自己的 `origin` 不受影响。
+ */
+async function recordSourceIdentity(
+  execFileAsync: typeof defaultExecFileAsync,
+  directory: string,
+  identity: { instanceId: string; skillId?: string; repoPath?: string },
+  skillId: string
+): Promise<void> {
+  await execFileAsync('git', ['config', 'esl.instanceId', identity.instanceId], { cwd: directory });
+  const effectiveSkillId = identity.skillId || skillId;
+  if (effectiveSkillId) {
+    await execFileAsync('git', ['config', 'esl.skillId', effectiveSkillId], { cwd: directory });
+  }
+  if (identity.repoPath) {
+    await execFileAsync('git', ['config', 'esl.repoPath', identity.repoPath], { cwd: directory });
+  }
 }
 
 async function assertHostedNamespace(options: UploadOptions, declaredIdentity: string, hostedIdentity: string): Promise<void> {
@@ -447,46 +525,115 @@ async function rehomeEslRemoteIfNeeded(
   directory: string,
   remoteUrl: string,
   server: string
-): Promise<string> {
+): Promise<{ remoteUrl: string; instanceId?: string; skillId?: string; repoPath?: string }> {
   const oldOrigin = parseHttpOrigin(remoteUrl);
   const newOrigin = parseHttpOrigin(server);
+  const recordedInstanceId = await readGitConfig(execFileAsync, directory, 'esl.instanceId');
+  const recordedSkillId = await readGitConfig(execFileAsync, directory, 'esl.skillId');
+  const recordedRepoPath = await readGitConfig(execFileAsync, directory, 'esl.repoPath');
+
   if (!oldOrigin || !newOrigin || oldOrigin === newOrigin) {
-    return remoteUrl;
+    // 地址未迁移：不需要额外的远程验证；后续同步失败仍按 ADR-0021/0027 的
+    // 既有诊断路径处理。
+    return {
+      remoteUrl,
+      ...(recordedInstanceId ? { instanceId: recordedInstanceId } : {}),
+      ...(recordedSkillId ? { skillId: recordedSkillId } : {}),
+      ...(recordedRepoPath ? { repoPath: recordedRepoPath } : {})
+    };
   }
+
   const identity = skillNameFromRemote(remoteUrl);
   if (!identity.startsWith('@')) {
-    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, null);
+    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, null, recordedInstanceId);
   }
-  let cloneUrl: string | undefined;
+  let info;
   try {
-    const info = await executeInfo(identity, options);
-    cloneUrl = info.cloneUrl;
+    info = await executeInfo(identity, options);
   } catch {
-    cloneUrl = undefined;
+    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, identity, recordedInstanceId);
   }
-  if (!cloneUrl) {
-    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, identity);
+  if (!info.instanceId) {
+    throw new Error(
+      `The ESL Server at ${newOrigin} did not return an Instance ID for ${identity}; ` +
+        'source remote continuity cannot be verified, so the esl remote was not re-homed.'
+    );
   }
-  if (parseHttpOrigin(cloneUrl) === oldOrigin) {
-    // 服务器返回的 cloneUrl 与现 remote 同源：remote 已指向权威地址，无需重指。
-    return remoteUrl;
+  const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+  if (config) {
+    const binding = findServerInstanceByAddress(
+      { instances: config.servers ?? [], selectedInstanceId: config.selectedInstanceId ?? null },
+      normalizeServerUrl(server)
+    );
+    if (binding && binding.instance.instanceId !== info.instanceId) {
+      throw new Error(
+        `Address ${server} is registered to ESL Server instance ${binding.instance.instanceId}, ` +
+          `but it now reports ${info.instanceId}; the esl remote was left unchanged.`
+      );
+    }
   }
-  await execFileAsync('git', ['remote', 'set-url', 'esl', cloneUrl], { cwd: directory });
-  notify(`Server origin migration detected: re-homed the esl remote from ${oldOrigin} to ${newOrigin}.`);
-  return cloneUrl;
+  if (recordedInstanceId && recordedInstanceId !== info.instanceId) {
+    throw new Error(
+      `The esl remote belongs to ESL Server instance ${recordedInstanceId}, but ${newOrigin} reports instance ${info.instanceId}. ` +
+        'Cross-instance source migration is not automatic: the server source was not adopted, no Skill ID was created, ' +
+        'and the esl remote was left unchanged. Use an explicit cross-instance seed if this is intentional.'
+    );
+  }
+  if (recordedSkillId && info.skillId && recordedSkillId !== info.skillId) {
+    throw new Error(
+      `The esl remote belongs to Skill ID ${recordedSkillId}, but ${newOrigin} reports ${info.skillId} for ${identity}; ` +
+        'refusing to re-home the remote.'
+    );
+  }
+  if (recordedRepoPath && info.gitRepoPath && recordedRepoPath !== info.gitRepoPath) {
+    throw new Error(
+      `The esl remote belongs to repository ${recordedRepoPath}, but ${newOrigin} reports ${info.gitRepoPath}; ` +
+        'refusing to re-home the remote.'
+    );
+  }
+  if (!info.cloneUrl) {
+    throw sourceRemoteUnverifiedError(oldOrigin, newOrigin, identity, recordedInstanceId);
+  }
+  if (oldOrigin !== newOrigin) {
+    if (parseHttpOrigin(info.cloneUrl) === oldOrigin) {
+      // 服务器返回的 cloneUrl 与现 remote 同源：remote 已指向权威地址，无需重指。
+      return {
+        remoteUrl,
+        instanceId: info.instanceId,
+        skillId: info.skillId,
+        repoPath: info.gitRepoPath
+      };
+    }
+    await execFileAsync('git', ['remote', 'set-url', 'esl', info.cloneUrl], { cwd: directory });
+    notify(`Server origin migration detected: re-homed the esl remote from ${oldOrigin} to ${newOrigin}.`);
+  }
+  return {
+    remoteUrl: info.cloneUrl,
+    instanceId: info.instanceId,
+    skillId: info.skillId,
+    repoPath: info.gitRepoPath
+  };
 }
 
 // ADR-0023：地址迁移验证失败的可行动错误——与 ADR-0021 的「账号/权限」语义区分。
-function sourceRemoteUnverifiedError(oldOrigin: string, newOrigin: string, identity: string | null): Error {
+function sourceRemoteUnverifiedError(
+  oldOrigin: string,
+  newOrigin: string,
+  identity: string | null,
+  instanceId?: string
+): Error {
   const identityClause = identity
     ? `the skill identity ${identity} could not be verified on ${newOrigin}`
     : 'the skill identity could not be determined from the remote URL';
+  const instanceClause = instanceId
+    ? ` (expected ESL Server instance ${instanceId})`
+    : '';
   return new Error(
     `The esl remote points at ${oldOrigin} but the configured ESL server is ${newOrigin}; ` +
       'this looks like a server origin migration, but ' +
-      `${identityClause} (it may not exist there, or the current login cannot read it - ` +
+      `${identityClause}${instanceClause} (it may not exist there, or the current login cannot read it - ` +
       'the source may be maintained by another account or organization). ' +
-      'Log in with the maintaining account and re-run "esl upload"; ' +
+      'The esl remote was left unchanged. Log in with the maintaining account and re-run "esl upload"; ' +
       'or, if the source is confirmed absent from this server, run "git remote remove esl" and re-run "esl upload" to register a fresh source.'
   );
 }

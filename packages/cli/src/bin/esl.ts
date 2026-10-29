@@ -63,7 +63,15 @@ import {
 } from '../commands/consumer-project-root.js';
 import { executeLogin } from '../commands/login.js';
 import { executeLogout, formatLogout } from '../commands/logout.js';
-import { executeSetServer, setCliUpdateCheck } from '../commands/config.js';
+import {
+  executeAddServerAddress,
+  executeListServers,
+  executeRemoveServer,
+  executeSetServer,
+  executeUseServer,
+  runStartupIdentityDiscovery
+} from '../commands/server-registry.js';
+import { setCliUpdateCheck } from '../commands/config.js';
 import { executeWhoami, formatWhoami } from '../commands/whoami.js';
 import { executePublish } from '../commands/publish.js';
 import {
@@ -1321,13 +1329,106 @@ function addChangePassword(parent: Command, program: Command): Command {
 function addSetServer(parent: Command): Command {
   return parent
     .command('set-server')
-    .description('Set the ESL Server URL used by all commands')
+    .description('Set and register the ESL Server URL used by all commands')
     .argument('<url>', 'ESL Server URL')
+    .option('--accept-new-address', 'accept a new address that claims an already registered Instance ID')
     .addHelpText('after', example('$ esl config set-server http://localhost:4070'))
-    .action(async (url: string) => {
-      const { server } = await executeSetServer(url);
-      console.log(`Server set to ${server}`);
+    .action(async (url: string, options: { acceptNewAddress?: boolean }) => {
+      const root = parent.parent ?? parent;
+      const result = await executeSetServer(url, {
+        acceptNewAddress: options.acceptNewAddress,
+        confirmAddress: async (question) => {
+          if (root.opts().input === false || !isInteractive()) {
+            return false;
+          }
+          return confirm(question);
+        }
+      });
+      console.log(`Server set to ${result.server}`);
+      if (result.instanceId) {
+        console.log(`Instance ID: ${result.instanceId}`);
+      } else {
+        console.log('Instance ID: not discovered yet; remote commands will retry when the Server is reachable.');
+      }
     });
+}
+
+function addServerCommands(parent: Command, program: Command): Command {
+  const server = parent
+    .command('server')
+    .description('Register and select ESL Server instances and addresses');
+  server.addHelpText(
+    'after',
+    example('$ esl config server list\n  $ esl config server add https://skills.example.com --accept-new-address\n  $ esl config server use <instance-id>')
+  );
+
+  server
+    .command('list')
+    .description('List registered ESL Server instances and addresses')
+    .option('--json', 'Output as JSON')
+    .action(async (options: { json?: boolean }) => {
+      const result = await executeListServers();
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      if (result.instances.length === 0) {
+        console.log('No ESL Server instances registered.');
+        return;
+      }
+      for (const instance of result.instances) {
+        console.log(
+          `${instance.selected ? '*' : ' '} ${instance.instanceId}  preferred: ${instance.preferredAddress}`
+        );
+        for (const address of instance.addresses) {
+          console.log(`    ${address.preferred ? '* ' : '  '}${address.url}`);
+        }
+      }
+    });
+
+  server
+    .command('add')
+    .description('Register an additional address for an ESL Server instance')
+    .argument('<url>', 'ESL Server address')
+    .option('--instance-id <id>', 'require the address to report this Instance ID')
+    .option('--accept-new-address', 'accept the address binding without prompting')
+    .action(async (url: string, options: { instanceId?: string; acceptNewAddress?: boolean }) => {
+      const result = await executeAddServerAddress(url, {
+        instanceId: options.instanceId,
+        acceptNewAddress: options.acceptNewAddress,
+        confirmAddress: async (question) => {
+          if (program.opts().input === false || !isInteractive()) {
+            return false;
+          }
+          return confirm(question);
+        }
+      });
+      console.log(`Registered ${result.server} for instance ${result.instanceId}`);
+    });
+
+  server
+    .command('use')
+    .description('Select the ESL Server instance used by ordinary remote commands')
+    .argument('<instance-id-or-url>', 'Instance ID or a registered address')
+    .action(async (identifier: string) => {
+      const result = await executeUseServer(identifier);
+      console.log(`Using ESL Server instance ${result.instanceId} at ${result.server}`);
+    });
+
+  server
+    .command('remove')
+    .description('Remove a local instance/address registration (installed skills stay untouched)')
+    .argument('<instance-id-or-url>', 'Instance ID or a registered address')
+    .action(async (identifier: string) => {
+      const result = await executeRemoveServer(identifier);
+      console.log(
+        result.removedInstance
+          ? `Removed instance registration (${result.removedAddresses.length} address(es))`
+          : `Removed address registration ${result.removedAddresses[0]}`
+      );
+    });
+
+  return server;
 }
 
 function addCliUpdateCheck(parent: Command): Command {
@@ -1575,6 +1676,10 @@ export function createProgram(): Command {
         throw new Error(`Cannot change directory to ${cd}: ${(error as NodeJS.ErrnoException).message}`);
       }
     }
+
+    // 启动期身份发现（ADR-0071）：仅当本地没有 Instance ID 缓存时尝试；失败只
+    // 记录退避时间，不阻止本地命令。远程命令会在执行时重试并给出可行动错误。
+    await runStartupIdentityDiscovery().catch(() => undefined);
   });
 
   // --- resource command surfaces (ADR-0059) ---
@@ -1628,6 +1733,7 @@ export function createProgram(): Command {
   const config = program.command('config').description('Manage ESL client configuration');
   config.addHelpText('after', example('$ esl config set-server http://localhost:4070\n  $ esl config preferred-tools --add claude'));
   addSetServer(config);
+  addServerCommands(config, program);
   addCliUpdateCheck(config);
   addPreferredTools(config, program);
 
