@@ -116,6 +116,19 @@ describe('copySkillDirectory', () => {
 
     expect(fs.readFileSync(path.join(realSource, 'SKILL.md'), 'utf8')).toBe('# Hello');
   });
+
+  it('rejects a symlinked target that resolves inside the source', async () => {
+    const sourceFile = path.join(srcDir, 'SKILL.md');
+    const nestedDir = path.join(srcDir, 'nested');
+    const linkedTarget = path.join(tmpDir, 'linked-dest');
+    fs.writeFileSync(sourceFile, '# Hello');
+    fs.mkdirSync(nestedDir);
+    fs.symlinkSync(nestedDir, linkedTarget, 'junction');
+
+    await expect(copySkillDirectory(srcDir, linkedTarget)).rejects.toThrow(/must not overlap/i);
+
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('# Hello');
+  });
 });
 
 describe('removeDirectory', () => {

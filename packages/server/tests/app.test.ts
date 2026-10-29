@@ -135,6 +135,7 @@ describe('Fastify Server API', () => {
         everPublished: false,
         deletionError: null,
         createdBy: 'foxian_admin',
+        keywords: [],
         downloadCount: 0,
         releases: []
       },

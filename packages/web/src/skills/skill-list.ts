@@ -27,6 +27,8 @@ export interface SkillContext {
   /** 逐技能可见性（ADR-0032）：public = 平台全员可搜可装；private = 仅被授权者。 */
   visibility?: 'public' | 'private';
   description: string;
+  /** 当前最新 Skill Release 快照的关键词（#142）；无关键词时为空数组。 */
+  keywords?: string[];
   status?: string;
   everPublished?: boolean;
   deletionError?: string | null;

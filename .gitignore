@@ -17,6 +17,7 @@ letsencrypt/
 docker/cloudflared/
 docker-compose.tunnel.yml
 docker-compose.prod.tls.yml
+docker-compose.instance.yml
 .tls-domain
 
 # Playwright E2E 运行产物(.auth 含会话 storageState)

@@ -167,8 +167,10 @@ describe('built-in readonly commands and forbiddance', () => {
   });
 
   it('search degrades expired credentials to anonymous public browsing', async () => {
+    // 用 31 天确保严格越过 30 天 TTL：30 天整会落在 isLoginFresh 的 `<=`
+    // 边界上，读写若在同一毫秒完成会被误判为仍有效。
     await saveCredentials(
-      { token: 'expired-token', loginAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString() },
+      { token: 'expired-token', loginAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString() },
       { homeDir }
     );
     const fetchImpl = vi.fn().mockResolvedValue({

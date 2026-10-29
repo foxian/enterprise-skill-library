@@ -364,6 +364,7 @@ const zhCN: TranslationTree = {
       private: '仅创建者'
     },
     noDescription: '暂无描述',
+    keywords: '关键词',
     downloadCount: '下载量：{{count}}',
     latestRelease: '最新发布',
     noReleases: '尚未发布任何 Skill Release',
@@ -860,6 +861,7 @@ const enUS: TranslationTree = {
       private: 'Creator only'
     },
     noDescription: 'No description',
+    keywords: 'Keywords',
     downloadCount: 'Downloads: {{count}}',
     latestRelease: 'Latest release',
     noReleases: 'No Skill Release has been published',

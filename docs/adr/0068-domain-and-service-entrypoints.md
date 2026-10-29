@@ -40,3 +40,21 @@ ESL 需要同时支持 CLI、自动化客户端、浏览器管理用户和企业
 - ADR-0047 曾允许生产首日先以 HTTP 上线、域名就绪后再启用 TLS；本 ADR 对公开
   生产入口作出更严格的后续约束：正式公开域名必须使用 HTTPS，HTTP 只能作为
   重定向或受控迁移过渡。
+
+## 修订（2026-10）：项目主页链接例外
+
+「不在配置中写死任何真实域名」的约束继续适用于产品层配置。为让开源项目有面向
+公众的产品门面，公开文档（README 等）允许链接项目主页
+`https://www.enterprise-skills.com`；该主页只介绍产品能力，不承担任何 ESL
+实例的 API、Git 或用户入口。
+
+例外范围：
+
+- 产品 nginx 仍是不绑定域名的 `default_server`（`server_name _`），`.env`
+  默认值仍为 localhost，产品配置不出现任何真实域名。
+- 项目主页不得被描述为 CLI 默认 Server；默认 Server 仍是
+  `https://cloud.enterprise-skills.com/`。
+- 实例层（`nginx-conf.d/`、DNS、TLS、Tunnel、凭据）的注入方式不变。
+
+见 [ADR-0060 修订](0060-public-product-and-private-instance-boundary.md) 与
+`tests/public-repo-boundary.test.mjs`。

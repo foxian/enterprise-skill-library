@@ -134,9 +134,12 @@ describe('esl install multi-root merge', () => {
     const dependencyUrl = `${server}/api/packages/sk_shared/1.2.0/${checksum}`;
     const fetch = vi.fn(async (input: unknown) => {
       const url = String(input);
-      if (url.endsWith(rootUrl)) return packageResponse(root.bytes);
-      if (url === `${dependencyUrl}.zip`) return format === 'zip' ? packageResponse(bytes) : { ok: false, status: 404 };
-      if (url === `${dependencyUrl}.json`) return packageResponse(bytes);
+      // #136：包请求统一追加 ?requested=<specifier>，根技能为 latest，冻锁依赖为精确版本。
+      if (url.includes(rootUrl)) return packageResponse(root.bytes);
+      if (url.startsWith(`${dependencyUrl}.zip?`) || url === `${dependencyUrl}.zip`) {
+        return format === 'zip' ? packageResponse(bytes) : { ok: false, status: 404 };
+      }
+      if (url.startsWith(`${dependencyUrl}.json?`) || url === `${dependencyUrl}.json`) return packageResponse(bytes);
       if (url.includes('/api/skills/')) return ok({ json: async () => ({
         name: '@platform-ai/root-a', visibility: 'public', versions: ['1.0.0'], packageUrl: rootUrl
       }) });
@@ -145,11 +148,13 @@ describe('esl install multi-root merge', () => {
     await executeInstall('@platform-ai/root-a', installOptions(fetch));
     const lock = await loadSkillsLock(projectDir);
     expect(lock.skills['@platform-ai/shared'].resolved).toBe(`${dependencyUrl}.${format}`);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`${rootUrl}?requested=latest`))).toBe(true);
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.`) && String(url).includes('requested=1.2.0'))).toBe(true);
     if (format === 'zip') {
       expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'shared', 'assets', '示例.docx'))).toEqual(binary);
-      expect(fetch.mock.calls.some(([url]) => String(url) === `${dependencyUrl}.json`)).toBe(false);
+      expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.json`))).toBe(false);
     } else {
-      expect(fetch.mock.calls.some(([url]) => String(url) === `${dependencyUrl}.json`)).toBe(true);
+      expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.json`))).toBe(true);
     }
   });
 
