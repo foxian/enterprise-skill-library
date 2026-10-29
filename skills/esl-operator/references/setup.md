@@ -34,7 +34,8 @@ CLI 安装成功的标准是 `esl --version` 有版本号；远端任务另检�
 
 未指定 `--server`、`ESL_SERVER` 或本地保存的地址时，CLI 默认使用公开云端
 `https://cloud.enterprise-skills.com/`。`esl config set-server <url>` 用于覆盖这个默认值，
-例如私有、自托管或本地 Docker Server（常见为 `http://localhost:4070`）。设置后所有命令都用它，
+必须提供带协议的完整 HTTP(S) URL：线上服务使用 `https://esl.example.com`，本地 Docker Server
+常见为 `http://localhost:4070`；只写域名会被 CLI 拒绝并提示补全协议。设置后所有命令都用它，
 不必每次带 `--server`。解析优先级是：`--server`、`ESL_SERVER`、本地保存的地址、公开云端默认地址。
 一次性或会清理用户目录的沙箱可用 `ESL_SERVER=<url>` 临时覆盖，而不是写入会丢失的本地配置；宿主应把
 Server、登录状态和 Store 放在持久化目录中，才能跨会话复用。

@@ -6,7 +6,21 @@ export interface ConfigCommandOptions extends LocalStoreOptions {
   server?: string;
 }
 
+function validateServerUrl(value: string): void {
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(value)) {
+    throw new Error('Server URL must include http:// or https://, e.g. https://esl.example.com or http://localhost:4070.');
+  }
+
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw new Error('invalid HTTP(S) URL');
+  } catch {
+    throw new Error('Server URL must be a valid HTTP(S) URL, e.g. https://esl.example.com or http://localhost:4070.');
+  }
+}
+
 export async function executeSetServer(url: string, options: LocalStoreOptions = {}): Promise<{ server: string }> {
+  validateServerUrl(url);
   const config = await saveConfig({ server: url }, { homeDir: options.homeDir });
   return { server: config.server! };
 }

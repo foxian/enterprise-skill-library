@@ -1321,8 +1321,8 @@ function addSetServer(parent: Command): Command {
   return parent
     .command('set-server')
     .description('Set the ESL Server URL used by all commands')
-    .argument('<url>', 'ESL Server URL')
-    .addHelpText('after', example('$ esl config set-server http://localhost:4070'))
+    .argument('<url>', 'ESL Server URL (must start with http:// or https://)')
+    .addHelpText('after', example('$ esl config set-server https://esl.example.com\n  $ esl config set-server http://localhost:4070'))
     .action(async (url: string) => {
       const { server } = await executeSetServer(url);
       console.log(`Server set to ${server}`);
