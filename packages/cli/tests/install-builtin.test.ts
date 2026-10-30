@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildBuiltinPackage, initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig } from '@esl/core';
+import { buildBuiltinPackage, initializeLocalStore, loadInstallManifest, loadSkillsJson, loadSkillsLock, saveConfig } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 
 describe('esl install @builtin/esl-operator (offline)', () => {
@@ -58,6 +58,10 @@ describe('esl install @builtin/esl-operator (offline)', () => {
 
     const skillsJson = await loadSkillsJson(projectDir);
     expect(skillsJson.skills['@builtin/esl-operator']).toBe('builtin:esl-operator');
+    // 内置来源不属于任何 Server 实例（ADR-0071）。
+    expect(skillsJson.instances?.['@builtin/esl-operator']).toBeUndefined();
+    const installManifest = await loadInstallManifest(path.join(projectDir, '.eslib'));
+    expect(installManifest.skills['@builtin/esl-operator']?.instanceId).toBeUndefined();
 
     const lock = await loadSkillsLock(projectDir);
     expect(lock.skills['@builtin/esl-operator']).toEqual({

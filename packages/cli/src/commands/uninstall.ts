@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  findInstalledSkill,
   loadInstallManifest,
   loadSkillsJson,
   removeDirectory,
@@ -25,6 +26,8 @@ export interface UninstallOptions extends LocalStoreOptions {
   global?: boolean;
   noAdapt?: boolean;
   force?: boolean;
+  /** 同名技能存在多个实例来源时指定要移除的来源。 */
+  instanceId?: string;
   /** 只用于提示判断；默认 projectRoot / process.cwd()。 */
   cwd?: string;
 }
@@ -67,6 +70,7 @@ export async function removeInstalledIdentity(
   const removedLinks = await removeToolLinks({
     storeRoot: ctx.storeRoot,
     identity,
+    instanceId: entry.instanceId,
     tools: [...SUPPORTED_TOOLS],
     level: ctx.level
   });
@@ -75,13 +79,13 @@ export async function removeInstalledIdentity(
     await removeLinkedSkillDirectory(identity, ctx.storeRoot);
   } else {
     const targetDir = ctx.level === 'global'
-      ? installTargetDir(identity, { homeDir: ctx.homeDir })
-      : projectSkillsDir(ctx.projectRoot, identity);
+      ? installTargetDir(identity, { homeDir: ctx.homeDir }, entry.instanceId)
+      : projectSkillsDir(ctx.projectRoot, identity, entry.instanceId);
     await removeDirectory(targetDir);
   }
   await removeSkillDependency(ctx.dependencyRoot, identity);
-  await removeLockEntry(ctx.dependencyRoot, identity);
-  await removeInstalledSkill(ctx.storeRoot, identity);
+  await removeLockEntry(ctx.dependencyRoot, identity, entry.instanceId);
+  await removeInstalledSkill(ctx.storeRoot, identity, entry.instanceId);
   return removedLinks;
 }
 
@@ -94,9 +98,20 @@ export async function executeUninstall(name: string, options: UninstallOptions =
   const dependencyRoot = options.global ? storeRoot : projectRoot;
   const level = options.global ? 'global' : 'project';
   const installManifest = await loadInstallManifest(storeRoot);
-  const entry = installManifest.skills[name];
+  const skillsJson = await loadSkillsJson(dependencyRoot);
+  const resolvedInstanceId =
+    options.instanceId ?? (options.global ? undefined : skillsJson.instances?.[name]);
+  const found = findInstalledSkill(installManifest, name, resolvedInstanceId);
+  const entry = found?.entry;
   if (!entry) {
     let message = `Skill ${name} is not installed by ESL`;
+    const sameIdentity = Object.values(installManifest.skills).filter((candidate) => candidate.identity === name);
+    if (sameIdentity.length > 0) {
+      message += `. It is installed from multiple Server instances (${sameIdentity
+        .map((candidate) => candidate.instanceId)
+        .filter(Boolean)
+        .join(', ')}); pass --instance-id to choose one.`;
+    }
     const hint = await consumerProjectRootHint({ global: options.global, cwd });
     if (hint) {
       message += `. ${hint}`;
@@ -104,7 +119,6 @@ export async function executeUninstall(name: string, options: UninstallOptions =
     throw new Error(message);
   }
 
-  const skillsJson = await loadSkillsJson(dependencyRoot);
   const isDirect = Object.hasOwn(skillsJson.skills, name);
   // 以「去掉该根之后」的剩余图为基准：目标仍被其他根需要时不能直接删副本。
   const requiredWithoutName = await computeRequiredIdentities(dependencyRoot, storeRoot, {
@@ -135,15 +149,19 @@ export async function executeUninstall(name: string, options: UninstallOptions =
   const remainingManifest = await loadInstallManifest(storeRoot);
   const reclaimed: string[] = [];
   for (const [identity, installedEntry] of Object.entries(remainingManifest.skills)) {
-    if (requiredWithoutName.has(identity)) continue;
-    await removeInstalledIdentity(identity, installedEntry, {
+    const installedIdentity = installedEntry.identity ?? identity;
+    // 同一 Identity 的其他实例仍由剩余根声明；不能把「按身份排除」误当成
+    // 「该身份的所有实例都不再需要」。
+    if (installedIdentity === name) continue;
+    if (requiredWithoutName.has(installedIdentity)) continue;
+    await removeInstalledIdentity(installedIdentity, installedEntry, {
       storeRoot,
       dependencyRoot,
       level,
       projectRoot,
       homeDir: options.homeDir
     });
-    reclaimed.push(identity);
+    reclaimed.push(installedIdentity);
   }
 
   return {

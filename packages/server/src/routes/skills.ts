@@ -11,21 +11,25 @@ import {
   parseSkillIdentity,
   sortVersionsDescending,
   validateReleaseManifest,
-  type ReleaseLockEntry
+  type ReleaseLockEntry,
+  createPublishedSkillPackage,
+  sha256Integrity,
+  type ByteFileMap
 } from '@esl/core';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import semver from 'semver';
 import type {
   AdminRepository,
   DownloadLogRepository,
+  ServerIdentityRepository,
   SkillRecord,
   SkillRepository,
   SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from '../db/database.js';
+import { GiteaRequestError } from '../services/gitea.js';
 import type { GiteaAdminUser, GiteaService, GiteaTeam } from '../services/gitea.js';
 import { isOwnerMemberOf } from '../services/organization-membership.js';
 import { parseClientUserAgent, truncateClientIp } from '../services/download-log.js';
@@ -50,6 +54,7 @@ export interface SkillsRouteOptions {
   skillTeamGrantRepository: SkillTeamGrantRepository;
   packageRoot?: string;
   downloadLogRepository?: DownloadLogRepository;
+  serverIdentityRepository?: ServerIdentityRepository;
 }
 
 // ADR-0064:依赖 Gitea Organization 团队的技能授权动作。个人命名空间(技能的
@@ -106,6 +111,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
   const downloadLogRepository = options.downloadLogRepository;
+  const serverIdentityRepository = options.serverIdentityRepository;
 
   // 包发放端点是唯一的下载事件记录点（ADR-0067）：依赖解析由 CLI 逐包 GET
   // 实现，因此根技能与每个依赖节点天然各构成一次独立下载，无需区分触发来源。
@@ -258,7 +264,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       });
       return reply
         .status(200)
-        .send(withCloneUrl(request, { ...existing, versions: repository.getVersions(name) }));
+        .send(withCloneUrl(request, {
+          ...existing,
+          instanceId: serverIdentityRepository?.get().instanceId,
+          versions: repository.getVersions(name)
+        }));
     }
 
     let gitRepo: { full_name: string } | undefined;
@@ -304,7 +314,11 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       name,
       skillId: skill!.skillId
     });
-    return reply.status(201).send(withCloneUrl(request, { ...skill!, versions: repository.getVersions(name) }));
+    return reply.status(201).send(withCloneUrl(request, {
+      ...skill!,
+      instanceId: serverIdentityRepository?.get().instanceId,
+      versions: repository.getVersions(name)
+    }));
   });
 
   app.get('/api/skills/search', async (request, reply) => {
@@ -360,13 +374,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // getReleases 按 id 倒序 = 发布时间最新（含 prerelease，ADR-0048）。
       const latestRelease = releases[0];
       // Keywords 与 displayName 一样取最新 Release 快照；历史 Release 已移除的关键词不应继续命中目录。
-      const keywords = new Set<string>();
-      const manifestKeywords = (latestRelease.releaseManifest as { keywords?: unknown }).keywords;
-      if (Array.isArray(manifestKeywords)) {
-        for (const entry of manifestKeywords) {
-          if (typeof entry === 'string') keywords.add(entry.toLowerCase());
-        }
-      }
+      const keywords = new Set(releaseKeywords(latestRelease.releaseManifest).map((keyword) => keyword.toLowerCase()));
       const displayName = searchDisplayName(latestRelease.releaseManifest, skill.skillName);
       if (lowerQuery) {
         const haystack = [skill.name, skill.description, displayName, ...keywords].join('\n').toLowerCase();
@@ -915,7 +923,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       version?: string;
       sourceCommit?: string;
       releaseManifest?: unknown;
-      files?: Record<string, string>;
+      filesBase64?: Record<string, string>;
       notes?: string;
       dryRun?: boolean;
     };
@@ -926,22 +934,18 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return fail(400, 'sourcecommitIsRequired');
     }
     const repo = skillRepo(skill);
-    let sourceFiles: Record<string, string>;
-    if (typeof giteaService.readSourceTree === 'function') {
-      try {
-        sourceFiles = await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit);
-      } catch (error) {
-        // dry-run 不 push 源码：本地 commit 服务器读不到时，退回请求体自带文件。
-        if (!(body.dryRun && body.files)) throw error;
-        sourceFiles = body.files;
-      }
-    } else {
-      sourceFiles = body.files ?? {};
+    let sourceFiles: ByteFileMap;
+    try {
+      sourceFiles = await giteaService.readSourceTree(repo.owner, repo.name, body.sourceCommit);
+    } catch (error) {
+      // 仅提交不存在时允许本地预演回退，不能掩盖权限或服务故障。
+      if (!(body.dryRun && body.filesBase64 && error instanceof GiteaRequestError && error.status === 404)) throw error;
+      sourceFiles = Object.fromEntries(Object.entries(body.filesBase64).map(([filePath, encoded]) => [filePath, Buffer.from(encoded, 'base64')]));
     }
     let sourceManifest: unknown = body.releaseManifest;
     if (sourceFiles['release.json']) {
       try {
-        sourceManifest = JSON.parse(sourceFiles['release.json']);
+        sourceManifest = JSON.parse(sourceFiles['release.json'].toString('utf8'));
       } catch {
         return fail(400, 'releaseJsonIsNotValidJson');
       }
@@ -1016,52 +1020,43 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       throw error;
     }
 
-    if (body.dryRun) {
-      return reply.status(200).send({
-        dryRun: true,
-        name,
-        version: body.version,
-        sourceCommit: body.sourceCommit,
-        dependencyLock
-      });
-    }
-
-    const publishedFiles = { ...sourceFiles };
+    const publishedFiles: ByteFileMap = { ...sourceFiles };
     if (publishedFiles['SKILL.md']) {
-      publishedFiles['SKILL.md'] = publishedFiles['SKILL.md'].replace(
+      const skillMd = publishedFiles['SKILL.md'].toString('utf8');
+      publishedFiles['SKILL.md'] = Buffer.from(skillMd.replace(
         /^(---\r?\n)([\s\S]*?)(\r?\n---)/,
         (_match, open: string, frontmatter: string, close: string) =>
           `${open}${frontmatter.replace(/(^name:\s*)[^\r\n]+/m, `$1${skill.scope}:${skill.skillName}`)}${close}`
-      );
+      ), 'utf8');
     }
-    const contentChecksum = `sha256-${crypto.createHash('sha256')
-      .update(JSON.stringify(publishedFiles))
-      .digest('hex')}`;
-    // The install manifest is generated, so its version is the Skill Release
-    // version — it must win over the Release Manifest's `version` field, which
-    // describes the source rather than the release.
-    publishedFiles['skill.json'] = `${JSON.stringify({
+    const contentHashInput = Object.keys(publishedFiles).sort().map((filePath) => `${filePath}\0${publishedFiles[filePath].toString('base64')}`).join('\n');
+    const contentChecksum = sha256Integrity(Buffer.from(contentHashInput, 'utf8'));
+    publishedFiles['skill.json'] = Buffer.from(`${JSON.stringify({
       ...manifest.data,
       name,
       version: body.version,
       skillId: skill.skillId,
       sourceCommit: body.sourceCommit,
       contentChecksum
-    }, null, 2)}\n`;
-    const packageManifest = {
+    }, null, 2)}\n`, 'utf8');
+    const packageBytes = await createPublishedSkillPackage({
       name,
       skillId: skill.skillId,
       version: body.version,
       sourceCommit: body.sourceCommit,
       releaseManifest: manifest.data,
-      dependencyLock,
-      files: publishedFiles
-    };
-    const bytes = Buffer.from(JSON.stringify(packageManifest, null, 2));
-    const checksum = `sha256-${crypto.createHash('sha256').update(bytes).digest('hex')}`;
-    const packagePath = path.join(packageRoot, skill.skillId, body.version, `${checksum}.json`);
+      dependencyLock
+    }, publishedFiles);
+    const checksum = sha256Integrity(packageBytes);
+    if (body.dryRun) {
+      return reply.status(200).send({
+        dryRun: true, name, version: body.version,
+        sourceCommit: body.sourceCommit, dependencyLock, checksum
+      });
+    }
+    const packagePath = path.join(packageRoot, skill.skillId, body.version, `${checksum}.zip`);
     await fs.mkdir(path.dirname(packagePath), { recursive: true });
-    await fs.writeFile(packagePath, bytes, { flag: 'wx' });
+    await fs.writeFile(packagePath, packageBytes, { flag: 'wx' });
 
     let release;
     try {
@@ -1114,7 +1109,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       ...release,
       status: 'published',
       tagPending,
-      packageUrl: `/api/packages/${skill.skillId}/${body.version}/${checksum}.json`
+      packageUrl: `/api/packages/${skill.skillId}/${body.version}/${checksum}.zip`
     });
   });
 
@@ -1231,7 +1226,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         user,
         result: 'success'
       });
-      return reply.type('application/json').send(bytes);
+      return reply.type(path.extname(packagePath) === '.zip' ? 'application/zip' : 'application/json').send(bytes);
     } catch {
       logFailure('publishedSkillPackageNotFound', {
         skillId: skill.skillId,
@@ -1496,7 +1491,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       : {};
     return withCloneUrl(request, {
       ...skill,
+      // 来源隔离（ADR-0070）：详情响应携带 Server 实例身份，CLI 首次安装时
+      // 无需额外请求即可把技能归属到确定实例。
+      instanceId: serverIdentityRepository?.get().instanceId,
       displayName: resolveSkillDisplayName(repository, skill),
+      // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
+      // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。
+      keywords: latestReleaseKeywords(releases),
       versions: sortVersionsDescending(repository.getVersions(name)),
       downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
       releases: releases.map((release) => ({
@@ -1652,6 +1653,20 @@ function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord
   return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
 }
 
+// 关键词解析（#142）：与显示名同一数据源——最近一次 Skill Release（按发布时间，
+// 含预发布）快照的 keywords。保留清单中的原始文本；非字符串、空白与重复项丢弃。
+function releaseKeywords(manifest: unknown): string[] {
+  const raw = (manifest as { keywords?: unknown }).keywords;
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0))
+  ];
+}
+
+function latestReleaseKeywords(releases: ReadonlyArray<{ releaseManifest: unknown }>): string[] {
+  return releases.length > 0 ? releaseKeywords(releases[0].releaseManifest) : [];
+}
+
 // 技能管理页面的只读上下文块(CONTEXT:技能管理页面):描述、发布状态与完整
 // Skill Release 列表。latestRelease 取最高稳定版本,与 CLI 的默认解析一致。
 function buildSkillContext(
@@ -1673,6 +1688,8 @@ function buildSkillContext(
   return {
     name: skill.name,
     displayName: resolveSkillDisplayName(repository, skill),
+    // 关键词（#142）：管理面板与公开详情使用同一份最新 Release 快照。
+    keywords: latestReleaseKeywords(releases),
     description: skill.description,
     // 逐技能可见性（ADR-0032/0062）：管理页的可见性区块与 CLI 的
     // `esl skill share`（查看矩阵）都从这里读，缺了就只能显示兜底值。

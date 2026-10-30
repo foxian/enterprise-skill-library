@@ -10,6 +10,7 @@ import {
   initDatabase,
   OrgApplicationRepository,
   PlatformSettingsRepository,
+  ServerIdentityRepository,
   SkillRepository,
   SkillTeamGrantRepository,
   TenantOrganizationRepository
@@ -144,6 +145,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   const downloadLogRepository = new DownloadLogRepository(db);
+  const serverIdentityRepository = new ServerIdentityRepository(db);
   expireStalePendingApplications();
 
   // 下载日志的 90 天清理（ADR-0067）：启动后触发一次，再挂 24 小时周期定时器。
@@ -235,6 +237,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.get('/api/public/platform-info', async () =>
     readPlatformInfo(platformSettingsRepository, options.passwordMinLength)
   );
+  // 匿名实例身份发现（ADR-0070）：只暴露 Instance ID 与协议版本，不返回技能、
+  // 账户或凭据；登录前也能用它登记/校验 Server 地址。
+  app.get('/api/public/server-identity', { logLevel: 'silent' }, async () => ({
+    instanceId: serverIdentityRepository.get().instanceId,
+    protocolVersion: 1
+  }));
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
     if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
@@ -335,7 +343,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     tenantOrganizationRepository,
     skillTeamGrantRepository,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
-    downloadLogRepository
+    downloadLogRepository,
+    serverIdentityRepository
   });
   registerDownloadLogAdminRoutes(app, {
     giteaService: options.giteaService,

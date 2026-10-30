@@ -42,7 +42,7 @@ function buildPackage(spec: PackageSpec): { bytes: Buffer; checksum: string } {
 }
 
 function infoEntry(name: string, visibility = 'public') {
-  return { ok: true, json: async () => ({ name, visibility, versions: [] }) };
+  return { ok: true, json: async () => ({ name, visibility, instanceId: '11111111-1111-4111-8111-111111111111', versions: [] }) };
 }
 
 describe('esl dependency reclamation', () => {
@@ -72,13 +72,27 @@ describe('esl dependency reclamation', () => {
     tools: ['claude'] as never
   });
 
-  const lockVersion = async (identity: string) => (await loadSkillsLock(projectDir)).skills[identity]?.version;
+  const lockVersion = async (identity: string) => {
+    const lock = await loadSkillsLock(projectDir);
+    return Object.entries(lock.skills).find(
+      ([key, entry]) => entry.identity === identity || key === identity
+    )?.[1].version;
+  };
   const storeExists = (identity: string) => {
     const [scope, name] = identity.split('/');
-    return fs.existsSync(path.join(projectDir, '.eslib', 'skills', scope, name, 'SKILL.md'));
+    return fs.existsSync(
+      path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', scope, name, 'SKILL.md')
+    );
   };
   const linkExists = (identity: string) =>
-    fs.existsSync(path.join(projectDir, '.claude', 'skills', identity.replace('@', '').replace('/', '_')));
+    fs.existsSync(
+      path.join(
+        projectDir,
+        '.claude',
+        'skills',
+        `${identity.replace('@', '').replace('/', '_')}_111111`
+      )
+    );
 
   async function installRootA() {
     const shared = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
@@ -90,7 +104,7 @@ describe('esl dependency reclamation', () => {
       dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum: shared.checksum } }
     });
     const queue = [
-      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', versions: ['1.0.0'], packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json` }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'], packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json` }) },
       { ok: true, arrayBuffer: async () => rootA.bytes },
       { ok: true, arrayBuffer: async () => shared.bytes },
       infoEntry('@platform-ai/shared')
@@ -126,7 +140,7 @@ describe('esl dependency reclamation', () => {
       dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum: shared.checksum } }
     });
     const queue = [
-      { ok: true, json: async () => ({ name: '@platform-ai/root-c', visibility: 'public', versions: ['1.0.0'], packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json` }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/root-c', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'], packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json` }) },
       { ok: true, arrayBuffer: async () => rootC.bytes },
       { ok: true, arrayBuffer: async () => shared.bytes },
       infoEntry('@platform-ai/shared')
@@ -158,7 +172,7 @@ describe('esl dependency reclamation', () => {
     // 直接装 shared 作为根，再装 root-a（把 shared 当传递依赖）。
     const shared = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
     const sharedQueue = [
-      { ok: true, json: async () => ({ name: '@platform-ai/shared', visibility: 'public', versions: ['1.2.0'], packageUrl: `/api/packages/sk_shared/1.2.0/${shared.checksum}.json` }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/shared', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'], packageUrl: `/api/packages/sk_shared/1.2.0/${shared.checksum}.json` }) },
       { ok: true, arrayBuffer: async () => shared.bytes }
     ];
     const sharedFetch = vi.fn();
@@ -174,7 +188,7 @@ describe('esl dependency reclamation', () => {
       dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum: shared.checksum } }
     });
     const aQueue = [
-      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', versions: ['1.0.0'], packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json` }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'], packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json` }) },
       { ok: true, arrayBuffer: async () => rootA.bytes },
       { ok: true, arrayBuffer: async () => shared.bytes },
       infoEntry('@platform-ai/shared')
@@ -216,7 +230,7 @@ describe('esl dependency reclamation', () => {
     const baseInfo = {
       name: '@platform-ai/shared',
       visibility: 'public',
-      versions: ['1.2.0'],
+      instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'],
       releases: [{ version: '1.2.0', checksum: shared.checksum, skillId: 'sk_shared', releaseManifest: { dependencies: {} } }]
     };
     const linkFetch = vi.fn();
@@ -249,8 +263,8 @@ describe('esl dependency reclamation', () => {
     // root-a 1.1.0 不再依赖 shared。
     const rootA11 = buildPackage({ name: '@platform-ai/root-a', skillId: 'sk_a', version: '1.1.0' });
     const queue = [
-      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', versions: ['1.1.0', '1.0.0'] }) },
-      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', versions: ['1.1.0', '1.0.0'], packageUrl: `/api/packages/sk_a/1.1.0/${rootA11.checksum}.json` }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.1.0', '1.0.0'] }) },
+      { ok: true, json: async () => ({ name: '@platform-ai/root-a', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.1.0', '1.0.0'], packageUrl: `/api/packages/sk_a/1.1.0/${rootA11.checksum}.json` }) },
       { ok: true, arrayBuffer: async () => rootA11.bytes }
     ];
     const fetch = vi.fn();

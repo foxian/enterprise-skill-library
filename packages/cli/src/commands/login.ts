@@ -1,6 +1,11 @@
 import {
+  addServerAddress,
+  discoverServerIdentity,
+  findServerInstanceByAddress,
+  findServerInstanceById,
   loadConfig,
   initializeLocalStore,
+  normalizeServerUrl,
   saveConfig,
   saveCredentials,
   type LocalStoreOptions,
@@ -72,7 +77,17 @@ export async function executeLogin(options: LoginOptions): Promise<LoginResult> 
       }
     : { email, organizations, locale };
 
-  await saveCredentials({ token, loginAt: new Date().toISOString() }, { homeDir: options.homeDir });
+  // 登录后尽力登记来源实例：登录本身不依赖身份发现（Server 可能暂时不可达），
+  // 但发现成功时把凭据按实例保存，并缓存地址与 Instance ID 的绑定。
+  // token-file 登录按约定完全不联网，因此不在这里探测身份。
+  const instanceId = options.tokenFile
+    ? null
+    : await registerInstanceAfterLogin(options, server, fetchImpl);
+
+  await saveCredentials(
+    { token, loginAt: new Date().toISOString(), ...(instanceId ? { instanceId } : {}) },
+    { homeDir: options.homeDir }
+  );
   // 显式清掉旧版标记：重新登录后 organizations 已是新形状，提示不该跟着旧配置
   // 一直留在 whoami 输出里。
   await saveConfig(
@@ -81,6 +96,42 @@ export async function executeLogin(options: LoginOptions): Promise<LoginResult> 
   );
 
   return { token, username, ...identity };
+}
+
+async function registerInstanceAfterLogin(
+  options: LoginOptions,
+  server: string,
+  fetchImpl: typeof fetch
+): Promise<string | null> {
+  try {
+    const identity = await discoverServerIdentity(server, { fetchImpl, timeoutMs: 2_000 });
+    const config = await loadConfig({ homeDir: options.homeDir });
+    const registry = { instances: config.servers ?? [], selectedInstanceId: config.selectedInstanceId ?? null };
+    const binding = findServerInstanceByAddress(registry, normalizeServerUrl(server));
+    if (binding && binding.instance.instanceId !== identity.instanceId) {
+      // 已登记地址换了身份：不改绑，交给远程命令报 fail-closed 错误。
+      return binding.instance.instanceId;
+    }
+    if (!binding && findServerInstanceById(registry, identity.instanceId)) {
+      // 新地址声明已知实例：登录不替用户做地址确认，保持未登记。
+      return identity.instanceId;
+    }
+    const registration = addServerAddress(registry, {
+      instanceId: identity.instanceId,
+      url: server,
+      select: true
+    });
+    await saveConfig(
+      {
+        servers: registration.registry.instances,
+        selectedInstanceId: registration.registry.selectedInstanceId
+      },
+      { homeDir: options.homeDir }
+    );
+    return identity.instanceId;
+  } catch {
+    return null;
+  }
 }
 
 // 首次使用未配置 server 时交互式询问并记住;非交互环境直接报错。

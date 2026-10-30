@@ -96,6 +96,7 @@ function createGitMock(options: GitMockOptions = {}) {
       return { stdout: '', stderr: '' };
     }
     if (args.includes('push')) return { stdout: '', stderr: '' };
+    if (args[0] === 'ls-tree') return { stdout: '', stderr: '' };
     if (args[0] === 'describe') return { stdout: describe, stderr: '' };
     if (args[0] === 'log') return { stdout: log, stderr: '' };
     throw new Error(`unexpected git command: ${args.join(' ')}`);
@@ -461,6 +462,24 @@ description: Use when reviewing code changes.
     expect(JSON.parse(init.body)).toMatchObject({ dryRun: true });
     // 没有 push 源码。
     expect((execFileAsync.mock.calls as [string, string[]][]).some(([, args]) => args.includes('push'))).toBe(false);
+  });
+
+
+  it('预演从固定提交 blob 读取二进制而非工作树', async () => {
+    const bytes = Buffer.from([0x00, 0xff, 0x80]);
+    fs.writeFileSync(path.join(skillDir, 'example.docx'), '不同的工作树内容');
+    const normalGit = createGitMock();
+    const execFileAsync = vi.fn().mockImplementation(async (file, args, options) => {
+      if (args[0] === 'ls-tree') return { stdout: '100644 blob abc123\texample.docx\0', stderr: '' };
+      if (args[0] === 'cat-file') return { stdout: bytes, stderr: '' };
+      return normalGit(file, args, options);
+    });
+    const fetchImpl = createFetchMock({ dryRun: true });
+    await executePublish({ directory: skillDir, homeDir, server: 'http://localhost:4070', force: true, dryRun: true, customFetch: fetchImpl as any, execFileAsync: execFileAsync as any });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body).filesBase64).toEqual({ 'example.docx': bytes.toString('base64') });
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['ls-tree', '-r', '-z', HEAD], expect.objectContaining({ cwd: skillDir }));
+    expect(execFileAsync).toHaveBeenCalledWith('git', ['cat-file', 'blob', 'abc123'], expect.objectContaining({ encoding: 'buffer' }));
   });
 
   it('still rejects invalid releases in --dry-run', async () => {

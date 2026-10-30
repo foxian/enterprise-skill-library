@@ -3,9 +3,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 // ADR-0058 / ADR-0060 / Issue #121：公开仓库只维护可复用的产品层资产，
-// 不得包含真实实例域名、生产 Secret、Token、密钥或生产服务器地址。
-// 域名、TLS、Tunnel 等实例配置通过 gitignore 的本地文件注入。
+// 公开文档可标明公开云端默认地址，但不得包含其他具体实例域名、生产 Secret、Token、密钥或生产服务器地址。
+// 域名、TLS、Tunnel 等私有实例配置通过 gitignore 的本地文件注入。
 // 本测试扫描公开配置与文档，确保私有实例信息不会重新进入公开仓库。
+//
+// ADR-0060 / ADR-0068 修订（2026-10）：项目主页是产品层公开信息，允许出现在
+// 公开文档（如 README）；该例外不适用于产品配置，cloud 仍是 CLI 唯一硬编码默认 Server。
 
 const repoRoot = path.resolve(process.cwd());
 
@@ -13,8 +16,19 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-// 真实实例域名模式（私有部署的域名，不得出现在公开仓库）
+// 公开 CLI 默认地址是允许的，其他 enterprise-skills.com 域名仍按具体实例地址拦截。
+const PUBLIC_DEFAULT_SERVER_URL = 'https://cloud.enterprise-skills.com/';
+// 项目主页属产品层公开信息，仅允许出现在公开文档中（ADR-0060 / ADR-0068 修订）。
+const PUBLIC_PROJECT_WEBSITE_URL = 'https://www.enterprise-skills.com';
 const REAL_INSTANCE_DOMAIN_PATTERN = /enterprise-skills\.com/i;
+
+function expectNoPrivateInstanceDomain(content, file, { allowProjectWebsite = false } = {}) {
+  let sanitized = content.replaceAll(PUBLIC_DEFAULT_SERVER_URL, '');
+  if (allowProjectWebsite) {
+    sanitized = sanitized.replaceAll(PUBLIC_PROJECT_WEBSITE_URL, '');
+  }
+  expect(sanitized, `${file} 中不应出现其他具体实例域名`).not.toMatch(REAL_INSTANCE_DOMAIN_PATTERN);
+}
 
 // 需要扫描的公开配置文件
 const PUBLIC_CONFIG_FILES = [
@@ -26,7 +40,8 @@ const PUBLIC_CONFIG_FILES = [
 const PUBLIC_DOC_FILES = [
   'CONTEXT.md',
   'README.md',
-  'docs/adr/0058-domain-and-service-entrypoints.md',
+  'README.zh-CN.md',
+  'docs/adr/0068-domain-and-service-entrypoints.md',
   'docs/adr/0060-public-product-and-private-instance-boundary.md',
   'docs/guides/production-deployment.md',
   'docs/guides/usage.md',
@@ -48,11 +63,10 @@ const SUSPICIOUS_SECRET_PATTERNS = [
   },
 ];
 
-describe('公开仓库产品边界 — 配置文件不含真实实例域名', () => {
+describe('公开仓库产品边界 — 配置文件不含具体实例域名', () => {
   for (const file of PUBLIC_CONFIG_FILES) {
-    it(`${file} 不包含真实实例域名 enterprise-skills.com`, () => {
-      const content = readRepoFile(file);
-      expect(content, `${file} 中不应出现真实实例域名`).not.toMatch(REAL_INSTANCE_DOMAIN_PATTERN);
+    it(`${file} 不包含非默认的具体实例域名`, () => {
+      expectNoPrivateInstanceDomain(readRepoFile(file), file);
     });
   }
 
@@ -73,13 +87,22 @@ describe('公开仓库产品边界 — 配置文件不含真实实例域名', ()
   });
 });
 
-describe('公开仓库产品边界 — 核心文档不含真实实例域名', () => {
+describe('公开仓库产品边界 — 核心文档不含其他具体实例域名', () => {
   for (const file of PUBLIC_DOC_FILES) {
-    it(`${file} 不包含真实实例域名 enterprise-skills.com`, () => {
-      const content = readRepoFile(file);
-      expect(content, `${file} 中不应出现真实实例域名`).not.toMatch(REAL_INSTANCE_DOMAIN_PATTERN);
+    it(`${file} 不包含非默认的具体实例域名`, () => {
+      expectNoPrivateInstanceDomain(readRepoFile(file), file, { allowProjectWebsite: true });
     });
   }
+
+  it('README 说明公开云端默认 Server 地址', () => {
+    expect(readRepoFile('README.md')).toContain(PUBLIC_DEFAULT_SERVER_URL);
+  });
+
+  it('README 链接项目主站，但不作为 CLI 默认 Server', () => {
+    const readme = readRepoFile('README.md');
+    expect(readme).toContain(PUBLIC_PROJECT_WEBSITE_URL);
+    expect(readme).toContain(PUBLIC_DEFAULT_SERVER_URL);
+  });
 });
 
 describe('公开仓库产品边界 — 配置示例不含硬编码生产 Secret', () => {

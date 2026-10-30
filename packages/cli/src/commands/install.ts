@@ -17,8 +17,11 @@ import {
   createMinimalSkillManifest,
   evaluateCompatibility,
   fileExists,
+  findInstalledSkill,
+  findServerInstanceByAddress,
   highestStableVersion,
   isBuiltinIdentity,
+  loadConfig,
   loadSkillsJson,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
@@ -29,17 +32,21 @@ import {
   ReleaseGraphError,
   releaseGraphErrorStatus,
   skillSourceRelativeDir,
+  installManifestKey,
+  normalizeServerUrl,
   type ReleaseGraphSource,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
   preparePublishedSkillPackage,
+  parsePublishedSkillPackage,
   ensureGitAvailable
-  } from '@esl/core';
+} from '@esl/core';
 import { ApiError, requireOkResponse } from '../api-error.js';
 import {
   installTargetDir,
   gitAuthHeaderConfig,
+  apiUrl,
   fetchWithTimeout,
   requireConfigured,
   requireFreshToken,
@@ -72,6 +79,8 @@ export interface InstallOptions extends NetworkCommandOptions {
   force?: boolean;
   ignoreCompatibility?: boolean;
   projectRoot?: string;
+  /** 指定来源实例（依赖复现时由 .skills.json/lock 提供）。 */
+  instanceId?: string;
   /** 只用于嵌套 Store 拒绝判断；默认 projectRoot / process.cwd()。 */
   cwd?: string;
   execFileAsync?: typeof defaultExecFileAsync;
@@ -249,8 +258,57 @@ async function installFromServer(
   options: InstallOptions
 ): Promise<string> {
   const execFileAsync = options.execFileAsync ?? defaultExecFileAsync;
+  let effectiveOptions = options;
+  if (options.instanceId) {
+    const { resolveInstanceAddress } = await import('./server-registry.js');
+    const resolved = await resolveInstanceAddress(options.instanceId, {
+      homeDir: options.homeDir,
+      customFetch: options.customFetch
+    });
+    if (resolved) {
+      effectiveOptions = { ...options, server: resolved.server };
+    }
+    // 本机尚未登记该实例地址时不猜地址，沿用当前 Server，随后用响应中的
+    // Instance ID 校验；不一致会 fail-closed。
+  }
   const authToken = await requireFreshToken(options);
-  const info = await executeInfo(name, options);
+  const info = await executeInfo(name, effectiveOptions);
+  const instanceId = options.instanceId ?? info.instanceId;
+  if (!instanceId) {
+    throw new Error(
+      `ESL Server did not return an Instance ID for ${name}. Remote skill sources require an Instance ID for store isolation; ` +
+        'upgrade the Server to a version that supports instance identity, or install a built-in/local skill.'
+    );
+  }
+  // 已登记地址返回不同 Instance ID 时 fail-closed：不能用本地登记之外的实例
+  // 静默写入 Store/依赖/锁文件。
+  try {
+    const config = await loadConfig({ homeDir: options.homeDir });
+    const serverForCheck =
+      effectiveOptions.server ?? (await resolveNetworkConfig(effectiveOptions)).server;
+    const binding = findServerInstanceByAddress(
+      { instances: config.servers ?? [], selectedInstanceId: config.selectedInstanceId ?? null },
+      normalizeServerUrl(serverForCheck)
+    );
+    if (binding && binding.instance.instanceId !== instanceId) {
+      throw new Error(
+        `Address ${binding.instance.preferredAddress} is registered to ESL Server instance ${binding.instance.instanceId}, ` +
+          `but it now reports ${instanceId}. Refusing to install from a silently rebound source.`
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Refusing to install')) {
+      throw error;
+    }
+    // 配置不可读或地址不是 http(s) 时保持既有安装路径；Instance ID 校验仍以
+    // info 响应的身份为准。
+  }
+  if (options.instanceId && info.instanceId && options.instanceId !== info.instanceId) {
+    throw new Error(
+      `ESL Server at ${effectiveOptions.server ?? 'the configured address'} belongs to instance ${info.instanceId}, ` +
+        `not the locked instance ${options.instanceId}; refusing to install from a different source.`
+    );
+  }
   const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? highestStableVersion(info.versions ?? []);
   if (!version) {
@@ -266,11 +324,12 @@ async function installFromServer(
       version,
       requestedPackageUrl,
       projectRoot,
-      options,
+      effectiveOptions,
       authToken,
       info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined,
       // 根包上报用户原始 specifier；未显式给出 --version 时按 latest 上报（#136）。
-      options.version ?? 'latest'
+      options.version ?? 'latest',
+      instanceId
     );
   }
 
@@ -281,7 +340,7 @@ async function installFromServer(
 
   if (options.global || !projectRoot) {
     const globalRoot = resolveLocalStorePaths(options).root;
-    const targetDir = path.normalize(installTargetDir(name, options));
+    const targetDir = path.normalize(installTargetDir(name, options, instanceId));
     await removeDirectory(targetDir);
     notify(`Cloning ${name}...`);
     await execFileAsync('git', ['-c', authHeader, 'clone', remoteUrl, targetDir]);
@@ -294,9 +353,10 @@ async function installFromServer(
       version,
       resolved: remoteUrl,
       integrity: '',
-      source: 'registry' as const
+      source: 'registry' as const,
+      instanceId
     };
-    await addSkillDependency(globalRoot, name, specifier);
+    await addSkillDependency(globalRoot, name, specifier, instanceId);
     await addLockEntry(globalRoot, name, lockEntry);
     await recordInstalledSkill(globalRoot, name, lockEntry, specifier);
     return targetDir;
@@ -311,7 +371,7 @@ async function installFromServer(
       await execFileAsync('git', ['checkout', version], { cwd: cloneDir });
     }
 
-    const targetDir = projectSkillsDir(projectRoot, name);
+    const targetDir = projectSkillsDir(projectRoot, name, instanceId);
     await copySkillDirectory(cloneDir, targetDir);
     if (info.publishedPackage) {
       await preparePublishedSkillPackage(targetDir, name);
@@ -321,10 +381,11 @@ async function installFromServer(
       version,
       resolved: remoteUrl,
       integrity: '',
-      source: 'registry' as const
+      source: 'registry' as const,
+      instanceId
     };
     const storeRoot = resolveProjectStorePaths(projectRoot).root;
-    await addSkillDependency(projectRoot, name, specifier);
+    await addSkillDependency(projectRoot, name, specifier, instanceId);
     await addLockEntry(projectRoot, name, lockEntry);
     await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
 
@@ -344,7 +405,7 @@ interface ParsedPublishedPackage {
     dependencies?: Record<string, string>;
   };
   dependencyLock?: Record<string, LockedDependency>;
-  files: Record<string, string>;
+  files: Record<string, Buffer>;
 }
 
 interface PlannedDependency {
@@ -376,12 +437,20 @@ async function downloadPublishedPackage(
   identity: string,
   options: InstallOptions,
   authToken: string,
-  requested: string
-): Promise<{ integrity: string; data: ParsedPublishedPackage }> {
+  requested: string,
+  allowLegacyFallback = false
+): Promise<{ integrity: string; data: ParsedPublishedPackage; packageUrl: string }> {
   const fetchImpl = options.customFetch ?? fetch;
-  const response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
+  let response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
     headers: { Authorization: `token ${authToken}` }
   });
+  // 冻锁不记录格式；只在 ZIP 不存在时尝试历史 JSON，其他错误不回退。
+  if (allowLegacyFallback && response.status === 404) {
+    resolvedPackageUrl = resolvedPackageUrl.replace(/\.zip$/, '.json');
+    response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
+      headers: { Authorization: `token ${authToken}` }
+    });
+  }
   if (!response.ok) {
     if (response.status === 403) {
       throw new ApiError(403, 'dependency not visible', {
@@ -393,12 +462,16 @@ async function downloadPublishedPackage(
   }
   const packageBytes = Buffer.from(await response.arrayBuffer());
   const integrity = `sha256-${crypto.createHash('sha256').update(packageBytes).digest('hex')}`;
-  // 校验和取 URL 的 pathname（不含 query），附加 `?requested=` 不影响解析。
-  const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.json$/, '');
+  const expectedIntegrity = path.basename(new URL(resolvedPackageUrl).pathname).replace(/\.(?:json|zip)$/, '');
   if (expectedIntegrity.startsWith('sha256-') && integrity !== expectedIntegrity) {
     throw new Error(`Published Skill Package checksum does not match Registry metadata: expected ${expectedIntegrity}, got ${integrity}`);
   }
-  return { integrity, data: JSON.parse(packageBytes.toString('utf8')) as ParsedPublishedPackage };
+  const parsed = await parsePublishedSkillPackage(packageBytes);
+  const data: ParsedPublishedPackage = {
+    ...parsed,
+    dependencyLock: parsed.dependencyLock as Record<string, LockedDependency> | undefined
+  };
+  return { integrity, data, packageUrl: resolvedPackageUrl };
 }
 
 async function assertPackageCompatible(
@@ -431,7 +504,7 @@ async function stagePackageSwap(
   for (const [relativePath, content] of Object.entries(data.files ?? {})) {
     const destination = path.join(stagingDir, relativePath);
     await fs.mkdir(path.dirname(destination), { recursive: true });
-    await fs.writeFile(destination, content, 'utf8');
+    await fs.writeFile(destination, content);
   }
   if (data.version !== version || data.name !== identity) {
     await removeDirectory(stagingDir);
@@ -507,15 +580,8 @@ async function planIncomingGraph(
   while (queue.length > 0) {
     const { identity, entry } = queue.shift()!;
     if (nodes.has(identity)) continue;
-    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    // 依赖解析请求上报锁定的精确版本。
-    const { integrity, data } = await downloadPublishedPackage(
-      packageUrl,
-      identity,
-      options,
-      authToken,
-      entry.version
-    );
+    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
+    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
     if (data.skillId !== entry.skillId || data.version !== entry.version) {
       throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
     }
@@ -541,12 +607,13 @@ async function collectExistingRanges(
   storeRoot: string
 ): Promise<Map<string, Set<string>>> {
   const result = new Map<string, Set<string>>();
-  let skillsJson: { skills: Record<string, string> };
+  let skillsJson: { skills: Record<string, string>; instances?: Record<string, string> };
   try {
     skillsJson = await loadSkillsJson(dependencyRoot);
   } catch {
     return result;
   }
+  const instances = skillsJson.instances ?? {};
   const visited = new Set<string>();
   const walk = (identity: string): void => {
     if (visited.has(identity)) return;
@@ -554,13 +621,17 @@ async function collectExistingRanges(
     let parsed: { dependencies?: Record<string, string> };
     try {
       parsed = JSON.parse(fsSync.readFileSync(
-        path.join(storeRoot, skillSourceRelativeDir(identity), 'skill.json'),
+        path.join(storeRoot, skillSourceRelativeDir(identity, instances[identity]), 'skill.json'),
         'utf8'
       ));
     } catch {
       return;
     }
+    // 依赖副本与根属于同一 Server 实例；把实例传给后续查找。
     for (const [dep, range] of Object.entries(parsed.dependencies ?? {})) {
+      if (!instances[dep] && instances[identity]) {
+        instances[dep] = instances[identity];
+      }
       addRanges(result, { [dep]: range });
       walk(dep);
     }
@@ -581,9 +652,10 @@ async function materializeDependencyGraph(input: {
   storeRoot: string;
   dependencyRoot: string;
   rootVisibility: Visibility | undefined;
+  instanceId?: string;
   committed: Array<PackageSwap>;
 }): Promise<string[]> {
-  const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, committed } = input;
+  const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, instanceId, committed } = input;
 
   if (rootVisibility === 'public') {
     for (const node of nodes.values()) {
@@ -600,7 +672,7 @@ async function materializeDependencyGraph(input: {
   const existingRanges = await collectExistingRanges(dependencyRoot, storeRoot);
   const actions: Array<{ node: PlannedDependency; targetVersion: string }> = [];
   for (const node of nodes.values()) {
-    const existing = existingManifest.skills[node.identity];
+    const existing = findInstalledSkill(existingManifest, node.identity, instanceId)?.entry;
     if (existing?.version === node.version) continue;
     if (existing?.version) {
       const ranges = [
@@ -628,7 +700,10 @@ async function materializeDependencyGraph(input: {
   }
 
   for (const action of actions) {
-    const dependencyTargetDir = path.join(storeRoot, skillSourceRelativeDir(action.node.identity));
+    const dependencyTargetDir = path.join(
+      storeRoot,
+      skillSourceRelativeDir(action.node.identity, instanceId)
+    );
     committed.push(await stagePackageSwap(
       action.node.identity,
       action.targetVersion,
@@ -644,7 +719,8 @@ async function materializeDependencyGraph(input: {
       version: action.targetVersion,
       resolved: action.node.packageUrl,
       integrity: action.node.integrity,
-      source: 'registry' as const
+      source: 'registry' as const,
+      ...(instanceId ? { instanceId } : {})
     };
     await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
     await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
@@ -656,13 +732,17 @@ async function materializeDependencyGraph(input: {
 /** 本地源按即将发布的规则解析已发布依赖：数据源直接读 Registry，并记录各身份可见性。 */
 function createHttpGraphSource(
   options: InstallOptions,
-  visibility: Map<string, Visibility>
+  visibility: Map<string, Visibility>,
+  instanceIds: Map<string, string>
 ): ReleaseGraphSource {
   return {
     async listVersions(identity) {
       try {
         const info = await executeInfo(identity, options);
         visibility.set(identity, info.visibility === 'public' ? 'public' : 'private');
+        if (info.instanceId) {
+          instanceIds.set(identity, info.instanceId);
+        }
         return info.versions ?? [];
       } catch (error) {
         if (error instanceof ApiError && error.status === 403) {
@@ -676,6 +756,9 @@ function createHttpGraphSource(
     },
     async load(identity, version) {
       const info = await executeInfo(identity, options);
+      if (info.instanceId) {
+        instanceIds.set(identity, info.instanceId);
+      }
       const release = info.releases?.find((entry) => entry.version === version);
       if (!release) {
         throw new ReleaseGraphError('releaseDependencyNoRelease', { identity });
@@ -716,9 +799,10 @@ export async function installLocalSourceDependencies(input: {
   const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
   if (Object.keys(dependencies).length === 0) return [];
   const visibility = new Map<string, Visibility>();
+  const instanceIds = new Map<string, string>();
   let lock: Record<string, { skillId: string; version: string; checksum: string }>;
   try {
-    lock = await resolveReleaseGraph(dependencies, createHttpGraphSource(options, visibility), {
+    lock = await resolveReleaseGraph(dependencies, createHttpGraphSource(options, visibility, instanceIds), {
       rootVisibility
     });
   } catch (error) {
@@ -731,15 +815,8 @@ export async function installLocalSourceDependencies(input: {
   const incomingRanges = new Map<string, Set<string>>();
   addRanges(incomingRanges, dependencies);
   for (const [identity, entry] of Object.entries(lock)) {
-    const packageUrl = `${serverUrl}/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.json`;
-    // 本地源依赖解析同样上报锁定的精确版本。
-    const { integrity, data } = await downloadPublishedPackage(
-      packageUrl,
-      identity,
-      options,
-      authToken,
-      entry.version
-    );
+    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
+    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
     await assertPackageCompatible(identity, data, options);
     addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
     nodes.set(identity, {
@@ -758,6 +835,7 @@ export async function installLocalSourceDependencies(input: {
     storeRoot,
     dependencyRoot,
     rootVisibility,
+    instanceId: options.instanceId ?? [...instanceIds.values()][0],
     committed
   });
 }
@@ -770,10 +848,11 @@ async function installPublishedPackage(
   options: InstallOptions,
   authToken: string,
   rootVisibility: Visibility | undefined,
-  requestedSpecifier: string
+  requestedSpecifier: string,
+  instanceId: string
 ): Promise<string> {
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
-  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : `${serverUrl}${packageUrl}`;
+  const resolvedPackageUrl = packageUrl.startsWith('http') ? packageUrl : apiUrl(serverUrl, packageUrl);
   const { integrity, data: rootData } = await downloadPublishedPackage(
     resolvedPackageUrl,
     name,
@@ -784,8 +863,8 @@ async function installPublishedPackage(
   await assertPackageCompatible(name, rootData, options);
 
   const targetDir = options.global || !projectRoot
-    ? publishedInstallTargetDir(name, options)
-    : publishedProjectSkillsDir(projectRoot, name);
+    ? publishedInstallTargetDir(name, options, instanceId)
+    : publishedProjectSkillsDir(projectRoot, name, instanceId);
   const storeRoot = options.global || !projectRoot
     ? resolveLocalStorePaths(options).root
     : resolveProjectStorePaths(projectRoot).root;
@@ -804,6 +883,7 @@ async function installPublishedPackage(
       storeRoot,
       dependencyRoot,
       rootVisibility,
+      instanceId,
       committed
     });
     const rootSpecifier = `^${version}`;
@@ -813,9 +893,10 @@ async function installPublishedPackage(
       version,
       resolved: resolvedPackageUrl,
       integrity,
-      source: 'registry' as const
+      source: 'registry' as const,
+      instanceId
     };
-    await addSkillDependency(dependencyRoot, name, rootSpecifier);
+    await addSkillDependency(dependencyRoot, name, rootSpecifier, instanceId);
     await addLockEntry(dependencyRoot, name, rootLockEntry);
     await recordInstalledSkill(storeRoot, name, rootLockEntry, rootSpecifier);
   } catch (error) {
@@ -840,11 +921,23 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
     : resolveProjectStorePaths(projectRoot).root;
   const beforeManifest = await loadInstallManifest(storeRoot);
 
+  // 复现已声明的项目依赖时以 .skills.json 记录的实例为准；普通安装使用当前
+  // 选中 Server，不要求用户日常传 --instance-id（ADR-0071）。
+  let instanceId = options.instanceId;
+  if (!instanceId && !options.global && !isBuiltinIdentity(nameOrPath) && !isLocalPath(nameOrPath)) {
+    try {
+      const dependencies = await loadSkillsJson(projectRoot);
+      instanceId = dependencies.instances?.[nameOrPath];
+    } catch {
+      // 没有项目依赖文件时保持当前 Server 上下文。
+    }
+  }
+
   const targetDir = isBuiltinIdentity(nameOrPath)
     ? await installFromBuiltin(nameOrPath, projectRoot, options)
     : isLocalPath(nameOrPath)
       ? await installFromLocalPath(nameOrPath, projectRoot, options)
-      : await installFromServer(nameOrPath, options.global ? null : projectRoot, options);
+      : await installFromServer(nameOrPath, options.global ? null : projectRoot, { ...options, instanceId });
 
   if (!options.noAdapt) {
     // 工具集必须由调用方显式给出（CLI 走 resolveExpectedTools 的显式/交互/Agent 分支）；
@@ -856,36 +949,36 @@ export async function executeInstall(nameOrPath: string, options: InstallOptions
       // 期望集合对账的裁剪只作用于本次安装的主角（被安装技能本身）与本次
       // 新装的依赖；既有技能（仅版本变化）只补缺、绝不裁剪——否则一次无关
       // 的 install 会按本技能的工具期望裁掉用户显式挂在这些技能上的 link。
-      const ensureIdentities = new Set<string>();
-      const pruneIdentities = new Set<string>();
-      for (const [identity, entry] of Object.entries(installManifest.skills)) {
-        const previouslyInstalled = beforeManifest.skills[identity];
+      const ensureTargets: Array<{ identity: string; instanceId?: string; prune: boolean }> = [];
+      for (const [key, entry] of Object.entries(installManifest.skills)) {
+        const identity = entry.identity ?? key;
+        const previouslyInstalled = findInstalledSkill(beforeManifest, identity, entry.instanceId)?.entry;
         if (
           path.resolve(storeRoot, entry.sourceDir) === targetPath ||
           !previouslyInstalled
         ) {
-          ensureIdentities.add(identity);
-          pruneIdentities.add(identity);
+          ensureTargets.push({ identity, instanceId: entry.instanceId, prune: true });
         } else if (JSON.stringify(previouslyInstalled) !== JSON.stringify(entry)) {
-          ensureIdentities.add(identity);
+          ensureTargets.push({ identity, instanceId: entry.instanceId, prune: false });
         }
       }
       // --tools 与交互勾选同为期望 Tool Link 集合（ADR-0054）：补齐集合内、
       // 删除集合外 ESL 管理项；集合内有失败则保留旧项并让命令失败。
       const level = options.global ? 'global' : 'project';
-      for (const identity of ensureIdentities) {
+      for (const target of ensureTargets) {
         const reconciliation = await reconcileToolLinks({
           storeRoot,
           level,
           tools,
-          identity,
+          identity: target.identity,
+          instanceId: target.instanceId,
           projectRoot,
           homeDir: options.homeDir,
           force: options.force,
-          prune: pruneIdentities.has(identity)
+          prune: target.prune
         });
         for (const removed of reconciliation.removed) {
-          notify(`Removed tool link: ${removed.tool} (${identity}) -> ${removed.targetDir} [${removed.status}]`);
+          notify(`Removed tool link: ${removed.tool} (${target.identity}) -> ${removed.targetDir} [${removed.status}]`);
         }
         failedLinks.push(
           ...reconciliation.failures.map((result) => {

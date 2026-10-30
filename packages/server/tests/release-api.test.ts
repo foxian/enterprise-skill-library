@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GiteaRequestError } from '../src/services/gitea.js';
+import { parsePublishedSkillPackage, sha256Integrity } from '@esl/core';
 import { buildApp } from '../src/app.js';
 import { initDatabase, TenantOrganizationRepository } from '../src/db/database.js';
 
@@ -25,6 +27,7 @@ describe('Skill Release API', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-release-'));
     gitea = {
+      readSourceTree: vi.fn().mockResolvedValue({}),
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/reviewer' }),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
@@ -102,6 +105,32 @@ describe('Skill Release API', () => {
     expect(fs.readdirSync(path.join(tmpDir, 'packages'))).toHaveLength(1);
   });
 
+
+  it('发布下载 ZIP 保留二进制、校验和及必要文本调整', async () => {
+    await upload('reviewer');
+    const binary = Buffer.from([0x50, 0x4b, 0x00, 0xff, 0x80]);
+    gitea.readSourceTree!.mockResolvedValueOnce({
+      'SKILL.md': Buffer.from('---\nname: reviewer\ndescription: Review code\n---\n'),
+      'assets/示例.docx': binary
+    });
+    const response = await app.inject({ method: 'POST', url: '/api/skills/@alice/reviewer/releases', headers: { authorization: 'token alice-token' }, payload: {
+      version: '1.0.0', sourceCommit: 'abc123',
+      releaseManifest: { schemaVersion: 3, name: '@alice/reviewer', version: '0.1.0', license: 'MIT', keywords: [], compatibility: {}, dependencies: {} },
+      filesBase64: { 'assets/示例.docx': Buffer.from('不可信客户端内容').toString('base64') }
+    } });
+    expect(response.statusCode).toBe(201);
+    const release = response.json();
+    const downloaded = await app.inject({ method: 'GET', url: release.packageUrl, headers: { authorization: 'token alice-token' } });
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers['content-type']).toContain('application/zip');
+    expect(sha256Integrity(downloaded.rawPayload)).toBe(release.checksum);
+    const parsed = await parsePublishedSkillPackage(downloaded.rawPayload);
+    expect(parsed.files['assets/示例.docx']).toEqual(binary);
+    expect(parsed.files['SKILL.md'].toString()).toContain('name: alice:reviewer');
+    expect(JSON.parse(parsed.files['skill.json'].toString())).toMatchObject({ name: '@alice/reviewer', version: '1.0.0' });
+    expect(gitea.readSourceTree).toHaveBeenCalledWith('alice', 'reviewer', 'abc123');
+  });
+
   async function upload(name: string) {
     return app.inject({
       method: 'POST',
@@ -125,6 +154,7 @@ describe('Skill Release API', () => {
       compatibility: {},
       dependencies
     };
+    gitea.readSourceTree!.mockResolvedValueOnce(Object.fromEntries(Object.entries({ ...SKILL_FILES, 'release.json': JSON.stringify(manifest) }).map(([key, value]) => [key, Buffer.from(value)])));
     return app.inject({
       method: 'POST',
       url: `/api/skills/${target}/releases`,
@@ -168,10 +198,7 @@ describe('Skill Release API', () => {
         version: '1.0.0',
         sourceCommit: 'unpushed-commit',
         releaseManifest: manifest,
-        files: {
-          ...SKILL_FILES,
-          'release.json': JSON.stringify(manifest)
-        },
+        filesBase64: Object.fromEntries(Object.entries({ ...SKILL_FILES, 'release.json': JSON.stringify(manifest) }).map(([key, value]) => [key, Buffer.from(value).toString('base64')])),
         dryRun: true
       }
     });
@@ -1004,7 +1031,7 @@ describe('Skill Release API', () => {
   });
 
   it('uses the request files in --dry-run when the unpushed commit is not on the server', async () => {
-    gitea.readSourceTree = vi.fn().mockRejectedValue(new Error('unknown commit'));
+    gitea.readSourceTree = vi.fn().mockRejectedValue(new GiteaRequestError(404, 'unknown commit'));
     await app.inject({
       method: 'POST',
       url: '/api/skills/upload',

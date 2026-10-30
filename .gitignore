@@ -17,6 +17,7 @@ letsencrypt/
 docker/cloudflared/
 docker-compose.tunnel.yml
 docker-compose.prod.tls.yml
+docker-compose.instance.yml
 .tls-domain
 
 # Playwright E2E 运行产物(.auth 含会话 storageState)
@@ -45,3 +46,9 @@ packages/*/src/**/*.d.ts
 
 # npm pack 产物
 *.tgz
+
+# 本地技能评测数据，不纳入版本控制
+skills/esl-operator/evals/
+
+# 本地 npm 发布流程记录
+/NPM_RELEASE.md

@@ -1,0 +1,11 @@
+{
+  "name": "@builtin/skill-forge",
+  "version": "1.0.0",
+  "description": "创建、改进和评测技能，优化技能描述与触发效果。",
+  "author": "foxian",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skills",
+    "evaluation"
+  ]
+}

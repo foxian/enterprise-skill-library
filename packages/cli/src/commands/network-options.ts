@@ -1,15 +1,25 @@
 import {
+  credentialsForInstance,
+  discoverServerIdentity,
+  findServerInstanceByAddress,
+  findServerInstanceById,
+  instanceAddressCandidates,
   loadConfig,
   loadCredentials,
+  normalizeServerUrl,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
+  saveConfig,
   skillSourceDirectoryName,
+  addServerAddress,
   type LocalStoreOptions,
-  type OrganizationMembership
+  type OrganizationMembership,
+  type ServerRegistry
 } from '@esl/core';
 import path from 'node:path';
 import { requireOkResponse } from '../api-error.js';
 import { readCliVersion } from '../version.js';
+import { DEFAULT_ESL_SERVER, resolveServer } from './config.js';
 
 export interface NetworkCommandOptions extends LocalStoreOptions {
   server?: string;
@@ -23,12 +33,149 @@ export interface ResolvedNetworkConfig {
 }
 
 export async function resolveNetworkConfig(options: NetworkCommandOptions): Promise<ResolvedNetworkConfig> {
-  const config = await loadConfig({ homeDir: options.homeDir });
   const credentials = await loadCredentials({ homeDir: options.homeDir });
+  const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+  const instanceId = config?.selectedInstanceId ?? null;
   return {
-    server: options.server ?? requireConfigured(config.server, 'server'),
-    token: credentials.token
+    server: await resolveServer({ server: options.server, homeDir: options.homeDir }),
+    token: credentialsForInstance(credentials, instanceId).token
   };
+}
+
+export interface ResolvedServerContext {
+  server: string;
+  instanceId: string;
+  token: string | null;
+}
+
+function registryFromConfig(config: {
+  servers?: unknown;
+  selectedInstanceId?: string | null;
+}): ServerRegistry {
+  return {
+    instances: Array.isArray(config.servers) ? config.servers : [],
+    selectedInstanceId: config.selectedInstanceId ?? null
+  };
+}
+
+async function tokenForInstance(options: LocalStoreOptions, instanceId: string): Promise<string | null> {
+  let credentials;
+  try {
+    credentials = await loadCredentials({ homeDir: options.homeDir });
+  } catch {
+    return null;
+  }
+  return credentialsForInstance(credentials, instanceId).token;
+}
+
+/**
+ * 远程命令的来源上下文（ADR-0071）：解析地址、确认/发现 Instance ID，并按实例
+ * 取凭据。地址已登记却返回不同 ID 时 fail-closed；新地址声明已知实例时要求先
+ * 走 `esl config server add` 的确认流程。
+ */
+export async function resolveServerContext(
+  options: NetworkCommandOptions,
+  context: { requireIdentity?: boolean } = {}
+): Promise<{ server: string; instanceId: string | null; token: string | null }> {
+  const requireIdentity = context.requireIdentity !== false;
+  let config;
+  try {
+    config = await loadConfig({ homeDir: options.homeDir });
+  } catch {
+    config = null;
+  }
+  const registry = registryFromConfig(config ?? {});
+  const requested = options.server ?? process.env.ESL_SERVER ?? config?.server ?? DEFAULT_ESL_SERVER;
+  const server = normalizeServerUrl(requested);
+
+  const registered = findServerInstanceByAddress(registry, server);
+  if (registered) {
+    let identity: Awaited<ReturnType<typeof discoverServerIdentity>>;
+    try {
+      identity = await discoverServerIdentity(server, { fetchImpl: options.customFetch });
+    } catch (error) {
+      if (!requireIdentity) {
+        return {
+          server,
+          instanceId: registered.instance.instanceId,
+          token: await tokenForInstance(options, registered.instance.instanceId)
+        };
+      }
+      // 首选地址不可用：尝试同实例其他已确认地址（迁移/临时故障回退）。
+      for (const candidate of instanceAddressCandidates(registered.instance)) {
+        if (candidate === server) continue;
+        try {
+          const fallbackIdentity = await discoverServerIdentity(candidate, { fetchImpl: options.customFetch });
+          if (fallbackIdentity.instanceId === registered.instance.instanceId) {
+            return {
+              server: candidate,
+              instanceId: fallbackIdentity.instanceId,
+              token: await tokenForInstance(options, fallbackIdentity.instanceId)
+            };
+          }
+        } catch {
+          // 继续尝试下一个地址。
+        }
+      }
+      throw new Error(
+        `Unable to confirm ESL Server instance ${registered.instance.instanceId} at ${server}: ${(error as Error).message} ` +
+          'Remote commands need a reachable Server; local commands remain available.'
+      );
+    }
+    if (identity.instanceId !== registered.instance.instanceId) {
+      // 已登记地址换了身份：绝不静默改绑，也不把流量切到别的地址掩盖异常。
+      throw new Error(
+        `Address ${server} is registered to ESL Server instance ${registered.instance.instanceId}, ` +
+          `but it now reports ${identity.instanceId}. Refusing to continue with a silent rebind; ` +
+          `remove the old registration first ("esl config server remove ${server}") and confirm the new Server explicitly.`
+      );
+    }
+    return {
+      server,
+      instanceId: registered.instance.instanceId,
+      token: await tokenForInstance(options, registered.instance.instanceId)
+    };
+  }
+
+  let discovered;
+  try {
+    discovered = await discoverServerIdentity(server, { fetchImpl: options.customFetch });
+  } catch (error) {
+    if (!requireIdentity) {
+      return { server, instanceId: null, token: await loadCredentials({ homeDir: options.homeDir }).then((c) => c.token).catch(() => null) };
+    }
+    throw new Error(
+      `${(error as Error).message} Remote commands need the Server Instance ID to isolate skill sources; ` +
+        'local commands continue to work without it.'
+    );
+  }
+
+  const known = findServerInstanceById(registry, discovered.instanceId);
+  if (known) {
+    throw new Error(
+      `${server} claims to be ESL Server instance ${known.instanceId}, which is already registered at ` +
+        `${known.addresses.map((address) => address.url).join(', ')}. Instance IDs are not cryptographic proof: ` +
+        `verify the endpoint, then register it with "esl config server add ${server} --accept-new-address".`
+    );
+  }
+
+  // 未知实例：按新来源登记，不迁移任何旧实例数据（新地址不会误接管已知来源）。
+  try {
+    const registration = addServerAddress(registry, { instanceId: discovered.instanceId, url: server });
+    await saveConfig(
+      { servers: registration.registry.instances, selectedInstanceId: registration.registry.selectedInstanceId },
+      { homeDir: options.homeDir }
+    );
+  } catch {
+    // 登记失败不影响本次只读/安装请求；下一次命令会重新发现。
+  }
+  return { server, instanceId: discovered.instanceId, token: await tokenForInstance(options, discovered.instanceId) };
+}
+
+export function requireServerContext(
+  options: NetworkCommandOptions
+): Promise<ResolvedServerContext> {
+  return resolveServerContext(options, { requireIdentity: true }) as Promise<ResolvedServerContext>;
 }
 
 export function requireConfigured(value: string | null | undefined, name: string): string {
@@ -82,8 +229,10 @@ export function isLoginFresh(loginAt: string | null | undefined): boolean {
 
 export async function requireFreshToken(options: LocalStoreOptions = {}): Promise<string> {
   const credentials = await loadCredentials({ homeDir: options.homeDir });
-  const token = requireConfigured(credentials.token, 'token');
-  if (!isLoginFresh(credentials.loginAt)) {
+  const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+  const selected = credentialsForInstance(credentials, config?.selectedInstanceId ?? null);
+  const token = requireConfigured(selected.token, 'token');
+  if (!isLoginFresh(selected.loginAt)) {
     throw new Error('Login expired; run esl login to re-authenticate');
   }
   return token;
@@ -95,8 +244,10 @@ export async function resolveOptionalFreshToken(options: LocalStoreOptions = {})
   let loginAt: string | null;
   try {
     const credentials = await loadCredentials({ homeDir: options.homeDir });
-    token = credentials.token;
-    loginAt = credentials.loginAt;
+    const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
+    const selected = credentialsForInstance(credentials, config?.selectedInstanceId ?? null);
+    token = selected.token;
+    loginAt = selected.loginAt;
   } catch {
     return null;
   }
@@ -221,21 +372,40 @@ export function gitAuthHeaderConfig(token: string): string {
   return `http.extraHeader=Authorization: Bearer ${token}`;
 }
 
-export function installTargetDir(skillName: string, options: LocalStoreOptions): string {
-  return path.join(resolveLocalStorePaths(options).skillsDir, skillSourceDirectoryName(skillName));
+export function installTargetDir(
+  skillName: string,
+  options: LocalStoreOptions,
+  instanceId?: string | null
+): string {
+  return path.join(
+    resolveLocalStorePaths(options).skillsDir,
+    instanceId ? path.join(instanceId, skillSourceDirectoryName(skillName)) : skillSourceDirectoryName(skillName)
+  );
 }
 
-export function projectSkillsDir(projectRoot: string, skillName: string): string {
-  return path.join(resolveProjectStorePaths(projectRoot).skillsDir, skillSourceDirectoryName(skillName));
+export function projectSkillsDir(
+  projectRoot: string,
+  skillName: string,
+  instanceId?: string | null
+): string {
+  return path.join(
+    resolveProjectStorePaths(projectRoot).skillsDir,
+    instanceId ? path.join(instanceId, skillSourceDirectoryName(skillName)) : skillSourceDirectoryName(skillName)
+  );
 }
 
 export function publishedInstallTargetDir(
   skillName: string,
-  options: LocalStoreOptions
+  options: LocalStoreOptions,
+  instanceId?: string | null
 ): string {
-  return installTargetDir(skillName, options);
+  return installTargetDir(skillName, options, instanceId);
 }
 
-export function publishedProjectSkillsDir(projectRoot: string, skillName: string): string {
-  return projectSkillsDir(projectRoot, skillName);
+export function publishedProjectSkillsDir(
+  projectRoot: string,
+  skillName: string,
+  instanceId?: string | null
+): string {
+  return projectSkillsDir(projectRoot, skillName, instanceId);
 }

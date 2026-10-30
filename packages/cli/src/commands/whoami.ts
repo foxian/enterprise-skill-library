@@ -6,6 +6,7 @@ import {
   type OrganizationMembership
 } from '@esl/core';
 import { fetchAccountProfile, fetchMyOrganizations, isLoginFresh, resolveLoginTtlMs } from './network-options.js';
+import { resolveServer } from './config.js';
 
 export interface WhoamiOptions extends LocalStoreOptions {
   /**
@@ -41,17 +42,16 @@ export async function executeWhoami(options: WhoamiOptions = {}): Promise<Whoami
 
   let email = config.email ?? null;
   let organizations = config.organizations ?? null;
+  let server = config.server ?? null;
 
   if (options.online) {
     if (!token) {
       throw new Error('Not logged in; run esl login to authenticate.');
     }
-    if (!config.server) {
-      throw new Error('Missing server; run esl config set-server or esl login.');
-    }
+    server = await resolveServer({ homeDir: options.homeDir });
     const fetchImpl = options.customFetch ?? fetch;
-    email = (await fetchAccountProfile(config.server, token, fetchImpl)).email;
-    organizations = await fetchMyOrganizations(config.server, token, fetchImpl);
+    email = (await fetchAccountProfile(server, token, fetchImpl)).email;
+    organizations = await fetchMyOrganizations(server, token, fetchImpl);
     // 写回本地快照：后续默认（离线）whoami 也反映这次核实到的资料。只更新账户资料，
     // 不碰 loginAt——核实资料不是重新登录，不该延长会话有效期。
     await saveConfig({ email, organizations }, { homeDir: options.homeDir });
@@ -63,7 +63,7 @@ export async function executeWhoami(options: WhoamiOptions = {}): Promise<Whoami
     email,
     organizations,
     legacyIdentity: config.legacyIdentity ?? false,
-    server: config.server ?? null,
+    server,
     loginAt,
     expiresAt: loginAt && !Number.isNaN(loginAtMs) ? new Date(loginAtMs + resolveLoginTtlMs()).toISOString() : null,
     expired

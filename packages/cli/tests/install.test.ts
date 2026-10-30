@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeLocalStore, saveCredentials } from '@esl/core';
+import { initializeLocalStore, saveCredentials, createPublishedSkillPackage, sha256Integrity } from '@esl/core';
 import { executeInstall } from '../src/commands/install.js';
 import { readCliVersion } from '../src/version.js';
 
@@ -26,7 +26,7 @@ describe('esl install (global mode)', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        versions: ['0.1.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['0.1.0']
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -60,7 +60,7 @@ describe('esl install (global mode)', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
+        path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review')
       ]
     );
   });
@@ -91,7 +91,7 @@ describe('esl install (global mode)', () => {
         json: async () => ({
           name: '@platform-ai/reviewer',
           skillId: 'sk_01J00000000000000000000000',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_01J00000000000000000000000/1.0.0/${packageChecksum}.json`
         })
       })
@@ -111,10 +111,32 @@ describe('esl install (global mode)', () => {
     });
 
     expect(target).toBe(
-      path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer')
+      path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'reviewer')
     );
     expect(fs.existsSync(path.join(target, 'skill.json'))).toBe(true);
     expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toContain('name: platform-ai:reviewer');
+    expect(execFileAsync).not.toHaveBeenCalled();
+  });
+
+
+  it('安装 ZIP 后二进制文件字节不变且不执行 Git 或脚本', async () => {
+    const binary = Buffer.from([0x50, 0x4b, 0x00, 0xff, 0x80]);
+    const bytes = await createPublishedSkillPackage({
+      name: '@platform-ai/reviewer', skillId: 'sk_binary', version: '1.0.0', sourceCommit: 'abc123', releaseManifest: {}
+    }, {
+      'SKILL.md': Buffer.from('---\nname: platform-ai:reviewer\ndescription: Review code\n---\n'),
+      'skill.json': Buffer.from(JSON.stringify({ name: '@platform-ai/reviewer', version: '1.0.0' })),
+      'assets/示例.docx': binary
+    });
+    const execFileAsync = vi.fn();
+    const customFetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({
+      name: '@platform-ai/reviewer', skillId: 'sk_binary', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
+      packageUrl: `/api/packages/sk_binary/1.0.0/${sha256Integrity(bytes)}.zip`
+    }) }).mockResolvedValueOnce({ ok: true, arrayBuffer: async () => bytes });
+    const target = await executeInstall('@platform-ai/reviewer', {
+      homeDir, global: true, noAdapt: true, server: 'http://localhost:4070', customFetch: customFetch as any, execFileAsync: execFileAsync as any
+    });
+    expect(fs.readFileSync(path.join(target, 'assets/示例.docx'))).toEqual(binary);
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
@@ -145,7 +167,7 @@ describe('esl install (global mode)', () => {
           name: '@platform-ai/reviewer',
           skillId: 'sk_01J00000000000000000000000',
           // Newest published first: 0.1.0 was published after 1.2.0.
-          versions: ['0.1.0', '1.2.0', '1.3.0-beta.1'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['0.1.0', '1.2.0', '1.3.0-beta.1'],
           releases: [
             { version: '0.1.0', packageUrl: `/api/packages/sk_01J00000000000000000000000/0.1.0/stale.json` },
             {
@@ -200,7 +222,7 @@ describe('esl install (global mode)', () => {
         json: async () => ({
           name: '@platform-ai/reviewer',
           skillId: 'sk_01J00000000000000000000000',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           releases: [
             {
               version: '1.0.0',
@@ -223,7 +245,7 @@ describe('esl install (global mode)', () => {
     });
 
     expect(target).toBe(
-      path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer')
+      path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'reviewer')
     );
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Use 1.1.0; this release ships a broken regex'));
     warnSpy.mockRestore();
@@ -236,7 +258,7 @@ describe('esl install (global mode)', () => {
         json: async () => ({
           name: '@platform-ai/reviewer',
           skillId: 'sk_01J00000000000000000000000',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: '/api/packages/sk_01J00000000000000000000000/1.0.0/sha256-expected.json'
         })
       })
@@ -252,7 +274,7 @@ describe('esl install (global mode)', () => {
       server: 'http://localhost:4070',
       customFetch: fetchImpl as any
     })).rejects.toThrow('checksum does not match');
-    expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', '@platform-ai', 'reviewer'))).toBe(false);
+    expect(fs.existsSync(path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'reviewer'))).toBe(false);
   });
 
   it('rejects an incompatible package unless compatibility checks are ignored', async () => {
@@ -281,7 +303,7 @@ describe('esl install (global mode)', () => {
         json: async () => ({
           name: '@platform-ai/reviewer',
           skillId: 'sk_01J00000000000000000000000',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_01J00000000000000000000000/1.0.0/${checksum}.json`
         })
       })
@@ -305,7 +327,7 @@ describe('esl install (global mode)', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        versions: ['1.0.0'],
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
         packageUrl: `/api/packages/sk_01J00000000000000000000000/1.0.0/${checksum}.json`
       })
     });
@@ -397,7 +419,7 @@ describe('esl install request reporting (#136)', () => {
           name: '@platform-ai/reviewer',
           skillId: 'sk_r',
           visibility: 'public',
-          versions: ['1.2.3'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.3'],
           packageUrl: `/api/packages/sk_r/1.2.3/${root.checksum}.json`
         })
       })
@@ -428,7 +450,7 @@ describe('esl install request reporting (#136)', () => {
           name: '@platform-ai/reviewer',
           skillId: 'sk_r',
           visibility: 'public',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_r/1.0.0/${root.checksum}.json`
         })
       })
@@ -464,7 +486,7 @@ describe('esl install request reporting (#136)', () => {
           name: '@platform-ai/root-a',
           skillId: 'sk_a',
           visibility: 'public',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_a/1.0.0/${root.checksum}.json`
         })
       })
@@ -472,7 +494,7 @@ describe('esl install request reporting (#136)', () => {
       .mockResolvedValueOnce(packageResponse(shared.bytes))
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ name: '@platform-ai/shared', visibility: 'public', versions: ['1.2.0'] })
+        json: async () => ({ name: '@platform-ai/shared', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'] })
       });
 
     await executeInstall('@platform-ai/root-a', installOptions(fetchImpl) as any);
@@ -481,7 +503,7 @@ describe('esl install request reporting (#136)', () => {
       String(call[0]).includes('/api/packages/sk_shared/')
     ) as [string, { headers: Record<string, string> }];
     expect(dependencyCall[0]).toBe(
-      `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.json?requested=1.2.0`
+      `${server}/api/packages/sk_shared/1.2.0/${shared.checksum}.zip?requested=1.2.0`
     );
     expect(dependencyCall[1].headers['user-agent']).toBe(expectedUserAgent());
     // 根包仍按用户 specifier（未显式给出时 latest）上报。

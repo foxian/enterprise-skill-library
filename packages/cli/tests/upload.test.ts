@@ -115,7 +115,8 @@ describe('esl upload', () => {
   const uploadResponse = {
     name: '@platform-ai/reviewer',
     skillId: 'sk_01J00000000000000000000000',
-    cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+    cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+    instanceId: '11111111-1111-4111-8111-111111111111'
   };
 
   it('requires an explicit identity confirmation for the first upload in non-interactive mode', async () => {
@@ -222,7 +223,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -268,7 +270,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = gitMock({ dirty: '?? release.json\n' });
@@ -307,7 +310,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = gitMock({ dirty: '?? release.json\n' });
@@ -340,7 +344,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -376,7 +381,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -409,7 +415,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -465,7 +472,8 @@ describe('esl upload', () => {
       json: async () => ({
         name: '@platform-ai/reviewer',
         skillId: 'sk_01J00000000000000000000000',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -819,7 +827,8 @@ describe('esl upload', () => {
       status: 200,
       json: async () => ({
         ...uploadResponse,
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer-renamed.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer-renamed.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       })
     });
     const execFileAsync = vi.fn().mockImplementation((cmd: string, args: string[]) => {
@@ -951,7 +960,8 @@ describe('esl upload', () => {
           json: async () => ({
             name: '@platform-ai/reviewer',
             skillId: 'sk_01J00000000000000000000000',
-            cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+            cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
           })
         });
       }
@@ -970,7 +980,8 @@ describe('esl upload', () => {
 
       expect(result).toMatchObject({
         name: '@platform-ai/reviewer',
-        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git'
+        cloneUrl: 'http://localhost:4070/git/platform-ai/reviewer.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
       });
       expect(execFileAsync).toHaveBeenCalledWith(
         'git',
@@ -1044,7 +1055,8 @@ describe('esl upload', () => {
           status: 200,
           json: async () => ({
             name: '@platform-ai/review-crew',
-            cloneUrl: 'http://localhost:4070/git/platform-ai/review-crew.git'
+            cloneUrl: 'http://localhost:4070/git/platform-ai/review-crew.git',
+        instanceId: '11111111-1111-4111-8111-111111111111'
           })
         });
       }

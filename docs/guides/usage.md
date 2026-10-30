@@ -35,9 +35,10 @@ Gitea 是内部 Git Backend，不需要直接配置或登录。
 Organization；登录时**不再输入组织**。还没有账号时，见 [CLI 安装指南](cli-install.md)
 的最小注册路径（`{server}/admin/register-user`）；**CLI 不能注册用户**。
 
-#### 配置 ESL Server 地址（只需一次）
-ESL CLI 从本地配置读取 Server 地址，所有命令（含登录）都默认使用该地址。
-首次使用前设置一次即可，之后不再需要 `--server`：
+#### 配置 ESL Server 地址（私有 / 自托管时才需要）
+ESL CLI 的 Server 地址解析优先级为：命令行 `--server`、环境变量 `ESL_SERVER`、本地保存的地址，
+最后是公开云端默认地址 `https://cloud.enterprise-skills.com/`。因此，使用公开云端时可以直接运行命令，
+不必先配置地址；使用私有、自托管或本地开发实例时，设置一次即可，之后不再需要 `--server`：
 
 ```powershell
 esl config set-server https://your-esl-server.example
@@ -49,9 +50,8 @@ esl config set-server https://your-esl-server.example
 esl config set-server https://esl.example.com
 ```
 
-`@foxian/esl` **不内置**出厂默认 Server URL。本地按 [本地开发指南](local-development.md)
-用 Docker 起 Server 时，常见地址是 `http://localhost:4070`。也可用环境变量
-`ESL_SERVER` 做临时覆盖。
+本地按 [本地开发指南](local-development.md) 用 Docker 起 Server 时，常见地址是
+`http://localhost:4070`。也可用环境变量 `ESL_SERVER` 做临时覆盖。
 
 #### 交互式登录（推荐）
 `esl account login` 会依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后

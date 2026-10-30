@@ -14,6 +14,7 @@ describe('esl login', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
@@ -325,8 +326,9 @@ describe('esl login', () => {
       customFetch: mockFetch as any
     });
 
-    // 两次：一次换 token，一次取账户邮箱快照（/api/account/profile）。
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // 三次：换 token、取账户邮箱快照（/api/account/profile），以及登录后尽力
+    // 发现 Server 实例身份（ADR-0070）。
+    expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(mockFetch).toHaveBeenCalledWith(
       'http://skills.company.com/api/account/profile',
       expect.objectContaining({
@@ -375,17 +377,28 @@ describe('esl login', () => {
     );
   });
 
-  it('fails when no server is passed or saved', async () => {
+  it('uses the public cloud server when no server is passed or saved', async () => {
     await initializeLocalStore({ homeDir });
+    vi.stubEnv('ESL_SERVER', '');
+    const passwordFile = path.join(homeDir, 'pw.txt');
+    fs.writeFileSync(passwordFile, 'password123');
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'mock_skill_user_token', username: 'zhangsan', organizations: [] })
+    });
 
-    await expect(
-      executeLogin({
-        username: 'zhangsan',
-        noInput: true,
-        homeDir,
-        customFetch: vi.fn() as any
-      })
-    ).rejects.toThrow(/server/i);
+    await executeLogin({
+      username: 'zhangsan',
+      passwordFile,
+      homeDir,
+      customFetch: mockFetch as any
+    });
+
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      'https://cloud.enterprise-skills.com/api/auth/login',
+      expect.objectContaining({ method: 'POST' })
+    );
   });
 
   it('always prompts for the username, ignoring a saved username', async () => {

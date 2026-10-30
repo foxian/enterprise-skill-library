@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeInstall } from '../src/commands/install.js';
-import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials } from '@esl/core';
+import { initializeLocalStore, loadSkillsJson, loadSkillsLock, saveConfig, saveCredentials, createPublishedSkillPackage, sha256Integrity } from '@esl/core';
 
 interface PackageSpec {
   name: string;
@@ -47,7 +47,7 @@ function packageResponse(bytes: Buffer) {
 }
 
 function infoResponse(name: string, visibility: string) {
-  return { ok: true, json: async () => ({ name, visibility, versions: [] }) };
+  return { ok: true, json: async () => ({ name, visibility, instanceId: '11111111-1111-4111-8111-111111111111', versions: [] }) };
 }
 
 describe('esl install multi-root merge', () => {
@@ -82,7 +82,7 @@ describe('esl install multi-root merge', () => {
   const sharedStoreJson = () =>
     JSON.parse(
       fs.readFileSync(
-        path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'shared', 'skill.json'),
+        path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'shared', 'skill.json'),
         'utf8'
       )
     ) as { version: string };
@@ -104,7 +104,7 @@ describe('esl install multi-root merge', () => {
           json: async () => ({
             name: '@platform-ai/root-a',
             visibility: 'public',
-            versions: ['1.0.0'],
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
             packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json`
           })
         })
@@ -114,6 +114,49 @@ describe('esl install multi-root merge', () => {
       .mockResolvedValueOnce(infoResponse('@platform-ai/shared', 'public'));
     await executeInstall('@platform-ai/root-a', installOptions(fetch));
   }
+
+  it.each(['zip', 'json'] as const)('安装冻锁依赖兼容 %s 包并记录实际下载地址', async (format) => {
+    const binary = Buffer.from([0x50, 0x4b, 0x00, 0xff, 0x80]);
+    const legacy = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    const original = JSON.parse(legacy.bytes.toString('utf8'));
+    const zipBytes = await createPublishedSkillPackage(original, {
+      ...Object.fromEntries(Object.entries(original.files).map(([name, text]) => [name, Buffer.from(text as string)])),
+      'assets/示例.docx': binary
+    });
+    const bytes = format === 'zip' ? zipBytes : legacy.bytes;
+    const checksum = sha256Integrity(bytes);
+    const root = buildPackage({
+      name: '@platform-ai/root-a', skillId: 'sk_a', version: '1.0.0',
+      dependencies: { '@platform-ai/shared': '^1.0.0' },
+      dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.2.0', checksum } }
+    });
+    const rootUrl = `/api/packages/sk_a/1.0.0/${root.checksum}.json`;
+    const dependencyUrl = `${server}/api/packages/sk_shared/1.2.0/${checksum}`;
+    const fetch = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      // #136：包请求统一追加 ?requested=<specifier>，根技能为 latest，冻锁依赖为精确版本。
+      if (url.includes(rootUrl)) return packageResponse(root.bytes);
+      if (url.startsWith(`${dependencyUrl}.zip?`) || url === `${dependencyUrl}.zip`) {
+        return format === 'zip' ? packageResponse(bytes) : { ok: false, status: 404 };
+      }
+      if (url.startsWith(`${dependencyUrl}.json?`) || url === `${dependencyUrl}.json`) return packageResponse(bytes);
+      if (url.includes('/api/skills/')) return ok({ json: async () => ({
+        name: '@platform-ai/root-a', visibility: 'public', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'], packageUrl: rootUrl
+      }) });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    await executeInstall('@platform-ai/root-a', installOptions(fetch));
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].resolved).toBe(`${dependencyUrl}.${format}`);
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith(`${rootUrl}?requested=latest`))).toBe(true);
+    expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.`) && String(url).includes('requested=1.2.0'))).toBe(true);
+    if (format === 'zip') {
+      expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'shared', 'assets', '示例.docx'))).toEqual(binary);
+      expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.json`))).toBe(false);
+    } else {
+      expect(fetch.mock.calls.some(([url]) => String(url).startsWith(`${dependencyUrl}.json`))).toBe(true);
+    }
+  });
 
   it('elevates a shared dependency to the higher version the second root pins, when it still satisfies both ranges', async () => {
     await installRootA(vi.fn());
@@ -133,7 +176,7 @@ describe('esl install multi-root merge', () => {
           json: async () => ({
             name: '@platform-ai/root-c',
             visibility: 'public',
-            versions: ['1.0.0'],
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
             packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json`
           })
         })
@@ -145,7 +188,7 @@ describe('esl install multi-root merge', () => {
     await executeInstall('@platform-ai/root-c', installOptions(fetch));
 
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@platform-ai/shared'].version).toBe('1.3.0');
+    expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.3.0');
     expect(sharedStoreJson().version).toBe('1.3.0');
     // 两个根都在项目清单里，共享基础技能只保留一份更高副本。
     const skillsJson = await loadSkillsJson(projectDir);
@@ -153,7 +196,7 @@ describe('esl install multi-root merge', () => {
       '@platform-ai/root-a',
       '@platform-ai/root-c'
     ]);
-    expect(lock.skills['@platform-ai/root-a'].version).toBe('1.0.0');
+    expect(lock.skills['@platform-ai/root-a#11111111-1111-4111-8111-111111111111'].version).toBe('1.0.0');
   });
 
   it('fails the whole install and leaves the existing graph untouched when the higher version breaks a range', async () => {
@@ -176,7 +219,7 @@ describe('esl install multi-root merge', () => {
               json: async () => ({
                 name: '@platform-ai/root-a',
                 visibility: 'public',
-                versions: ['1.0.0'],
+                instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
                 packageUrl: `/api/packages/sk_a/1.0.0/${rootA.checksum}.json`
               })
             })
@@ -202,7 +245,7 @@ describe('esl install multi-root merge', () => {
           json: async () => ({
             name: '@platform-ai/root-c',
             visibility: 'public',
-            versions: ['1.0.0'],
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
             packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json`
           })
         })
@@ -219,7 +262,7 @@ describe('esl install multi-root merge', () => {
     const skillsJson = await loadSkillsJson(projectDir);
     expect(Object.keys(skillsJson.skills)).toEqual(['@platform-ai/root-a']);
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@platform-ai/shared'].version).toBe('1.2.0');
+    expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.2.0');
     expect(sharedStoreJson().version).toBe('1.2.0');
   });
 
@@ -239,7 +282,7 @@ describe('esl install multi-root merge', () => {
           json: async () => ({
             name: '@platform-ai/root-a',
             visibility: 'public',
-            versions: ['1.0.0'],
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
             packageUrl: `/api/packages/sk_a/1.0.0/${root.checksum}.json`
           })
         })
@@ -251,6 +294,6 @@ describe('esl install multi-root merge', () => {
     await expect(executeInstall('@platform-ai/root-a', installOptions(fetch))).rejects.toMatchObject({
       code: 'releaseDependencyPublicChainMustBePublic'
     });
-    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'shared'))).toBe(false);
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'shared'))).toBe(false);
   });
 });

@@ -14,22 +14,24 @@
 6. **验证结果**：用成功判据确认，而不是仅凭命令退出成功。
 7. **给出下一步**：任务完成、等待用户选择或进入下一个阶段。
 
-只读查询直接展示结果；写操作说明影响范围与成功判据，失败时给出下一步。内容创作与评测由 `skill-forge` 承接；仅修改技能内容不自动触发 ESL 上传或发布。
+只读查询直接展示结果；写操作说明影响范围与成功判据，失败时给出下一步。内容创作与评测由可通过 `esl install @builtin/skill-forge` 安装的内置 `skill-forge` 承接；仅修改技能内容不自动触发 ESL 上传或发布。
 
 ## 环境按任务检查
+
+CLI 检查要区分“可执行”和“可安装”：先复用 `esl --version`；找不到时检查 `node -v`、`npm -v`、`npx --version`，再判断全局 npm 目录是否可写。受限沙箱优先使用项目级可写目录中的 `@foxian/esl`，其次使用带固定版本的 `npx --yes @foxian/esl@<version>`；全局安装不是硬前置。一次任务固定一个 CLI 执行器，避免不同安装来源或版本混用。
 
 | 目标 | 最小检查 |
 |---|---|
 | 查看本地技能 | `esl --version`；无需 Server、登录或 Git |
 | 安装 `@builtin/esl-operator` | `esl --version`；不访问 Server，不需要登录或 Git |
-| 搜索/查看远端技能 | CLI、Server；私有结果需要登录 |
-| 试用远端技能 | CLI、Server、访问权限；不把试用误当安装 |
-| 安装/更新远端技能 | CLI、Server、登录；已发布包走 HTTP，无需 Git；还要确认项目/全局与工具 |
+| 搜索/查看远端技能 | CLI、Server（未指定时默认公开云端）；私有结果需要登录 |
+| 试用远端技能 | CLI、Server（未指定时默认公开云端）、访问权限；不把试用误当安装 |
+| 安装/更新远端技能 | CLI、Server（未指定时默认公开云端）、登录；已发布包走 HTTP，无需 Git；还要确认项目/全局与工具 |
 | 本地校验 | CLI、有效技能目录；通常无需 Server、登录或 Git |
-| 上传/发布 | CLI、Server、登录、Git、源码状态与权限 |
-| 克隆源码 | CLI、Server、登录、Git |
+| 上传/发布 | CLI、Server（私有/自托管时确认地址）、登录、Git、源码状态与权限 |
+| 克隆源码 | CLI、Server（私有/自托管时确认地址）、登录、Git |
 
-普通 CLI 用户不需要 Docker；只有明确要运行本地 ESL Server 时才读取本地开发文档。
+普通 CLI 用户不需要 Docker；只有明确要运行本地 ESL Server 时才读取本地开发文档。一次性沙箱中的 `ESL_SERVER`、登录状态和本地 Store 可能随沙箱销毁；需要跨会话复用时，要求宿主提供持久化目录或预装 CLI。
 
 ## 场景一：发现并试用技能
 
@@ -164,6 +166,15 @@ list --json 查看现状 → 明确影响范围 → update/link/unlink/uninstall
 
 变更前说明这是远端权限变更并回显完整命令；完成后复核实际范围（再跑一次查看）。清空全部显式授权用 `--clear-grants`（会二次确认；非交互时先征得用户同意再加 `--force`），它**不改变可见性**，也不动所有者 / Maintainer / 管理员基于角色获得的权限——不要把“清空授权”说成“设为私有”。
 
+## skill-forge 内置技能
+
+`@builtin/skill-forge` 随 ESL CLI 发行包携带，但版本独立于 CLI。使用
+`esl install @builtin/skill-forge` 安装，使用 `esl update @builtin/skill-forge`
+显式更新；它不参与 CLI 升级后的全局自动同步。安装不访问 Server、不需要登录或网络。
+完整评测能力可能需要 Python、PyYAML、兼容的无头 AI CLI、浏览器和本地 HTTP 服务；
+这些依赖不属于安装器自动提供的依赖。评测 workspace 应放在工作区，不要写入 CLI
+内置目录。
+
 ## 内置技能边界
 
 `@builtin/esl-operator` 随 CLI 发布，从本地内置资源安装：不访问 Server、不需要登录或网络，也不可 `source upload`、`source clone`、`release version`、`release publish` 或 `source rename`。不要把它当普通远端技能。
@@ -184,3 +195,9 @@ list --json 查看现状 → 明确影响范围 → update/link/unlink/uninstall
 ## 场景：把基础技能播种到另一家企业
 
 先确认源目录为干净的 Git 仓库并已提交；在用户确认输出路径后运行 `esl source export [path] [--output <directory>]`。默认输出 `<短名>-export/`，位置在源目录同级，不改源目录、不要求登录。检查副本内容和裸名的 `release.json.name`；由目标企业 Maintainer 选定自己的 namespace（组织需改成 `@目标组织/短名`）并在自己的 Server 首次 `source upload`。之后两个实例独立演进，不当成 Origin 迁移、Source Remote 重指或上游同步。若用户明确要求把**当前目录**清成只剩技能文档和代码，才运行 `esl source clean [path] --force`；它会删除 `.git` 与 `release.json`，不能用来做分发。详见 `references/author.md`。
+
+## 发布包字节安全说明（Issue #143）
+
+发布技能时不要把 `.docx`、图片等资源读取为 UTF-8 文本。正式发布由服务端按固定 `sourceCommit` 读取源码并生成 ZIP；客户端的 `filesBase64` 仅用于 dry-run 服务端返回 404 时的回退，内容由本地固定提交的 blob 读取，不采集工作树。安装器先校验下载包 checksum，再兼容解析 ZIP 或历史 JSON，并以二进制方式写回文件。若旧 JSON 发布包在修复前已损坏，不能通过兼容逻辑修复，需从完好源码重新发布。
+
+依赖冻锁继续使用 skillId、version 与 checksum，不要求迁移旧锁。下载依赖时优先尝试 ZIP 地址，仅在返回 404 时尝试历史 JSON 地址；权限错误、网络故障和 checksum 错误不会触发格式回退，安装记录保存实际下载地址。

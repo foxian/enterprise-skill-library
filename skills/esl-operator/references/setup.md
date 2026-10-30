@@ -4,7 +4,7 @@
 
 任务前置条件统一见本技能根目录下 `references/workflows.md` 的「环境按任务检查」；只处理当前任务缺失的条件。本页提供安装、配置和认证方法，不增加额外前置。
 
-- 先运行 `esl --version`。CLI 缺失或启动失败时，再检查 `node --version` 与 `npm --version`。
+- 先运行 `esl --version`。CLI 缺失或启动失败时，再检查 `node --version`、`npm --version` 与 `npx --version`。Node/npm 存在不代表沙箱允许全局安装。
 - CLI 的 Node.js 支持范围与 `@foxian/esl` 的 engines 一致：`^20.17.0 || ^22.13.0 || ^23.5.0 || ^24.0.0`；推荐 24.x。缺 Node 或 npm 时不能安装 CLI。仓库开发的运行时要求另见仓库文档。
 - Git 仅在源码或发布流程需要时检查，已发布包的 HTTP 安装无需本机 Git。
 - 远端任务才要求配置 Server；需要鉴权时检查 `esl account whoami`，看到 `Not logged in` 不代表 CLI 安装失败。
@@ -13,28 +13,67 @@ CLI 安装成功的标准是 `esl --version` 有版本号；远端任务另检�
 
 ## 环境问题的分流话术
 
-- **没有 `esl`**：说明“CLI 尚未安装”，引导 `npm install -g @foxian/esl`，新开终端后复查 `esl --version`。
-- **远端任务有 `esl` 但没有 Server**：说明“客户端已安装、服务端地址未配置”，向用户索取管理员给出的 URL，再确认后执行 `esl config set-server <url>`。
+- **没有 `esl`**：说明“CLI 尚未安装”，先判断全局 npm 目录是否可写。可写时引导 `npm install -g @foxian/esl`，新开终端后复查 `esl --version`；沙箱或受限环境不可写时，改用项目级安装或固定版本 `npx`，不要反复重试全局安装。
+- 全局 CLI 提示有稳定版更新时，先向用户说明当前版本和目标版本；只有用户明确同意才运行 `esl self-update`。不要让项目级安装或 `npx` 改写 CLI；可复现任务使用 `npx --yes @foxian/esl@<version>`。
+- **远端任务有 `esl` 但没有自定义 Server**：公开云端默认使用 `https://cloud.enterprise-skills.com/`，无需先写配置；只有用户要访问私有、自托管或本地实例时，才向用户确认 URL，再执行 `esl config set-server <url>`。
 - **需要鉴权的远端任务有 Server 但未登录**：说明“环境已就绪但账号未认证”，让用户在自己的终端运行交互式 `esl login`，不要代输密码。
 - **只想搜索公共技能**：可以先继续，不强制登录；涉及私有技能、安装、上传或发布时再处理认证。
 - **Node/Git 不满足**：不要反复重试 ESL 命令，先修复对应前置并重新体检。
 
 ## CLI 尚未安装
 
-若终端报 `esl: command not found`（或同类「无法执行 esl」），先回到 `SKILL.md` 的「命令找不到 / 服务不通」最短失败卡：检查 `node`/`npm` → `npm install -g @foxian/esl` → `esl --version`。人类分平台详版见 `docs/guides/cli-install.md`（https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md）。**不要**在未装上 CLI 时继续本页的 login / set-server 步骤。
+若终端报 `esl: command not found`（或同类「无法执行 esl」），先回到 `SKILL.md` 的「命令找不到 / 服务不通」最短失败卡。按以下顺序选择一个执行器，并在同一任务中保持一致：
 
-## 配置 Server 地址（一次性）
+1. 已存在的 `esl`：直接使用。
+2. 全局安装可写：展示并确认 `npm install -g @foxian/esl`，完成后验证 `esl --version`。
+3. 沙箱有持久化可写目录：展示并确认 `npm install --prefix .esl-runtime @foxian/esl@<version>`，验证 `./.esl-runtime/node_modules/.bin/esl --version`；PowerShell 使用 `.cmd` 文件。把 `.esl-runtime` 加入项目的忽略规则，避免提交依赖目录。
+4. 只允许临时 npm 执行：使用 `npx --yes @foxian/esl@<version> ...`，固定包名和版本，不使用裸 `npx esl`。
+
+项目级安装和 `npx` 仍需要 npm 缓存或目标目录可写；如果都失败，提示宿主工具预装 `@foxian/esl` 或提供持久化的可写目录。Node/npm 已存在但全局安装失败时，应报告为“全局目录不可写或不在 PATH”，不要报告为“缺少 Node”。本仓库开发场景可 `npm run build` 或使用仓库文档中的 `npm exec -- esl`。人类分平台详版见 `docs/guides/cli-install.md`（https://github.com/foxian/enterprise-skill-library/blob/master/docs/guides/cli-install.md）。**不要**在未选定可用执行器前继续本页的 login / set-server 步骤。
+
+## 配置 Server 地址（覆盖公开云端默认值时）
+
+未指定 `--server`、`ESL_SERVER` 或本地保存的地址时，CLI 默认使用公开云端
+`https://cloud.enterprise-skills.com/`。`esl config set-server <url>` 用于覆盖这个默认值，
+必须提供带协议的完整 HTTP(S) URL：线上服务使用 `https://esl.example.com`，本地 Docker Server
+常见为 `http://localhost:4070`；只写域名会被 CLI 拒绝并提示补全协议。设置后所有命令都用它，
+不必每次带 `--server`。解析优先级是：`--server`、`ESL_SERVER`、本地保存的地址、公开云端默认地址。
+一次性或会清理用户目录的沙箱可用 `ESL_SERVER=<url>` 临时覆盖，而不是写入会丢失的本地配置；宿主应把
+Server、登录状态和 Store 放在持久化目录中，才能跨会话复用。
+
+### 多 Server 实例与地址登记
+
+每个 ESL Server 实例首次初始化时生成不可变 Instance ID；地址（域名、反向代理）变化
+不改变实例身份。CLI 默认从当前选中的实例安装/更新，不需要日常传 `--instance-id`。
+
+| 目的 | 命令 |
+|---|---|
+| 查看实例与地址 | `esl config server list [--json]` |
+| 为已知实例登记备用地址 | `esl config server add <url>` |
+| 切换当前实例 | `esl config server use <instance-id-or-url>` |
+| 删除本地登记 | `esl config server remove <instance-id-or-url>` |
+| 设置并登记默认地址 | `esl config set-server <url>` |
+
+- 新地址返回**已知** Instance ID 时，CLI 会提示该地址可能伪造并要求确认；非交互场景
+  必须由用户明确同意后再追加 `--accept-new-address`，不要替用户直接加。
+- 已登记地址返回**不同** Instance ID 时 CLI fail-closed；先 `esl config server remove <url>`
+  再重新添加，绝不要绕过或手工改配置文件。
+- `remove` 只清理本地地址/凭据登记，不删除已安装技能、项目依赖或服务器侧数据。
+- 首选地址不可用时，远程命令会尝试同一实例的其他已确认地址；本地命令不依赖 Server。
+- 不同实例的同名技能可以共存：Store 路径含完整 Instance ID，工具链接名含实例短前缀
+  （如 `acme_reviewer_111111`）。`@builtin/*` 不进入实例层级。
+- 项目 `.skills.json` 用 `instances` 记录直接依赖的 Instance ID，`.skills-lock.json`
+  记录实例、Skill ID、精确版本与完整性；两者都可提交到项目 Git。Server URL 不是身份。
 
 ## 语言偏好
 登录响应会把账户的 `locale` 保存到本机 CLI 配置；后续命令默认按该语言输出。任意命令可用 `--locale zh-CN` 或 `--locale en-US` 做单次覆盖，但不会写回账户偏好。账户偏好本身在 Web 设置中管理。
-
-`esl config set-server <url>` —— 设 ESL Server 地址。发行包**无**出厂默认 URL；使用部署者配置的实例地址，本地 Docker 开发常见 `http://localhost:4070`。设一次后所有命令都用它，不必每次带 `--server`。
 
 ## Server Origin 迁移（服务器换地址）
 ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release 原样保留）时，改完 `esl config set-server <新地址>` 后：
 
 - **消费端自动跟随**：install/update/use/source clone 每次从服务器现取地址，无需额外操作。
-- **已托管源目录自动重指**：之前 `esl source upload` 过的目录（带 `esl` remote）在下一次 `esl source upload` 时自动验证技能身份并把 remote 重指到新地址，输出一行「re-homed the esl remote」提示；`esl source status` 在这类目录只读提示 origin 漂移（ahead/behind 在重指前可能过期），不改任何配置。不需要也不建议手动 `git remote set-url`。
+- **已托管源目录自动重指**：之前 `esl source upload` 过的目录（带 `esl` remote）在下一次 `esl source upload` 时，CLI 先验证旧地址与新地址属于**同一 Instance ID**，且 Skill ID、仓库路径一致，才把 `esl` remote 重指到新地址；用户自己的 `origin` 始终不动。输出一行「re-homed the esl remote」提示；`esl source status` 在这类目录只读提示 origin 漂移（ahead/behind 在重指前可能过期），不改任何配置。不需要也不建议手动 `git remote set-url`。
+- **跨实例拒绝重指**：如果新地址返回不同 Instance ID，或 Skill ID/仓库路径无法验证，CLI 拒绝自动重指、不创建新 Skill ID、不接管其他实例的仓库、不删除旧 remote。先确认用户是要做整体迁移还是跨实例播种；后者用 `esl source export`。
 - **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `esl source upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `esl source upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
 
 ## 查看登录状态

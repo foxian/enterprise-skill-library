@@ -24,6 +24,7 @@ describe('skill display name', () => {
     gitea = {
       validateToken: vi.fn().mockResolvedValue({ username: 'alice' }),
       createRepo: vi.fn().mockResolvedValue({ full_name: 'alice/markdown-master' }),
+      readSourceTree: vi.fn().mockResolvedValue({}),
       createReleaseTag: vi.fn().mockResolvedValue(undefined),
       getReleaseTag: vi.fn().mockResolvedValue(null),
       deleteReleaseTag: vi.fn().mockResolvedValue(undefined),
@@ -70,6 +71,10 @@ describe('skill display name', () => {
 
   async function publish(version: string, displayName?: string) {
     const m = manifest(displayName);
+    gitea.readSourceTree.mockResolvedValueOnce({
+      'SKILL.md': Buffer.from('---\nname: markdown-master\ndescription: Markdown 技能\n---\n'),
+      'release.json': Buffer.from(JSON.stringify(m))
+    });
     return app.inject({
       method: 'POST',
       url: '/api/skills/@alice/markdown-master/releases',

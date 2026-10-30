@@ -35,9 +35,15 @@ _Avoid_: Namespace（当指 npm 包 scope 时）；个人命名空间（当指 n
 
 公开发布到 npm 的 ESL CLI 安装包，包名为 `@foxian/esl`。它携带 `esl`
 可执行文件与 Client-coupled Built-in Skill，并把运行所需的客户端库一并捆绑进
-该包；不内置默认 ESL Server URL（由用户配置、登录参数或环境变量提供）。它不是
+该包；未指定地址时默认使用公开云端 `https://cloud.enterprise-skills.com/`，也可由
+用户通过 `--server`、`ESL_SERVER` 或本地配置覆盖。它不是
 Published Skill Package，也不等于任何 ESL Namespace（ADR-0052）。
 _Avoid_: @esl/cli（当指公开安装名时）；npm 客户端；CLI npm 包
+
+## ESL CLI 更新检查
+
+ESL CLI 在运行时获知是否存在较新的稳定发行版，并在适用时提示用户；安装新版
+须经用户确认。它更新的是 ESL CLI 发行包，不是已安装的技能包。
 
 ## Skill Source Lifecycle
 
@@ -109,11 +115,31 @@ rebase）或裸 `git push esl main` 完成。
 本地技能仓库指向 ESL Server 源码仓库的独立 Git remote，名称为 `esl`；首次
 Source Upload 不覆盖用户已有的 `origin`。
 
+## ESL Server 实例 (ESL Server Instance)
+
+拥有独立持久化数据、技能来源和生命周期身份的一套 ESL Server 部署。一个实例
+可以在迁移期间拥有多个用户可访问地址；地址变化不等于实例变化。独立创建的
+另一套部署是另一个实例，即使它们提供相同的 Skill Identity，也不共享技能来源
+或 Skill ID。
+
+## Instance ID
+
+ESL Server 实例首次初始化时生成并持久保存的不可变、随机 UUID。它是客户端区分
+技能来源的实例标识，不是认证凭据，也不单独证明某个地址确实属于该实例。恢复或
+迁移同一实例必须保留原 ID；新建独立实例必须生成新 ID。
+
+## Server Address Binding
+
+客户端把一个用户可访问的 Server 地址登记为某个 ESL Server 实例地址的关系。新
+地址声称返回已知 Instance ID 时，只能说明它提出了同实例声明；在没有公钥/私钥
+认证时，首次登记仍需用户确认。确认记录表示用户接受该地址，不等于密码学信任。
+
 ## Server Origin 迁移 (Server Origin Migration)
 
 ESL Server 的用户可见 origin（`scheme://host[:port]`，即 Single User-Facing
 Server URL 的寻址部分）发生变化，而 Registry 与 Git Backend 的数据整体保留：
-所有 Skill ID、Skill Identity、Git 仓库路径与 Skill Release 均不变。已安装副
+同一个 ESL Server 实例的 Instance ID、所有 Skill ID、Skill Identity、Git 仓库路径
+与 Skill Release 均不变。已安装副
 本与 install/update/use/source 等消费链路在 `config set-server` 后自动跟随新
 origin；持有旧 Source Remote 的本地源目录则依赖 Source Remote 重指修复。
 _Avoid_: 换服务器、重新部署、重装（当指数据整体搬迁时）。
@@ -121,9 +147,9 @@ _Avoid_: 换服务器、重新部署、重装（当指数据整体搬迁时）�
 ## Source Remote 重指 (Source Remote Rehoming)
 
 CLI 在 Server-hosted Skill Source 目录中检测到 Source Remote 的 origin 与当前
-配置的 ESL Server origin 不一致时，先向当前 ESL Server 验证 Skill Identity 存
-在且 Git 仓库路径与旧路径一致，验证通过后把 Source Remote URL 中失效的
-origin 替换为新 origin 的自动修复动作。验证不通过时按可行动错误处理，绝不重
+配置的 ESL Server origin 不一致时，先向当前 ESL Server 验证同一个 Instance ID、
+Skill Identity 存在且 Git 仓库路径与旧路径一致，验证通过后把 Source Remote URL
+中失效的 origin 替换为新 origin 的自动修复动作。验证不通过时按可行动错误处理，绝不重
 新注册、绝不接管（不创建新 Skill ID，不删除既有 Source Remote）。
 _Avoid_: 重新注册、接管（adopt，ADR-0021 语义）。
 
@@ -206,8 +232,10 @@ _Avoid_: 把 Local Skill Source 叫成项目目录；技能项目（当指源码
 A scope-local collection of installed skill sources owned by ESL. A project
 store lives under the Consumer Project Root's `.eslib`; a global store lives under the user's
 `~/.eslib`. It is generated local state, not the project's dependency
-declaration. Each Skill Identity has exactly one installed copy in a given
-store.
+declaration. Server-hosted skills from different ESL Server instances are
+isolated by Instance ID, so the same Skill Identity can have one installed copy
+per instance in a given store. Built-in skills use the reserved `builtin` source
+and do not belong to an ESL Server instance.
 
 _Avoid_: `.skills`, `.skill-library`, when referring to the new scoped store.
 
@@ -251,7 +279,9 @@ _Avoid_: backup（当指这个暂存区时）。
 The consumer project's declaration of the skills it directly uses, stored as
 `.skills.json`. It is project-side state and is separate from a skill's own
 Release Manifest. It no longer declares AI tools (ADR-0054); a legacy `tools`
-field is ignored on read and dropped on write.
+field is ignored on read and dropped on write. A Server-hosted dependency records
+the Instance ID that supplies its Skill Identity; a built-in dependency uses the
+reserved built-in source instead.
 
 _Avoid_: release.json, when referring to project dependencies; Release
 Dependency, 发布依赖（那是技能对技能的安装图，不是项目用技能）。
@@ -259,7 +289,8 @@ Dependency, 发布依赖（那是技能对技能的安装图，不是项目用�
 ## Skill Dependency Lock
 
 The consumer project's exact resolved skill graph, stored as
-`.skills-lock.json`, including versions, sources, and integrity values. Direct
+`.skills-lock.json`, including versions, sources, Instance IDs for
+Server-hosted skills, and integrity values. Direct
 project entries come from the Skill Dependency Manifest; Release Dependency
 edges of those skills are also recorded here. It is distinct from the
 server-side Release Dependency Lock frozen into a Skill Release.
@@ -270,7 +301,8 @@ _Avoid_: Release Dependency Lock.
 
 发布 Skill Release 时生成的、不可变且带 Namespace 的安装产物。远程安装消费
 该产物，而非源码仓库；它绑定产生该 Release 的源码 commit，发布后不可覆盖或
-删除。
+删除。新产物采用 ZIP 保存原始文件字节；新版安装器兼容历史 JSON 文本包，
+但无法恢复旧包已经损坏的二进制内容。格式与源码快照边界见 ADR-0068。
 
 ## Release Manifest
 
@@ -573,7 +605,7 @@ CLI 执行时重试。CLI 降级时全局副本也同步降级。
 ## Built-in Skill Package
 
 ESL CLI 构建时从 Built-in Skill 源码生成并随 npm 包发布的本地安装产物。它包含
-`SKILL.md`、支持文件、由 CLI 版本生成的 `skill.json` 和内容校验元数据。它不
+`SKILL.md`、支持文件、按技能版本策略生成的 `skill.json` 和内容校验元数据。它不
 属于 Published Skill Package，安装身份为 `@builtin/<skill-name>`，并在
 锁文件中以 `source: "builtin"` 与 `builtin:<skill-name>` 标识。
 `skill.json` 的 SemVer（含 prerelease 标识）必须严格等于当前 `@foxian/esl`

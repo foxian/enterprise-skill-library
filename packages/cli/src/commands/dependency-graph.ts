@@ -14,8 +14,11 @@ export async function computeRequiredIdentities(
 ): Promise<Map<string, Set<string>>> {
   const needers = new Map<string, Set<string>>();
   let roots: string[] = [];
+  let instances: Record<string, string> = {};
   try {
-    roots = Object.keys((await loadSkillsJson(dependencyRoot)).skills);
+    const skillsJson = await loadSkillsJson(dependencyRoot);
+    roots = Object.keys(skillsJson.skills);
+    instances = skillsJson.instances ?? {};
   } catch {
     return needers;
   }
@@ -36,7 +39,7 @@ export async function computeRequiredIdentities(
         needers.set(identity, needersOfIdentity);
       }
       needersOfIdentity.add(root);
-      const dependencies = readInstalledDependencies(storeRoot, identity);
+      const dependencies = readInstalledDependencies(storeRoot, identity, instances[identity]);
       for (const dep of Object.keys(dependencies)) queue.push(dep);
     }
   }
@@ -50,9 +53,10 @@ export async function computeRequiredIdentities(
  */
 export function readInstalledDependencies(
   storeRoot: string,
-  identity: string
+  identity: string,
+  instanceId?: string
 ): Record<string, string> {
-  const directory = path.join(storeRoot, skillSourceRelativeDir(identity));
+  const directory = path.join(storeRoot, skillSourceRelativeDir(identity, instanceId));
   for (const file of ['skill.json', 'release.json']) {
     try {
       const parsed = JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')) as {

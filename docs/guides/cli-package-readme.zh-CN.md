@@ -2,7 +2,9 @@
 
 Enterprise Skill Library（ESL）命令行客户端：在企业内发现、安装、链接与发布 AI Agent 技能。
 
-本包是 ESL 的**唯一公开 CLI 发行包**。**不**内置默认 Server 地址；需要你自己的 ESL Server（或本地开发实例）。
+本包是 ESL 的**唯一公开 CLI 发行包**。未指定 Server 地址时，默认使用公开云端
+`https://cloud.enterprise-skills.com/`。使用私有、自托管或本地开发实例时，可用
+`--server`、`ESL_SERVER` 或 `esl config set-server` 覆盖。
 
 > npm 包页展示的是英文 [`packages/cli/README.md`](../../packages/cli/README.md)。本文仅在仓库中维护，**不**打进 npm 包，方便中文阅读。
 
@@ -12,7 +14,7 @@ Enterprise Skill Library（ESL）命令行客户端：在企业内发现、安�
 
 - Node.js：`20.17.x`、`22.x`（≥22.13）或 `24.x`（推荐 24）
 - npm（随 Node 安装）
-- 可访问的 ESL Server URL（发行包**无**出厂默认地址）
+- 远端操作所需的 ESL Server（未指定时使用公开云端默认地址）
 - 强烈建议本机 `PATH` 中有 Git（远端 `esl skill install` / 创作类命令会用到）
 
 ## 安装
@@ -29,7 +31,7 @@ esl --version
 ## 快速开始
 
 ```bash
-# 配置 Server（只需一次；也可用环境变量 ESL_SERVER）
+# 可选：私有 / 自托管实例才需要覆盖公开云端默认地址
 esl config set-server https://your-esl-server.example
 
 # 登录（交互输入用户名、密码；勿在命令行写明文密码）
@@ -44,7 +46,8 @@ esl skill use @scope/skill-name
 esl skill install @scope/skill-name
 ```
 
-本地 Docker 开发时，Server **常见**为 `http://localhost:4070`。这是本地开发约定，不是 CLI 出厂默认。
+未配置地址时，远端命令默认使用 `https://cloud.enterprise-skills.com/`。本地 Docker 开发时，Server
+**常见**为 `http://localhost:4070`，这是本地开发覆盖地址。
 
 还没有账号？浏览器打开 `{server}/admin/register-user`（**CLI 不能注册用户**）。详见 [cli-install.md](cli-install.md)。
 

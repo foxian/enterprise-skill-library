@@ -27,3 +27,19 @@ export function readCliVersion(): string {
   }
   throw new Error('Unable to resolve @foxian/esl package version from package.json');
 }
+
+export function readCliPackageRoot(): string {
+  const startDir = path.dirname(fileURLToPath(import.meta.url));
+  let dir = startDir;
+  for (;;) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string; bin?: Record<string, string> };
+      if (pkg.name === '@foxian/esl' || pkg.bin?.esl) return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error('Unable to resolve @foxian/esl package root from package.json');
+}

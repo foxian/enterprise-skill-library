@@ -97,7 +97,7 @@ describe('技能列表视图', () => {
     expect(table).toContain('@acme/reviewer');
     expect(table).toContain('@acme/secret');
     expect(table).toContain('未发布');
-    expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
+    expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员共享只读');
     expect(wrapper.find('[data-test="skill-state-secret"]').text()).toBe('仅创建者');
     // 锁定视图:技能必然是组织技能,归属徽标是噪音(A6),不显示
     expect(wrapper.find('[data-test="scope-badge"]').exists()).toBe(false);
@@ -105,7 +105,7 @@ describe('技能列表视图', () => {
     expect(wrapper.find('[data-test="namespace-filter"]').exists()).toBe(false);
   });
 
-  it('技能清单的共享状态列:列头用「共享状态」,个人技能留空占位', async () => {
+  it('技能清单的组织内授权状态列:列头用「组织内授权状态」,个人技能留空占位', async () => {
     useApiMock((_method, url) => {
       if (url === '/api/skills/inventory') {
         return {
@@ -146,7 +146,7 @@ describe('技能列表视图', () => {
 
     const headers = wrapper.findAll('[data-test="skill-list-managed"] th').map((header) => header.text());
     // 该列渲染的是组织共享档位,列头用「共享状态」;不是 public/private 可见性
-    expect(headers).toContain('共享状态');
+    expect(headers).toContain('组织内授权状态');
     expect(headers).not.toContain('可见性');
     expect(headers).not.toContain('全组织授权');
 
@@ -158,7 +158,7 @@ describe('技能列表视图', () => {
     expect(headers).not.toContain('命名空间');
 
     // 个人技能的共享状态格:不渲染档位 Tag,只留 "-" 占位
-    expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员只读');
+    expect(wrapper.find('[data-test="skill-state-reviewer"]').text()).toBe('全员共享只读');
     expect(wrapper.find('[data-test="skill-state-my-skill"]').exists()).toBe(false);
   });
 
@@ -503,7 +503,7 @@ describe('SkillManagePanel 权限配置', () => {
     expect(post?.url).toBe('/api/skills/acme/reviewer/permissions');
     expect(post?.body).toEqual({ action: 'share_all_read' });
     // 响应矩阵直接刷新页面状态
-    expect(wrapper.find('[data-test="share-state"]').text()).toBe('全员只读');
+    expect(wrapper.find('[data-test="share-state"]').text()).toBe('全员共享只读');
 
     await (panel.vm as unknown as { onShareLevelChange: (level: string) => Promise<void> }).onShareLevelChange('write');
     await flushPromises();
@@ -524,7 +524,7 @@ describe('SkillManagePanel 权限配置', () => {
     });
   });
 
-  it('可见性、当前授权与全组织授权三个区块标题各自明确且互不混淆', async () => {
+  it('可见性、当前授权与组织内授权状态三个区块标题各自明确且互不混淆', async () => {
     mockMatrixApi({ sharedAllRead: true, teams: [{ id: 7, name: 'frontend', permission: 'read' }] });
     wrapper = await mountPanel();
 
@@ -541,7 +541,7 @@ describe('SkillManagePanel 权限配置', () => {
     // 授权矩阵概览与组织常设团队档位各自有名，且不互相冒用
     expect(current.text()).toContain('当前授权');
     expect(current.text()).not.toContain('全组织授权');
-    expect(orgWide.text()).toContain('全组织授权');
+    expect(orgWide.text()).toContain('组织内授权状态');
     expect(orgWide.text()).not.toContain('当前授权');
     expect(visibility.text()).not.toContain('当前授权');
   });

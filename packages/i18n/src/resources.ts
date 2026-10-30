@@ -144,7 +144,7 @@ const zhCN: TranslationTree = {
     sourceCommit: '来源 commit',
     publisher: '发布人',
     myPermission: '我的权限',
-    shareState: '共享状态'
+    shareState: '组织内授权状态'
   },
   actions: {
     approve: '批准',
@@ -362,24 +362,25 @@ const zhCN: TranslationTree = {
       unpublished: '未发布'
     },
     share: {
-      allManage: '全员管理',
-      allWrite: '全员读写',
-      allRead: '全员只读',
+      allManage: '全员共享管理',
+      allWrite: '全员共享读写',
+      allRead: '全员共享只读',
       custom: '自定义',
       private: '仅创建者'
     },
     noDescription: '暂无描述',
+    keywords: '关键词',
     downloadCount: '下载量：{{count}}',
     latestRelease: '最新发布',
     noReleases: '尚未发布任何 Skill Release',
     createdByUser: '创建者：{{name}}',
     currentAuthorization: '当前授权',
-    orgWideAuthorization: '全组织授权',
+    orgWideAuthorization: '组织内授权状态',
     namespaceTypePersonal: '个人',
     namespaceTypeOrganization: '组织',
-    allManage: '技能管理团队可管理',
-    allWrite: '读写团队可读写',
-    allRead: '只读团队可读',
+    allManage: '全员共享管理',
+    allWrite: '全员共享读写',
+    allRead: '全员共享只读',
     teamWithPermission: '团队 {{team}}（{{permission}}）',
     memberWithPermission: '{{member}}（{{permission}}）',
     releaseHistory: '发布历史（{{count}}）',
@@ -645,7 +646,7 @@ const enUS: TranslationTree = {
     sourceCommit: 'Source commit',
     publisher: 'Publisher',
     myPermission: 'My permission',
-    shareState: 'Share state'
+    shareState: 'Organization authorization status'
   },
   actions: {
     approve: 'Approve',
@@ -863,24 +864,25 @@ const enUS: TranslationTree = {
       unpublished: 'Unpublished'
     },
     share: {
-      allManage: 'Everyone manages',
-      allWrite: 'Everyone reads and writes',
-      allRead: 'Everyone reads',
+      allManage: 'Everyone shared manage',
+      allWrite: 'Everyone shared read/write',
+      allRead: 'Everyone shared read-only',
       custom: 'Custom',
       private: 'Creator only'
     },
     noDescription: 'No description',
+    keywords: 'Keywords',
     downloadCount: 'Downloads: {{count}}',
     latestRelease: 'Latest release',
     noReleases: 'No Skill Release has been published',
     createdByUser: 'Created by {{name}}',
     currentAuthorization: 'Current authorization',
-    orgWideAuthorization: 'Organization-wide authorization',
+    orgWideAuthorization: 'Organization authorization status',
     namespaceTypePersonal: 'Personal',
     namespaceTypeOrganization: 'Organization',
-    allManage: 'Manage teams can manage',
-    allWrite: 'Read-write teams can read and write',
-    allRead: 'Read-only teams can read',
+    allManage: 'Everyone shared manage',
+    allWrite: 'Everyone shared read/write',
+    allRead: 'Everyone shared read-only',
     teamWithPermission: 'Team {{team}} ({{permission}})',
     memberWithPermission: '{{member}} ({{permission}})',
     releaseHistory: 'Release history ({{count}})',

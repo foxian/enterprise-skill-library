@@ -18,6 +18,8 @@ export interface SkillInfo {
   visibility?: string;
   /** 对外当前显示名（ADR-0048）：曾发布取最近 Release 快照，否则取 upload 同步值。 */
   displayName?: string;
+  /** 最新 Release 快照的关键词（#142）；公开详情契约字段，CLI 暂不渲染。 */
+  keywords?: string[];
   description?: string;
   createdBy?: string;
   owner?: string;
@@ -27,6 +29,8 @@ export interface SkillInfo {
   cloneUrl?: string;
   publishedPackage?: boolean;
   skillId?: string;
+  /** Server 实例身份（ADR-0070）：首次安装据此隔离 Store 与来源记录。 */
+  instanceId?: string;
   status?: string;
   packageUrl?: string;
   /** 跨版本累计下载量（#137）：顶层总量，各版本明细见 releases[].downloadCount。 */
