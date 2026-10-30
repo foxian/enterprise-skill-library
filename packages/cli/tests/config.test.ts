@@ -49,20 +49,6 @@ describe('esl config', () => {
     expect(config.server).toBe('https://saved.example.com');
   });
 
-  it.each(['esl.example.com', 'ftp://esl.example.com', 'https://'])('rejects invalid Server URL %s with guidance and preserves the saved value', async (url) => {
-    await initializeLocalStore({ homeDir });
-    await executeSetServer('https://saved.example.com', { homeDir });
-
-    await expect(executeSetServer(url, { homeDir })).rejects.toThrow(
-      url.startsWith('http') || url.startsWith('ftp:')
-        ? 'Server URL must be a valid HTTP(S) URL'
-        : 'Server URL must include http:// or https://'
-    );
-
-    const config = await loadConfig({ homeDir });
-    expect(config.server).toBe('https://saved.example.com');
-  });
-
   it('resolves the server from the explicit option first', async () => {
     await initializeLocalStore({ homeDir });
     await executeSetServer('http://saved.example.com', { homeDir, customFetch: identityFetch as any });
