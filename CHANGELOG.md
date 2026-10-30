@@ -4,6 +4,27 @@
 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 SemVer。发布流程见
 [docs/guides/publishing-cli.md](docs/guides/publishing-cli.md)。
 
+## [0.2.1] - 2026-10-30
+
+### Added
+
+- **ESL CLI 自动更新检查与 `esl self-update`（ADR-0070）。** 明确识别为全局 npm 安装时，普通命令每天最多检查一次 npm 上的稳定版本，并在有新版本时给出非阻断提示；`esl self-update` 在确认后升级到精确的稳定版本。项目级安装、`npx` 执行、Agent/JSON 模式、预发布版本以及无法确认安装来源的场景不检查、不修改。检查状态写入用户级 `.eslib/config.json`，可用 `esl config set cli-update-check false` 关闭；Registry、代理、认证与权限仍由 npm 负责。
+- **多 Server 实例身份与客户端来源隔离（ADR-0071）。** 新增 `esl config server list|add|use|remove`：同一实例可登记多个地址并指定首选地址，首选地址不可用时回退到同实例的其他已登记地址；`remove` 只删除本地登记，不影响已安装技能或服务器数据。本地 Store、安装清单、项目锁文件与 Tool Link 均按 Server Instance ID 隔离，不同实例的同名技能不再互相覆盖。Server 地址迁移不会把同一实例变成新来源：新地址首次登记需用户确认（`--accept-new-address`），已登记地址返回不同 Instance ID 时 fail-closed，必须显式移除旧登记后重新添加。
+- **字节安全的发布包（ADR-0068）。** 安装器同时支持新的 ZIP 发布包与历史 JSON 包；Word、图片及其他二进制资源按原始字节安装，不再经过 UTF-8 文本转换。`esl release publish --dry-run` 复用正式打包逻辑，在内存中预演包结构与 checksum，不保存正式包、不创建 Release 或标签。
+- **新增内置技能 `@builtin/skill-forge`（ADR-0069）。** 随 CLI 发行但版本独立于 CLI（初始 1.0.0，以 `skills/skill-forge/skill.json` 为准）；安装、更新、卸载与 `skill use` 遵循普通内置技能语义，不访问 Server、不要求登录。
+- **公开下载量（ADR-0067）。** `esl skill search --json` 每条结果新增跨版本累计 `downloadCount`；`esl skill info --json` 顶层 `downloadCount` 为总量，`releases[]` 每条带该版本自身的下载量，人类可读输出同步展示。
+
+### Changed
+
+- Server-hosted 技能的 Store 路径改为按实例隔离：全局为 `~/.eslib/skills/<InstanceID>/@scope/skill-name`，项目级同样带实例层级；Tool Link 目录使用 `scope_skill-name_<InstanceID 短前缀>`，冲突时自动加长前缀。`@builtin/*` 不属于任何实例，保持保留路径与来源语义。旧版单 Server URL 配置迁移时保留原地址与凭据：能连接时补充 Instance ID，不能连接时保留待迁移状态；旧依赖文件与 Store 内容不自动删除。
+- `.skills.json` / `.skills-lock.json` 记录 Instance ID，不把 Server URL 当作来源主键；地址只是连接方式。
+
+### Fixed
+
+- 统一校验 Server URL 格式（`esl config set-server`、`esl config server add`、`esl login --server`）：拒绝非 http(s) 或畸形地址并给出明确错误。
+- 统一 realpath 归一化，修复 Windows 短路径、符号链接与大小写差异导致的跨平台路径比较不一致。
+- 修正内置技能 `timeout` 参数位置、search 凭据过期边界与 install 多根断言等测试用例，减少 CI 偶发失败。
+
 ## [0.2.0] - 2026-10-21
 
 ### Changed

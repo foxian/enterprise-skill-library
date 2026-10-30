@@ -30,7 +30,7 @@ For a globally installed CLI, normal commands may report a newer stable version 
 esl self-update
 ```
 
-Disable the background check with `esl config set cli-update-check false`. Project installs and `npx` executions are never modified by this check; use an explicit version such as `npx --yes @foxian/esl@0.2.0` for reproducible runs.
+Disable the background check with `esl config set cli-update-check false`. Project installs and `npx` executions are never modified by this check; use an explicit version such as `npx --yes @foxian/esl@0.2.1` for reproducible runs.
 
 The check state is stored in the user-level config file (`%USERPROFILE%\\.eslib\\config.json` on Windows, `~/.eslib/config.json` on macOS/Linux), not in the project directory.
 
