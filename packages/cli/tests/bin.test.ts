@@ -2156,7 +2156,9 @@ describe('consumer project root discovery (bin)', () => {
 
   beforeEach(() => {
     originalCwd = process.cwd();
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cpr-'));
+    // 先取 realpath：macOS 的 /var/... 在 process.chdir 后会变成 /private/var/...，
+    // Windows 的临时目录也可能是 8.3 短名；统一成同一形式后再与 process.cwd() 比较。
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cpr-')));
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-bin-cpr-home-'));
     homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
     vi.mocked(isInteractive).mockReturnValue(false);

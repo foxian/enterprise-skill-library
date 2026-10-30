@@ -147,7 +147,8 @@ describe('esl update', () => {
   it('updates registry-backed skills from the global manifest', async () => {
     const globalRoot = path.join(homeDir, '.eslib');
     await saveSkillsJson(globalRoot, {
-      skills: { '@alice/code-review': '^1.0.0' }
+      skills: { '@alice/code-review': '^1.0.0' },
+      instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(globalRoot, {
       lockfileVersion: 1,
@@ -165,7 +166,7 @@ describe('esl update', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        versions: ['1.1.0', '1.0.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.1.0', '1.0.0']
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -195,18 +196,18 @@ describe('esl update', () => {
         'http.extraHeader=Authorization: Bearer gitea-token',
         'clone',
         'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')
+        path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review')
       ]
     );
 
     const globalLock = await loadSkillsLock(globalRoot);
-    expect(globalLock.skills['@alice/code-review']?.version).toBe('1.1.0');
-    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review'))).toBe(false);
+    expect(globalLock.skills['@alice/code-review#11111111-1111-4111-8111-111111111111']?.version).toBe('1.1.0');
+    expect(fs.existsSync(path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review'))).toBe(false);
   });
 
   it('does not move an installed skill backwards when a lower version was published later', async () => {
     const globalRoot = path.join(homeDir, '.eslib');
-    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
+    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' }, instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' } });
     await saveSkillsLock(globalRoot, {
       lockfileVersion: 1,
       skills: {
@@ -222,7 +223,7 @@ describe('esl update', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        versions: ['1.0.0', '1.2.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0', '1.2.0']
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -244,7 +245,7 @@ describe('esl update', () => {
 
   it('does not upgrade to a prerelease without an explicit version', async () => {
     const globalRoot = path.join(homeDir, '.eslib');
-    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' } });
+    await saveSkillsJson(globalRoot, { skills: { '@alice/code-review': '^1.0.0' }, instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' } });
     await saveSkillsLock(globalRoot, {
       lockfileVersion: 1,
       skills: {
@@ -260,7 +261,7 @@ describe('esl update', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code_review.git',
-        versions: ['1.3.0-beta.1', '1.0.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.3.0-beta.1', '1.0.0']
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -281,7 +282,8 @@ describe('esl update', () => {
 
   it('migrates an installed skill after a server-side rename even when the version is unchanged', async () => {
     await saveSkillsJson(projectDir, {
-      skills: { '@alice/code-review': '^1.0.0' }
+      skills: { '@alice/code-review': '^1.0.0' },
+      instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -295,7 +297,7 @@ describe('esl update', () => {
         }
       }
     });
-    const oldDirectory = path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review');
+    const oldDirectory = path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review');
     fs.mkdirSync(oldDirectory, { recursive: true });
     fs.writeFileSync(path.join(oldDirectory, 'SKILL.md'), '# Installed skill\n');
 
@@ -304,7 +306,7 @@ describe('esl update', () => {
       json: async () => ({
         name: '@alice/code-review-renamed',
         currentName: '@alice/code-review-renamed',
-        versions: ['1.0.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0']
       })
     });
     await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
@@ -319,19 +321,20 @@ describe('esl update', () => {
 
     expect(result).toEqual([{ name: '@alice/code-review-renamed', from: '1.0.0', to: '1.0.0' }]);
     expect(fs.existsSync(oldDirectory)).toBe(false);
-    expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review-renamed', 'SKILL.md'), 'utf8'))
+    expect(fs.readFileSync(path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review-renamed', 'SKILL.md'), 'utf8'))
       .toContain('# Installed skill');
     const skills = await loadSkillsJson(projectDir);
     expect(skills.skills['@alice/code-review']).toBeUndefined();
     expect(skills.skills['@alice/code-review-renamed']).toBe('^1.0.0');
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@alice/code-review']).toBeUndefined();
-    expect(lock.skills['@alice/code-review-renamed']?.identity).toBe('@alice/code-review-renamed');
+    expect(lock.skills['@alice/code-review#11111111-1111-4111-8111-111111111111']).toBeUndefined();
+    expect(lock.skills['@alice/code-review-renamed#11111111-1111-4111-8111-111111111111']?.identity).toBe('@alice/code-review-renamed');
   });
 
   it('fails fast when the login is expired and registry skills are present', async () => {
     await saveSkillsJson(projectDir, {
-      skills: { '@alice/code-review': '^1.0.0' }
+      skills: { '@alice/code-review': '^1.0.0' },
+      instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -364,7 +367,8 @@ describe('esl update', () => {
   it('uses the public cloud server when registry skills are present and no ESL Server is configured', async () => {
     vi.stubEnv('ESL_SERVER', '');
     await saveSkillsJson(projectDir, {
-      skills: { '@alice/code-review': '^1.0.0' }
+      skills: { '@alice/code-review': '^1.0.0' },
+      instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -379,7 +383,7 @@ describe('esl update', () => {
     await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ name: '@alice/code-review', versions: ['1.0.0'] })
+      json: async () => ({ name: '@alice/code-review', instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'] })
     });
 
     await expect(
@@ -399,7 +403,8 @@ describe('esl update', () => {
 
   it('fails fast when login is missing and registry skills are present', async () => {
     await saveSkillsJson(projectDir, {
-      skills: { '@alice/code-review': '^1.0.0' }
+      skills: { '@alice/code-review': '^1.0.0' },
+      instances: { '@alice/code-review': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -463,7 +468,8 @@ describe('esl update', () => {
 
   it('reports already up-to-date skills', async () => {
     await saveSkillsJson(projectDir, {
-      skills: { '@myorg/my-skill': '^1.0.0' }
+      skills: { '@myorg/my-skill': '^1.0.0' },
+      instances: { '@myorg/my-skill': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -481,7 +487,7 @@ describe('esl update', () => {
       json: async () => ({
         name: '@myorg/my-skill',
         cloneUrl: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
-        versions: ['1.2.0', '1.0.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0', '1.0.0']
       })
     });
     await saveCredentials({ token: 'gitea-token', loginAt: new Date().toISOString() }, { homeDir });
@@ -499,7 +505,8 @@ describe('esl update', () => {
 
   it('keeps updating the remaining skills when one is forbidden and reports actionable guidance', async () => {
     await saveSkillsJson(projectDir, {
-      skills: { '@acme/private-skill': '^1.0.0', '@myorg/my-skill': '^1.0.0' }
+      skills: { '@acme/private-skill': '^1.0.0', '@myorg/my-skill': '^1.0.0' },
+      instances: { '@acme/private-skill': '11111111-1111-4111-8111-111111111111', '@myorg/my-skill': '11111111-1111-4111-8111-111111111111' }
     });
     await saveSkillsLock(projectDir, {
       lockfileVersion: 1,
@@ -531,7 +538,7 @@ describe('esl update', () => {
         json: async () => ({
           name: '@myorg/my-skill',
           cloneUrl: 'http://localhost:4070/git/esl-skills/myorg_my-skill.git',
-          versions: ['1.1.0', '1.0.0']
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.1.0', '1.0.0']
         })
       } as any;
     });

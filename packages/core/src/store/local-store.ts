@@ -2,6 +2,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import type {
+  ServerInstanceRecord
+} from '../server/instance-identity.js';
+
 export interface LocalStorePaths {
   root: string;
   configJson: string;
@@ -85,6 +89,19 @@ export interface OrganizationMembership {
 export interface EslCredentials {
   token: string | null;
   loginAt: string | null;
+  /** 按 Instance ID 隔离的凭据；顶层字段继续作为当前选中实例/旧版配置的视图。 */
+  instances?: Record<string, { token: string | null; loginAt: string | null }>;
+}
+
+/** 读取指定实例的凭据；未按实例保存时回退到旧版顶层凭据。 */
+export function credentialsForInstance(
+  credentials: EslCredentials,
+  instanceId: string | null | undefined
+): { token: string | null; loginAt: string | null } {
+  if (instanceId && credentials.instances?.[instanceId]) {
+    return credentials.instances[instanceId];
+  }
+  return { token: credentials.token, loginAt: credentials.loginAt };
 }
 
 export interface ConfigIdentity {
@@ -104,8 +121,20 @@ export interface EslConfig extends ConfigIdentity {
   locale?: string | null;
   organizations: OrganizationMembership[] | null;
   tools: string[];
+  /** 多 Server 实例登记（ADR-0071）；旧配置迁移前为空。 */
+  servers?: ServerInstanceRecord[];
+  /** 当前选中实例；普通 install/update 以它作为来源上下文。 */
+  selectedInstanceId?: string | null;
+  /** 启动期身份发现失败的时间，用于避免离线时每条命令都等待网络超时。 */
+  identityDiscoveryFailedAt?: string | null;
   /** 本机常用工具的选中次数（ADR-0054）：按工具累计，只存这台机器。 */
   toolSelectionCounts?: Record<string, number>;
+  cliUpdate?: {
+    enabled?: boolean;
+    lastCheckedAt?: string;
+    lastNotifiedVersion?: string;
+    lastNotifiedAt?: string;
+  };
 }
 
 export async function loadConfig(options: LocalStoreOptions = {}): Promise<EslConfig> {
@@ -140,7 +169,10 @@ export async function saveConfig(
     ...current,
     ...config,
     organizations: config.organizations ?? current.organizations,
-    tools: config.tools ?? current.tools
+    tools: config.tools ?? current.tools,
+    servers: config.servers ?? current.servers,
+    selectedInstanceId:
+      config.selectedInstanceId === undefined ? current.selectedInstanceId : config.selectedInstanceId
   };
   await fs.mkdir(paths.root, { recursive: true });
   await fs.writeFile(paths.configJson, `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
@@ -153,14 +185,23 @@ export async function loadCredentials(options: LocalStoreOptions = {}): Promise<
 }
 
 export async function saveCredentials(
-  credentials: Partial<EslCredentials>,
+  credentials: Partial<EslCredentials> & { instanceId?: string | null },
   options: LocalStoreOptions = {}
 ): Promise<EslCredentials> {
   const paths = resolveLocalStorePaths(options);
   const current = await loadCredentials(options);
+  const token = credentials.token === undefined ? current.token : credentials.token;
+  const loginAt = credentials.loginAt === undefined ? current.loginAt : credentials.loginAt;
+  const instances = { ...(current.instances ?? {}) };
+  if (credentials.instanceId) {
+    instances[credentials.instanceId] = { token, loginAt };
+  } else if (credentials.instances) {
+    Object.assign(instances, credentials.instances);
+  }
   const updated: EslCredentials = {
-    token: credentials.token === undefined ? current.token : credentials.token,
-    loginAt: credentials.loginAt === undefined ? current.loginAt : credentials.loginAt
+    token,
+    loginAt,
+    ...(Object.keys(instances).length > 0 ? { instances } : {})
   };
   await fs.mkdir(paths.root, { recursive: true });
   await fs.writeFile(paths.credentialsJson, `${JSON.stringify(updated, null, 2)}\n`, {

@@ -40,6 +40,11 @@ _Avoid_: Namespace（当指 npm 包 scope 时）；个人命名空间（当指 n
 Published Skill Package，也不等于任何 ESL Namespace（ADR-0052）。
 _Avoid_: @esl/cli（当指公开安装名时）；npm 客户端；CLI npm 包
 
+## ESL CLI 更新检查
+
+ESL CLI 在运行时获知是否存在较新的稳定发行版，并在适用时提示用户；安装新版
+须经用户确认。它更新的是 ESL CLI 发行包，不是已安装的技能包。
+
 ## Skill Source Lifecycle
 
 ## Skill ID

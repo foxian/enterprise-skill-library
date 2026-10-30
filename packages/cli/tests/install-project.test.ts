@@ -144,7 +144,7 @@ describe('esl install (project-level)', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        versions: ['0.1.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['0.1.0']
       })
     });
     const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
@@ -175,7 +175,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    const expectedDir = path.join(projectDir, '.eslib', 'skills', '@alice', 'code-review');
+    const expectedDir = path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review');
     expect(targetDir).toBe(expectedDir);
     expect(fs.existsSync(path.join(expectedDir, 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(expectedDir, '.git'))).toBe(false);
@@ -183,7 +183,7 @@ describe('esl install (project-level)', () => {
     const skillsJson = await loadSkillsJson(projectDir);
     expect(skillsJson.skills['@alice/code-review']).toBe('^0.1.0');
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@alice/code-review']?.version).toBe('0.1.0');
+    expect(lock.skills['@alice/code-review#11111111-1111-4111-8111-111111111111']?.version).toBe('0.1.0');
     expect(fs.existsSync(path.join(projectDir, '.eslib', '.esl-install-manifest.json'))).toBe(true);
   });
 
@@ -264,7 +264,7 @@ describe('esl install (project-level)', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'https://cloud.enterprise-skills.com/git/esl-skills/alice_code-review.git',
-        versions: ['0.1.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['0.1.0']
       })
     });
     const execFileAsync = vi.fn().mockImplementation(async (_command: string, args: string[]) => {
@@ -344,7 +344,7 @@ describe('esl install (project-level)', () => {
           name: '@platform-ai/reviewer',
           skillId: 'sk_top',
           visibility: 'public',
-          versions: ['1.0.0'],
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
           packageUrl: `/api/packages/sk_top/1.0.0/${topChecksum}.json`
         })
       })
@@ -363,7 +363,7 @@ describe('esl install (project-level)', () => {
           name: '@platform-ai/style-guide',
           skillId: 'sk_dep',
           visibility: 'public',
-          versions: ['1.0.0']
+          instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0']
         })
       });
 
@@ -380,22 +380,22 @@ describe('esl install (project-level)', () => {
     expect(Object.keys(skillsJson.skills)).toEqual(['@platform-ai/reviewer']);
     const lock = await loadSkillsLock(projectDir);
     expect(Object.keys(lock.skills).sort()).toEqual([
-      '@platform-ai/reviewer',
-      '@platform-ai/style-guide'
+      '@platform-ai/reviewer#11111111-1111-4111-8111-111111111111',
+      '@platform-ai/style-guide#11111111-1111-4111-8111-111111111111'
     ]);
     expect(
       fs.existsSync(
-        path.join(projectDir, '.eslib', 'skills', '@platform-ai', 'style-guide', 'SKILL.md')
+        path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'style-guide', 'SKILL.md')
       )
     ).toBe(true);
     expect(
       fs.lstatSync(
-        path.join(projectDir, '.claude', 'skills', 'platform-ai_reviewer')
+        path.join(projectDir, '.claude', 'skills', 'platform-ai_reviewer_111111')
       ).isSymbolicLink()
     ).toBe(true);
     expect(
       fs.lstatSync(
-        path.join(projectDir, '.claude', 'skills', 'platform-ai_style-guide')
+        path.join(projectDir, '.claude', 'skills', 'platform-ai_style-guide_111111')
       ).isSymbolicLink()
     ).toBe(true);
   });
@@ -418,7 +418,7 @@ describe('esl install (project-level)', () => {
     const baseInfo = {
       name: '@acme/base',
       visibility: 'public',
-      versions: ['1.2.0'],
+      instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'],
       releases: [
         {
           version: '1.2.0',
@@ -465,10 +465,10 @@ describe('esl install (project-level)', () => {
     expect(Object.keys(skillsJson.skills)).toEqual(['@local/with-deps']);
     expect(skillsJson.skills['@local/with-deps']).toBe(`file:${localSource}`);
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@acme/base'].version).toBe('1.2.0');
-    expect(lock.skills['@acme/base'].source).toBe('registry');
+    expect(lock.skills['@acme/base#11111111-1111-4111-8111-111111111111'].version).toBe('1.2.0');
+    expect(lock.skills['@acme/base#11111111-1111-4111-8111-111111111111'].source).toBe('registry');
     expect(
-      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '@acme', 'base', 'SKILL.md'))
+      fs.existsSync(path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@acme', 'base', 'SKILL.md'))
     ).toBe(true);
   });
 
@@ -478,7 +478,7 @@ describe('esl install (project-level)', () => {
       json: async () => ({
         name: '@alice/code-review',
         cloneUrl: 'http://localhost:4070/git/esl-skills/alice_code-review.git',
-        versions: ['0.1.0']
+        instanceId: '11111111-1111-4111-8111-111111111111', versions: ['0.1.0']
       })
     });
     const execFileAsync = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
@@ -492,7 +492,7 @@ describe('esl install (project-level)', () => {
       noAdapt: true
     });
 
-    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.eslib', 'skills', '@alice', 'code-review')));
+    expect(targetDir).toBe(path.normalize(path.join(homeDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@alice', 'code-review')));
     const globalSkills = await loadSkillsJson(path.join(homeDir, '.eslib'));
     expect(globalSkills.skills['@alice/code-review']).toBe('^0.1.0');
   });

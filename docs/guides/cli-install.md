@@ -93,6 +93,10 @@ esl --version
 
 `esl --version` 应打印版本号。安装 CLI 需要能访问 npm registry；这与 ESL Server 无关。
 
+全局安装的 CLI 会每天最多检查一次 npm 上的稳定版本。发现新版时只提示，不会自动替换当前 CLI；运行 `esl self-update` 后仍需确认才会执行精确版本的 npm 安装。可用 `esl config set cli-update-check false` 关闭检查。项目级安装与 `npx` 不参与这套更新机制；需要固定版本时使用 `npx --yes @foxian/esl@<version>`。
+
+更新检查状态复用 ESL 的用户级配置：Windows 为 `%USERPROFILE%\\.eslib\\config.json`，macOS/Linux 为 `~/.eslib/config.json`。不会在项目目录写入 CLI 更新状态。
+
 ### 装后检查清单
 
 - [ ] `node -v` 和 `npm -v` 均能显示版本

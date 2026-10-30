@@ -4,10 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  findInstalledSkill,
   loadInstallManifest,
   skillDirectoryName,
   skillSourceRelativeDir
 } from '../store/skill-store.js';
+import { DEFAULT_INSTANCE_PREFIX_LENGTH, instanceIdPrefix } from '../server/instance-identity.js';
 
 export const SUPPORTED_TOOLS = [
   'claude',
@@ -27,6 +29,8 @@ export type ToolLinkStatus = 'linked' | 'broken' | 'conflict' | 'source-only' | 
 
 export interface ToolLinkRecord {
   identity: string;
+  /** Server-hosted 技能来源实例（ADR-0071）；本地/内置链接没有该字段。 */
+  instanceId?: string;
   tool: ToolName;
   level: ToolLevel;
   sourceDir: string;
@@ -42,6 +46,7 @@ export interface ToolLinkManifest {
 export interface ToolLinkEntry {
   tool: ToolName | 'source';
   identity: string;
+  instanceId?: string;
   level: ToolLevel;
   status: ToolLinkStatus;
   managed: boolean;
@@ -51,6 +56,7 @@ export interface ToolLinkEntry {
 
 export interface CreateToolLinkOptions {
   identity: string;
+  instanceId?: string;
   tool: ToolName;
   level: ToolLevel;
   storeRoot: string;
@@ -237,17 +243,55 @@ async function createLink(sourceDir: string, targetDir: string): Promise<void> {
   }
 }
 
-function recordKey(record: Pick<ToolLinkRecord, 'identity' | 'tool' | 'level'>): string {
-  return `${record.identity}\n${record.tool}\n${record.level}`;
+function recordKey(record: Pick<ToolLinkRecord, 'identity' | 'tool' | 'level'> & { instanceId?: string }): string {
+  return `${record.identity}\n${record.instanceId ?? ''}\n${record.tool}\n${record.level}`;
+}
+
+/**
+ * 工具链接目录名（ADR-0071）：Server-hosted 技能在 Identity 目录名后追加实例
+ * 短前缀；前缀从小开始，目标已被其他来源占用时逐步加长，绝不覆盖已有链接。
+ */
+export async function resolveToolLinkDirectoryName(
+  identity: string,
+  instanceId: string,
+  tool: ToolName,
+  level: ToolLevel,
+  options: { storeRoot: string; projectRoot?: string; homeDir?: string }
+): Promise<string> {
+  const base = skillDirectoryName(identity);
+  const directory = toolDirectory(tool, level, options);
+  const sourceDir = path.resolve(options.storeRoot, skillSourceRelativeDir(identity, instanceId));
+  const compact = instanceId.replace(/-/g, '');
+  for (let length = DEFAULT_INSTANCE_PREFIX_LENGTH; length <= compact.length; length += 2) {
+    const candidate = `${base}_${instanceIdPrefix(instanceId, length)}`;
+    const target = path.join(directory, candidate);
+    const stat = await lstatPath(target);
+    if (!stat) {
+      return candidate;
+    }
+    if (stat.isSymbolicLink()) {
+      const currentTarget = await readLinkTarget(target);
+      if (currentTarget === sourceDir) {
+        return candidate;
+      }
+    }
+  }
+  throw new Error(
+    `Cannot allocate a unique tool link directory for ${identity} (instance ${instanceId}); ` +
+      'existing tool directories occupy every instance prefix'
+  );
 }
 
 export async function createToolLink(options: CreateToolLinkOptions): Promise<ToolLinkOperationResult> {
-  const { identity, tool, level, storeRoot, force = false } = options;
-  const sourceDir = path.resolve(storeRoot, skillSourceRelativeDir(identity));
-  const targetDir = path.resolve(toolDirectory(tool, level, options), skillDirectoryName(identity));
+  const { identity, instanceId, tool, level, storeRoot, force = false } = options;
+  const sourceDir = path.resolve(storeRoot, skillSourceRelativeDir(identity, instanceId));
+  const targetName = instanceId
+    ? await resolveToolLinkDirectoryName(identity, instanceId, tool, level, options)
+    : skillDirectoryName(identity);
+  const targetDir = path.resolve(toolDirectory(tool, level, options), targetName);
   const manifest = await loadToolLinkManifest(storeRoot);
   const existingRecord = manifest.links.find(
-    (record) => recordKey(record) === recordKey({ identity, tool, level })
+    (record) => recordKey(record) === recordKey({ identity, instanceId, tool, level })
   );
 
   const targetStat = await lstatPath(targetDir);
@@ -267,6 +311,7 @@ export async function createToolLink(options: CreateToolLinkOptions): Promise<To
         if (managedByAnotherTool) {
           manifest.links.push({
             identity,
+            ...(instanceId ? { instanceId } : {}),
             tool,
             level,
             sourceDir: path.relative(storeRoot, sourceDir),
@@ -302,6 +347,7 @@ export async function createToolLink(options: CreateToolLinkOptions): Promise<To
   await createLink(sourceDir, targetDir);
   const record: ToolLinkRecord = {
     identity,
+    ...(instanceId ? { instanceId } : {}),
     tool,
     level,
     sourceDir: path.relative(storeRoot, sourceDir),
@@ -327,15 +373,18 @@ export interface SyncToolLinksOptions {
 export async function syncToolLinks(options: SyncToolLinksOptions): Promise<ToolLinkOperationResult[]> {
   const manifest = await loadInstallManifest(options.storeRoot);
   const results: ToolLinkOperationResult[] = [];
-  const identities = options.identities ?? Object.keys(manifest.skills);
+  const identities = options.identities ?? Object.keys(manifest.skills).map((key) => manifest.skills[key].identity);
   for (const identity of identities) {
-    if (!manifest.skills[identity]) {
+    const found = findInstalledSkill(manifest, identity);
+    if (!found) {
       continue;
     }
+    const instanceId = found.entry.instanceId;
     for (const tool of options.tools) {
       try {
         results.push(await createToolLink({
           identity,
+          instanceId,
           tool,
           level: options.level,
           storeRoot: options.storeRoot,
@@ -360,6 +409,7 @@ export async function syncToolLinks(options: SyncToolLinksOptions): Promise<Tool
 export interface RemoveToolLinksOptions {
   storeRoot: string;
   identity: string;
+  instanceId?: string;
   tools: ToolName[];
   level: ToolLevel;
 }
@@ -379,6 +429,7 @@ export async function removeToolLinks(options: RemoveToolLinksOptions): Promise<
   const requestedRecords = manifest.links.filter(
     (record) =>
       record.identity === options.identity &&
+      (record.instanceId ?? null) === (options.instanceId ?? null) &&
       record.level === options.level &&
       requestedTools.has(record.tool)
   );
@@ -428,6 +479,7 @@ export async function removeToolLinks(options: RemoveToolLinksOptions): Promise<
 export interface ReconcileToolLinksOptions {
   storeRoot: string;
   identity: string;
+  instanceId?: string;
   level: ToolLevel;
   tools: ToolName[];
   projectRoot?: string;
@@ -465,6 +517,7 @@ export async function reconcileToolLinks(
     try {
       result = await createToolLink({
         identity: options.identity,
+        instanceId: options.instanceId,
         tool,
         level: options.level,
         storeRoot: options.storeRoot,
@@ -505,6 +558,7 @@ export async function reconcileToolLinks(
       .filter(
         (record) =>
           record.identity === options.identity &&
+          (record.instanceId ?? null) === (options.instanceId ?? null) &&
           record.level === options.level &&
           !expected.has(record.tool)
       )
@@ -517,6 +571,7 @@ export async function reconcileToolLinks(
     const removals = await removeToolLinks({
       storeRoot: options.storeRoot,
       identity: options.identity,
+      instanceId: options.instanceId,
       tools: Array.from(outsideTools),
       level: options.level
     });
@@ -565,7 +620,7 @@ export async function repairRecordedToolLinks(
     if (options.identities && !options.identities.has(record.identity)) {
       continue;
     }
-    const key = `${record.identity}\n${record.tool}`;
+    const key = `${record.identity}\n${record.instanceId ?? ''}\n${record.tool}`;
     if (seen.has(key)) {
       continue;
     }
@@ -574,6 +629,7 @@ export async function repairRecordedToolLinks(
       results.push(
         await createToolLink({
           identity: record.identity,
+          instanceId: record.instanceId,
           tool: record.tool,
           level: record.level,
           storeRoot: options.storeRoot,
@@ -635,6 +691,7 @@ export async function listToolLinks(options: ListToolLinksOptions): Promise<Tool
     entries.push({
       tool: record.tool,
       identity: record.identity,
+      ...(record.instanceId ? { instanceId: record.instanceId } : {}),
       level: options.level,
       status,
       managed: true,
@@ -670,19 +727,20 @@ export async function listToolLinks(options: ListToolLinksOptions): Promise<Tool
     }
   }
 
-  const recordedIdentities = new Set(manifestRecords.map((record) => record.identity));
-  for (const identity of Object.keys(installManifest.skills)) {
-    if (!recordedIdentities.has(identity)) {
+  const recordedIdentities = new Set(
+    manifestRecords.map((record) => `${record.identity}\n${record.instanceId ?? ''}`)
+  );
+  for (const entry of Object.values(installManifest.skills)) {
+    const identity = entry.identity;
+    if (!recordedIdentities.has(`${identity}\n${entry.instanceId ?? ''}`)) {
         entries.push({
           tool: 'source',
           identity,
+          ...(entry.instanceId ? { instanceId: entry.instanceId } : {}),
           level: options.level,
           status: 'source-only',
           managed: true,
-          sourceDir: path.resolve(
-            options.storeRoot,
-            installManifest.skills[identity].sourceDir
-          )
+          sourceDir: path.resolve(options.storeRoot, entry.sourceDir)
         });
     }
   }

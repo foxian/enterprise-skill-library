@@ -20,6 +20,19 @@
           <span v-if="context?.description" data-test="skill-description">{{ context.description }}</span>
           <span v-else class="context-empty" data-test="skill-description">{{ t('skill.noDescription') }}</span>
         </div>
+        <el-space v-if="keywords.length" wrap class="skill-keywords" data-test="skill-keywords">
+          <span class="skill-keywords-label">{{ t('skill.keywords') }}</span>
+          <el-tag
+            v-for="keyword in keywords"
+            :key="keyword"
+            size="small"
+            type="info"
+            effect="plain"
+            data-test="skill-keyword"
+          >
+            {{ keyword }}
+          </el-tag>
+        </el-space>
         <el-space wrap class="skill-meta-row">
           <el-tag :type="contextStatusType" size="small" data-test="skill-context-status">{{ contextStatusText }}</el-tag>
           <span v-if="context?.latestRelease" class="skill-meta" data-test="skill-latest-release">
@@ -376,6 +389,8 @@ const matrix = ref<PermissionMatrix>({
   members: []
 });
 const context = ref<SkillContext | undefined>();
+// 关键词（#142）：随技能上下文下发；旧服务端缺字段时按空数组处理，不渲染空容器。
+const keywords = computed(() => context.value?.keywords ?? []);
 const lifecycle = ref<PermissionsResponse['viewerLifecycle']>();
 const deleteDialogVisible = ref(false);
 const deleteContext = ref<DeleteContext>();
@@ -783,6 +798,23 @@ onMounted(async () => {
 
 .context-empty {
   color: var(--el-text-color-secondary);
+}
+
+.skill-keywords {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.skill-keywords-label {
+  flex-shrink: 0;
+}
+
+/* 长关键词在标签内换行，多个关键词由 el-space 的 wrap 自动折行，避免溢出。 */
+.skill-keywords :deep(.el-tag) {
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .skill-meta-row {
