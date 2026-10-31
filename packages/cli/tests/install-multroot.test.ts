@@ -158,7 +158,7 @@ describe('esl install multi-root merge', () => {
     }
   });
 
-  it('elevates a shared dependency to the higher version the second root pins, when it still satisfies both ranges', async () => {
+  it('reuses the installed shared dependency instead of replacing it with the newer frozen version', async () => {
     await installRootA(vi.fn());
 
     const shared13 = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.3.0' });
@@ -188,9 +188,9 @@ describe('esl install multi-root merge', () => {
     await executeInstall('@platform-ai/root-c', installOptions(fetch));
 
     const lock = await loadSkillsLock(projectDir);
-    expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.3.0');
-    expect(sharedStoreJson().version).toBe('1.3.0');
-    // 两个根都在项目清单里，共享基础技能只保留一份更高副本。
+    // 已有副本优先：不因新根的冻锁而替换/升级共享依赖。
+    expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.2.0');
+    expect(sharedStoreJson().version).toBe('1.2.0');
     const skillsJson = await loadSkillsJson(projectDir);
     expect(Object.keys(skillsJson.skills).sort()).toEqual([
       '@platform-ai/root-a',
@@ -199,8 +199,8 @@ describe('esl install multi-root merge', () => {
     expect(lock.skills['@platform-ai/root-a#11111111-1111-4111-8111-111111111111'].version).toBe('1.0.0');
   });
 
-  it('fails the whole install and leaves the existing graph untouched when the higher version breaks a range', async () => {
-    // A 用 ~1.2.0 钉住 shared 1.2.0；C 引入 1.3.0，更高但不满足 A 的范围。
+  it('installs the new root when its range is above the installed shared version, warning without downgrading or failing', async () => {
+    // A 用 ~1.2.0 钉住 shared 1.2.0；C 声明 ^1.3.0（高于已装版本），消费端只提示。
     const shared12 = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
     const rootA = buildPackage({
       name: '@platform-ai/root-a',
@@ -253,17 +253,189 @@ describe('esl install multi-root merge', () => {
       .mockResolvedValueOnce(packageResponse(rootC.bytes))
       .mockResolvedValueOnce(packageResponse(shared13.bytes))
       .mockResolvedValueOnce(infoResponse('@platform-ai/shared', 'public'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(executeInstall('@platform-ai/root-c', installOptions(fetch))).rejects.toMatchObject({
-      code: 'installedDependencyRangesConflict'
+    try {
+      await executeInstall('@platform-ai/root-c', installOptions(fetch));
+
+      // 消费端范围差异只诊断：C 装上，shared 仍是 1.2.0，不擅自降级/替换。
+      const skillsJson = await loadSkillsJson(projectDir);
+      expect(Object.keys(skillsJson.skills).sort()).toEqual([
+        '@platform-ai/root-a',
+        '@platform-ai/root-c'
+      ]);
+      const lock = await loadSkillsLock(projectDir);
+      expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.2.0');
+      expect(sharedStoreJson().version).toBe('1.2.0');
+      const warning = warnSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(warning).toContain('@platform-ai/shared@1.2.0');
+      expect(warning).toContain('^1.3.0');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('installs dependencies declared by the actually adopted existing version', async () => {
+    // 直接安装 shared 1.2.0，然后模拟该版本声明了 extra（发布冻锁里没有 extra）。
+    const extra = buildPackage({ name: '@platform-ai/extra', skillId: 'sk_extra', version: '1.0.0' });
+    const shared12 = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    await executeInstall(
+      '@platform-ai/shared',
+      installOptions(
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            ok({
+              json: async () => ({
+                name: '@platform-ai/shared',
+                visibility: 'public',
+                instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'],
+                packageUrl: `/api/packages/sk_shared/1.2.0/${shared12.checksum}.json`
+              })
+            })
+          )
+          .mockResolvedValueOnce(packageResponse(shared12.bytes))
+      )
+    );
+    const installedSharedJson = path.join(
+      projectDir,
+      '.eslib',
+      'skills',
+      '11111111-1111-4111-8111-111111111111',
+      '@platform-ai',
+      'shared',
+      'skill.json'
+    );
+    const installedShared = JSON.parse(fs.readFileSync(installedSharedJson, 'utf8'));
+    installedShared.dependencies = { '@platform-ai/extra': '^1.0.0' };
+    fs.writeFileSync(installedSharedJson, JSON.stringify(installedShared));
+
+    // 新根 C 的冻锁要求 shared 1.3.0；已有 1.2.0 被复用，因此必须按 1.2.0
+    // 自己的声明补齐 extra，而不是用 1.3.0 的子图冒充完整。
+    const shared13 = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.3.0' });
+    const rootC = buildPackage({
+      name: '@platform-ai/root-c',
+      skillId: 'sk_c',
+      version: '1.0.0',
+      dependencies: { '@platform-ai/shared': '^1.0.0' },
+      dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.3.0', checksum: shared13.checksum } }
     });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          json: async () => ({
+            name: '@platform-ai/root-c',
+            visibility: 'public',
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
+            packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json`
+          })
+        })
+      )
+      .mockResolvedValueOnce(packageResponse(rootC.bytes))
+      .mockResolvedValueOnce(packageResponse(shared13.bytes))
+      .mockResolvedValueOnce(infoResponse('@platform-ai/shared', 'public'))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/extra',
+          visibility: 'public',
+          instanceId: '11111111-1111-4111-8111-111111111111',
+          versions: ['1.0.0'],
+          releases: [{ version: '1.0.0', packageUrl: `/api/packages/sk_extra/1.0.0/${extra.checksum}.json` }]
+        })
+      })
+      .mockResolvedValueOnce(packageResponse(extra.bytes));
 
-    // 已有图保持原状：C 未进清单，shared 仍是 1.2.0。
-    const skillsJson = await loadSkillsJson(projectDir);
-    expect(Object.keys(skillsJson.skills)).toEqual(['@platform-ai/root-a']);
+    await executeInstall('@platform-ai/root-c', installOptions(fetch));
+
     const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@platform-ai/extra#11111111-1111-4111-8111-111111111111'].version).toBe('1.0.0');
+    expect(
+      fs.existsSync(
+        path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'extra', 'SKILL.md')
+      )
+    ).toBe(true);
+  });
+
+  it('does not install an unused higher version’s subgraph under the adopted lower version', async () => {
+    // 直接装 shared 1.2.0，并声明 extra ^1.0.0；root-c 的冻锁来自 shared 1.3.0，
+    // 其中 extra 被锁在 2.0.0（不满足 1.2.0 的实际声明）。
+    const shared12 = buildPackage({ name: '@platform-ai/shared', skillId: 'sk_shared', version: '1.2.0' });
+    await executeInstall(
+      '@platform-ai/shared',
+      installOptions(
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            ok({
+              json: async () => ({
+                name: '@platform-ai/shared',
+                visibility: 'public',
+                instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.2.0'],
+                packageUrl: `/api/packages/sk_shared/1.2.0/${shared12.checksum}.json`
+              })
+            })
+          )
+          .mockResolvedValueOnce(packageResponse(shared12.bytes))
+      )
+    );
+    const sharedDir = path.join(projectDir, '.eslib', 'skills', '11111111-1111-4111-8111-111111111111', '@platform-ai', 'shared');
+    const sharedJson = JSON.parse(fs.readFileSync(path.join(sharedDir, 'skill.json'), 'utf8'));
+    sharedJson.dependencies = { '@platform-ai/extra': '^1.0.0' };
+    fs.writeFileSync(path.join(sharedDir, 'skill.json'), JSON.stringify(sharedJson));
+
+    const extra20 = buildPackage({ name: '@platform-ai/extra', skillId: 'sk_extra', version: '2.0.0' });
+    const extra15 = buildPackage({ name: '@platform-ai/extra', skillId: 'sk_extra', version: '1.5.0' });
+    const shared13 = buildPackage({
+      name: '@platform-ai/shared',
+      skillId: 'sk_shared',
+      version: '1.3.0',
+      dependencies: { '@platform-ai/extra': '^2.0.0' },
+      dependencyLock: { '@platform-ai/extra': { skillId: 'sk_extra', version: '2.0.0', checksum: extra20.checksum } }
+    });
+    const rootC = buildPackage({
+      name: '@platform-ai/root-c',
+      skillId: 'sk_c',
+      version: '1.0.0',
+      dependencies: { '@platform-ai/shared': '^1.0.0' },
+      dependencyLock: { '@platform-ai/shared': { skillId: 'sk_shared', version: '1.3.0', checksum: shared13.checksum } }
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          json: async () => ({
+            name: '@platform-ai/root-c',
+            visibility: 'public',
+            instanceId: '11111111-1111-4111-8111-111111111111', versions: ['1.0.0'],
+            packageUrl: `/api/packages/sk_c/1.0.0/${rootC.checksum}.json`
+          })
+        })
+      )
+      .mockResolvedValueOnce(packageResponse(rootC.bytes))
+      .mockResolvedValueOnce(packageResponse(shared13.bytes))
+      .mockResolvedValueOnce(packageResponse(extra20.bytes))
+      .mockResolvedValueOnce(infoResponse('@platform-ai/shared', 'public'))
+      .mockResolvedValueOnce(infoResponse('@platform-ai/extra', 'public'))
+      // 实际声明 ^1.0.0 不接受冻锁中的 2.0.0，按 Registry 重新解析到 1.5.0。
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          name: '@platform-ai/extra',
+          visibility: 'public',
+          instanceId: '11111111-1111-4111-8111-111111111111',
+          versions: ['2.0.0', '1.5.0'],
+          releases: [{ version: '1.5.0', packageUrl: `/api/packages/sk_extra/1.5.0/${extra15.checksum}.json` }]
+        })
+      })
+      .mockResolvedValueOnce(packageResponse(extra15.bytes));
+
+    await executeInstall('@platform-ai/root-c', installOptions(fetch));
+
+    const lock = await loadSkillsLock(projectDir);
+    expect(lock.skills['@platform-ai/extra#11111111-1111-4111-8111-111111111111'].version).toBe('1.5.0');
     expect(lock.skills['@platform-ai/shared#11111111-1111-4111-8111-111111111111'].version).toBe('1.2.0');
-    expect(sharedStoreJson().version).toBe('1.2.0');
   });
 
   it('fails a public root whose chain contains a private dependency', async () => {

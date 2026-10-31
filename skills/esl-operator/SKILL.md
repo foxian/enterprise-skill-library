@@ -56,12 +56,12 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 先判断用户目标、发现/安装/编写/上传/发布的整体路径 | `references/workflows.md`，再读对应 reference |
 | 没装 esl / 安装 CLI / command not found / 沙箱不能全局安装 | 先读本文件「命令找不到 / 服务不通」；装好后再 `references/setup.md` |
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
-| 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装、看工具 link 状态 / 更新、升级（含修复已记录 link）/ 卸载 / unlink 源码 / 我的常用工具、偏好工具（`esl config preferred-tools`） | `references/consumer.md` |
+| 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装、看工具 link 状态 / 更新、升级（含传递依赖与清理旧依赖）/ 卸载（含选择性清理、依赖缺失）/ unlink 源码 / 我的常用工具、偏好工具（`esl config preferred-tools`） | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验、看源状态 / 上传源码 / 发布 / 改版本号 / 发布依赖 / 弃用、修订说明、删除版本 / 重命名 / 拉别人源码、二次开发 / 共享治理（看谁有权限、授权与撤销、切可见性） | `references/author.md` |
 | 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
-**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl source init`、裸 `esl release version`、`esl skill install`、`esl link` 或 `esl unlink` 时，命令一律追加
+**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl source init`、裸 `esl release version`、`esl skill install`、`esl skill update`、`esl skill uninstall`、`esl link` 或 `esl unlink` 时，命令一律追加
 `--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
 Claude Code 传 `claude-code`、Codex 传 `codex`、Trae 国际版传 `trae-intl`、
 Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
@@ -73,6 +73,12 @@ Skill Source Link（或反向）属于改安装模式，必须先征得用户同
 `--tools` 重跑即可；站在 Local Skill Source 里做项目级 `link` / `unlink`
 需要判定上一级 Consumer Project Root 时，CLI 会返回项目根确认或三选一，用
 `--params-json`（`useParent` / `projectRootChoice` / `projectRootPath`）交回。
+
+`update` / `uninstall` 的关联依赖清理默认全部不勾选；CLI 返回清理多选时用
+`--cleanup`（或 `--params-json '{"cleanup":[...]}'`）交回选择，空数组表示全部保留。
+删除仍被其他技能依赖的目标会先返回影响确认；确认后用
+`--accept-dependency-impact <受影响的技能列表>` 交回本次看到的范围，影响扩大时 CLI
+会再次询问。`--force` 只代表接受当前检查到的全部影响，模式开关不构成删除授权。
 
 **站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）。** cwd 是
 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级

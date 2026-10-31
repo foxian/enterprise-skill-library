@@ -1,3 +1,4 @@
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseSkillName } from '../schema/skill-json.js';
@@ -12,6 +13,11 @@ export interface InstallManifestSkill {
   skillId?: string;
   /** Server-hosted 技能的来源实例（ADR-0071）；builtin/local/link 没有。 */
   instanceId?: string;
+  /**
+   * 用户明确保留的传递依赖（ADR-0072）：不再进入清理候选，也不会在后续
+   * update/uninstall 中被静默回收。只作用于已装副本，不是直接依赖声明。
+   */
+  retained?: boolean;
   sourceDir: string;
   installedAt: string;
 }
@@ -89,6 +95,30 @@ export function findInstalledSkill(
   return null;
 }
 
+/**
+ * 记录或取消「用户保留」意图（ADR-0072）。保留意图只影响清理候选，不改写
+ * 作者依赖声明，也不会把传递依赖提升成直接依赖。
+ */
+export async function setInstalledSkillRetained(
+  storeRoot: string,
+  identity: string,
+  instanceId: string | null | undefined,
+  retained: boolean
+): Promise<boolean> {
+  const manifest = await loadInstallManifest(storeRoot);
+  const found = findInstalledSkill(manifest, identity, instanceId);
+  if (!found) {
+    return false;
+  }
+  if (retained) {
+    found.entry.retained = true;
+  } else {
+    delete found.entry.retained;
+  }
+  await saveInstallManifest(storeRoot, manifest);
+  return true;
+}
+
 export function installManifestPath(storeRoot: string): string {
   return path.join(storeRoot, INSTALL_MANIFEST_FILE);
 }
@@ -111,6 +141,52 @@ export async function loadInstallManifest(storeRoot: string): Promise<InstallMan
     }
     throw error;
   }
+}
+
+/**
+ * 已装副本声明的发布依赖（ADR-0072）。普通安装读生成的 `skill.json`；Skill
+ * Source Link 的 Store 位置指向源码目录、通常没有 `skill.json`，回退读源码的
+ * `release.json`。两者都缺失或不可读时视为空（无发布依赖）。
+ */
+export function readInstalledDependencies(
+  storeRoot: string,
+  identity: string,
+  instanceId?: string
+): Record<string, string> {
+  const directory = path.join(storeRoot, skillSourceRelativeDir(identity, instanceId));
+  for (const file of ['skill.json', 'release.json']) {
+    try {
+      const parsed = JSON.parse(fsSync.readFileSync(path.join(directory, file), 'utf8')) as {
+        dependencies?: Record<string, string>;
+      };
+      return parsed.dependencies ?? {};
+    } catch {
+      // 试下一个文件。
+    }
+  }
+  return {};
+}
+
+/**
+ * 已装技能的依赖缺失：声明的发布依赖在安装清单中找不到对应副本（同实例）。
+ * 用于在已装技能查看入口呈现「安装存在 ≠ 依赖齐全」（ADR-0072）。
+ */
+export async function findMissingDependencies(
+  storeRoot: string
+): Promise<Map<string, string[]>> {
+  const manifest = await loadInstallManifest(storeRoot);
+  const missing = new Map<string, string[]>();
+  for (const [key, entry] of Object.entries(manifest.skills)) {
+    const identity = entry.identity ?? parseInstallManifestKey(key).identity;
+    const dependencies = readInstalledDependencies(storeRoot, identity, entry.instanceId);
+    const absent = Object.keys(dependencies).filter(
+      (dependency) => !findInstalledSkill(manifest, dependency, entry.instanceId)
+    );
+    if (absent.length > 0) {
+      missing.set(installManifestKey(identity, entry.instanceId), absent);
+    }
+  }
+  return missing;
 }
 
 export async function saveInstallManifest(storeRoot: string, manifest: InstallManifest): Promise<void> {

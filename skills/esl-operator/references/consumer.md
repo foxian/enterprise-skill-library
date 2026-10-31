@@ -81,7 +81,7 @@ Versions:
 - `@scope/name` 从 Server 安装最新或指定版本。
 - `@builtin/*` 从 CLI 内置资源安装。
 - `./path` 安装本地草稿，Store 身份固定为 `@local/<name>`，源目录不变。
-- 安装会递归解析已发布依赖；失败时应保持整次安装不留半套图。
+- 安装会递归补齐已发布依赖；同一实例内已装的共享依赖优先复用，即使超出新根声明范围也只提示，不替换或降级已有副本。缺少的依赖才安装，并沿实际采用版本的声明继续展开。失败时应保持整次安装不留半套图。
 - 项目级状态写入项目 `.eslib/`、`.skills.json` 和 `.skills-lock.json`；全局状态写入用户 Store。`.eslib/` 应加入 gitignore。
 - 选中的每个工具获得单技能 Tool Link；Tool Link 不等于安装本身。
 
@@ -89,7 +89,7 @@ Versions:
 
 ### 安装后验证
 
-用 `esl skill list --json` 检查：技能身份、版本、作用域、安装模式、Tool Link 状态和依赖关系。必要时再用 `esl skill use` 或真实小案例验证行为。
+用 `esl skill list --json` 检查：技能身份、版本、作用域、安装模式、Tool Link 状态和依赖关系。`missingDependencies` 非空表示该技能声明的依赖在当前环境中缺失，安装存在不等于依赖齐全；必要时再用 `esl skill use` 或真实小案例验证行为。
 
 完成报告至少包括：
 
@@ -130,12 +130,14 @@ Versions:
 
 ## 更新：先看现状，再升级
 
-`esl skill update [@scope/skill-name] [--global|-g]`
+`esl skill update [@scope/skill-name] [--global|-g] [--cleanup <identities>]`
 
 更新只升级已安装的 Registry 版本；Skill Source Link 不被 Registry 版本替换，会报告 linked/skipped。已记录的 Tool Link 会自动维护，冲突不会覆盖。
 
-- 不指定技能名时，更新当前作用域全部技能。
-- 新 Release 的依赖图会重新解析并回收不再需要的传递依赖。
+- 不指定技能名时，更新当前作用域全部直接技能。
+- 可以指定自动安装的传递依赖单独升级，无须同时更新根技能；这不会把它提升成项目直接依赖，也不改写依赖方的声明。
+- 新版本越过依赖方声明范围时只列出受影响技能并提示，不阻止主动升级，也不表示已验证兼容。
+- 更新后不再需要的旧依赖只列为清理候选，默认全部不勾选；`--cleanup` 提交要删除的身份（空值表示全部保留，`all` 表示全选）。用户提交过的未选项会持久保留，后续不再被静默回收；无人值守的默认保留不冒充用户选择。
 - `update` 不接受 `--tools` / `--force`；调整工具使用 `install` / `link`。
 - 403 项会跳过并逐项报告，其他技能不受影响。
 
@@ -143,18 +145,20 @@ Versions:
 
 ## 卸载：说明影响后再删除
 
-`esl skill uninstall @scope/skill-name [--global|-g]`
+`esl skill uninstall @scope/skill-name [--global|-g] [--cleanup <identities>] [--accept-dependency-impact <identities>]`
 
 删除指定作用域的 Store 技能、安装记录、锁文件关联和全部 ESL 管理 Tool Link。Skill Source Link 会删除 Store 链接和 staging，但保留本地源码目录；unmanaged 工具目录不会删除。
 
 卸载前说明：
 
 - 项目级还是全局级；
-- 是否仍被其他根技能依赖；
-- 哪些传递依赖会被回收；
+- 是否仍被其他技能依赖；若是，先列出受影响技能并取得明确确认（`--accept-dependency-impact` 或交互确认）。确认后只删除目标，不连带删除依赖方；
+- 哪些传递依赖不再需要、可作为清理候选；默认全部不勾选，`--cleanup` 只删除用户选中的项；
 - 哪些共享 Tool Link 会被移除。
 
-卸载是本地删除操作：先展示完整命令和预期影响，用户确认后执行；失败时按 CLI 列出的依赖方先处理，不要加不存在的 `prune` 命令。
+未选中的候选会记录保留意图，之后的安装、更新和卸载不会再把它当作孤儿自动清理。若部分清理会让另一个保留候选缺少依赖，CLI 会拒绝扩大删除或要求影响确认，不能通过多选绕过。被删除依赖的上游技能仍保留，`esl skill list --json` 的 `missingDependencies` 会显示缺失。无人值守脚本缺少显式影响确认时不会执行该删除。
+
+卸载是本地删除操作：先展示完整命令和预期影响，用户确认后执行；失败时按 CLI 列出的依赖方处理，不要加不存在的 `prune` 命令。
 
 ## 常见失败分流
 
@@ -165,4 +169,5 @@ Versions:
 | 远端安装失败 | Server、登录、版本或依赖图问题 | 先读错误；不要把 Git 当成默认原因，只有错误明确涉及 Git 时再检查 |
 | Tool Link `conflict` | 目标目录不是 ESL 管理链接 | 不覆盖；让用户手工处理冲突后重试 |
 | 更新跳过 linked | 当前是源码开发链接 | 直接修改本地源码并 validate，不要反复 update |
-| 卸载提示仍被依赖 | 其他根技能仍需要该依赖 | 先卸载/更新依赖它的根，或保留该技能 |
+| 卸载提示仍被依赖 | 其他技能仍需要该依赖 | 取得用户明确同意后带 `--accept-dependency-impact <技能列表>` 重跑，或保留该技能；删除后上游会显示依赖缺失 |
+| 部分清理被拒绝 | 选中项会让另一个保留候选缺少依赖 | 把受影响的候选也加入 `--cleanup`，或显式接受影响 |

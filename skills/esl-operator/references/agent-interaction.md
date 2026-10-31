@@ -16,7 +16,7 @@ esl <command> --agent-interaction --agent-tool <tool>
 `claude`；Codex 用 `codex`，其余见 `--help`）。无论是否带
 `--agent-tool`，stdout 都输出 AskUserQuestion 风格 JSON。只在该模式下处理
 结构化交互请求，不要等用户明确说“需要选择框”才添加。普通终端保持现有交互
-方式。当前 `esl source init`、裸 `esl release version`、`esl skill install`、`esl link` 与 `esl unlink` 已接入该协议；其他命令先查看其
+方式。当前 `esl source init`、裸 `esl release version`、`esl skill install`、`esl skill update`、`esl skill uninstall`、`esl link` 与 `esl unlink` 已接入该协议；其他命令先查看其
 reference 或 `--help`。
 
 ## 判断结果
@@ -70,6 +70,42 @@ Agent 模式下 `install` / `link` 不会发覆盖安装或模式转换的 y/n �
   本机常用工具，而不是已有 link。
 - 收集答案后用**同一个** `--tools` 旗标重跑，提交规范 id（逗号分隔）：
   `esl skill install @acme/review --agent-interaction --tools claude,codex`。
+
+## update / uninstall：依赖清理与删除影响确认
+
+两个命令共用同一套依赖规则（ADR-0072）：
+
+- **清理多选**（`multiselect`）：更新或卸载后 CLI 列出不再需要的传递依赖。
+  默认全部不勾选；用户不选表示保留，CLI 会持久记录保留意图，后续命令不会
+  再把这些副本当作孤儿自动回收。选项中的 `All dependencies`（等价于
+  `--cleanup all`）表示全选；人工终端的复选列表按 `a` 也可全选。
+- **影响确认**（`confirm`）：删除仍被其他技能依赖的目标时，问题文案列出直接
+  或间接受影响的技能。默认不是已确认；用户明确接受后才执行删除，且只删目标、
+  保留上游技能。
+- 清理时若某个未选中的候选依赖了已选中的项，CLI 会拒绝扩大删除，或发出影响
+  确认；不能借多选绕过确认。
+
+用 `--cleanup` 或 `--params-json` 交回清理选择：
+
+```shell
+esl update @acme/markdown-master --agent-interaction --params-json '{"cleanup":["@acme/old"]}'
+esl update @acme/markdown-master --agent-interaction --params-json '{"cleanup":[]}'   # 全部保留
+esl uninstall @acme/root --agent-interaction --cleanup @acme/old,@acme/stale
+```
+
+确认影响后，把问题文案里列出的受影响技能原样交回
+`--accept-dependency-impact`，或用 `--params-json '{"acceptDependencyImpact":[...]}'`：
+
+```shell
+esl uninstall @acme/shared --agent-interaction --accept-dependency-impact @acme/root-a,@acme/root-b
+```
+
+- 重跑会重新计算依赖关系；影响集合超出上次交回的范围时，CLI 会再次以退出码
+  `2` 询问，不能把先前同意泛化到新增技能。
+- `--force` 表示接受本次命令实际检查到的全部影响；它不绕过清理多选，也不把
+  无人值守默认保留变成删除授权。
+- 普通无人值守脚本不传影响确认时，删除仍被依赖的目标会以普通错误失败（退出码
+  `1`），不会执行该删除。
 
 ## link / unlink：站在 Local Skill Source 里的项目根
 

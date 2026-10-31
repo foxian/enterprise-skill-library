@@ -545,7 +545,15 @@ function versionAgentFields(inspection: VersionInspection): AgentInteractionFiel
 
 /** A bare SemVer in the publish path slot is a leftover `esl publish <version>` call, not a directory. */
 const SEMVER_ARGUMENT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-const AGENT_INTERACTION_COMMANDS = new Set(['init', 'version', 'install', 'link', 'unlink']);
+const AGENT_INTERACTION_COMMANDS = new Set([
+  'init',
+  'version',
+  'install',
+  'link',
+  'unlink',
+  'update',
+  'uninstall'
+]);
 let activeLocale: Locale = DEFAULT_LOCALE;
 
 // ADR-0057：项目级 link / unlink 站在 Local Skill Source 里时先解析 Consumer
@@ -742,18 +750,37 @@ function addList(parent: Command, program: Command, path = 'esl skill list'): Co
     });
 }
 
-function addUpdate(parent: Command, path = 'esl skill update'): Command {
+function parseIdentityList(value: string | undefined): string[] {
+  return value === undefined
+    ? []
+    : value.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
+function addUpdate(parent: Command, program: Command, path = 'esl skill update'): Command {
   return parent
     .command('update')
     .description('Update installed skills to latest versions')
-    .argument('[skill-name]', 'specific skill to update')
+    .argument('[skill-name]', 'specific skill to update (direct or automatically installed dependency)')
     .option('-g, --global', 'Update global skills')
+    .option('--cleanup <identities>', 'comma-separated no-longer-needed dependencies to remove (default: keep all)')
     .option('--server <url>', 'ESL Server URL')
-    .addHelpText('after', example(`$ ${path}`))
-    .action(async (skillName: string | undefined, options: { global?: boolean; server?: string }) => {
+    .addHelpText('after', example(`$ ${path}\n  $ ${path} @acme/markdown-master --cleanup @acme/shared`))
+    .action(async (skillName: string | undefined, options: { global?: boolean; cleanup?: string; server?: string }) => {
+      const agentMode = program.opts().agentInteraction === true;
+      const rawParamsJson = program.opts().paramsJson as string | undefined;
+      const params = rawParamsJson
+        ? parseCommandParams(rawParamsJson, 'update', ['cleanup'])
+        : {};
+      assertNoDuplicateCommandParams(params, { cleanup: options.cleanup }, 'update');
+      const cleanupParam = readOptionalStringArrayParam(params, 'cleanup', 'update');
+      const cleanupProvided = options.cleanup !== undefined || cleanupParam !== undefined;
       const results = await executeUpdate({
         ...options,
-        skillName
+        skillName,
+        cleanup: cleanupProvided ? (cleanupParam ?? parseIdentityList(options.cleanup)) : undefined,
+        cleanupProvided,
+        agentMode,
+        interactive: !agentMode && program.opts().input !== false && isInteractive()
       });
       if (results.length === 0) {
         console.log('All skills are up to date');
@@ -769,20 +796,72 @@ function addUpdate(parent: Command, path = 'esl skill update'): Command {
     });
 }
 
-function addUninstall(parent: Command, path = 'esl skill uninstall'): Command {
+function addUninstall(parent: Command, program: Command, path = 'esl skill uninstall'): Command {
   return parent
     .command('uninstall')
     .description('Remove an installed skill')
     .argument('<skill-name>')
     .option('-g, --global', 'Uninstall from global skills directory')
-    .option('-f, --force', 'uninstall without confirmation')
-    .addHelpText('after', example(`$ ${path} @cnfox/code-review`))
-    .action(async (skillName: string, options: { global?: boolean }) => {
-      const result = await executeUninstall(skillName, options);
+    .option('--cleanup <identities>', 'comma-separated dependencies to remove as well (default: keep all)')
+    .option(
+      '--accept-dependency-impact <identities>',
+      'accept removing a skill still needed by these dependents (comma-separated)'
+    )
+    .option('-f, --force', 'accept the currently checked dependency impact')
+    .addHelpText('after', example(`$ ${path} @cnfox/code-review\n  $ ${path} @acme/shared --accept-dependency-impact @acme/root-a --force`))
+    .action(async (skillName: string, options: { global?: boolean; cleanup?: string; acceptDependencyImpact?: string; force?: boolean }) => {
+      const agentMode = program.opts().agentInteraction === true;
+      const rawParamsJson = program.opts().paramsJson as string | undefined;
+      const params = rawParamsJson
+        ? parseCommandParams(rawParamsJson, 'uninstall', ['cleanup', 'acceptDependencyImpact'])
+        : {};
+      assertNoDuplicateCommandParams(
+        params,
+        { cleanup: options.cleanup, acceptDependencyImpact: options.acceptDependencyImpact },
+        'uninstall'
+      );
+      const cleanupParam = readOptionalStringArrayParam(params, 'cleanup', 'uninstall');
+      const impactParam = readOptionalStringArrayParam(
+        params,
+        'acceptDependencyImpact',
+        'uninstall'
+      );
+      const cleanupProvided = options.cleanup !== undefined || cleanupParam !== undefined;
+      const result = await executeUninstall(skillName, {
+        ...options,
+        cleanup: cleanupProvided ? (cleanupParam ?? parseIdentityList(options.cleanup)) : undefined,
+        cleanupProvided,
+        acceptDependencyImpact:
+          impactParam ?? parseIdentityList(options.acceptDependencyImpact),
+        agentMode,
+        interactive: !agentMode && program.opts().input !== false && isInteractive()
+      });
+      if (result.impactDeclined) {
+        console.log(`Uninstall aborted; ${skillName} and its dependencies are unchanged.`);
+        return;
+      }
       if (result.sourceRemoved) {
         console.log(`Skill ${skillName} uninstalled`);
       } else {
         console.log(`Skill ${skillName} uninstalled; linked source was preserved at ${result.sourcePath}`);
+      }
+      if (result.reclaimed && result.reclaimed.length > 0) {
+        console.log(`Removed dependencies: ${result.reclaimed.join(', ')}`);
+      }
+      if (result.cleanupCandidates && result.cleanupCandidates.length > 0) {
+        const kept = result.cleanupCandidates
+          .map((candidate) => candidate.identity)
+          .filter((identity) => !(result.reclaimed ?? []).includes(identity));
+        if (kept.length > 0) {
+          console.log(
+            `Kept dependencies (not removed): ${kept.join(', ')}. They will not be reclaimed automatically later.`
+          );
+        }
+      }
+      if (result.impactAffected && result.impactAffected.length > 0) {
+        console.log(
+          `Missing dependency warning: ${result.impactAffected.join(', ')} still depend on ${skillName}.`
+        );
       }
     });
 }
@@ -1156,9 +1235,9 @@ function addDepend(parent: Command): Command {
   dependCommand
     .command('add')
     .description('Add or update a release dependency edge (resolves against the Registry)')
-    .argument('<target>', 'skill identity, optionally with a range: @acme/style-guide[@^1.0.0]')
+    .argument('<target>', 'skill identity, optionally with a range: @acme/style-guide[@^1.0.0]; omit the range to save "*"')
     .argument('[path]', 'skill source directory (defaults to the current directory)')
-    .addHelpText('after', example('$ esl release depend add @acme/style-guide@^1.0.0'))
+    .addHelpText('after', example('$ esl release depend add @acme/style-guide\n  $ esl release depend add @acme/style-guide@^1.0.0'))
     .action(async (target: string, skillPath: string | undefined) => {
       const result = await executeDependAdd(target, { directory: skillPath });
       console.log(`${result.identity} ${result.range} (${result.updated ? 'updated' : 'added'})`);
@@ -1692,8 +1771,8 @@ export function createProgram(): Command {
   addInfo(skill, 'esl skill info');
   addInstall(skill, program, 'esl skill install');
   addList(skill, program, 'esl skill list');
-  addUpdate(skill, 'esl skill update');
-  addUninstall(skill, 'esl skill uninstall');
+  addUpdate(skill, program, 'esl skill update');
+  addUninstall(skill, program, 'esl skill uninstall');
   addUse(skill);
   addShare(skill, program);
 
@@ -1743,8 +1822,8 @@ export function createProgram(): Command {
   addInfo(program, 'esl info');
   addInstall(program, program, 'esl install');
   addList(program, program, 'esl list');
-  addUpdate(program, 'esl update');
-  addUninstall(program, 'esl uninstall');
+  addUpdate(program, program, 'esl update');
+  addUninstall(program, program, 'esl uninstall');
   addVersion(program, program, 'esl version');
   addPublish(program, program, 'esl publish');
   addLogin(program, program, 'esl login');

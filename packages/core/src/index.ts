@@ -20,6 +20,7 @@ export * from './version/select-version.js';
 export * from './store/file-copy.js';
 export * from './store/local-store.js';
 export * from './server/instance-identity.js';
+export * from './store/installed-dependencies.js';
 export * from './store/skills-json.js';
 export * from './link/tool-links.js';
 export * from './link/skill-links.js';

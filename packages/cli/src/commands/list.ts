@@ -52,5 +52,9 @@ export function skillToolSummary(entry: SkillListEntry): string {
 
 export function formatSkillListLine(entry: SkillListEntry): string {
   const title = `${skillListTitle(entry)} (${entry.name})`;
-  return `  ${title.padEnd(40)} v${entry.version.padEnd(8)} (${entry.source})  tools: ${skillToolSummary(entry)}`;
+  const line = `  ${title.padEnd(40)} v${entry.version.padEnd(8)} (${entry.source})  tools: ${skillToolSummary(entry)}`;
+  if (entry.missingDependencies && entry.missingDependencies.length > 0) {
+    return `${line}  missing dependencies: ${entry.missingDependencies.join(', ')}`;
+  }
+  return line;
 }

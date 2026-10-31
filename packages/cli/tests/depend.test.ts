@@ -33,7 +33,7 @@ describe('esl depend', () => {
       json: async () => ({ name: '@acme/base', versions })
     });
 
-  it('add defaults the range to ^highest stable, ignoring prereleases', async () => {
+  it('add without a version saves a wildcard range instead of pinning the latest stable', async () => {
     const fetchImpl = infoFetch(['2.0.0-beta.1', '1.2.0', '1.0.0']);
 
     const result = await executeDependAdd('@acme/base', {
@@ -42,8 +42,21 @@ describe('esl depend', () => {
       customFetch: fetchImpl as any
     });
 
-    expect(result).toMatchObject({ identity: '@acme/base', range: '^1.2.0', updated: false });
-    expect(readReleaseJson().dependencies['@acme/base']).toBe('^1.2.0');
+    expect(result).toMatchObject({ identity: '@acme/base', range: '*', updated: false });
+    expect(readReleaseJson().dependencies['@acme/base']).toBe('*');
+  });
+
+  it('keeps an explicit prerelease range when the author asks for one', async () => {
+    const fetchImpl = infoFetch(['2.0.0-beta.1', '1.2.0']);
+
+    const result = await executeDependAdd('@acme/base@>=2.0.0-beta.1 <2.0.0', {
+      directory: skillDir,
+      server: 'http://localhost:4070',
+      customFetch: fetchImpl as any
+    });
+
+    expect(result.range).toBe('>=2.0.0-beta.1 <2.0.0');
+    expect(readReleaseJson().dependencies['@acme/base']).toBe('>=2.0.0-beta.1 <2.0.0');
   });
 
   it('add writes the given range and updates the edge when the identity already exists', async () => {

@@ -49,6 +49,20 @@ describe('esl-operator 文档契约', () => {
     expect(content).not.toContain('使用 `id` 作为参数键');
   });
 
+  it('同步依赖清理、影响确认与身份式声明说明', () => {
+    const skill = readSkill('SKILL.md');
+    const consumer = readSkill('references/consumer.md');
+    const author = readSkill('references/author.md');
+    const agent = readSkill('references/agent-interaction.md');
+    expect(skill).toContain('esl skill update');
+    expect(skill).toContain('esl skill uninstall');
+    expect(consumer).toContain('--cleanup');
+    expect(consumer).toContain('missingDependencies');
+    expect(consumer).toContain('--accept-dependency-impact');
+    expect(author).toContain('通配范围');
+    expect(agent).toContain('acceptDependencyImpact');
+  });
+
   it('已发布包安装不把 Git 当成硬前置', () => {
     const row = readSkill('references/workflows.md').split(/\r?\n/).find((line) => line.startsWith('| 安装/更新远端技能 |'));
     expect(row).toBeDefined();

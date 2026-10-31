@@ -235,6 +235,19 @@ describe('Skill Release API', () => {
     expect(response.json().dependencyLock['@alice/dep'].version).toBe('1.2.0');
   });
 
+  it('freezes an identity-only wildcard dependency at the highest stable release', async () => {
+    await upload('dep');
+    await publish('@alice/dep', '1.2.0');
+    await publish('@alice/dep', '1.0.0');
+    await publish('@alice/dep', '2.0.0-beta.1');
+    await upload('reviewer');
+
+    const response = await publish('@alice/reviewer', '1.0.0', { '@alice/dep': '*' });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().dependencyLock['@alice/dep'].version).toBe('1.2.0');
+  });
+
   it('marks a release as deprecated with a message, and clears the mark', async () => {
     await upload('reviewer');
     await publish('@alice/reviewer', '1.0.0');

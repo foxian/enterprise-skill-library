@@ -4,6 +4,12 @@ import { RESERVED_SCOPE_NAMES } from '../org/account-policy.js';
 // 发布依赖目标的唯一合法形态：已发布的 Server-hosted 技能身份（ADR-0056）。
 export const RELEASE_DEPENDENCY_TARGET_PATTERN = /^@([a-z0-9-]+)\/([a-z0-9-]+)$/;
 
+/**
+ * 身份式依赖声明的范围（ADR-0072）：作者省略版本时保存 `*`，表示只要求
+ * 「需要这个技能」，不根据当前最新版生成隐式约束；发布解析仍取最高稳定版。
+ */
+export const WILDCARD_RANGE = '*';
+
 /** 目标合法时返回 null；非法（保留 Scope、file:、路径、残缺身份）时返回对应错误码。 */
 export function validateReleaseDependencyTarget(identity: string): 'releaseDependencyTargetInvalid' | null {
   const match = identity.match(RELEASE_DEPENDENCY_TARGET_PATTERN);
@@ -11,25 +17,6 @@ export function validateReleaseDependencyTarget(identity: string): 'releaseDepen
     return 'releaseDependencyTargetInvalid';
   }
   return null;
-}
-
-/**
- * 消费端多根合并（ADR-0056）：同一身份已装版本与入图版本不一致时取其中
- * 更高者，前提是它满足各方 Release Manifest 声明的全部范围；不满足即冲突，
- * 调用方放弃整次安装、已有图保持原状。
- */
-export function chooseMergedVersion(input: {
-  existingVersion: string;
-  incomingVersion: string;
-  ranges: readonly string[];
-}): { version: string } | { conflict: true } {
-  const candidate = semver.gt(input.incomingVersion, input.existingVersion)
-    ? input.incomingVersion
-    : input.existingVersion;
-  if (input.ranges.every((range) => semver.satisfies(candidate, range))) {
-    return { version: candidate };
-  }
-  return { conflict: true };
 }
 
 /**
