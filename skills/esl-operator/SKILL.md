@@ -11,13 +11,14 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 ## 按任务做最小环境检查
 
-先判断用户目标和技能来源，再按 `references/workflows.md` 的「环境按任务检查」矩阵选择前置条件；该矩阵是唯一的任务前置清单。只读检查可直接执行，不把所有检查串成必经流程。
+先判断用户目标和技能来源，再按 `references/workflows.md` 的「环境按任务检查」矩阵选择前置条件；该矩阵是唯一的任务前置清单。矩阵是按条件取用的映射，不是每次任务都要完整执行的预检清单。只读检查可直接执行，不把所有检查串成必经流程。
 
-- 首先用 `esl --version` 确认 CLI 可用；不存在或启动失败时，按下文失败卡选择可用的 CLI 执行器。Node/npm 存在不代表全局 npm 目录可写。
+- 直接执行用户明确要求的 ESL 命令；只有命令找不到、启动失败，或需要切换 CLI 执行器时，才运行 `esl --version` 并按下文失败卡选择可用执行器。Node/npm 存在不代表全局 npm 目录可写。
 - 在同一任务中固定一个 CLI 执行器：优先已有的 `esl`，其次是沙箱可写目录中的项目级安装，再其次是带明确版本的 `npx --yes @foxian/esl@<version>`；不要在 `esl`、裸 `npx esl` 和不同版本之间混用。
 - 全局安装的 `esl` 可能在普通命令启动时提示稳定版更新；提示不改变当前命令。只有用户明确要求更新时才运行 `esl self-update`，并让 CLI 自己请求确认。项目级安装和 `npx` 不执行 CLI 自更新；Agent/JSON 模式不输出旁路更新提示。
 - 本地查看、内置安装和本地校验不要求 Server 或登录。只有远端任务需要 Server；需要鉴权时再检查 `esl account whoami`。
 - 只在源码或发布流程需要时检查 `git --version`；已发布包的 HTTP 安装不依赖 Git。
+- 同一任务内已成功确认的 CLI、Server、登录和 Git 状态直接复用；只有命令报出对应条件缺失、任务切换到需要该条件的阶段，或用户明确要求重新核验时才再次检查。
 - 缺失当前任务的前置条件时，读取 `references/setup.md` 的对应章节。公开云端未指定地址时使用默认
   `https://cloud.enterprise-skills.com/`；只有私有、自托管或本地 Server 才需要向用户确认地址。
   写入 `config set-server` 前仍须确认用户确实要覆盖默认地址，密码由用户在自己的终端输入。
@@ -92,6 +93,10 @@ Hint。细节见 `references/consumer.md`。
 为什么：密码一旦被你经手（写进命令、落进会话历史或日志），泄露面就放大；让用户在自己终端输入，凭据只存在他本机的只读文件里。
 
 **3. 身份语法别混。** 远端（Server-hosted）技能写全名 `@scope/skill-name`，其中 scope 即其 Namespace（如 `@cnfox/code-review`）；本地草稿目录写相对路径 `./path`，身份走保留 Scope `local`（`@local/*`，系统拦截、无法 `publish`）；内置技能走保留 Scope `builtin`（`@builtin/<skill-name>`，随 CLI 发行、不可 `esl source upload` / `esl release publish` / `esl source clone` / `esl release version` / `esl source rename`）。用户含糊地说"那个技能"时先确认是远端、本地草稿还是内置、是哪个 scope 与短名。**归属写在源码里**：`release.json` 的 `name` 是身份的唯一权威来源（v4，ADR-0032）——`@组织名/短名` 发到组织命名空间（需是该组织成员），裸短名或 `@自己的用户名/短名` 落在个人命名空间；`SKILL.md.name` 只写短名。`esl source init` 默认选 personal、交互式展示编号列表、组织归属也可用 `--namespace <组织名>`；首次 `esl source upload` 会要求确认身份且之后固定（ADR-0039），已托管源改 namespace 会被阻断，`esl release publish` 只断言一致，改归属不得靠改 `name`。`displayName`（v4，ADR-0048）是纯展示标题（可含中文与空格），不参与身份与授权——搜索/列表的标题位优先显示名、`@scope/短名` 作技术名。
+
+**ESL 源码 Git 认证只走 ESL CLI。** 对 Server-hosted Source 的 `esl` remote，禁止直接执行 `git fetch`、`git pull` 或 `git push` 作为同步路径，也不要要求用户再次输入 Git 用户名和密码。统一使用 `esl source status`、`esl source upload`、`esl source clone` 等命令；CLI 会复用本机 ESL 登录产生的 Skill User Token，并只在当前 Git 子进程中临时注入认证 Header。源码目录、remote URL 和 Git 全局配置不得写入 ESL 密码或 Token。`git status`、`git diff`、`git log` 等本地诊断，以及用户编辑冲突文件，仍可直接使用 Git。
+
+为什么：ESL 登录态和 Git Backend 访问使用同一个 Skill User Token；再次弹 Git 密码说明调用绕过了 ESL CLI，不应通过给每个源码目录保存一套凭据来修复。
 
 ## 输出与解析
 

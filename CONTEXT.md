@@ -103,7 +103,10 @@ SKILL.md 完成（见 Skill Rename）。
 
 Maintainer 将对 Server-hosted Skill Source 的后续 Git 提交推送到服务器的
 操作。它不创建 Skill Release。可通过 `esl source upload`（esl 化，含自动提交与
-rebase）或裸 `git push esl main` 完成。
+rebase）完成。对 `esl` remote 不建议使用裸 Git fetch/pull/push：ESL CLI 会从
+用户级登录状态读取 Skill User Token，并在每次 Git 请求中临时注入认证 Header；
+源码目录和 Git remote 不保存 ESL 密码或 Token。普通 Git 诊断命令仍可直接使用，
+但源码同步、冲突继续和推送统一通过 `esl source upload` 完成。
 
 ## Source Checkout
 

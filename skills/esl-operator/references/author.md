@@ -87,6 +87,7 @@
 `esl source upload [./path] [--message|-m <text>] [--license SPDX] [--confirm-identity <技能名>]`
 
 上传会在 Server 登记或同步技能源码、建立/更新 Server-hosted Source，并使用 Git remote 推送。它不是发布；用户仍需要后续 `release version` 与 `release publish` 才能让版本进入可安装 Registry。
+源码同步期间的 fetch、rebase、冲突继续和 push 都由该命令使用 ESL 登录 Token 完成；不要改用裸 `git pull` / `git push`，否则 Git 可能再次要求输入一套独立凭据。
 
 ### 上传前：盘点文件，先问再传
 

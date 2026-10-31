@@ -12,16 +12,20 @@ Status: accepted
 - **推前自动 rebase**：push 前 `git fetch esl`；本地落后时 `git rebase esl/main` 自动合并——无冲突静默通过，有冲突**保留 rebase 进行中状态**并明确提示「冲突文件已标出，解决后重跑 esl upload 完成合并并推送」。重跑时 `prepareSourceGit` 检测到 rebase 进行中则执行 `add -A` + `rebase --continue` 而非新建 commit，保留用户的 commit 与说明。绝不自动 abort 造成死循环。
 - **身份漂移防护**：已托管路径校验 `SKILL.md` 短名与 `esl` remote 仓库短名一致，不一致报错并指引走 `esl rename`（防止把 A 技能内容推进 B 技能仓库）。
 - **`esl status`**：显示本地 vs 服务器源状态——是否已托管、工作树干净/脏、领先/落后提交数、最近提交说明；已登录时 fetch 使 ahead/behind 准确。让 git-less 用户看得见状态。
+- **ESL 登录态复用 Git 认证**：`esl upload`、`esl status` 等需要访问 `esl` remote 的命令从用户级 ESL 凭据读取 Skill User Token，并通过进程级 `http.extraHeader` 临时注入 Git 请求。不得把 ESL 密码或 Token 写入源码目录、remote URL 或全局 Git credential store。
+- **禁止 operator 走裸 Git 同步**：`esl-operator` 对 ESL 源码 remote 统一调用 ESL CLI；裸 `git fetch/pull/push` 不属于默认维护路径，避免 Git Credential Manager 再次提示输入一套独立凭据。
 
 ## Considered Options
 
 - **fail-fast + 手动 git 处理冲突**：冲突时 abort 并让用户手动解决。缺点：abort 后用户本地仍是旧基座，重跑 upload 会再次冲突，形成死循环——被弃。
 - **冲突时保留 rebase 状态 + 重跑续接**（采纳）：解决冲突编辑 → 重跑 `esl upload` → `add -A` + `rebase --continue` → push。一条命令闭环，无 git 暴露。
 - **完全不在 upload 里做同步**（保持纯 git push 更新）：与"不碰原生 git"原则冲突，被弃。
+- **在 ESL 登录时另存 Git 用户名密码**：与 Token 认证重复，扩大密码暴露面，且无法自然覆盖多 Server、多账号和权限撤销，被弃。
+- **把 Token 写入 Git remote 或全局 credential store**：会让凭据跨命令长期暴露，并可能被其他 Git 操作或工具误用，被弃。
 
 ## Consequences
 
-- `esl upload` 语义从"一次性登记"演进为"esl 化的提交+推送（首次含登记、已托管跳过登记）"；Source Update 可经 `esl upload` 完成，`git push esl main` 仍保留为底层通道。
+- `esl upload` 语义从"一次性登记"演进为"esl 化的提交+推送（首次含登记、已托管跳过登记）"；Source Update、远端 fetch/rebase、冲突继续和 push 均经 `esl upload` 编排，Git 仍是底层版本控制引擎，但裸 `git push esl main` 不再是默认维护通道。
 - 已发布技能可直接 `esl upload --message "..."` 推送后续源码修改，不再 409。
 - 真冲突仍需用户在编辑器解决（任何协同系统都不可避免）；esl 负责收窄到有语义冲突的文件并把流程包装成命令。
 - 新增 `esl status` 命令；CONTEXT 的 Source Upload 定义随之更新。

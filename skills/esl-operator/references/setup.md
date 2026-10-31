@@ -4,12 +4,12 @@
 
 任务前置条件统一见本技能根目录下 `references/workflows.md` 的「环境按任务检查」；只处理当前任务缺失的条件。本页提供安装、配置和认证方法，不增加额外前置。
 
-- 先运行 `esl --version`。CLI 缺失或启动失败时，再检查 `node --version`、`npm --version` 与 `npx --version`。Node/npm 存在不代表沙箱允许全局安装。
+- 先直接执行用户要求的 ESL 命令。只有 CLI 找不到或启动失败时，才运行 `esl --version`，再检查 `node --version`、`npm --version` 与 `npx --version`。Node/npm 存在不代表沙箱允许全局安装；同一任务内已确认的 CLI 执行器直接复用。
 - CLI 的 Node.js 支持范围与 `@foxian/esl` 的 engines 一致：`^20.17.0 || ^22.13.0 || ^23.5.0 || ^24.0.0`；推荐 24.x。缺 Node 或 npm 时不能安装 CLI。仓库开发的运行时要求另见仓库文档。
 - Git 仅在源码或发布流程需要时检查，已发布包的 HTTP 安装无需本机 Git。
 - 远端任务才要求配置 Server；需要鉴权时检查 `esl account whoami`，看到 `Not logged in` 不代表 CLI 安装失败。
 
-CLI 安装成功的标准是 `esl --version` 有版本号；远端任务另检查 Server，需要鉴权时再确认 `whoami` 显示 `active`。本地任务无需为此配置 Server 或登录。普通消费者不需要 Docker。
+CLI 安装成功的标准是目标 ESL 命令可执行；发生 CLI 启动问题时再用 `esl --version` 确认版本号。远端任务另检查 Server，需要鉴权时再确认 `whoami` 显示 `active`。本地任务无需为此配置 Server 或登录。普通消费者不需要 Docker。
 
 ## 环境问题的分流话术
 

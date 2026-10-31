@@ -20,6 +20,10 @@ describe('esl-operator 文档契约', () => {
     const skill = readSkill('SKILL.md');
     const setup = readSkill('references/setup.md');
     const workflows = readSkill('references/workflows.md');
+    expect(skill).toContain('直接执行用户明确要求的 ESL 命令');
+    expect(skill).toContain('同一任务内已成功确认的 CLI、Server、登录和 Git 状态直接复用');
+    expect(setup).toContain('先直接执行用户要求的 ESL 命令');
+    expect(workflows).toContain('只有失败或进入新阶段时才补做缺失检查');
     expect(skill).toContain('Node/npm 存在不代表全局 npm 目录可写');
     expect(skill).toContain('不要推荐裸 `npx esl`');
     expect(setup).toContain('Node/npm 已存在但全局安装失败');

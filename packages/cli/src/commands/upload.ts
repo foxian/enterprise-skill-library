@@ -465,7 +465,7 @@ function hostedSourceAccessError(detail: string, options: { includePushHint?: bo
     'Log in with the maintaining account and re-run "esl upload"; ' +
     'or, if the server source is confirmed deleted, run "git remote remove esl" and re-run "esl upload" to register a fresh source.';
   const pushHint = options.includePushHint
-    ? ' To finish an interrupted push on an already-registered source, run "git push esl HEAD:main".'
+    ? ' To finish an interrupted sync on an already-registered source, resolve any local issue and re-run "esl source upload".'
     : '';
   return new HostedSourceAccessError(`${guidance}${pushHint} (${detail})`);
 }

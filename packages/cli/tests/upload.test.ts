@@ -438,7 +438,7 @@ describe('esl upload', () => {
         customFetch: fetchImpl as any,
         execFileAsync: execFileAsync as any
       })
-    ).rejects.toThrow(/git push esl HEAD:main/);
+    ).rejects.toThrow(/esl source upload/);
   });
 
   it('does not duplicate the guidance paragraph when syncing an inaccessible source fails', async () => {
@@ -921,7 +921,7 @@ describe('esl upload', () => {
     expect(error).not.toBeNull();
     expect(error!.message).toMatch(/maintained by another account or organization/);
     expect(error!.message).toMatch(/git remote remove esl/);
-    expect(error!.message).toMatch(/git push esl HEAD:main/);
+    expect(error!.message).toMatch(/esl source upload/);
     expect(execFileAsync).not.toHaveBeenCalledWith('git', ['remote', 'remove', 'esl'], { cwd: skillDir });
   });
 
