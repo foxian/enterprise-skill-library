@@ -1,6 +1,6 @@
 # ESL 用户工作流
 
-本文件面向“我想完成什么”的用户场景；具体命令、参数和协议细节分别见 `setup.md`、`consumer.md`、`author.md` 与 `agent-interaction.md`。
+本文件面向“我想完成什么”的用户场景；具体命令与参数分别见 `setup.md`、`consumer.md`、`author.md`；服务端或运行时选项的协议细节见 `agent-interaction.md`。
 
 ## 统一执行模型
 
@@ -71,7 +71,7 @@ CLI 检查要区分“可执行”和“可安装”：先直接执行用户要�
 ### 最短路径
 
 ```text
-确认范围与工具 → 执行 install → 处理 Agent Interaction 工具选择 → list --json 验证
+确认范围并选工具 → 执行 install → list --json 验证
 ```
 
 **完成标准**：技能、版本、安装范围、安装模式和目标工具均符合预期；本地 Store 有记录，目标 Tool Link 正常，项目清单/锁文件没有意外变化。

@@ -58,41 +58,49 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 | 登录 / 登出 / 换服务器 / 我是谁 / token 过期 / 没登录 | `references/setup.md` |
 | 搜、找、有没有 X 技能 / 试用 / 装、安装 / link 本地源码、开发模式 / 列出已装、看工具 link 状态 / 更新、升级（含传递依赖与清理旧依赖）/ 卸载（含选择性清理、依赖缺失）/ unlink 源码 / 我的常用工具、偏好工具（`esl config preferred-tools`） | `references/consumer.md` |
 | 建、创建、初始化技能 / 校验、看源状态 / 上传源码 / 发布 / 改版本号 / 发布依赖 / 弃用、修订说明、删除版本 / 重命名 / 拉别人源码、二次开发 / 共享治理（看谁有权限、授权与撤销、切可见性） | `references/author.md` |
-| 执行已接入协议的写命令 / 看到 `questions` 交互负载 | `references/agent-interaction.md` |
+| 要选工具 / 版本类型 / 项目根，或看到 `questions` 交互负载 | 本文件「先收集选择」；服务端或运行时选项见 `references/agent-interaction.md` |
 | 仍含糊 | 问一个澄清问题（例：「从服务器装现成的，还是自己从零创建？」） |
 
-**Agent Interaction 默认开启。** 本技能由 AI 执行 `esl source init`、裸 `esl release version`、`esl skill install`、`esl skill update`、`esl skill uninstall`、`esl link` 或 `esl unlink` 时，命令一律追加
-`--agent-interaction` 与 `--agent-tool <tool>`（按当前宿主传工具标识，如
-Claude Code 传 `claude-code`、Codex 传 `codex`、Trae 国际版传 `trae-intl`、
-Trae 国内版传 `trae-cn`；旧值 `claude` 仍兼容），并同时读取
-`references/agent-interaction.md`。不要等用户明确要求选择框或输入框。
+## 先收集选择：静态选项自己问，动态选项走协议
 
-Agent 模式下的确认边界：再次安装覆盖已有副本**不必问**；把普通安装改成
-Skill Source Link（或反向）属于改安装模式，必须先征得用户同意，再带
-`--force` 重跑；缺工具勾选时 CLI 会返回工具多选题，收集后用同一个
-`--tools` 重跑即可；站在 Local Skill Source 里做项目级 `link` / `unlink`
-需要判定上一级 Consumer Project Root 时，CLI 会返回项目根确认或三选一，用
-`--params-json`（`useParent` / `projectRootChoice` / `projectRootPath`）交回。
+判断标准只有一条：**选项是不是事先就知道**。
 
-`update` / `uninstall` 的关联依赖清理默认全部不勾选；CLI 返回清理多选时用
-`--cleanup`（或 `--params-json '{"cleanup":[...]}'`）交回选择，空数组表示全部保留。
-删除仍被其他技能依赖的目标会先返回影响确认；确认后用
-`--accept-dependency-impact <受影响的技能列表>` 交回本次看到的范围，影响扩大时 CLI
-会再次询问。`--force` 只代表接受当前检查到的全部影响，模式开关不构成删除授权。
+- **枚举固定或本地可判断**（AI 工具、`source init` 的 description / license / keywords / display name、版本类型、项目根）→ 在对话里直接问，把答案翻译成命令旗标，一条命令跑完；不要为这些问题加 `--agent-interaction`。
+- **选项由服务端或运行时决定**（`source init` 的 Namespace 组织列表、`update` / `uninstall` 的依赖清理候选与删除影响）→ 读 `references/agent-interaction.md`，消费退出码 `2` 返回的 `questions`。CLI 对其它命令也支持该模式，但技能不主动使用。
 
-**站在技能源码里的项目级 `link` / `unlink` 看上一级（ADR-0057）。** cwd 是
-Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级
-当候选项目根（只看一层）：有 `.skills.json` / `.eslib` 静默采用；只有工具点目录
-时先确认；都没有则三选一，非交互缺硬证据时失败。`install` / `update` /
-`uninstall` / `list` **不**探测上一级，主语是当前 cwd 的 Store；站在
-技能源码里 `install` / `update` 写入前拒绝、`list` / `uninstall` 追加
-Hint。细节见 `references/consumer.md`。
+**怎么问**：优先用宿主的原生提问控件（Claude Code 的 `AskUserQuestion`，其他宿主用等价的选项控件或文本编号选项）。一次问 3–4 个问题；选项显示展示名，提交时换回规范 id；license、显式 SemVer、项目根目录这类自由输入走 Other 或直接文本。不要等用户主动要求选择框。
+
+**AI 工具标识**（展示名 → `--tools` / `--agent-tool` 的提交值）：
+
+| 展示名 | 提交 id |
+|---|---|
+| Claude Code | `claude-code`（等价别名 `claude`） |
+| Codex | `codex` |
+| Cursor | `cursor` |
+| Trae International | `trae-intl` |
+| Trae CN | `trae-cn` |
+| WorkBuddy | `workbuddy` |
+| OpenCode | `opencode` |
+| OpenClaw | `openclaw` |
+| Hermes | `hermes` |
+
+工具数超过单次选项上限时，按「已有 Tool Link → `esl config preferred-tools` 的常用工具 → 其余」排序，先给前几个，其余让用户自由输入 id。
+
+**`install` / `link`**：必须显式给 `--tools <id,id>` 或 `--no-tools`，非交互缺工具集合会直接失败。覆盖安装不必额外确认；普通安装与 Skill Source Link 互转必须先征得用户同意再带 `--force`。
+
+**`source init`**：先问齐 description、license、keywords、display name 并直接传参——缺字段时 CLI 会静默套默认值，不能靠它补问。只有需要组织列表时才加 `--agent-interaction --agent-tool <tool>`，让返回的问题只剩 Namespace；个人技能直接传 `--namespace personal`，完全不进入协议。
+
+**`release version`**：问 patch / minor / major 或显式 SemVer，用位置参数 `esl release version patch`；可从本地 `release.json` 算出下一版本作为参考。
+
+**项目根（ADR-0057）**：先按 `references/consumer.md`「站在 Skill Source 里的项目根」判断上一级是否可作为 Consumer Project Root；需要交回时用 `--params-json` 的 `useParent` / `projectRootChoice` / `projectRootPath`。`install` / `update` / `uninstall` / `list` 不探测上一级。
+
+**`update` / `uninstall` 的依赖清理默认全部不勾选**；CLI 返回清理多选时用 `--cleanup`（或 `--params-json '{"cleanup":[...]}'`）交回选择，空数组表示全部保留。删除仍被其他技能依赖的目标会先返回影响确认；确认后用 `--accept-dependency-impact <受影响的技能列表>` 交回本次看到的范围，影响扩大时 CLI 会再次询问。`--force` 只代表接受当前检查到的全部影响，模式开关不构成删除授权。
 
 ## 三条不可妥协的规则
 
 **1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`、`esl skill share`（**无任何目标旗标**，查看权限矩阵）——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`（带任何目标旗标：`--all` / `--team` / `--user` / `--revoke-team` / `--revoke-user` / `--visibility` / `--clear-grants`，清空授权时非交互需 `--force`）、`esl release depend add`、`esl release depend remove`、`esl account whoami --online`/`esl whoami --online`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config server add`/`use`/`remove`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
 
-为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作没有 Agent Interaction 协议，AI 无法替用户应答确认框。
+为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作由 CLI 自己的确认框把关，AI 无法替用户应答。
 
 **2. 登录不碰密码。** ESL 的认证靠 `esl account login` 拿 token。如果你跑 `esl account whoami` 看到 `Not logged in`，或某条命令报 401/认证失败：把用户引到 `references/setup.md`。交互式 `esl account login` 会提示输入密码——这步让用户自己跑，你不要替它键入密码。只有当用户已备好凭据文件时，你才可以执行 `esl account login --username X --token-file ./f` 或 `--password-file ./f`。绝不在命令行里写明文密码或 token。状态不明就先跑 `esl account whoami`。
 
@@ -112,18 +120,9 @@ Hint。细节见 `references/consumer.md`。
 - `esl skill use` 只把技能 Prompt 文本打到 stdout、不改项目——适合"试用一下"。可管道传给 Agent：`esl skill use @ns/name | <agent>`。
 - 跨平台执行：示例块标 `bash` 只是 shell 高亮，命令本身在 PowerShell/CMD 与 bash/zsh 下等价。PowerShell 中含 `$`、反引号或 `!` 的参数文本（如提交说明、弃用提示）建议改用单引号包裹，避免被当作变量插值。
 
-## Agent 交互
+## 遇到 `questions` 交互负载
 
-本技能由 AI 驱动，因此对已支持交互协议的命令默认使用 `--agent-interaction`
-与 `--agent-tool <tool>`；支持的命令集合和完整消费流程统一见
-`references/agent-interaction.md`，执行前读取对应章节。不要让 CLI 在该模式
-下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。
-
-如果命令返回退出码 `2` 且 stdout 是 JSON，读取 `questions` 数组，按宿主
-自己的交互界面消费；`metadata.source` 标记来源为 `esl-cli`。
-
-收集后优先使用命令已有的专用 flag，复杂或动态参数使用 `--params-json` 重新
-执行同一命令。退出码 `0` 是成功，其他失败按普通错误处理。
+只有服务端或运行时决定的问题会以退出码 `2` 返回 JSON：读取 `questions`，收集答案后用同一命令的专用 flag 或 `--params-json` 重跑，`metadata.source` 是 `esl-cli`。不要让 CLI 在该模式下等待 stdin，也不要根据普通错误文本猜测是否需要弹窗。完整流程见 `references/agent-interaction.md`。
 
 ## 命令找不到 / 服务不通
 

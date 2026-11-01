@@ -36,11 +36,21 @@
 
 ## 从零初始化
 
-`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>`
+`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>]`
 
 `source init` 会就地补缺，不覆盖已有文件：缺少 `SKILL.md` 时创建基本 frontmatter；缺少 `release.json` 时补最小 v4 清单；不生成 `skill.json`，因为 `skill.json` 属于安装/发布包而非源码。
 
-执行前确认：目标目录、短名、个人或组织 namespace、description、license、keywords、display name。AI 执行时固定带 `--agent-interaction --agent-tool <tool>`；缺失字段由 CLI 返回结构化问题，再向用户收集后用同一命令重跑。不要猜组织名，也不要替用户确认首次身份。
+执行前一次问齐下列字段并直接传参；缺字段时 CLI 会静默套默认值，不会回头补问：
+
+| 字段 | 参数 | 说明 |
+|---|---|---|
+| Skill description | `--description` | 触发场景与用途 |
+| License | `--license` | SPDX 标识，默认 MIT，需用户确认 |
+| Keywords | `--keywords` | 逗号分隔 |
+| Display name | `--display-name` | 可含中文与空格，不参与身份 |
+| Namespace | `--namespace` | 个人用 `--namespace personal`；组织填组织名 |
+
+只有需要服务端返回的组织列表时才加 `--agent-interaction --agent-tool <tool>`，让返回的问题只包含 Namespace；收集后用 `--params-json '{"namespace":"..."}'` 重跑。不要猜组织名，也不要替用户确认首次身份。
 
 身份规则：`SKILL.md.name` 是短名；`release.json.name` 是归属与完整身份的权威来源。个人可用裸短名，组织使用 `@组织名/短名`。首次 `source upload` 会固定身份；后续不要靠修改 `release.json.name` 迁移 namespace。
 

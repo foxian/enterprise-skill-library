@@ -85,7 +85,7 @@ Versions:
 - 项目级状态写入项目 `.eslib/`、`.skills.json` 和 `.skills-lock.json`；全局状态写入用户 Store。`.eslib/` 应加入 gitignore。
 - 选中的每个工具获得单技能 Tool Link；Tool Link 不等于安装本身。
 
-安装是写操作：先展示完整命令，用户确认后执行。Agent 模式按 `agent-interaction.md` 处理工具选择；普通安装转换为 Skill Source Link（或反向）必须另行确认并使用 `--force`。
+安装是写操作：先展示完整命令，用户确认后执行。Agent 执行时必须显式给 `--tools <id,id>` 或 `--no-tools`（工具 id 见 `SKILL.md` 的「AI 工具标识」表），非交互缺工具集合会直接失败；普通安装转换为 Skill Source Link（或反向）必须另行确认并使用 `--force`。
 
 ### 安装后验证
 
@@ -119,6 +119,27 @@ Versions:
 - 修复已记录链接：`esl skill update` 会在维护 Store 内容时修复缺失或 ESL 自己的错误链接，但不会覆盖 conflict，也不会凭偏好配置批量创建未记录链接。
 - 调整目标工具：用 `esl skill install` / `esl link` 的 `--tools` 进行期望集合对账；涉及模式转换时先确认。
 - `unmanaged` 内容不由 ESL 删除，不能把 `uninstall` 当作清理用户手工目录的命令。
+
+## 站在 Skill Source 里的项目根（ADR-0057）
+
+`link` / `unlink` 的 cwd 是 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级当候选项目根（只看一层）：
+
+- 上一级有 `.skills.json` / `.eslib` → 静默采用，不必问；
+- 只有工具点目录（`.claude/`、`.codex/` 等）→ 问一句是否采用上一级；
+- 都没有 → 三选一：初始化上一级 / 指定另一个目录 / 改全局。
+
+无证据三选一的选项规范值在 description 的 `choice: <值>`；Agent 用 `label` 或 `choice` 值都可交回。
+
+交回用 `--params-json`：
+
+```shell
+esl link --params-json '{"useParent":true}'
+esl link --params-json '{"useParent":false,"projectRootChoice":"global"}'
+esl link --params-json '{"projectRootChoice":"init"}'
+esl link --params-json '{"projectRootChoice":"directory","projectRootPath":"../my-app"}'
+```
+
+非交互缺硬证据时 CLI 以普通错误失败并列出可行动选项，不会猜一个项目根。`install` / `update` / `uninstall` / `list` 不探测上一级，主语是当前 cwd 的 Store；站在技能源码里 `install` / `update` 写入前拒绝、`list` / `uninstall` 追加 Hint。
 
 ## 常用工具偏好
 
