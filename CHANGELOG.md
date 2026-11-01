@@ -4,6 +4,20 @@
 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 SemVer。发布流程见
 [docs/guides/publishing-cli.md](docs/guides/publishing-cli.md)。
 
+## [0.2.2] - 2026-11-01
+
+### Added
+
+- **技能依赖改为身份声明与用户自主清理（ADR-0072）。** `esl release depend add` 省略版本时保存不限稳定版本的 `*`，发布时仍解析并冻结实际版本；安装根技能时优先复用同一实例中已装的依赖（范围差异只提示），缺失项按实际采用版本补齐子图。`esl skill update` 可单独升级已安装的传递依赖，越界只提示，不提升为直接依赖；卸载或更新根技能后，不再被需要且非用户直接安装的关联依赖成为可选清理项，默认全部保留，保留意图持久化到安装清单；删除仍被其他技能依赖的技能前展示影响并要求确认。`esl skill update` / `esl skill uninstall` 接入 Agent Interaction，AI 可通过退出码 2 与 `--cleanup` / `--accept-dependency-impact` 重跑完成选择。
+
+### Changed
+
+- 内置 `esl-operator` 的静态选项改由宿主提问，Agent Interaction 协议只保留服务端与运行时问题；环境检查改为直接执行目标命令、失败时再补检查，同一任务内复用已确认的 CLI、Server、登录与 Git 状态。（#164）
+
+### Fixed
+
+- 修正托管源码同步失败时的引导：中断的同步改用 `esl source upload` 继续，不再提示直接执行 `git push esl`；ESL 托管 remote 的认证统一复用 CLI 登录产生的凭据。
+
 ## [0.2.1] - 2026-10-30
 
 ### Added
