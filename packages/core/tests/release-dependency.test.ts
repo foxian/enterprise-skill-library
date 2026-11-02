@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ReleaseGraphError,
-  chooseMergedVersion,
   highestSatisfyingAllRanges,
   rangesIntersect,
   resolveReleaseGraph,
@@ -9,23 +8,6 @@ import {
   type ReleaseGraphNode,
   type ReleaseGraphSource
 } from '../src/index.js';
-
-describe('chooseMergedVersion', () => {
-  it('takes the higher version when it still satisfies every declared range', () => {
-    expect(
-      chooseMergedVersion({ existingVersion: '1.2.0', incomingVersion: '1.3.0', ranges: ['^1.0.0'] })
-    ).toEqual({ version: '1.3.0' });
-    expect(
-      chooseMergedVersion({ existingVersion: '1.3.0', incomingVersion: '1.2.0', ranges: ['^1.0.0'] })
-    ).toEqual({ version: '1.3.0' });
-  });
-
-  it('reports a conflict when the higher version breaks a range', () => {
-    expect(
-      chooseMergedVersion({ existingVersion: '1.2.0', incomingVersion: '2.0.0', ranges: ['~1.2.0'] })
-    ).toEqual({ conflict: true });
-  });
-});
 
 describe('validateReleaseDependencyTarget', () => {
   it('accepts a published server-hosted identity', () => {
@@ -89,7 +71,7 @@ describe('highestSatisfyingAllRanges', () => {
 interface FixtureRelease {
   version: string;
   dependencies?: Record<string, string>;
-  visibility?: 'public' | 'private';
+  visibility?: 'public' | 'private' | 'anonymous';
 }
 
 class FakeGraphSource implements ReleaseGraphSource {
@@ -127,6 +109,17 @@ function source(
 }
 
 describe('resolveReleaseGraph', () => {
+  it('resolves an identity-only wildcard dependency to the highest stable release', async () => {
+    const graph = source([
+      ['@alice/d', [{ version: '1.2.0' }, { version: '1.3.0' }, { version: '2.0.0-beta.1' }]]
+    ]);
+
+    const lock = await resolveReleaseGraph({ '@alice/d': '*' }, graph);
+
+    expect(lock['@alice/d'].version).toBe('1.3.0');
+    expect(graph.fetchedFor.has('@alice/d@1.3.0')).toBe(true);
+  });
+
   it('freezes a diamond at the highest version inside the intersection, once per identity', async () => {
     const graph = source([
       ['@alice/d', [{ version: '1.2.0' }, { version: '1.3.0' }, { version: '1.4.0' }]],
@@ -216,6 +209,23 @@ describe('resolveReleaseGraph', () => {
       rootVisibility: 'private'
     });
     expect(lock['@alice/d'].version).toBe('1.0.0');
+  });
+
+  it('requires every node of an anonymous root to be anonymous', async () => {
+    const registry: Array<[string, FixtureRelease[]]> = [
+      ['@alice/anon', [{ version: '1.0.0', visibility: 'anonymous' }]],
+      ['@alice/pub', [{ version: '1.0.0', visibility: 'public' }]],
+      ['@alice/anon-dep', [{ version: '1.0.0', visibility: 'anonymous' }]]
+    ];
+
+    await expect(
+      resolveReleaseGraph({ '@alice/pub': '^1.0.0' }, source(registry), { rootVisibility: 'anonymous' })
+    ).rejects.toMatchObject({ code: 'releaseDependencyAnonymousChainMustBeAnonymous' });
+
+    const lock = await resolveReleaseGraph({ '@alice/anon-dep': '^1.0.0' }, source(registry), {
+      rootVisibility: 'anonymous'
+    });
+    expect(lock['@alice/anon-dep'].version).toBe('1.0.0');
   });
 
   it('does not let a reselected version leave stale child ranges behind', async () => {

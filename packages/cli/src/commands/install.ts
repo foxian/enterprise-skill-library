@@ -1,15 +1,15 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
+import semver from 'semver';
 import {
   addLockEntry,
   addSkillDependency,
-  chooseMergedVersion,
   loadInstallManifest,
+  loadSkillsLock,
   reconcileToolLinks,
   resolveProjectStorePaths,
   type ToolName,
@@ -18,13 +18,16 @@ import {
   evaluateCompatibility,
   fileExists,
   findInstalledSkill,
+  findLockEntry,
   findServerInstanceByAddress,
   highestStableVersion,
+  highestSatisfyingVersion,
   isBuiltinIdentity,
   loadConfig,
   loadSkillsJson,
   loadBuiltinPackageOrThrow,
   BUILTIN_SPECIFIER_PREFIX,
+  readInstalledDependencies,
   recordInstalledSkill,
   removeDirectory,
   resolveLocalStorePaths,
@@ -34,7 +37,9 @@ import {
   skillSourceRelativeDir,
   installManifestKey,
   normalizeServerUrl,
+  normalizeSkillVisibility,
   type ReleaseGraphSource,
+  type SkillVisibility,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
@@ -49,7 +54,7 @@ import {
   apiUrl,
   fetchWithTimeout,
   requireConfigured,
-  requireFreshToken,
+  resolveOptionalFreshToken,
   resolveNetworkConfig,
   withAuthGuidanceIfForbidden,
   projectSkillsDir,
@@ -84,6 +89,11 @@ export interface InstallOptions extends NetworkCommandOptions {
   /** 只用于嵌套 Store 拒绝判断；默认 projectRoot / process.cwd()。 */
   cwd?: string;
   execFileAsync?: typeof defaultExecFileAsync;
+  /**
+   * 作为已装传递依赖更新（ADR-0072）：写锁与安装清单，但不把目标提升成
+   * `.skills.json` 的直接依赖。
+   */
+  asTransitive?: boolean;
 }
 
 function isLocalPath(nameOrPath: string): boolean {
@@ -175,7 +185,10 @@ async function installFromLocalPath(
 
   // 本地源按即将发布的规则拉已发布依赖：失败不回滚本地根源，但依赖图不留半套。
   const dependencies = await readSourceDependencies(resolved);
-  const authToken = Object.keys(dependencies).length > 0 ? await requireFreshToken(options) : undefined;
+  // 依赖可能全部是 anonymous 技能：没有登录态也允许尝试，由服务端逐包判定。
+  const authToken = Object.keys(dependencies).length > 0
+    ? await resolveOptionalFreshToken({ homeDir: options.homeDir })
+    : null;
   const committed: Array<PackageSwap> = [];
   try {
     await copySkillDirectory(resolved, targetDir);
@@ -201,17 +214,17 @@ async function installFromLocalPath(
     await addSkillDependency(dependencyRoot, identity, specifier);
     await addLockEntry(dependencyRoot, identity, lockEntry);
     await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
-    if (authToken) {
-      await installLocalSourceDependencies({
-        dependencies,
-        storeRoot,
-        dependencyRoot,
-        rootVisibility: undefined,
-        options,
-        authToken,
-        committed
-      });
-    }
+    // 无登录态也要解析依赖图：全部是 anonymous 依赖时本地源可以完整安装，
+    // 遇到 public/private 由服务端拒绝，而不是静默跳过依赖。
+    await installLocalSourceDependencies({
+      dependencies,
+      storeRoot,
+      dependencyRoot,
+      rootVisibility: undefined,
+      options,
+      authToken,
+      committed
+    });
   } catch (error) {
     await rollbackSwaps(committed);
     throw error;
@@ -271,7 +284,9 @@ async function installFromServer(
     // 本机尚未登记该实例地址时不猜地址，沿用当前 Server，随后用响应中的
     // Instance ID 校验；不一致会 fail-closed。
   }
-  const authToken = await requireFreshToken(options);
+  // 存在登录态就带上（可消费 private/public 及依赖），匿名也能安装
+  // anonymous 技能；服务端对越权包返回 401/403。
+  const authToken = await resolveOptionalFreshToken({ homeDir: options.homeDir });
   const info = await executeInfo(name, effectiveOptions);
   const instanceId = options.instanceId ?? info.instanceId;
   if (!instanceId) {
@@ -309,7 +324,6 @@ async function installFromServer(
         `not the locked instance ${options.instanceId}; refusing to install from a different source.`
     );
   }
-  const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? highestStableVersion(info.versions ?? []);
   if (!version) {
     throw new Error(`Skill ${name} has no published Skill Release; use esl source for source access`);
@@ -326,13 +340,21 @@ async function installFromServer(
       projectRoot,
       effectiveOptions,
       authToken,
-      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined,
+      info.visibility ? normalizeSkillVisibility(info.visibility) : undefined,
       // 根包上报用户原始 specifier；未显式给出 --version 时按 latest 上报（#136）。
       options.version ?? 'latest',
       instanceId
     );
   }
 
+  // git clone 不提供匿名消费：匿名安装只走 Published Skill Package。
+  if (!authToken) {
+    throw new Error(
+      `Skill ${name} has no Published Skill Package; anonymous installation requires a published package. ` +
+        'Run "esl login" to install it from source.'
+    );
+  }
+  const authHeader = gitAuthHeaderConfig(authToken);
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
 
   // ADR-0053：已发布包走 HTTP 下载不依赖 git；仅 clone 路径 fail-fast 探测。
@@ -356,7 +378,9 @@ async function installFromServer(
       source: 'registry' as const,
       instanceId
     };
-    await addSkillDependency(globalRoot, name, specifier, instanceId);
+    if (!options.asTransitive) {
+      await addSkillDependency(globalRoot, name, specifier, instanceId);
+    }
     await addLockEntry(globalRoot, name, lockEntry);
     await recordInstalledSkill(globalRoot, name, lockEntry, specifier);
     return targetDir;
@@ -385,7 +409,9 @@ async function installFromServer(
       instanceId
     };
     const storeRoot = resolveProjectStorePaths(projectRoot).root;
-    await addSkillDependency(projectRoot, name, specifier, instanceId);
+    if (!options.asTransitive) {
+      await addSkillDependency(projectRoot, name, specifier, instanceId);
+    }
     await addLockEntry(projectRoot, name, lockEntry);
     await recordInstalledSkill(storeRoot, name, lockEntry, specifier);
 
@@ -415,9 +441,11 @@ interface PlannedDependency {
   packageUrl: string;
   visibility: Visibility;
   data: ParsedPublishedPackage;
+  /** 该版本发布时冻结的子依赖（ADR-0056）。 */
+  dependencyLock?: Record<string, LockedDependency>;
 }
 
-type Visibility = 'public' | 'private';
+type Visibility = SkillVisibility;
 
 /** 一次目录换入的记录：失败回滚时无旧副本则删、有旧副本则移回。 */
 export interface PackageSwap {
@@ -436,19 +464,21 @@ async function downloadPublishedPackage(
   resolvedPackageUrl: string,
   identity: string,
   options: InstallOptions,
-  authToken: string,
+  authToken: string | null,
   requested: string,
   allowLegacyFallback = false
 ): Promise<{ integrity: string; data: ParsedPublishedPackage; packageUrl: string }> {
   const fetchImpl = options.customFetch ?? fetch;
+  // 匿名安装不带 Authorization；服务端按技能可见性决定是否放行。
+  const headers: Record<string, string> = authToken ? { Authorization: `token ${authToken}` } : {};
   let response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
-    headers: { Authorization: `token ${authToken}` }
+    headers
   });
   // 冻锁不记录格式；只在 ZIP 不存在时尝试历史 JSON，其他错误不回退。
   if (allowLegacyFallback && response.status === 404) {
     resolvedPackageUrl = resolvedPackageUrl.replace(/\.zip$/, '.json');
     response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
-      headers: { Authorization: `token ${authToken}` }
+      headers
     });
   }
   if (!response.ok) {
@@ -548,30 +578,17 @@ export async function rollbackSwaps(
   }
 }
 
-function addRanges(target: Map<string, Set<string>>, deps: Record<string, string>): void {
-  for (const [identity, range] of Object.entries(deps)) {
-    let set = target.get(identity);
-    if (!set) {
-      set = new Set();
-      target.set(identity, set);
-    }
-    set.add(range);
-  }
-}
-
 /**
  * 按根包嵌入的 Release Dependency Lock 递归下载传递依赖（嵌套锁继续展开，
- * 等同「中间技能按其被锁版本自己的 dependencies 继续展开」），同时收集入图
- * 各方声明范围与各身份可见性。全程只下载、不写任何盘。
+ * 等同「中间技能按其被锁版本自己的 dependencies 继续展开」），并读取各身份
+ * 可见性。全程只下载、不写任何盘。
  */
 async function planIncomingGraph(
   rootData: ParsedPublishedPackage,
   options: InstallOptions,
-  authToken: string
-): Promise<{ nodes: Map<string, PlannedDependency>; incomingRanges: Map<string, Set<string>> }> {
+  authToken: string | null
+): Promise<{ nodes: Map<string, PlannedDependency> }> {
   const nodes = new Map<string, PlannedDependency>();
-  const incomingRanges = new Map<string, Set<string>>();
-  addRanges(incomingRanges, rootData.releaseManifest.dependencies ?? {});
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
   const queue: Array<{ identity: string; entry: LockedDependency }> = Object.entries(
     rootData.dependencyLock ?? {}
@@ -580,87 +597,307 @@ async function planIncomingGraph(
   while (queue.length > 0) {
     const { identity, entry } = queue.shift()!;
     if (nodes.has(identity)) continue;
-    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
-    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
-    if (data.skillId !== entry.skillId || data.version !== entry.version) {
-      throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
-    }
-    await assertPackageCompatible(identity, data, options);
-    nodes.set(identity, { identity, version: entry.version, integrity, packageUrl, visibility: 'public', data });
-    addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
-    for (const [dep, depEntry] of Object.entries(data.dependencyLock ?? {})) {
-      queue.push({ identity: dep, entry: depEntry});
+    const node = await downloadPlannedDependency({
+      identity,
+      version: entry.version,
+      archiveUrl: apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`),
+      options,
+      authToken,
+      expected: { skillId: entry.skillId, version: entry.version }
+    });
+    nodes.set(identity, node);
+    for (const [dep, depEntry] of Object.entries(node.dependencyLock ?? {})) {
+      queue.push({ identity: dep, entry: depEntry });
     }
   }
 
-  // 各身份可见性：Public 根全链 Public 校验消费。
+  // 各身份可见性：public 根要求已登录用户可读（public 或 anonymous），
+  // anonymous 根要求全链 anonymous。
   for (const [identity, node] of nodes) {
     const info = await executeInfo(identity, options);
-    node.visibility = info.visibility === 'public' ? 'public' : 'private';
+    node.visibility = normalizeSkillVisibility(info.visibility);
   }
-  return { nodes, incomingRanges };
+  return { nodes };
 }
 
-/** 已装图中各根 Release Manifest 声明的范围集合（从 .skills.json 根沿 skill.json 展开）。 */
-async function collectExistingRanges(
-  dependencyRoot: string,
-  storeRoot: string
-): Promise<Map<string, Set<string>>> {
-  const result = new Map<string, Set<string>>();
-  let skillsJson: { skills: Record<string, string>; instances?: Record<string, string> };
-  try {
-    skillsJson = await loadSkillsJson(dependencyRoot);
-  } catch {
-    return result;
+/** 下载并校验一个传递依赖包（不改盘）。 */
+async function downloadPlannedDependency(input: {
+  identity: string;
+  version: string;
+  archiveUrl: string;
+  options: InstallOptions;
+  authToken: string | null;
+  visibility?: Visibility;
+  expected?: { skillId: string; version: string };
+}): Promise<PlannedDependency> {
+  const { identity, version, archiveUrl, options, authToken, visibility = 'public', expected } = input;
+  const { integrity, data, packageUrl } = await downloadPublishedPackage(
+    archiveUrl,
+    identity,
+    options,
+    authToken,
+    version,
+    true
+  );
+  if (expected && (data.skillId !== expected.skillId || data.version !== expected.version)) {
+    throw new Error(`Dependency ${identity} package metadata does not match the frozen lock`);
   }
-  const instances = skillsJson.instances ?? {};
-  const visited = new Set<string>();
-  const walk = (identity: string): void => {
-    if (visited.has(identity)) return;
-    visited.add(identity);
-    let parsed: { dependencies?: Record<string, string> };
-    try {
-      parsed = JSON.parse(fsSync.readFileSync(
-        path.join(storeRoot, skillSourceRelativeDir(identity, instances[identity]), 'skill.json'),
-        'utf8'
-      ));
-    } catch {
-      return;
-    }
-    // 依赖副本与根属于同一 Server 实例；把实例传给后续查找。
-    for (const [dep, range] of Object.entries(parsed.dependencies ?? {})) {
-      if (!instances[dep] && instances[identity]) {
-        instances[dep] = instances[identity];
-      }
-      addRanges(result, { [dep]: range });
-      walk(dep);
-    }
+  await assertPackageCompatible(identity, data, options);
+  return {
+    identity,
+    version,
+    integrity,
+    packageUrl,
+    visibility,
+    data,
+    dependencyLock: data.dependencyLock
   };
-  for (const identity of Object.keys(skillsJson.skills)) walk(identity);
-  return result;
+}
+
+/** 下载一个已冻锁的传递依赖（不改盘）。 */
+async function downloadLockedDependency(
+  identity: string,
+  entry: LockedDependency,
+  options: InstallOptions,
+  authToken: string | null
+): Promise<PlannedDependency> {
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  return downloadPlannedDependency({
+    identity,
+    version: entry.version,
+    archiveUrl: apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`),
+    options,
+    authToken,
+    expected: { skillId: entry.skillId, version: entry.version }
+  });
+}
+
+/** 已装副本未出现在本轮入图节点时，读取其可见性（Public 根全链校验用）。 */
+async function fetchDependencyVisibility(
+  identity: string,
+  options: InstallOptions
+): Promise<Visibility> {
+  try {
+    const info = await executeInfo(identity, options);
+    return normalizeSkillVisibility(info.visibility);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) {
+      throw new ApiError(403, 'dependency not visible', {
+        code: 'releaseDependencyNotVisible',
+        params: { identity }
+      });
+    }
+    throw error;
+  }
 }
 
 /**
- * 把一批入图传递依赖落地：Public 全链校验 → 与已装图逐身份合并（更高且仍满足
- * 各方 range 否则冲突）→ 换包 → 写锁与安装清单。失败的目录换入记进 committed，
- * 由调用方统一回滚，保证「不留半套图」。传递依赖只进 Skill Dependency Lock 与
- * 安装清单，不进 .skills.json。
+ * 已装副本声明的范围没有自己的冻结子图时，按 Registry 的发布记录补齐缺失
+ * 依赖：取满足范围的最高稳定版，并沿该版本自己的发布冻锁继续展开。
+ */
+async function resolveMissingDependency(
+  identity: string,
+  ranges: readonly string[],
+  options: InstallOptions,
+  authToken: string | null
+): Promise<PlannedDependency> {
+  const info = await executeInfo(identity, options);
+  if (info.instanceId && options.instanceId && info.instanceId !== options.instanceId) {
+    throw new Error(
+      `Dependency ${identity} is supplied by ESL Server instance ${info.instanceId}, not the locked instance ${options.instanceId}; refusing to mix sources.`
+    );
+  }
+  const versions = (info.versions ?? []).filter((version) =>
+    ranges.every((range) => semver.validRange(range) === null || semver.satisfies(version, range))
+  );
+  // 消费端范围只作提示：没有同时满足全部声明的稳定版时，退回最高稳定版，
+  // 而不是让整次安装失败（ADR-0072）。
+  const version = highestStableVersion(versions) ?? highestStableVersion(info.versions ?? []);
+  if (!version) {
+    throw new ApiError(409, 'no published version satisfies the dependency range', {
+      code: 'releaseDependencyNoSatisfyingVersion',
+      params: { identity }
+    });
+  }
+  const outside = ranges.filter(
+    (range) => semver.validRange(range) !== null && !semver.satisfies(version, range)
+  );
+  if (outside.length > 0) {
+    console.warn(
+      `Warning: installing ${identity}@${version}; it does not satisfy the declared range ${outside.join(', ')}.`
+    );
+  }
+  const release = info.releases?.find((entry) => entry.version === version);
+  const packageUrl = release?.packageUrl ?? info.packageUrl;
+  if (!packageUrl) {
+    throw new ApiError(409, 'dependency has no Published Skill Package', {
+      code: 'releaseDependencyNoRelease',
+      params: { identity }
+    });
+  }
+  const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
+  const resolvedUrl = packageUrl.startsWith('http') ? packageUrl : apiUrl(serverUrl, packageUrl);
+  return downloadPlannedDependency({
+    identity,
+    version,
+    archiveUrl: resolvedUrl,
+    options,
+    authToken,
+    visibility: normalizeSkillVisibility(info.visibility)
+  });
+}
+
+interface ResolvedDependency {
+  identity: string;
+  version: string;
+  dependencies: Record<string, string>;
+  existing: boolean;
+  visibility: Visibility;
+  node?: PlannedDependency;
+}
+
+/**
+ * 把一批入图传递依赖落地（ADR-0072）：同一实例内已装的共享依赖优先复用，
+ * 即使超出新根声明范围也只提示、不替换或降级；缺失项按冻锁或发布记录补齐；
+ * 并沿「实际采用版本」自己的依赖声明递归展开，不用未采用版本的子图冒充完整。
+ * Public 全链校验与目录换入失败回滚保持原样。传递依赖只进 Skill Dependency
+ * Lock 与安装清单，不进 .skills.json。
  */
 async function materializeDependencyGraph(input: {
   nodes: Map<string, PlannedDependency>;
-  incomingRanges: Map<string, Set<string>>;
   storeRoot: string;
   dependencyRoot: string;
+  rootDependencies: Record<string, string>;
   rootVisibility: Visibility | undefined;
   instanceId?: string;
   committed: Array<PackageSwap>;
+  options: InstallOptions;
+  authToken: string | null;
 }): Promise<string[]> {
-  const { nodes, incomingRanges, storeRoot, dependencyRoot, rootVisibility, instanceId, committed } = input;
+  const {
+    nodes,
+    storeRoot,
+    dependencyRoot,
+    rootDependencies,
+    rootVisibility,
+    instanceId,
+    committed,
+    options,
+    authToken
+  } = input;
+
+  const existingManifest = await loadInstallManifest(storeRoot);
+  const planned = new Map(nodes);
+  const resolved = new Map<string, ResolvedDependency>();
+  const rangesByIdentity = new Map<string, Set<string>>();
+  const inProgress = new Set<string>();
+
+  const accumulateRanges = (identity: string, ranges: readonly string[]): void => {
+    let current = rangesByIdentity.get(identity);
+    if (!current) {
+      current = new Set();
+      rangesByIdentity.set(identity, current);
+    }
+    for (const range of ranges) current.add(range);
+  };
+
+  const resolveNode = async (identity: string, ranges: readonly string[], path: string[]): Promise<void> => {
+    accumulateRanges(identity, ranges);
+    if (resolved.has(identity)) return;
+    if (path.includes(identity) || inProgress.has(identity)) {
+      throw new ApiError(409, 'dependency graph contains a cycle', {
+        code: 'releaseDependencyCycle',
+        params: { path: [...path, identity].join(' -> ') }
+      });
+    }
+    inProgress.add(identity);
+    try {
+      const existing = findInstalledSkill(existingManifest, identity, instanceId)?.entry;
+      if (existing) {
+        // 消费端复用优先：已装版本无论高于或低于新声明范围都保留不动。
+        const node = planned.get(identity);
+        const visibility =
+          node?.visibility ??
+          (rootVisibility === 'public' ? await fetchDependencyVisibility(identity, options) : 'public');
+        const dependencies = readInstalledDependencies(
+          storeRoot,
+          identity,
+          existing.instanceId ?? instanceId
+        );
+        resolved.set(identity, {
+          identity,
+          version: existing.version,
+          dependencies,
+          existing: true,
+          visibility
+        });
+        for (const [dependency, range] of Object.entries(dependencies)) {
+          await resolveNode(dependency, [range], [...path, identity]);
+        }
+        return;
+      }
+
+      let node = planned.get(identity);
+      // 冻锁里的候选版本必须满足实际采用父版本声明的范围；否则它是未采用
+      // 版本的子图，不能拿来冒充完整，改按 Registry 重新解析。
+      if (
+        node &&
+        !ranges.every(
+          (range) => semver.validRange(range) === null || semver.satisfies(node!.version, range)
+        )
+      ) {
+        node = undefined;
+      }
+      if (!node) {
+        const allRanges = [...(rangesByIdentity.get(identity) ?? ranges)];
+        node = await resolveMissingDependency(identity, allRanges, options, authToken);
+        planned.set(identity, node);
+      }
+      const dependencies = node.data.releaseManifest.dependencies ?? {};
+      resolved.set(identity, {
+        identity,
+        version: node.version,
+        dependencies,
+        existing: false,
+        visibility: node.visibility,
+        node
+      });
+      for (const [dependency, range] of Object.entries(dependencies)) {
+        const frozen = node.dependencyLock?.[dependency];
+        if (frozen && !planned.has(dependency)) {
+          planned.set(dependency, await downloadLockedDependency(dependency, frozen, options, authToken));
+        }
+        await resolveNode(dependency, [range], [...path, identity]);
+      }
+    } finally {
+      inProgress.delete(identity);
+    }
+  };
+
+  for (const [identity, range] of Object.entries(rootDependencies)) {
+    await resolveNode(identity, [range], []);
+  }
+
+  // 已装版本与声明范围的差异只诊断，不阻止安装，也不声称已验证兼容。
+  for (const [identity, ranges] of rangesByIdentity) {
+    const node = resolved.get(identity);
+    if (!node?.existing) continue;
+    const outside = [...ranges].filter(
+      (range) => semver.validRange(range) !== null && !semver.satisfies(node.version, range)
+    );
+    if (outside.length > 0) {
+      console.warn(
+        `Warning: reusing installed ${identity}@${node.version}; it does not satisfy the declared range ` +
+          `${outside.join(', ')}. The installed copy was kept without being replaced or downgraded.`
+      );
+    }
+  }
 
   if (rootVisibility === 'public') {
-    for (const node of nodes.values()) {
-      if (node.visibility !== 'public') {
-        throw new ApiError(409, 'public chain has private node', {
+    for (const node of resolved.values()) {
+      // public 根要求全链对已登录用户可读：public 与 anonymous 都满足。
+      if (node.visibility !== 'public' && node.visibility !== 'anonymous') {
+        throw new ApiError(409, 'public chain has a node signed-in users cannot read', {
           code: 'releaseDependencyPublicChainMustBePublic',
           params: { identity: node.identity }
         });
@@ -668,36 +905,9 @@ async function materializeDependencyGraph(input: {
     }
   }
 
-  const existingManifest = await loadInstallManifest(storeRoot);
-  const existingRanges = await collectExistingRanges(dependencyRoot, storeRoot);
-  const actions: Array<{ node: PlannedDependency; targetVersion: string }> = [];
-  for (const node of nodes.values()) {
-    const existing = findInstalledSkill(existingManifest, node.identity, instanceId)?.entry;
-    if (existing?.version === node.version) continue;
-    if (existing?.version) {
-      const ranges = [
-        ...new Set([
-          ...(existingRanges.get(node.identity) ?? []),
-          ...(incomingRanges.get(node.identity) ?? [])
-        ])
-      ];
-      const decision = chooseMergedVersion({
-        existingVersion: existing.version,
-        incomingVersion: node.version,
-        ranges
-      });
-      if ('conflict' in decision) {
-        throw new ApiError(409, 'ranges conflict', {
-          code: 'installedDependencyRangesConflict',
-          params: { identity: node.identity }
-        });
-      }
-      if (decision.version === existing.version) continue; // 已装更高且仍满足：保留不动
-      actions.push({ node, targetVersion: decision.version });
-    } else {
-      actions.push({ node, targetVersion: node.version });
-    }
-  }
+  const actions = [...resolved.values()]
+    .filter((node) => !node.existing && node.node)
+    .map((node) => ({ node: node.node!, targetVersion: node.version }));
 
   for (const action of actions) {
     const dependencyTargetDir = path.join(
@@ -725,7 +935,27 @@ async function materializeDependencyGraph(input: {
     await addLockEntry(dependencyRoot, action.node.identity, lockEntry);
     await recordInstalledSkill(storeRoot, action.node.identity, lockEntry, specifier);
   }
-  // 返回本轮实际落地（新装或升版）的身份，供 link 为它们建 Tool Link。
+  // 复用的已装副本：若锁记录与解析出的实际版本不一致（或缺失），按安装
+  // 记录同步，保证声明、锁与实际安装状态各自真实（ADR-0072）。
+  const lockJson = await loadSkillsLock(dependencyRoot);
+  for (const node of resolved.values()) {
+    if (!node.existing) continue;
+    const found = findLockEntry(lockJson, node.identity, instanceId);
+    if (found?.entry.version === node.version) continue;
+    const entry = findInstalledSkill(existingManifest, node.identity, instanceId)?.entry;
+    if (!entry?.resolved) continue;
+    await addLockEntry(dependencyRoot, node.identity, {
+      skillId: entry.skillId,
+      identity: node.identity,
+      version: node.version,
+      resolved: entry.resolved,
+      integrity: entry.integrity ?? '',
+      source: entry.source,
+      ...(entry.instanceId ? { instanceId: entry.instanceId } : {})
+    });
+  }
+
+  // 返回本轮实际落地（新装）的身份，供 link 为它们建 Tool Link。
   return actions.map((action) => action.node.identity);
 }
 
@@ -739,7 +969,7 @@ function createHttpGraphSource(
     async listVersions(identity) {
       try {
         const info = await executeInfo(identity, options);
-        visibility.set(identity, info.visibility === 'public' ? 'public' : 'private');
+        visibility.set(identity, normalizeSkillVisibility(info.visibility));
         if (info.instanceId) {
           instanceIds.set(identity, info.instanceId);
         }
@@ -768,7 +998,7 @@ function createHttpGraphSource(
         skillId: release.skillId ?? info.skillId ?? '',
         version,
         checksum: release.checksum,
-        visibility: info.visibility === 'public' ? 'public' : 'private',
+        visibility: normalizeSkillVisibility(info.visibility),
         dependencies: release.releaseManifest?.dependencies ?? {}
       };
     }
@@ -793,7 +1023,7 @@ export async function installLocalSourceDependencies(input: {
   dependencyRoot: string;
   rootVisibility: Visibility | undefined;
   options: InstallOptions;
-  authToken: string;
+  authToken: string | null;
   committed: Array<PackageSwap>;
 }): Promise<string[]> {
   const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
@@ -812,31 +1042,31 @@ export async function installLocalSourceDependencies(input: {
 
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
   const nodes = new Map<string, PlannedDependency>();
-  const incomingRanges = new Map<string, Set<string>>();
-  addRanges(incomingRanges, dependencies);
   for (const [identity, entry] of Object.entries(lock)) {
-    const archiveUrl = apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`);
-    const { integrity, data, packageUrl } = await downloadPublishedPackage(archiveUrl, identity, options, authToken, entry.version, true);
-    await assertPackageCompatible(identity, data, options);
-    addRanges(incomingRanges, data.releaseManifest.dependencies ?? {});
-    nodes.set(identity, {
+    nodes.set(
       identity,
-      version: entry.version,
-      integrity,
-      packageUrl,
-      visibility: visibility.get(identity) ?? 'public',
-      data
-    });
+      await downloadPlannedDependency({
+        identity,
+        version: entry.version,
+        archiveUrl: apiUrl(serverUrl, `/api/packages/${entry.skillId}/${entry.version}/${entry.checksum}.zip`),
+        options,
+        authToken,
+        visibility: visibility.get(identity) ?? 'public',
+        expected: { skillId: entry.skillId, version: entry.version }
+      })
+    );
   }
 
   return materializeDependencyGraph({
     nodes,
-    incomingRanges,
     storeRoot,
     dependencyRoot,
+    rootDependencies: dependencies,
     rootVisibility,
     instanceId: options.instanceId ?? [...instanceIds.values()][0],
-    committed
+    committed,
+    options,
+    authToken
   });
 }
 
@@ -846,7 +1076,7 @@ async function installPublishedPackage(
   packageUrl: string,
   projectRoot: string | null,
   options: InstallOptions,
-  authToken: string,
+  authToken: string | null,
   rootVisibility: Visibility | undefined,
   requestedSpecifier: string,
   instanceId: string
@@ -871,7 +1101,7 @@ async function installPublishedPackage(
   const dependencyRoot = options.global || !projectRoot ? storeRoot : projectRoot;
 
   // 先下载整图：安装者读不到任一节点、坏包/不兼容在此失败，此时未写任何盘。
-  const { nodes, incomingRanges } = await planIncomingGraph(rootData, options, authToken);
+  const { nodes } = await planIncomingGraph(rootData, options, authToken);
 
   // 先根后依赖换包；任一失败回滚本轮已换目录，已有安装保持原状。
   const committed: Array<PackageSwap> = [];
@@ -879,12 +1109,14 @@ async function installPublishedPackage(
     committed.push(await stagePackageSwap(name, version, rootData, targetDir));
     await materializeDependencyGraph({
       nodes,
-      incomingRanges,
       storeRoot,
       dependencyRoot,
+      rootDependencies: rootData.releaseManifest.dependencies ?? {},
       rootVisibility,
       instanceId,
-      committed
+      committed,
+      options,
+      authToken
     });
     const rootSpecifier = `^${version}`;
     const rootLockEntry = {
@@ -896,7 +1128,9 @@ async function installPublishedPackage(
       source: 'registry' as const,
       instanceId
     };
-    await addSkillDependency(dependencyRoot, name, rootSpecifier, instanceId);
+    if (!options.asTransitive) {
+      await addSkillDependency(dependencyRoot, name, rootSpecifier, instanceId);
+    }
     await addLockEntry(dependencyRoot, name, rootLockEntry);
     await recordInstalledSkill(storeRoot, name, rootLockEntry, rootSpecifier);
   } catch (error) {

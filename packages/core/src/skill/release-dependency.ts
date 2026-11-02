@@ -1,8 +1,15 @@
 import semver from 'semver';
 import { RESERVED_SCOPE_NAMES } from '../org/account-policy.js';
+import type { SkillVisibility } from './visibility.js';
 
 // 发布依赖目标的唯一合法形态：已发布的 Server-hosted 技能身份（ADR-0056）。
 export const RELEASE_DEPENDENCY_TARGET_PATTERN = /^@([a-z0-9-]+)\/([a-z0-9-]+)$/;
+
+/**
+ * 身份式依赖声明的范围（ADR-0072）：作者省略版本时保存 `*`，表示只要求
+ * 「需要这个技能」，不根据当前最新版生成隐式约束；发布解析仍取最高稳定版。
+ */
+export const WILDCARD_RANGE = '*';
 
 /** 目标合法时返回 null；非法（保留 Scope、file:、路径、残缺身份）时返回对应错误码。 */
 export function validateReleaseDependencyTarget(identity: string): 'releaseDependencyTargetInvalid' | null {
@@ -11,25 +18,6 @@ export function validateReleaseDependencyTarget(identity: string): 'releaseDepen
     return 'releaseDependencyTargetInvalid';
   }
   return null;
-}
-
-/**
- * 消费端多根合并（ADR-0056）：同一身份已装版本与入图版本不一致时取其中
- * 更高者，前提是它满足各方 Release Manifest 声明的全部范围；不满足即冲突，
- * 调用方放弃整次安装、已有图保持原状。
- */
-export function chooseMergedVersion(input: {
-  existingVersion: string;
-  incomingVersion: string;
-  ranges: readonly string[];
-}): { version: string } | { conflict: true } {
-  const candidate = semver.gt(input.incomingVersion, input.existingVersion)
-    ? input.incomingVersion
-    : input.existingVersion;
-  if (input.ranges.every((range) => semver.satisfies(candidate, range))) {
-    return { version: candidate };
-  }
-  return { conflict: true };
 }
 
 /**
@@ -87,7 +75,7 @@ export interface ReleaseGraphNode {
   skillId: string;
   version: string;
   checksum: string;
-  visibility: 'public' | 'private';
+  visibility: SkillVisibility;
   dependencies: Record<string, string>;
 }
 
@@ -98,8 +86,12 @@ export interface ReleaseGraphSource {
 }
 
 export interface ReleaseGraphOptions {
-  /** 根技能可见性：public 时要求全链 public。 */
-  rootVisibility?: 'public' | 'private';
+  /**
+   * 根技能可见性。public 根要求全链对已登录用户可读（public 或 anonymous）；
+   * anonymous 根要求全链 anonymous（匿名访客读不到 public 依赖）。private 根
+   * 不附加全链约束。
+   */
+  rootVisibility?: SkillVisibility;
   /** 根技能身份：提供后根依赖自己（或链回根）立即按环处理。 */
   rootIdentity?: string;
 }
@@ -111,7 +103,8 @@ export const RELEASE_GRAPH_ERROR_CODES = [
   'releaseDependencyRangesDoNotIntersect',
   'releaseDependencyCycle',
   'releaseDependencyNotVisible',
-  'releaseDependencyPublicChainMustBePublic'
+  'releaseDependencyPublicChainMustBePublic',
+  'releaseDependencyAnonymousChainMustBeAnonymous'
 ] as const;
 
 export type ReleaseGraphErrorCode = (typeof RELEASE_GRAPH_ERROR_CODES)[number];
@@ -244,12 +237,22 @@ export async function resolveReleaseGraph(
       }
     }
 
-    if (options.rootVisibility === 'public') {
+    // 可见性全链约束：消费范围更宽的根必须带得动整条链。public 根需要「已登录
+    // 用户可读」的整条链（public 或 anonymous）；anonymous 根需要匿名可读的整条链
+    // （只有 anonymous，public 依赖对匿名访客仍不可读）。
+    if (options.rootVisibility === 'public' || options.rootVisibility === 'anonymous') {
       for (const node of reachable.values()) {
-        if (node.visibility !== 'public') {
-          throw new ReleaseGraphError('releaseDependencyPublicChainMustBePublic', {
-            identity: node.identity
-          });
+        const readable =
+          options.rootVisibility === 'public'
+            ? node.visibility === 'public' || node.visibility === 'anonymous'
+            : node.visibility === 'anonymous';
+        if (!readable) {
+          throw new ReleaseGraphError(
+            options.rootVisibility === 'public'
+              ? 'releaseDependencyPublicChainMustBePublic'
+              : 'releaseDependencyAnonymousChainMustBeAnonymous',
+            { identity: node.identity }
+          );
         }
       }
     }

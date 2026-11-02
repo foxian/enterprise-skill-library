@@ -2,6 +2,8 @@
 
 Status: accepted
 
+Amended by ADR-0073: 可见性扩展为 `private|public|anonymous` 三档；切换仍不增删显式授权，`anonymous` 额外受完整依赖链与反向依赖约束。
+
 ESL CLI 需要覆盖技能作者与 Agent 管理已发布技能访问范围的日常闭环。技能可见性、显式授权和 Release 生命周期彼此相关但不是同一状态；清理授权不应隐式改变可见性，发布也不应夹带可见性变更。
 
 ## 决策

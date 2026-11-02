@@ -1,4 +1,4 @@
-import { parseSkillName, isBuiltinIdentity } from '@esl/core';
+import { isSkillVisibility, parseSkillName, isBuiltinIdentity, type SkillVisibility } from '@esl/core';
 import { apiUrl, fetchWithTimeout, requireFreshToken, resolveNetworkConfig, type NetworkCommandOptions } from './network-options.js';
 import { requireOkResponse } from '../api-error.js';
 
@@ -32,7 +32,7 @@ export type ShareTarget =
   | { action: 'add_member'; username: string; permission: SharePermission }
   | { action: 'remove_member'; username: string }
   | { action: 'reset_to_private' }
-  | { action: 'set_visibility'; visibility: 'public' | 'private' };
+  | { action: 'set_visibility'; visibility: SkillVisibility };
 
 function permissionLevel(options: ShareOptions): SharePermission {
   return options.manage ? 'manage' : options.write ? 'write' : 'read';
@@ -66,8 +66,8 @@ export function resolveShareTarget(options: ShareOptions): ShareTarget | undefin
   if ((options.write || options.manage) && !grantsExplicitly) {
     throw new Error('--write and --manage apply to --all, --team, or --user');
   }
-  if (options.visibility !== undefined && options.visibility !== 'public' && options.visibility !== 'private') {
-    throw new Error('--visibility must be public or private');
+  if (options.visibility !== undefined && !isSkillVisibility(options.visibility)) {
+    throw new Error('--visibility must be private, public, or anonymous');
   }
   if (options.force && !options.clearGrants) {
     throw new Error('--force only applies to --clear-grants');
@@ -91,7 +91,7 @@ export function resolveShareTarget(options: ShareOptions): ShareTarget | undefin
     return { action: 'remove_member', username: options.revokeUser };
   }
   if (options.clearGrants) return { action: 'reset_to_private' };
-  return { action: 'set_visibility', visibility: options.visibility as 'public' | 'private' };
+  return { action: 'set_visibility', visibility: options.visibility as SkillVisibility };
 }
 
 /** `GET /permissions` 的响应；只取呈现矩阵需要的字段。 */
@@ -112,7 +112,7 @@ export interface PermissionMatrixView {
  */
 export type ShareOutcome =
   | { kind: 'matrix'; matrix: PermissionMatrixView }
-  | { kind: 'visibility'; visibility: 'public' | 'private' }
+  | { kind: 'visibility'; visibility: SkillVisibility }
   | { kind: 'updated' };
 
 // 组织共享档位（Web 管理页称「全组织授权」）由挂了哪个常设团队推导，三档互斥。

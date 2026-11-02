@@ -36,11 +36,21 @@
 
 ## 从零初始化
 
-`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>] --agent-interaction --agent-tool <tool>`
+`esl source init [./path] [--name <短名>] [--namespace <namespace>] [--license SPDX] [--description <text>] [--keywords a,b] [--display-name <显示名>]`
 
 `source init` 会就地补缺，不覆盖已有文件：缺少 `SKILL.md` 时创建基本 frontmatter；缺少 `release.json` 时补最小 v4 清单；不生成 `skill.json`，因为 `skill.json` 属于安装/发布包而非源码。
 
-执行前确认：目标目录、短名、个人或组织 namespace、description、license、keywords、display name。AI 执行时固定带 `--agent-interaction --agent-tool <tool>`；缺失字段由 CLI 返回结构化问题，再向用户收集后用同一命令重跑。不要猜组织名，也不要替用户确认首次身份。
+执行前一次问齐下列字段并直接传参；缺字段时 CLI 会静默套默认值，不会回头补问：
+
+| 字段 | 参数 | 说明 |
+|---|---|---|
+| Skill description | `--description` | 触发场景与用途 |
+| License | `--license` | SPDX 标识，默认 MIT，需用户确认 |
+| Keywords | `--keywords` | 逗号分隔 |
+| Display name | `--display-name` | 可含中文与空格，不参与身份 |
+| Namespace | `--namespace` | 个人用 `--namespace personal`；组织填组织名 |
+
+只有需要服务端返回的组织列表时才加 `--agent-interaction --agent-tool <tool>`，让返回的问题只包含 Namespace；收集后用 `--params-json '{"namespace":"..."}'` 重跑。不要猜组织名，也不要替用户确认首次身份。
 
 身份规则：`SKILL.md.name` 是短名；`release.json.name` 是归属与完整身份的权威来源。个人可用裸短名，组织使用 `@组织名/短名`。首次 `source upload` 会固定身份；后续不要靠修改 `release.json.name` 迁移 namespace。
 
@@ -143,6 +153,11 @@
 
 依赖是 Release 安装图的一部分：添加/删除会影响后续发布和消费者安装解析。修改前展示完整命令、依赖身份与版本范围并确认；发布后依赖通过 Release Lock 固定，不能把未锁定的新依赖偷偷混入已有版本。
 
+- 省略版本时保存通配范围 `*`，只表达「需要这个技能」，不要根据当前最新版替作者生成 `^x.y.z` 之类约束。
+- 作者显式给出的精确版本或范围原样保存；发布端按该范围解析，找不到匹配版本就停止发布并说明原因，不自动越界或改写声明。
+- 未限定范围的依赖在发布时解析到最高稳定版（不采用预发布），并把实际版本冻结到 Release Dependency Lock；冻结记录不等于给作者补上版本范围。
+- 发布仍校验依赖存在、可读以及 Public 根全链 Public；已有技能源的显式范围不自动改写为 `*`。
+
 ## 发布后治理
 
 - `esl release notes @scope/name <version> --message "说明"`：修改 Release notes，不改发布包内容。
@@ -177,13 +192,15 @@
 | 撤销团队授权 | `esl skill share @scope/name --revoke-team <team>` |
 | 撤销成员授权 | `esl skill share @scope/name --revoke-user <username>` |
 | 清空全部显式授权 | `esl skill share @scope/name --clear-grants` |
-| **可见性**（public/private） | `esl skill share @scope/name --visibility public\|private` |
+| **可见性**（private/public/anonymous） | `esl skill share @scope/name --visibility private\|public\|anonymous` |
 
 组织技能的 `--user` 目标必须是技能所属组织的当前成员，个人技能的目标必须是已启用的平台用户。始终填写完整平台用户名，不添加或裁剪组织前缀。使用相同的 `--team` 或 `--user` 目标以及新的 `--write` / `--manage` 档位即可更新已有授权；不带权限旗标则设置只读，无需先移除。成员离开组织会撤销组织技能的直接成员授权，重新入组不自动恢复；团队授权随团队成员关系失效或恢复，个人技能协作者授权保留。
 
 不带任何目标旗标是**只读**的：直接跑，把矩阵读给用户（可见性 / 全组织授权 / 团队授权 / 成员授权）。其余都是远端变更：先回显完整命令并确认，完成后复核实际范围。一次只能带一个目标旗标；`--write` / `--manage` 只作用于 `--all` / `--team` / `--user`。
 
 `--clear-grants` 会先二次确认，提示会说明清空的是哪些授权；非交互环境必须显式加 `--force`——**先拿到用户同意再带上它**。它只清空该技能的显式团队与成员授权：**不改变可见性**，也不撤销所有者、Maintainer 或管理员基于角色获得的权限。不要把它说成“设为私有”，也不要用它代替 `--visibility private`。同理，切可见性不增删任何授权。
+
+三档可见性是消费范围：`private`（仅授权者，默认）、`public`（平台已登录用户）、`anonymous`（任何人，含匿名访客）。`anonymous` 只开放已发布的消费面，不开放源码仓库、未发布内容或反馈区。切到 `anonymous` 前必须向用户说明**已下载副本无法追回**；Server 会拒绝依赖链里仍有非 `anonymous` 技能的切换，也会拒绝让仍被 `anonymous` 技能依赖的技能收紧到 `private`/`public`。遇到这类 409 时如实报告冲突技能，不要自动公开依赖或修改依赖方档位。
 
 403 表示权限不足，不要盲目重试或升级权限。
 

@@ -251,7 +251,7 @@ const NO_EVIDENCE_CHOICE_VALUES = new Set<string>(
 
 /**
  * Agent 宿主按 `label` 回传，TTY 用 `value`；两者都接受。
- * 见 references/agent-interaction.md（单选取所选 label）。
+ * 见 references/consumer.md 的「站在 Skill Source 里的项目根」。
  */
 function resolveNoEvidenceChoice(value: string): NoEvidenceChoice | undefined {
   if (NO_EVIDENCE_CHOICE_VALUES.has(value)) {

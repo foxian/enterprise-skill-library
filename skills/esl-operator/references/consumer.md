@@ -17,7 +17,7 @@
 
 ## 发现技能：搜索 → 详情 → 选择
 
-`esl skill search [query] [--namespace <org>] [--keyword <text>] [--visibility public|private] [--limit <n>] [--json]`
+`esl skill search [query] [--namespace <org>] [--keyword <text>] [--visibility private|public|anonymous] [--limit <n>] [--json]`
 
 它查询 ESL Server 上已发布且当前可安装的技能；不传 `query` 浏览全部可见技能。query 会匹配 identity、描述、显示名和 keywords。
 
@@ -51,8 +51,9 @@ Versions:
   1.0.0  5 downloads
 ```
 
-- 未登录通常只能看到 public 技能。
-- private 技能需要当前账号具备读取权限。
+- 未登录只能看到 `anonymous` 技能；`public` 需要登录，`private` 还需要当前账号具备读取权限。
+- 无登录态显式筛选 `public` / `private` 会直接报错要求登录，不会返回看似正常的空结果。
+- `anonymous` 是“任何人可安装”，不是“仅匿名可用”：登录用户同样可以消费。
 - `@builtin/*` 显示为 Built-in skill，不属于 Registry。
 
 ## 免安装试用
@@ -76,20 +77,20 @@ Versions:
 4. 普通安装还是 Skill Source Link；
 5. 是否接受发布依赖及其本地锁文件变化。
 
-从 Server 安装远端技能通常需要 Server 和登录态；已发布技能通过 Registry/HTTP 获取，通常不要求本机安装 Git。源码 `clone`、`upload`、`publish` 等作者流程才需要 Git。安装 `@builtin/*` 只需要 CLI；本地 `./path` 需要有效源码目录，通常不需要登录。
+从 Server 安装远端技能需要可达的 Server；`anonymous` 技能的已发布包不需要登录态即可安装，其余档位需要登录并具备读取权限。已发布技能通过 Registry/HTTP 获取，通常不要求本机安装 Git；只有回退到源码 clone 时才需要登录与 Git。`source clone`、`upload`、`publish` 等作者流程需要 Git。安装 `@builtin/*` 只需要 CLI；本地 `./path` 需要有效源码目录，通常不需要登录。
 
 - `@scope/name` 从 Server 安装最新或指定版本。
 - `@builtin/*` 从 CLI 内置资源安装。
 - `./path` 安装本地草稿，Store 身份固定为 `@local/<name>`，源目录不变。
-- 安装会递归解析已发布依赖；失败时应保持整次安装不留半套图。
+- 安装会递归补齐已发布依赖；同一实例内已装的共享依赖优先复用，即使超出新根声明范围也只提示，不替换或降级已有副本。缺少的依赖才安装，并沿实际采用版本的声明继续展开。失败时应保持整次安装不留半套图。
 - 项目级状态写入项目 `.eslib/`、`.skills.json` 和 `.skills-lock.json`；全局状态写入用户 Store。`.eslib/` 应加入 gitignore。
 - 选中的每个工具获得单技能 Tool Link；Tool Link 不等于安装本身。
 
-安装是写操作：先展示完整命令，用户确认后执行。Agent 模式按 `agent-interaction.md` 处理工具选择；普通安装转换为 Skill Source Link（或反向）必须另行确认并使用 `--force`。
+安装是写操作：先展示完整命令，用户确认后执行。Agent 执行时必须显式给 `--tools <id,id>` 或 `--no-tools`（工具 id 见 `SKILL.md` 的「AI 工具标识」表），非交互缺工具集合会直接失败；普通安装转换为 Skill Source Link（或反向）必须另行确认并使用 `--force`。
 
 ### 安装后验证
 
-用 `esl skill list --json` 检查：技能身份、版本、作用域、安装模式、Tool Link 状态和依赖关系。必要时再用 `esl skill use` 或真实小案例验证行为。
+用 `esl skill list --json` 检查：技能身份、版本、作用域、安装模式、Tool Link 状态和依赖关系。`missingDependencies` 非空表示该技能声明的依赖在当前环境中缺失，安装存在不等于依赖齐全；必要时再用 `esl skill use` 或真实小案例验证行为。
 
 完成报告至少包括：
 
@@ -120,6 +121,27 @@ Versions:
 - 调整目标工具：用 `esl skill install` / `esl link` 的 `--tools` 进行期望集合对账；涉及模式转换时先确认。
 - `unmanaged` 内容不由 ESL 删除，不能把 `uninstall` 当作清理用户手工目录的命令。
 
+## 站在 Skill Source 里的项目根（ADR-0057）
+
+`link` / `unlink` 的 cwd 是 Local Skill Source、本身还不是 Consumer Project Root 时，只把技能目录的上一级当候选项目根（只看一层）：
+
+- 上一级有 `.skills.json` / `.eslib` → 静默采用，不必问；
+- 只有工具点目录（`.claude/`、`.codex/` 等）→ 问一句是否采用上一级；
+- 都没有 → 三选一：初始化上一级 / 指定另一个目录 / 改全局。
+
+无证据三选一的选项规范值在 description 的 `choice: <值>`；Agent 用 `label` 或 `choice` 值都可交回。
+
+交回用 `--params-json`：
+
+```shell
+esl link --params-json '{"useParent":true}'
+esl link --params-json '{"useParent":false,"projectRootChoice":"global"}'
+esl link --params-json '{"projectRootChoice":"init"}'
+esl link --params-json '{"projectRootChoice":"directory","projectRootPath":"../my-app"}'
+```
+
+非交互缺硬证据时 CLI 以普通错误失败并列出可行动选项，不会猜一个项目根。`install` / `update` / `uninstall` / `list` 不探测上一级，主语是当前 cwd 的 Store；站在技能源码里 `install` / `update` 写入前拒绝、`list` / `uninstall` 追加 Hint。
+
 ## 常用工具偏好
 
 `esl config preferred-tools [--add <tools>] [--remove <tools>] [--json]`
@@ -130,12 +152,14 @@ Versions:
 
 ## 更新：先看现状，再升级
 
-`esl skill update [@scope/skill-name] [--global|-g]`
+`esl skill update [@scope/skill-name] [--global|-g] [--cleanup <identities>]`
 
 更新只升级已安装的 Registry 版本；Skill Source Link 不被 Registry 版本替换，会报告 linked/skipped。已记录的 Tool Link 会自动维护，冲突不会覆盖。
 
-- 不指定技能名时，更新当前作用域全部技能。
-- 新 Release 的依赖图会重新解析并回收不再需要的传递依赖。
+- 不指定技能名时，更新当前作用域全部直接技能。
+- 可以指定自动安装的传递依赖单独升级，无须同时更新根技能；这不会把它提升成项目直接依赖，也不改写依赖方的声明。
+- 新版本越过依赖方声明范围时只列出受影响技能并提示，不阻止主动升级，也不表示已验证兼容。
+- 更新后不再需要的旧依赖只列为清理候选，默认全部不勾选；`--cleanup` 提交要删除的身份（空值表示全部保留，`all` 表示全选）。用户提交过的未选项会持久保留，后续不再被静默回收；无人值守的默认保留不冒充用户选择。
 - `update` 不接受 `--tools` / `--force`；调整工具使用 `install` / `link`。
 - 403 项会跳过并逐项报告，其他技能不受影响。
 
@@ -143,26 +167,29 @@ Versions:
 
 ## 卸载：说明影响后再删除
 
-`esl skill uninstall @scope/skill-name [--global|-g]`
+`esl skill uninstall @scope/skill-name [--global|-g] [--cleanup <identities>] [--accept-dependency-impact <identities>]`
 
 删除指定作用域的 Store 技能、安装记录、锁文件关联和全部 ESL 管理 Tool Link。Skill Source Link 会删除 Store 链接和 staging，但保留本地源码目录；unmanaged 工具目录不会删除。
 
 卸载前说明：
 
 - 项目级还是全局级；
-- 是否仍被其他根技能依赖；
-- 哪些传递依赖会被回收；
+- 是否仍被其他技能依赖；若是，先列出受影响技能并取得明确确认（`--accept-dependency-impact` 或交互确认）。确认后只删除目标，不连带删除依赖方；
+- 哪些传递依赖不再需要、可作为清理候选；默认全部不勾选，`--cleanup` 只删除用户选中的项；
 - 哪些共享 Tool Link 会被移除。
 
-卸载是本地删除操作：先展示完整命令和预期影响，用户确认后执行；失败时按 CLI 列出的依赖方先处理，不要加不存在的 `prune` 命令。
+未选中的候选会记录保留意图，之后的安装、更新和卸载不会再把它当作孤儿自动清理。若部分清理会让另一个保留候选缺少依赖，CLI 会拒绝扩大删除或要求影响确认，不能通过多选绕过。被删除依赖的上游技能仍保留，`esl skill list --json` 的 `missingDependencies` 会显示缺失。无人值守脚本缺少显式影响确认时不会执行该删除。
+
+卸载是本地删除操作：先展示完整命令和预期影响，用户确认后执行；失败时按 CLI 列出的依赖方处理，不要加不存在的 `prune` 命令。
 
 ## 常见失败分流
 
 | 症状 | 判断 | 下一步 |
 |---|---|---|
 | `esl` 找不到 | CLI 未安装或 PATH 未刷新 | 读取 `setup.md`，安装后新开终端复查 |
-| 搜不到技能 | Server、查询词、可见性或权限限制 | 检查 Server；登录后复查；说明过滤条件 |
+| 搜不到技能 | Server、查询词、可见性或权限限制 | 检查 Server；匿名只能看到 `anonymous`，登录后再复查；说明过滤条件 |
 | 远端安装失败 | Server、登录、版本或依赖图问题 | 先读错误；不要把 Git 当成默认原因，只有错误明确涉及 Git 时再检查 |
 | Tool Link `conflict` | 目标目录不是 ESL 管理链接 | 不覆盖；让用户手工处理冲突后重试 |
 | 更新跳过 linked | 当前是源码开发链接 | 直接修改本地源码并 validate，不要反复 update |
-| 卸载提示仍被依赖 | 其他根技能仍需要该依赖 | 先卸载/更新依赖它的根，或保留该技能 |
+| 卸载提示仍被依赖 | 其他技能仍需要该依赖 | 取得用户明确同意后带 `--accept-dependency-impact <技能列表>` 重跑，或保留该技能；删除后上游会显示依赖缺失 |
+| 部分清理被拒绝 | 选中项会让另一个保留候选缺少依赖 | 把受影响的候选也加入 `--cleanup`，或显式接受影响 |

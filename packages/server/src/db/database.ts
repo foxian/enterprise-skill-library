@@ -346,8 +346,10 @@ export class SkillRepository {
 
   // 技能描述(CONTEXT:Skill Description)由 Source Upload 登记,随后续 Source
   // Update 经专用端点更新;它不属于任何 Skill Release 的固化内容。
-  // 逐技能可见性（ADR-0032）：public = 平台全员可搜可装；private（默认）= 仅被授权者。
-  setVisibility(name: string, visibility: 'public' | 'private'): boolean {
+  // 逐技能可见性（ADR-0032 / ADR-0073）：private（默认）= 仅被授权者；
+  // public = 平台已登录用户；anonymous = 任何人（含匿名访客）。档位只影响
+  // 消费，不增删显式授权。
+  setVisibility(name: string, visibility: 'private' | 'public' | 'anonymous'): boolean {
     const result = this.db
       .prepare(`UPDATE skills SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
       .run(visibility, name);

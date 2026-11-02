@@ -1,19 +1,23 @@
 # 发布依赖：一份身份、可见性与回收
 
-Status: accepted
+Status: accepted（消费端范围合并与自动回收规则由 ADR-0072 修订）
 
 发布依赖只指向已发布的 Server-hosted 技能（`@namespace/name` + 已有 Skill
 Release），不能指向 `@builtin`、`@local` 或 `file:`。同一 Skill Identity 在一份
 安装图里只能有一个版本：发布时（以及本地源按即将发布的规则解析时）多条 SemVer
-范围必须有交集，冻结为其中最高满足版本，否则失败；消费端多把已冻的锁对不上时，
-取其中更高的版本，前提是它仍满足各方 Release Manifest 里的 range，否则整次安装
-失败。根技能的每个消费者必须读得到整条依赖链（Public 根则全链 Public）；发布时
-校验发布者可读，安装时校验安装者可读。uninstall / update 回收不再被任何剩余根
-的直接依赖或 Release Dependency Lock 需要的传递依赖，并拆掉对应 Tool Link。
+范围必须有交集，冻结为其中最高满足版本，否则失败；消费端优先复用同实例已装的
+共享依赖，范围差异只提示，不再按冻锁替换或降级（ADR-0072）。根技能的每个消费者
+必须读得到整条依赖链（Public 根则全链 Public）；发布时校验发布者可读，安装时校验
+安装者可读。uninstall / update 只列出不再被剩余根需要、且非用户保留的候选依赖，
+默认全部保留，由用户选择后才删除并拆掉对应 Tool Link（ADR-0072）。
 本地 `install` / `link` 未冻锁时用当时最高满足版本拉取已发布依赖，真正的锁只在
 publish 时冻结。作者用手改 `release.json.dependencies` 或 `esl depend
 add|remove|list` 声明边；该命令只改技能源清单，不碰项目 `.skills.json` / Skill
 Store，也不自动 version/commit。
+
+> 修订（ADR-0072）：消费端不再因范围冲突失败，也不自动回收孤立依赖。安装优先
+> 复用同实例已装副本，范围差异只提示；卸载/更新列出清理候选，默认保留，由用户
+> 选择后才删除。发布端的交集解析、显式范围校验与冻结规则保持不变。
 
 ## 考虑过的方案
 

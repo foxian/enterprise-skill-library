@@ -1,4 +1,4 @@
-import { ElPagination, ElSelect } from 'element-plus';
+import { ElMessageBox, ElPagination, ElSelect } from 'element-plus';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
 import SkillManagePanel from '../src/components/SkillManagePanel.vue';
@@ -395,8 +395,14 @@ describe('技能列表视图', () => {
 
 describe('SkillManagePanel 权限配置', () => {
   function mockMatrixApi(overrides: Record<string, unknown> = {}) {
-    return useApiMock((method, url) => {
+    return useApiMock((method, url, body) => {
       if (url.includes('/permission-candidates')) return { status: 200, json: { teams: [], members: [{ username: 'acme_bob' }] } };
+      if (url === '/api/skills/acme/reviewer/visibility') {
+        return {
+          status: 200,
+          json: { name: '@acme/reviewer', visibility: (body as { visibility?: string })?.visibility }
+        };
+      }
       if (url === '/api/skills/acme/reviewer/permissions') {
         const base = matrixFor('reviewer', { members: [{ username: 'acme_alice', permission: 'write' }] });
         return { status: 200, json: { ...base, ...overrides } };
@@ -544,6 +550,40 @@ describe('SkillManagePanel 权限配置', () => {
     expect(orgWide.text()).toContain('组织内授权状态');
     expect(orgWide.text()).not.toContain('当前授权');
     expect(visibility.text()).not.toContain('当前授权');
+  });
+
+  it('可见性提供三档，切到 anonymous 前先确认不可追回，再提交', async () => {
+    const { requests } = mockMatrixApi({
+      skill: {
+        name: '@acme/reviewer',
+        description: 'Review code',
+        visibility: 'private',
+        createdBy: 'acme_alice',
+        releases: []
+      }
+    });
+    wrapper = await mountPanel();
+
+    const card = wrapper.find('[data-test="visibility-card"]');
+    expect(card.find('[data-test="visibility-private"]').exists()).toBe(true);
+    expect(card.find('[data-test="visibility-public"]').exists()).toBe(true);
+    expect(card.find('[data-test="visibility-anonymous"]').exists()).toBe(true);
+
+    // 拒绝确认时不发请求，档位保持不变。
+    const confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValueOnce(new Error('cancel'));
+    const panel = wrapper.findComponent(SkillManagePanel).vm as unknown as {
+      onVisibilityChange: (value: string) => Promise<void>;
+    };
+    await panel.onVisibilityChange('anonymous');
+    await flushPromises();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(requests.some((request) => request.url.endsWith('/visibility'))).toBe(false);
+
+    confirmSpy.mockResolvedValueOnce('confirm' as never);
+    await panel.onVisibilityChange('anonymous');
+    await flushPromises();
+    const post = requests.find((request) => request.url.endsWith('/visibility'));
+    expect(post?.body).toEqual({ visibility: 'anonymous' });
   });
 
   it('成员授权提交用户名与读写权限', async () => {

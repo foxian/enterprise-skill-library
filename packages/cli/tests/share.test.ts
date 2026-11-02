@@ -94,7 +94,11 @@ describe('esl share', () => {
     it('可见性切换独立于授权', () => {
       expect(resolveShareTarget({ visibility: 'public' })).toEqual({ action: 'set_visibility', visibility: 'public' });
       expect(resolveShareTarget({ visibility: 'private' })).toEqual({ action: 'set_visibility', visibility: 'private' });
-      expect(() => resolveShareTarget({ visibility: 'internal' })).toThrow(/public or private/);
+      expect(resolveShareTarget({ visibility: 'anonymous' })).toEqual({
+        action: 'set_visibility',
+        visibility: 'anonymous'
+      });
+      expect(() => resolveShareTarget({ visibility: 'internal' })).toThrow(/private, public, or anonymous/);
     });
 
     it('一次只能选一个目标', () => {

@@ -13,7 +13,7 @@ Organization 或 Skill User 占用，ADR-0032），以及保留 Scope（`local`�
 所有 Namespace 名共享一个全局扁平名字池：组织名与用户名先到先得，保留名
 （`local`、`builtin`、`admin`、`api`、`git`、`system`）不可用，且一经占用
 不得改名（ADR-0032）。技能可见性不再由 Namespace 决定，而是逐技能的
-Public/Private 设置（见技能可见性）。在 `@acme/code-review` 中，Namespace
+Private/Public/Anonymous 设置（见技能可见性）。在 `@acme/code-review` 中，Namespace
 是 `acme`；在 `@cnfox/my-skill` 中，Namespace 是个人命名空间 `cnfox`。
 保留 Scope 不是 Namespace。
 
@@ -304,10 +304,31 @@ The consumer project's exact resolved skill graph, stored as
 `.skills-lock.json`, including versions, sources, Instance IDs for
 Server-hosted skills, and integrity values. Direct
 project entries come from the Skill Dependency Manifest; Release Dependency
-edges of those skills are also recorded here. It is distinct from the
-server-side Release Dependency Lock frozen into a Skill Release.
+edges of those skills are also recorded here. It records the versions actually
+adopted by this installation, which may differ from a dependent's advisory
+range. It is distinct from the server-side Release Dependency Lock frozen into
+a Skill Release.
 
 _Avoid_: Release Dependency Lock.
+
+## Retained Dependency
+
+A locally installed copy whose retention intent is recorded in the install
+manifest (`retained: true`) because the user declined to clean it up. It is
+excluded from later cleanup candidates and is never reclaimed automatically,
+but it remains a transitive copy, not a direct project dependency. Removing it
+explicitly remains possible (ADR-0072).
+
+_Avoid_: direct dependency; pinned version.
+
+## Missing Dependency
+
+An identity declared by an installed skill's dependency manifest but absent
+from the local install manifest for the same source instance. It is derived
+from the difference between declared and installed state, not stored in a
+separate status file, and is surfaced by `esl skill list` (ADR-0072).
+
+_Avoid_: broken install; unresolvable range.
 
 ## Published Skill Package
 
@@ -348,10 +369,13 @@ Release Manifest（`release.json`）。
 
 技能在 Release Manifest `dependencies` 中声明的、对其他已发布 Server-hosted 技能的安装图
 依赖。它是技能→技能的边，在发布时冻结为 Release Dependency Lock；安装根技能
-时按该锁取出被依赖技能。传递依赖进入消费者的 Skill Dependency Lock，但不进
-入 Skill Dependency Manifest。被依赖技能会进入 Skill Store 并建立 Tool Link，
-供宿主发现；「何时一起用」仍由根技能 SKILL.md 正文约定，ESL 不发明调用组合
-协议（ADR-0055、ADR-0056）。
+时优先复用同实例已装的共享依赖，缺少的才按冻结记录补齐（ADR-0072）。作者省略
+版本时保存通配范围 `*`，发布解析到当时的最高稳定版并冻结实际版本；显式范围按
+作者要求解析，无匹配版本则发布失败。消费端的范围差异只作为提示，不替换或降级
+已装副本。传递依赖进入消费者的 Skill Dependency Lock，但不进入 Skill Dependency
+Manifest。被依赖技能会进入 Skill Store 并建立 Tool Link，供宿主发现；「何时
+一起用」仍由根技能 SKILL.md 正文约定，ESL 不发明调用组合协议（ADR-0055、
+ADR-0056、ADR-0072）。
 
 _Avoid_: Skill Dependency Manifest（项目用技能）；运行时依赖；composition。
 
@@ -478,10 +502,17 @@ _Avoid_: 团队名（当指团队标识名时）。
 
 ## 技能可见性 (Skill Visibility)
 
-逐技能设置的开放程度，由所有者成员或技能 Maintainer 切换。`public`：
-平台内所有 Skill User 都可搜索、安装；`private`（默认）：仅 Maintainer 与
-被授权的团队、成员可见可安装。组织成员对组织内 private 技能默认没有任何
-权限，授权通过共享给常设团队或逐技能添加团队、成员实现（ADR-0032）。可见性独立于显式授权：`public/private` 切换不增删团队或成员授权；清空全部显式授权也不改变可见性，且不影响所有者、Maintainer 或管理员基于角色获得的权限。
+逐技能设置的消费开放程度，由所有者成员或技能 Maintainer 切换，分三档：
+`private`（默认）仅 Maintainer 与被授权的团队、成员可见可安装；`public`
+平台内所有已登录 Skill User 都可搜索、安装；`anonymous` 任何人（含匿名访客）
+都可发现、查看并安装已发布版本，登录用户同样可消费。组织成员对组织内
+private 技能默认没有任何权限，授权通过共享给常设团队或逐技能添加团队、成员
+实现（ADR-0032）。`anonymous` 是消费面开放，不开放源码仓库、未发布内容或
+反馈协作权限；现有技能升级后保持原档位，新建技能默认 private（ADR-0073）。
+可见性独立于显式授权：三档切换都不增删团队或成员授权；清空全部显式授权也不
+改变可见性，且不影响所有者、Maintainer 或管理员基于角色获得的权限。匿名
+开放要求该技能全部仍可安装发布版本的完整依赖链也是 `anonymous`；反向收紧
+不得拉断仍在匿名发布的依赖方。已下载的本地副本不因收紧可见性被远程收回。
 
 ## 匿名访客 (Anonymous Visitor)
 

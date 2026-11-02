@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createAgentInteractionRequest, toAskUserQuestionPayload } from '../../core/src/agent-interaction.js';
+import { SUPPORTED_TOOLS, TOOL_DISPLAY_NAMES } from '../../core/src/link/tool-links.js';
 
 const skillRoot = new URL('../../../skills/esl-operator/', import.meta.url);
 const readSkill = (file: string) => fs.readFileSync(new URL(file, skillRoot), 'utf8');
@@ -42,11 +43,76 @@ describe('esl-operator 文档契约', () => {
     const example = content.match(/\x60{3}json\r?\n([\s\S]*?)\r?\n\x60{3}/);
     expect(example).not.toBeNull();
     const payload = toAskUserQuestionPayload(createAgentInteractionRequest({
-      command: 'init', fields: [{ id: 'license', kind: 'text', label: 'License', default: 'MIT' }]
+      command: 'init',
+      fields: [{ id: 'namespace', kind: 'select', label: 'Namespace', options: ['personal', 'acme'] }]
     }));
     expect(JSON.parse(example![1])).toEqual(payload);
     expect(content).not.toContain('根据 `kind` 渲染控件');
     expect(content).not.toContain('使用 `id` 作为参数键');
+  });
+
+  it('同步依赖清理、影响确认与身份式声明说明', () => {
+    const skill = readSkill('SKILL.md');
+    const consumer = readSkill('references/consumer.md');
+    const author = readSkill('references/author.md');
+    const agent = readSkill('references/agent-interaction.md');
+    expect(skill).toContain('esl skill update');
+    expect(skill).toContain('esl skill uninstall');
+    expect(consumer).toContain('--cleanup');
+    expect(consumer).toContain('missingDependencies');
+    expect(consumer).toContain('--accept-dependency-impact');
+    expect(author).toContain('通配范围');
+    expect(agent).toContain('acceptDependencyImpact');
+  });
+
+  it('工具表覆盖受支持工具与展示名，并说明宿主提问', () => {
+    const skill = readSkill('SKILL.md');
+    for (const tool of SUPPORTED_TOOLS) {
+      expect(skill, `工具 id ${tool} 缺失`).toContain(`\`${tool}\``);
+    }
+    expect(skill).toContain('`claude-code`');
+    for (const displayName of Object.values(TOOL_DISPLAY_NAMES)) {
+      expect(skill, `工具展示名 ${displayName} 缺失`).toContain(displayName);
+    }
+    expect(skill).toContain('AskUserQuestion');
+  });
+
+  it('静态命令不再默认追加 Agent Interaction 旗标', () => {
+    const skill = readSkill('SKILL.md');
+    const consumer = readSkill('references/consumer.md');
+    const author = readSkill('references/author.md');
+    expect(skill).not.toContain('Agent Interaction 默认开启');
+    expect(skill).not.toContain('命令一律追加');
+    expect(consumer).not.toContain('固定带 `--agent-interaction');
+    expect(author).not.toContain('固定带 `--agent-interaction');
+    const versionLine = author.split(/\r?\n/).find((line) => line.startsWith('`esl release version'));
+    expect(versionLine).toBeDefined();
+    expect(versionLine).not.toContain('--agent-interaction');
+  });
+
+  it('协议文档只保留服务端与运行时问题', () => {
+    const agent = readSkill('references/agent-interaction.md');
+    expect(agent).toContain('acceptDependencyImpact');
+    expect(agent).toContain('cleanup');
+    expect(agent).not.toContain('install / link：只问工具多选');
+    expect(agent).not.toContain('link / unlink：站在 Local Skill Source 里的项目根');
+    expect(agent).not.toContain('--agent-interaction --tools');
+  });
+
+  it('init 先传静态字段，只有 Namespace 走协议', () => {
+    const author = readSkill('references/author.md');
+    const agent = readSkill('references/agent-interaction.md');
+    expect(author).toContain('--namespace personal');
+    expect(author).toContain('--display-name');
+    expect(author).toContain(`--params-json '{"namespace"`);
+    expect(agent).toContain('只包含 Namespace');
+  });
+
+  it('项目根判断落在 consumer reference', () => {
+    const consumer = readSkill('references/consumer.md');
+    expect(consumer).toContain('useParent');
+    expect(consumer).toContain('projectRootChoice');
+    expect(consumer).toContain('choice:');
   });
 
   it('已发布包安装不把 Git 当成硬前置', () => {

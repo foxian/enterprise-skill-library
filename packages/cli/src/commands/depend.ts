@@ -6,6 +6,7 @@ import {
   highestSatisfyingVersion,
   highestStableVersion,
   RELEASE_DEPENDENCY_TARGET_PATTERN,
+  WILDCARD_RANGE,
   validateReleaseDependencyTarget,
   validateReleaseManifest
 } from '@esl/core';
@@ -61,6 +62,9 @@ export async function executeDependList(options: DependOptions = {}): Promise<{ 
  * 声明（或更新）一条发布依赖：add 时必须向 Registry 解析目标——非法目标、
  * 不可见、无稳定版/无满足范围都会失败且不写清单，避免悬空边。只改技能源
  * release.json，不碰项目清单、Skill Store、Tool Link，也不自动升版或提交。
+ *
+ * 省略版本时保存通配范围（`*`），表达「需要这个技能」而不是根据当前最新版
+ * 生成隐式版本约束（ADR-0072）；作者显式给出的精确版本或范围原样保存。
  */
 export async function executeDependAdd(
   target: string,
@@ -111,7 +115,8 @@ export async function executeDependAdd(
     }
     range = parsed.range;
   } else {
-    // 默认与 install 选最高稳定版一致：预发布不进入默认声明。
+    // 身份式声明：只校验目标可装（至少有一个稳定版），不把当前最新版固化成
+    // 隐式约束；发布时再解析到当时的最高稳定版（ADR-0072）。
     const stable = highestStableVersion(info.versions ?? []);
     if (!stable) {
       throw new ApiError(409, 'no stable release available', {
@@ -119,7 +124,7 @@ export async function executeDependAdd(
         params: { identity: parsed.identity }
       });
     }
-    range = `^${stable}`;
+    range = WILDCARD_RANGE;
   }
 
   const directory = options.directory ?? process.cwd();

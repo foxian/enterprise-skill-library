@@ -4,6 +4,7 @@ import path from 'node:path';
 import { BUILTIN_SPECIFIER_PREFIX } from '../skill/builtin-package.js';
 import {
   findInstalledSkill,
+  findMissingDependencies,
   installManifestKey,
   loadInstallManifest,
   parseInstallManifestKey,
@@ -95,6 +96,7 @@ function manifestEntryFromLock(
     integrity: entry.integrity,
     skillId: entry.skillId,
     ...(instanceId ? { instanceId } : {}),
+    ...(current?.retained ? { retained: true } : {}),
     sourceDir: current?.sourceDir ?? skillSourceRelativeDir(entry.identity ?? identity, instanceId),
     installedAt: current?.installedAt ?? new Date().toISOString()
   };
@@ -298,6 +300,8 @@ export interface SkillListEntry {
   displayName?: string;
   tools?: SkillToolSummary[];
   linkSourcePath?: string;
+  /** 声明的发布依赖在安装清单中缺失（ADR-0072）。 */
+  missingDependencies?: string[];
 }
 
 export interface ListSkillsOptions {
@@ -328,6 +332,7 @@ export async function listSkills(
   options: ListSkillsOptions = {}
 ): Promise<SkillListEntry[]> {
   const manifest = await loadInstallManifest(root);
+  const missingDependencies = await findMissingDependencies(root);
   const toolEntries = options.level
     ? await listToolLinks({
         storeRoot: root,
@@ -347,6 +352,10 @@ export async function listSkills(
       const displayName = await readLocalDisplayName(root, entry);
       if (displayName) {
         listEntry.displayName = displayName;
+      }
+      const missing = missingDependencies.get(key);
+      if (missing && missing.length > 0) {
+        listEntry.missingDependencies = [...missing];
       }
       if (options.level) {
         // managed 记录的 identity 就是 Skill Identity；unmanaged 条目的 identity

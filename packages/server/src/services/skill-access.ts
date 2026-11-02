@@ -1,3 +1,4 @@
+import { isSignedInReadable } from '@esl/core';
 import type { GiteaService } from './gitea.js';
 import type { SkillRecord } from '../db/database.js';
 import { isOwnerMemberOf, isManagingMemberOf } from './organization-membership.js';
@@ -32,15 +33,16 @@ export async function getAccessLevel(
   if (skill.scope !== username && (await isOrgSkillManager(giteaService, skill.scope, username))) {
     return 'manage';
   }
-  // public 是 Read 基线而不是权限上限：继续合并团队与个人授权，使 write/manage
-  // 来源能够提升最终权限。仓库缺失或查询失败时仍保留 public 的可读兜底。
-  const publicRead = skill.visibility === 'public';
+  // public / anonymous 是已登录用户的 Read 基线而不是权限上限：继续合并团队与
+  // 个人授权，使 write/manage 来源能够提升最终权限。仓库缺失或查询失败时仍保留
+  // 基线的可读兜底。
+  const baselineRead = isSignedInReadable(skill.visibility);
   // 没有权限 API 的 Git Backend 无法过滤权限，保留旧行为的可读基线。
   const hasPermissionSupport =
     typeof giteaService.listRepoTeams === 'function' || typeof giteaService.isCollaborator === 'function';
   if (!hasPermissionSupport) return 'read';
   const repo = skillRepo(skill);
-  let level: SkillAccessLevel = publicRead ? 'read' : 'none';
+  let level: SkillAccessLevel = baselineRead ? 'read' : 'none';
   try {
     if (typeof giteaService.listRepoTeams === 'function' && typeof giteaService.isTeamMember === 'function') {
       for (const team of await giteaService.listRepoTeams(repo.owner, repo.name)) {
@@ -57,7 +59,7 @@ export async function getAccessLevel(
       else if (permission === 'read' && level === 'none') level = 'read';
     }
   } catch (error) {
-    if (publicRead) return level;
+    if (baselineRead) return level;
     throw error;
   }
   return level;

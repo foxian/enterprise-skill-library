@@ -1,4 +1,5 @@
 import {
+  normalizeSkillVisibility,
   ReleaseGraphError,
   type ReleaseGraphNode,
   type ReleaseGraphSource
@@ -39,7 +40,9 @@ export class ServerReleaseGraphSource implements ReleaseGraphSource {
       skillId: release.skillId,
       version,
       checksum: release.checksum,
-      visibility: skill.visibility === 'private' ? 'private' : 'public',
+      // 三档原样透出：public 全链与 anonymous 全链校验都依赖它，不能把
+      // anonymous 折叠成 public。
+      visibility: normalizeSkillVisibility(skill.visibility),
       dependencies: manifest.dependencies ?? {}
     };
   }

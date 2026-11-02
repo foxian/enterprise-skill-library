@@ -3,7 +3,13 @@ import { createProgram, formatErrorMessage, isDirectCliEntry, promptToolSelectio
 import { executeInstall } from '../src/commands/install.js';
 import { executeInit } from '../src/commands/init.js';
 import { executeLink, resolveLinkIdentity } from '../src/commands/link.js';
-import { SUPPORTED_TOOLS, initializeLocalStore, saveConfig } from '@esl/core';
+import {
+  AgentInteractionRequiredError,
+  SUPPORTED_TOOLS,
+  createAgentInteractionRequest,
+  initializeLocalStore,
+  saveConfig
+} from '@esl/core';
 import { executeUpload } from '../src/commands/upload.js';
 import { executePublish } from '../src/commands/publish.js';
 import { isInteractive } from '../src/prompt.js';
@@ -59,6 +65,16 @@ vi.mock('../src/commands/link.js', () => ({
 vi.mock('../src/commands/install.js', () => ({
   executeInstall: vi.fn()
 }));
+const { executeUpdateMock, executeUninstallMock } = vi.hoisted(() => ({
+  executeUpdateMock: vi.fn(),
+  executeUninstallMock: vi.fn()
+}));
+vi.mock('../src/commands/update.js', () => ({ executeUpdate: executeUpdateMock }));
+vi.mock('../src/commands/uninstall.js', () => ({
+  executeUninstall: executeUninstallMock,
+  ensureGitignore: vi.fn(),
+  removeInstalledIdentity: vi.fn()
+}));
 
 describe('esl program', () => {
   function withTempCwd(): { root: string; restore: () => void } {
@@ -102,6 +118,8 @@ describe('esl program', () => {
     inputMock.mockReset();
     selectMock.mockReset();
     vi.mocked(executeInstall).mockReset();
+    executeUpdateMock.mockReset();
+    executeUninstallMock.mockReset();
     executeDependAddMock.mockReset();
     executeDependListMock.mockReset();
     executeDependRemoveMock.mockReset();
@@ -457,7 +475,7 @@ describe('esl program', () => {
 
     expect(options).toEqual(expect.arrayContaining(['--namespace', '--keyword', '--visibility', '--limit']));
     expect((search?.options.find((option) => option.long === '--visibility') as { argChoices?: string[] }).argChoices)
-      .toEqual(['public', 'private']);
+      .toEqual(['private', 'public', 'anonymous']);
     expect((search as unknown as { _args: Array<{ required: boolean }> })._args[0].required).toBe(false);
   });
 
@@ -940,6 +958,112 @@ describe('esl program', () => {
       fs.rmSync(homeDir, { recursive: true, force: true });
       tmp.restore();
     }
+  });
+
+  it('passes agent cleanup and impact answers through the uninstall command', async () => {
+    executeUninstallMock.mockResolvedValue({
+      removedLinks: [],
+      sourceRemoved: true,
+      reclaimed: [],
+      cleanupCandidates: []
+    });
+
+    await run([
+      'node',
+      'esl',
+      'uninstall',
+      '@acme/shared',
+      '--agent-interaction',
+      '--params-json',
+      '{"cleanup":["@acme/old"],"acceptDependencyImpact":["@acme/root-a"]}'
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(executeUninstallMock).toHaveBeenCalledWith(
+      '@acme/shared',
+      expect.objectContaining({
+        agentMode: true,
+        cleanup: ['@acme/old'],
+        cleanupProvided: true,
+        acceptDependencyImpact: ['@acme/root-a']
+      })
+    );
+    process.exitCode = undefined;
+  });
+
+  it('passes agent cleanup answers through the update command', async () => {
+    executeUpdateMock.mockResolvedValue([]);
+
+    await run([
+      'node',
+      'esl',
+      'update',
+      '@acme/shared',
+      '--agent-interaction',
+      '--cleanup',
+      '@acme/old,@acme/stale'
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+    expect(executeUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillName: '@acme/shared',
+        agentMode: true,
+        cleanup: ['@acme/old', '@acme/stale'],
+        cleanupProvided: true
+      })
+    );
+    process.exitCode = undefined;
+  });
+
+  it('returns exit code 2 with the structured cleanup question from update', async () => {
+    const stdout: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    process.exitCode = undefined;
+    try {
+      executeUpdateMock.mockRejectedValue(
+        new AgentInteractionRequiredError(
+          createAgentInteractionRequest({
+            command: 'update',
+            fields: [
+              {
+                id: 'cleanup',
+                kind: 'multiselect',
+                label: 'Select dependencies to remove',
+                required: false,
+                default: [],
+                options: [{ label: '@acme/old' }]
+              }
+            ]
+          })
+        )
+      );
+
+      await run(['node', 'esl', 'update', '@acme/shared', '--agent-interaction']);
+
+      expect(process.exitCode).toBe(2);
+      const payload = JSON.parse(stdout.join('')) as {
+        questions: Array<{ question: string; multiSelect: boolean }>;
+      };
+      expect(payload.questions[0].question).toContain('Select dependencies to remove');
+      expect(payload.questions[0].multiSelect).toBe(true);
+    } finally {
+      stdoutSpy.mockRestore();
+      process.exitCode = undefined;
+    }
+  });
+
+  it('registers cleanup and impact options on update/uninstall', () => {
+    const program = createProgram();
+    const update = program.commands.find((command) => command.name() === 'update');
+    const uninstall = program.commands.find((command) => command.name() === 'uninstall');
+    expect(update?.options.map((option) => option.long)).toContain('--cleanup');
+    expect(uninstall?.options.map((option) => option.long)).toEqual(
+      expect.arrayContaining(['--cleanup', '--accept-dependency-impact', '--force'])
+    );
   });
 
   it('drops the standalone tools command and update --tools/--force', () => {
