@@ -192,15 +192,19 @@
     <el-card class="section-card" data-test="visibility-card">
       <template #header>{{ t('skill.visibility') }}</template>
       <el-space wrap>
-        <el-tag :type="visibility === 'public' ? 'success' : 'info'" data-test="visibility-tag">
-          {{ visibility === 'public' ? t('skill.visibilityPublic') : t('skill.visibilityPrivate') }}
+        <el-tag :type="visibilityTagType" data-test="visibility-tag">
+          {{ visibilityText }}
         </el-tag>
-        <el-switch
-          :model-value="visibility === 'public'"
+        <el-radio-group
+          :model-value="visibility"
           :disabled="!canManage || saving"
           data-test="visibility-switch"
           @change="onVisibilityChange"
-        />
+        >
+          <el-radio value="private" data-test="visibility-private">{{ t('skill.visibilityPrivate') }}</el-radio>
+          <el-radio value="public" data-test="visibility-public">{{ t('skill.visibilityPublic') }}</el-radio>
+          <el-radio value="anonymous" data-test="visibility-anonymous">{{ t('skill.visibilityAnonymous') }}</el-radio>
+        </el-radio-group>
       </el-space>
     </el-card>
 
@@ -357,6 +361,8 @@ import { computed, onMounted, ref } from 'vue';
 import { formatRequestError, useLocaleState } from '../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
+// 深引入纯类型模块，避免把 @esl/core 的 Node 依赖打进浏览器包。
+import type { SkillVisibility } from '@esl/core/dist/skill/visibility.js';
 import { apiRequest } from '../api/client';
 import { shortUsername } from '../utils/short-username';
 import {
@@ -461,18 +467,48 @@ const stateText = computed(() => t(shareState.value.text));
 
 const stateTagType = computed(() => shareState.value.tagType);
 
-// 逐技能可见性(ADR-0032):public/private 由技能记录携带,经专用端点切换
-const visibility = ref<'public' | 'private'>('private');
+// 逐技能可见性(ADR-0032 / ADR-0073):private/public/anonymous 由技能记录携带,
+// 经专用端点切换。三档是消费范围,切换不增删显式授权。
+const visibility = ref<SkillVisibility>('private');
+
+const visibilityTagType = computed<'success' | 'info' | 'warning'>(() => {
+  if (visibility.value === 'anonymous') return 'success';
+  return visibility.value === 'public' ? 'info' : 'warning';
+});
+
+const visibilityText = computed(() => {
+  if (visibility.value === 'anonymous') return t('skill.visibilityAnonymous');
+  return visibility.value === 'public' ? t('skill.visibilityPublic') : t('skill.visibilityPrivate');
+});
+
+const VISIBILITY_SUCCESS_TEXT: Record<SkillVisibility, string> = {
+  private: 'skill.privateVisibilityOn',
+  public: 'skill.publicVisibilityOn',
+  anonymous: 'skill.anonymousVisibilityOn'
+};
 
 async function onVisibilityChange(next: boolean | string | number): Promise<void> {
-  const target = next ? 'public' : 'private';
+  const target = next as SkillVisibility;
+  if (target === visibility.value) return;
+  if (target === 'anonymous') {
+    try {
+      await ElMessageBox.confirm(
+        t('skill.anonymousVisibilityWarning'),
+        t('skill.visibility'),
+        { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+      );
+    } catch {
+      // 取消时受控的 model-value 不变,界面停留在原档位。
+      return;
+    }
+  }
   try {
-    const result = await apiRequest<{ name: string; visibility: 'public' | 'private' }>(
+    const result = await apiRequest<{ name: string; visibility: SkillVisibility }>(
       `/api/skills/${encodeURIComponent(props.scope)}/${encodeURIComponent(props.skillName)}/visibility`,
       { method: 'POST', body: { visibility: target } }
     );
     visibility.value = result.visibility;
-    ElMessage.success(result.visibility === 'public' ? t('skill.publicVisibilityOn') : t('skill.privateVisibilityOn'));
+    ElMessage.success(t(VISIBILITY_SUCCESS_TEXT[result.visibility]));
   } catch (error) {
     ElMessage.error(formatRequestError(error));
   }

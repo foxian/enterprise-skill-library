@@ -7,6 +7,10 @@ import {
   resolveReleaseGraph,
   SHARE_TIER_TEAM_NAMES,
   STANDING_TEAM_NAMES,
+  isAnonymousConsumable,
+  isSkillVisibility,
+  isSignedInReadable,
+  normalizeSkillVisibility,
   parseSkillName,
   parseSkillIdentity,
   sortVersionsDescending,
@@ -42,6 +46,10 @@ import {
 } from '../services/skill-access.js';
 import { backendTeamName } from '../services/logical-team-projection.js';
 import { ServerReleaseGraphSource } from '../services/release-graph-source.js';
+import {
+  findAnonymousDependents,
+  findNonAnonymousChainDependencies
+} from '../services/skill-visibility.js';
 import { logEvent } from '../logging.js';
 import type { ApiErrorCode } from '@esl/i18n';
 
@@ -322,8 +330,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
   });
 
   app.get('/api/skills/search', async (request, reply) => {
-    // 可安装技能发现面（ADR-0049）：匿名可浏览 public 已发布技能，登录后
-    // 附加有权的 private；结果由本路由一次 enrich，CLI 不做逐条 info。
+    // 可安装技能发现面（ADR-0049 / ADR-0073）：匿名访客只能浏览 anonymous
+    // 已发布技能；登录后附加 public 与有权的 private。结果由本路由一次 enrich，
+    // CLI 不做逐条 info。
     const { q = '', namespace, keyword, visibility, limit } = request.query as {
       q?: string;
       namespace?: string;
@@ -331,8 +340,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       visibility?: string;
       limit?: string;
     };
-    if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
-      return reply.status(400).send(apiError('visibilityMustBePublicOrPrivate'));
+    if (visibility !== undefined && !isSkillVisibility(visibility)) {
+      return reply.status(400).send(apiError('visibilityMustBePrivatePublicOrAnonymous'));
     }
     let limitCount = 50;
     if (limit !== undefined) {
@@ -345,7 +354,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       limitCount = parsed;
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
-    if (!user && visibility === 'private') {
+    // 匿名显式筛选 public/private 时明确要求登录，而不是伪装成正常空结果。
+    if (!user && visibility !== undefined && visibility !== 'anonymous') {
       return reply.status(401).send(apiError('unauthorizedMissingToken'));
     }
     const lowerQuery = q.toLowerCase();
@@ -363,9 +373,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     // query 还要匹配显示名与 keywords（不在 skills 表），文本匹配统一在
     // 内存里做，DB 只承担已发布状态与 namespace 过滤。
     for (const skill of repository.searchSkills('', { namespace: namespace?.trim() || undefined })) {
-      // public 是全员可读基线；private 需要有效登录与读权限。
       if (visibility && skill.visibility !== visibility) continue;
-      if (skill.visibility !== 'public' && !(user && (await hasReadAccess(giteaService, skill, user.username)))) {
+      // 无登录身份只公开 anonymous；登录后 public / anonymous 都是读取基线，
+      // private 仍需显式授权或角色来源。
+      if (!user) {
+        if (!isAnonymousConsumable(skill.visibility)) continue;
+      } else if (!isSignedInReadable(skill.visibility) &&
+        !(await hasReadAccess(giteaService, skill, user.username))) {
         continue;
       }
       // 未发布（无任何 Skill Release）的技能不可安装，不进入发现面。
@@ -446,8 +460,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     return withDownloadCounts(view, downloadLogRepository);
   });
 
-  // 可见性切换(ADR-0033):Maintainer 或所有者成员可在 public/private
-  // 间切换。public = 平台全员可搜可装可作依赖;private = 仅 Maintainer 与被授权者。
+  // 可见性切换(ADR-0033 / ADR-0073):Maintainer 或所有者成员可在
+  // private/public/anonymous 间切换。档位只决定消费范围，不增删显式授权。
+  // anonymous 是主动的匿名开放，所以切换时必须证明现有发布全链匿名可装；
+  // 反向收紧时也不能当场拉断仍以 anonymous 发布的依赖方。
   app.post('/api/skills/:scope/:skillName/visibility', async (request, reply) => {
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
     if (!user) {
@@ -463,8 +479,28 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
     const { visibility = '' } = request.body as { visibility?: string };
-    if (visibility !== 'public' && visibility !== 'private') {
-      return reply.status(400).send(apiError('visibilityMustBePublicOrPrivate'));
+    if (!isSkillVisibility(visibility)) {
+      return reply.status(400).send(apiError('visibilityMustBePrivatePublicOrAnonymous'));
+    }
+    if (visibility === skill.visibility) {
+      return { name: skill.name, visibility };
+    }
+    if (visibility === 'anonymous') {
+      const conflicts = findNonAnonymousChainDependencies(repository, skill);
+      if (conflicts.length > 0) {
+        return reply.status(409).send(apiError('anonymousVisibilityRequiresAnonymousDependencyChain', {
+          identity: skill.name,
+          dependencies: conflicts.join(', ')
+        }));
+      }
+    } else if (skill.visibility === 'anonymous') {
+      const dependents = findAnonymousDependents(repository, skill.skillId);
+      if (dependents.length > 0) {
+        return reply.status(409).send(apiError('anonymousDependentsRequireAnonymousVisibility', {
+          identity: skill.name,
+          dependents: dependents.join(', ')
+        }));
+      }
     }
     repository.setVisibility(name, visibility);
     return { name: skill.name, visibility };
@@ -1009,7 +1045,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         manifest.data.dependencies,
         new ServerReleaseGraphSource(repository, giteaService, user.username),
         {
-          rootVisibility: skill.visibility === 'private' ? 'private' : 'public',
+          rootVisibility: normalizeSkillVisibility(skill.visibility),
           rootIdentity: name
         }
       );
@@ -1196,10 +1232,6 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     };
 
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
-    if (!user) {
-      logFailure('unauthorizedInvalidToken');
-      return reply.status(401).send(apiError('unauthorizedInvalidToken'));
-    }
     if (!pathValid) {
       return reply.status(400).send(apiError('invalidPublishedSkillPackagePath'));
     }
@@ -1208,7 +1240,17 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       logFailure('skillNotFound', { user });
       return reply.status(404).send(apiError('skillNotFound'));
     }
-    if (!(await hasReadAccess(giteaService, skill, user.username))) {
+    // 匿名访客只能下载 anonymous 技能的已发布包；public 需要登录，private
+    // 还需要显式授权或角色来源。未知身份不因「知道地址」而绕过。
+    if (!user) {
+      if (!isAnonymousConsumable(skill.visibility)) {
+        logFailure('unauthorizedMissingToken', {
+          skillId: skill.skillId,
+          skillIdentity: skill.name
+        });
+        return reply.status(401).send(apiError('unauthorizedMissingToken'));
+      }
+    } else if (!(await hasReadAccess(giteaService, skill, user.username))) {
       logFailure('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers', {
         skillId: skill.skillId,
         skillIdentity: skill.name,
@@ -1477,8 +1519,13 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       return reply.status(404).send(apiError('skillNotFound'));
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
-    if (!(await hasReadAccess(giteaService, skill, user?.username))) {
-      return reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'));
+    const readable = user ? await hasReadAccess(giteaService, skill, user.username) : false;
+    if (!readable && !isAnonymousConsumable(skill.visibility)) {
+      // 无登录身份时统一要求登录（不因能否区分 private/public 而泄露更多）；
+      // 已登录但无权读取 private 时仍给既有可行动错误。
+      return user
+        ? reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'))
+        : reply.status(401).send(apiError('unauthorizedMissingToken'));
     }
 
     const releases = repository.getReleases(name);
@@ -1489,26 +1536,57 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     const versionDownloadCounts = skill.skillId
       ? downloadLogRepository?.getVersionDownloadCounts(skill.skillId) ?? {}
       : {};
+    const instanceId = serverIdentityRepository?.get().instanceId;
+    const packageUrlOf = (release: { skillId: string; version: string; packagePath: string }): string =>
+      `${requestOrigin(request)}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`;
+    const releasesView = releases.map((release) => ({
+      ...release,
+      deprecatedMessage: release.deprecatedMessage ?? null,
+      downloadCount: versionDownloadCounts[release.version] ?? 0,
+      packageUrl: packageUrlOf(release)
+    }));
+    if (!readable) {
+      // 匿名详情只保留介绍、已发布版本与安装所需数据；不复用管理 DTO，避免
+      // 泄露源码仓库路径、协作者、未发布状态等协作面信息。
+      return {
+        name: skill.name,
+        skillId: skill.skillId,
+        displayName: resolveSkillDisplayName(repository, skill),
+        description: skill.description,
+        keywords: latestReleaseKeywords(releases),
+        visibility: skill.visibility,
+        instanceId,
+        versions: sortVersionsDescending(repository.getVersions(name)),
+        downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
+        releases: releasesView.map((release) => ({
+          version: release.version,
+          checksum: release.checksum,
+          skillId: release.skillId,
+          createdAt: release.createdAt,
+          deprecatedMessage: release.deprecatedMessage,
+          downloadCount: release.downloadCount,
+          packageUrl: release.packageUrl,
+          releaseManifest: {
+            dependencies: (release.releaseManifest as { dependencies?: Record<string, string> } | null)
+              ?.dependencies ?? {}
+          }
+        })),
+        packageUrl: latest ? packageUrlOf(latest) : undefined
+      };
+    }
     return withCloneUrl(request, {
       ...skill,
       // 来源隔离（ADR-0070）：详情响应携带 Server 实例身份，CLI 首次安装时
       // 无需额外请求即可把技能归属到确定实例。
-      instanceId: serverIdentityRepository?.get().instanceId,
+      instanceId,
       displayName: resolveSkillDisplayName(repository, skill),
       // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
       // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。
       keywords: latestReleaseKeywords(releases),
       versions: sortVersionsDescending(repository.getVersions(name)),
       downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
-      releases: releases.map((release) => ({
-        ...release,
-        deprecatedMessage: release.deprecatedMessage ?? null,
-        downloadCount: versionDownloadCounts[release.version] ?? 0,
-        packageUrl: `${requestOrigin(request)}/api/packages/${release.skillId}/${release.version}/${path.basename(release.packagePath)}`
-      })),
-      packageUrl: latest
-        ? `${requestOrigin(request)}/api/packages/${latest.skillId}/${latest.version}/${path.basename(latest.packagePath)}`
-        : undefined
+      releases: releasesView,
+      packageUrl: latest ? packageUrlOf(latest) : undefined
     });
   });
 }

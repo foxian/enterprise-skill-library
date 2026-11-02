@@ -20,6 +20,9 @@
           {{ t('auth.login') }}
         </el-button>
       </el-form>
+      <router-link to="/skills" class="auth-link" data-test="browse-skills-link">
+        {{ t('auth.browseSkills') }}
+      </router-link>
       <router-link to="/admin/forgot-password" class="auth-link" data-test="forgot-password-link">
         {{ t('auth.forgotPassword') }}
       </router-link>

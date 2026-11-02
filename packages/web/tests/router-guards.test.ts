@@ -141,6 +141,20 @@ describe('router guards', () => {
     expect(router.currentRoute.value.name).toBe('me-org-members');
   });
 
+  it('匿名访客可以到达公开技能目录与详情，管理后台仍要求登录', async () => {
+    await router.push('/skills');
+    await router.isReady();
+    expect(router.currentRoute.value.name).toBe('public-catalog');
+
+    await router.push('/skills/alice/open');
+    await router.isReady();
+    expect(router.currentRoute.value.name).toBe('public-skill-detail');
+
+    await router.push('/admin/me/skills');
+    await router.isReady();
+    expect(router.currentRoute.value.name).toBe('login');
+  });
+
   it('本地会话恢复后直接可达对应控制台首页', async () => {
     localStorage.setItem(
       'esl-admin-session',

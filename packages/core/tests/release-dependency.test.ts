@@ -71,7 +71,7 @@ describe('highestSatisfyingAllRanges', () => {
 interface FixtureRelease {
   version: string;
   dependencies?: Record<string, string>;
-  visibility?: 'public' | 'private';
+  visibility?: 'public' | 'private' | 'anonymous';
 }
 
 class FakeGraphSource implements ReleaseGraphSource {
@@ -209,6 +209,23 @@ describe('resolveReleaseGraph', () => {
       rootVisibility: 'private'
     });
     expect(lock['@alice/d'].version).toBe('1.0.0');
+  });
+
+  it('requires every node of an anonymous root to be anonymous', async () => {
+    const registry: Array<[string, FixtureRelease[]]> = [
+      ['@alice/anon', [{ version: '1.0.0', visibility: 'anonymous' }]],
+      ['@alice/pub', [{ version: '1.0.0', visibility: 'public' }]],
+      ['@alice/anon-dep', [{ version: '1.0.0', visibility: 'anonymous' }]]
+    ];
+
+    await expect(
+      resolveReleaseGraph({ '@alice/pub': '^1.0.0' }, source(registry), { rootVisibility: 'anonymous' })
+    ).rejects.toMatchObject({ code: 'releaseDependencyAnonymousChainMustBeAnonymous' });
+
+    const lock = await resolveReleaseGraph({ '@alice/anon-dep': '^1.0.0' }, source(registry), {
+      rootVisibility: 'anonymous'
+    });
+    expect(lock['@alice/anon-dep'].version).toBe('1.0.0');
   });
 
   it('does not let a reselected version leave stale child ranges behind', async () => {

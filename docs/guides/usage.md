@@ -140,8 +140,9 @@ esl account change-password
 ### 1. 搜索技能 (Search)
 
 `esl skill search` 是消费者发现面：列出或查询当前能从 ESL Server **安装**的已发布技能
-（ADR-0049）。不传 query 即浏览全部可见技能；匿名可见 `public`，登录后附加有权的
-`private`。未发布技能不出现在此结果中（管理清单另见 Web inventory）。
+（ADR-0049 / ADR-0073）。不传 query 即浏览全部可见技能；匿名访客只能看到
+`anonymous`，登录后附加 `public` 与有权的 `private`。未发布技能不出现在此结果中
+（管理清单另见 Web inventory）。匿名显式筛选 `public` / `private` 会要求先登录。
 
 ```bash
 # 浏览全部可见的已发布可安装技能
@@ -151,7 +152,7 @@ esl skill search
 esl skill search code-review
 
 # 收窄：Namespace、keyword 硬过滤、可见性、条数上限
-esl skill search review --namespace acme --keyword git --visibility public --limit 50
+esl skill search review --namespace acme --keyword git --visibility anonymous --limit 50
 
 # 结构化输出（非 TTY / 脚本 / Agent）
 esl skill search code-review --json

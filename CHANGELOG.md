@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 SemVer。发布流程见
 [docs/guides/publishing-cli.md](docs/guides/publishing-cli.md)。
 
+## [Unreleased]
+
+### Added
+
+- **技能可见性新增 `anonymous` 档位（ADR-0073）。** `esl skill share --visibility` 支持 `private` / `public` / `anonymous`；`anonymous` 允许匿名访客在 Web 与 CLI 中搜索、查看、下载和安装已发布版本。新技能仍默认 `private`，现有技能升级后保持原档位。匿名开放要求完整依赖链匿名可装，反向收紧会阻止拉断仍匿名公开的依赖方；已下载副本不因收紧而被远程收回。
+- Web 新增公开技能目录与详情页（`/skills`），匿名访客可浏览 `anonymous` 已发布技能；管理后台仍受既有登录与授权保护。
+
+### Changed
+
+- 匿名访客不再能发现或消费 `public` 技能；`public` 现在表示“平台已登录用户”。`esl skill search` 在无登录态筛选 `public` / `private` 时明确要求登录，CLI `info` / `install` 在无登录态下只消费 `anonymous` 技能的已发布包。
+
 ## [0.2.2] - 2026-11-01
 
 ### Added

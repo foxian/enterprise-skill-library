@@ -214,11 +214,17 @@ describe('esl install (project-level)', () => {
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails fast when login is missing for a server-backed install', async () => {
+  it('falls back to anonymous consumption when login is missing', async () => {
     await saveCredentials({ token: null, loginAt: null }, { homeDir });
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => '{"error":"Unauthorized: missing token"}'
+    });
     const execFileAsync = vi.fn();
 
+    // 无登录态不再是一开始就失败：先按匿名消费请求服务端，public/private
+    // 由服务端拒绝，anonymous 则可继续安装。
     await expect(
       executeInstall('@alice/code-review', {
         projectRoot: projectDir,
@@ -228,18 +234,22 @@ describe('esl install (project-level)', () => {
         execFileAsync: execFileAsync as any,
         noAdapt: true
       })
-    ).rejects.toThrow('Missing token; run esl login or pass --token');
+    ).rejects.toThrow(/Failed to fetch skill info/);
 
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 
-  it('fails fast when the login is expired for a server-backed install', async () => {
+  it('treats an expired login as anonymous instead of failing fast', async () => {
     await saveCredentials(
       { token: 'gitea-token', loginAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString() },
       { homeDir }
     );
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => '{"error":"Unauthorized: missing token"}'
+    });
     const execFileAsync = vi.fn();
 
     await expect(
@@ -251,9 +261,9 @@ describe('esl install (project-level)', () => {
         execFileAsync: execFileAsync as any,
         noAdapt: true
       })
-    ).rejects.toThrow('Login expired; run esl login to re-authenticate');
+    ).rejects.toThrow(/Failed to fetch skill info/);
 
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(execFileAsync).not.toHaveBeenCalled();
   });
 

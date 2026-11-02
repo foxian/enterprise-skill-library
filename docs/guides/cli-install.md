@@ -3,7 +3,7 @@
 面向已经安装好 Codex、Claude Code 等 AI 工具的普通用户：从准备 Node.js/npm、安装 ESL CLI，到把内置 `esl-operator` 安装并链接到 AI 工具。
 
 - **本指南的首要目标**：在 AI 工具中能够调用 `esl-operator`。完成这一步不需要 ESL Server、账号、登录、Git 或 Docker。
-- **远端技能库操作**：首次需要访问远端技能库时，再按本指南配置 Server；需要私有访问或执行安装等操作时再登录。
+- **远端技能库操作**：首次需要访问远端技能库时，再按本指南配置 Server；`anonymous` 已发布技能可匿名搜索、查看和安装，访问 `public`/`private` 或执行上传、发布等写操作时才需要登录。
 - **不是这篇的范围**：安装 AI 工具、克隆本仓库、Docker 起 ESL Server、生产部署。那些请看 [本地开发指南](local-development.md) / [生产部署](production-deployment.md)。
 
 npm 包页上的最短安装说明见 [`packages/cli/README.md`](../../packages/cli/README.md)；中文短说明见 [cli-package-readme.zh-CN.md](cli-package-readme.zh-CN.md)。
@@ -144,7 +144,7 @@ esl skill install -g @builtin/esl-operator --tools codex,claude-code
 
 本节不是安装 `esl-operator` 的前置条件。以后要搜索或查看公开云端的远端技能时，未指定地址会默认使用
 `https://cloud.enterprise-skills.com/`；访问企业私有实例、自托管 Server 或本地开发 Server 时，再配置对应地址。
-访问私有内容或执行远端安装、上传、发布等操作时，再按需登录。你也可以直接让 `esl-operator` 引导完成这些准备。
+`anonymous` 已发布技能的搜索、查看和安装不需要登录；访问 `public`/`private` 内容或执行上传、发布等写操作时，再按需登录。你也可以直接让 `esl-operator` 引导完成这些准备。
 
 ### 6.1 配置 ESL Server 地址（一次即可）
 

@@ -24,8 +24,8 @@ export interface SkillContext {
   name: string;
   /** 对外显示名（ADR-0048）：优先最近 Release 快照，其次 upload 当前值。 */
   displayName?: string;
-  /** 逐技能可见性（ADR-0032）：public = 平台全员可搜可装；private = 仅被授权者。 */
-  visibility?: 'public' | 'private';
+  /** 逐技能可见性（ADR-0032 / ADR-0073）：private 仅被授权者、public 平台已登录用户、anonymous 任何人。 */
+  visibility?: 'private' | 'public' | 'anonymous';
   description: string;
   /** 当前最新 Skill Release 快照的关键词（#142）；无关键词时为空数组。 */
   keywords?: string[];

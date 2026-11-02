@@ -245,7 +245,7 @@ describe('download log recording', () => {
       skill_id: tool.skillId,
       username: null,
       result: 'failure',
-      failure_reason: 'unauthorizedInvalidToken'
+      failure_reason: 'unauthorizedMissingToken'
     });
     expect(counts(tool.skillId)).toEqual([]);
   });
@@ -388,13 +388,21 @@ describe('download log recording', () => {
   });
 
   it('exposes download counts to anonymous search and reports zero for untouched skills', async () => {
+    // 匿名发现面只包含 anonymous 技能（ADR-0073）。
     const tool = seedPublishedSkill({
       name: '@acme/tool',
       scope: 'acme',
       skillName: 'tool',
-      version: '1.0.0'
+      version: '1.0.0',
+      visibility: 'anonymous'
     });
-    seedPublishedSkill({ name: '@acme/other', scope: 'acme', skillName: 'other', version: '1.0.0' });
+    seedPublishedSkill({
+      name: '@acme/other',
+      scope: 'acme',
+      skillName: 'other',
+      version: '1.0.0',
+      visibility: 'anonymous'
+    });
     await fetchPackage(tool);
 
     const response = await app.inject({ method: 'GET', url: '/api/skills/search' });

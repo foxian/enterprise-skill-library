@@ -24,6 +24,9 @@ import OrgTeamsView from '../views/me/OrgTeamsView.vue';
 import MeSkillsView from '../views/me/SkillsView.vue';
 import MeSkillManageView from '../views/me/SkillManageView.vue';
 import InvitationsView from '../views/me/InvitationsView.vue';
+import PublicLayout from '../views/public/PublicLayout.vue';
+import PublicCatalogView from '../views/public/CatalogView.vue';
+import PublicSkillDetailView from '../views/public/SkillDetailView.vue';
 import { useAuthStore } from '../stores/auth';
 
 /**
@@ -43,6 +46,22 @@ export interface ConsoleRouteMeta {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // 消费者目录（ADR-0073）：匿名访客无需登录即可浏览 anonymous 已发布技能。
+    // 管理控制台继续挂在 /admin 下，由既有守卫保护。
+    {
+      path: '/skills',
+      component: PublicLayout,
+      meta: { public: true },
+      children: [
+        { path: '', name: 'public-catalog', component: PublicCatalogView, meta: { public: true } },
+        {
+          path: ':scope/:skillName',
+          name: 'public-skill-detail',
+          component: PublicSkillDetailView,
+          meta: { public: true }
+        }
+      ]
+    },
     { path: '/admin/login', name: 'login', component: LoginView, meta: { public: true } },
     // 公开路由只有账号注册。组织注册申请没有公开入口：它是已登录 Skill User
     // 在个人控制台内的动作（ADR-0032/0035），匿名提交连 token 都拿不出来。
