@@ -40,9 +40,10 @@
 
 4. **发布到 npm**  
    ```bash
-   npm publish --workspace @foxian/esl --access public
+   npm publish --workspace @foxian/esl --access public --registry=https://registry.npmjs.org
    ```
-   首次发布该 scope 包时必须带 `--access public`。
+   首次发布该 scope 包时必须带 `--access public`。若本机 `registry` 指向镜像
+   （如 npmmirror），必须用 `--registry` 显式指定 npmjs，镜像不接收发布。
 
 5. **打 tag 与 GitHub Release**  
    ```bash
@@ -55,14 +56,20 @@
 6. **冒烟**  
    在干净环境：
    ```bash
-   npm i -g @foxian/esl@0.1.0
+   npm i -g @foxian/esl@0.1.0 --registry=https://registry.npmjs.org
    esl --version
    ```
    确认命令可用；按需验证已安装全局 builtin 时 upgrade/postinstall 同步行为。
+   镜像通常有同步延迟，刚发布的版本先直连 npmjs 安装。
 
 ## 失败与注意
 
 - **版本已存在**：npm 与 ESL 技能发布一样，同一版本不可覆盖；应 bump 后再发。
+- **registry 与 2FA**：本机 `registry` 常指向 npmmirror 等镜像，`npm whoami`
+  会因镜像不支持认证而报 `ENEEDAUTH`；校验与发布都要带
+  `--registry=https://registry.npmjs.org`。发布需要 npm 账号的 2FA 一次性密码
+  （TOTP）；非交互终端无法等待浏览器授权（报 `EOTP`），应在交互终端执行发布，
+  或带 `--otp=<code>`。
 - **postinstall 失败**：不得阻断安装（ADR-0008）；包根 `postinstall.mjs` 在 `dist/`
   缺失（如源码检出尚未构建）时静默跳过。若安装后同步异常，检查 tarball 是否
   包含包根 `postinstall.mjs`、`dist/postinstall.*` 及 `dist/commands/sync-builtin.js`。
