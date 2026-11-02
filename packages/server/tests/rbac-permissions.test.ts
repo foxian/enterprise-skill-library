@@ -750,8 +750,9 @@ describe('skill RBAC permissions', () => {
     });
     expect(info.statusCode).toBe(403);
 
+    // 无登录身份时统一要求登录；不因能否区分 private/public 泄露更多。
     const anonymousInfo = await app.inject({ method: 'GET', url: '/api/skills/@acme/secret' });
-    expect(anonymousInfo.statusCode).toBe(403);
+    expect(anonymousInfo.statusCode).toBe(401);
 
     const missingSkill = await app.inject({
       method: 'GET',

@@ -17,7 +17,7 @@
 
 ## 发现技能：搜索 → 详情 → 选择
 
-`esl skill search [query] [--namespace <org>] [--keyword <text>] [--visibility public|private] [--limit <n>] [--json]`
+`esl skill search [query] [--namespace <org>] [--keyword <text>] [--visibility private|public|anonymous] [--limit <n>] [--json]`
 
 它查询 ESL Server 上已发布且当前可安装的技能；不传 `query` 浏览全部可见技能。query 会匹配 identity、描述、显示名和 keywords。
 
@@ -51,8 +51,9 @@ Versions:
   1.0.0  5 downloads
 ```
 
-- 未登录通常只能看到 public 技能。
-- private 技能需要当前账号具备读取权限。
+- 未登录只能看到 `anonymous` 技能；`public` 需要登录，`private` 还需要当前账号具备读取权限。
+- 无登录态显式筛选 `public` / `private` 会直接报错要求登录，不会返回看似正常的空结果。
+- `anonymous` 是“任何人可安装”，不是“仅匿名可用”：登录用户同样可以消费。
 - `@builtin/*` 显示为 Built-in skill，不属于 Registry。
 
 ## 免安装试用
@@ -76,7 +77,7 @@ Versions:
 4. 普通安装还是 Skill Source Link；
 5. 是否接受发布依赖及其本地锁文件变化。
 
-从 Server 安装远端技能通常需要 Server 和登录态；已发布技能通过 Registry/HTTP 获取，通常不要求本机安装 Git。源码 `clone`、`upload`、`publish` 等作者流程才需要 Git。安装 `@builtin/*` 只需要 CLI；本地 `./path` 需要有效源码目录，通常不需要登录。
+从 Server 安装远端技能需要可达的 Server；`anonymous` 技能的已发布包不需要登录态即可安装，其余档位需要登录并具备读取权限。已发布技能通过 Registry/HTTP 获取，通常不要求本机安装 Git；只有回退到源码 clone 时才需要登录与 Git。`source clone`、`upload`、`publish` 等作者流程需要 Git。安装 `@builtin/*` 只需要 CLI；本地 `./path` 需要有效源码目录，通常不需要登录。
 
 - `@scope/name` 从 Server 安装最新或指定版本。
 - `@builtin/*` 从 CLI 内置资源安装。
@@ -186,7 +187,7 @@ esl link --params-json '{"projectRootChoice":"directory","projectRootPath":"../m
 | 症状 | 判断 | 下一步 |
 |---|---|---|
 | `esl` 找不到 | CLI 未安装或 PATH 未刷新 | 读取 `setup.md`，安装后新开终端复查 |
-| 搜不到技能 | Server、查询词、可见性或权限限制 | 检查 Server；登录后复查；说明过滤条件 |
+| 搜不到技能 | Server、查询词、可见性或权限限制 | 检查 Server；匿名只能看到 `anonymous`，登录后再复查；说明过滤条件 |
 | 远端安装失败 | Server、登录、版本或依赖图问题 | 先读错误；不要把 Git 当成默认原因，只有错误明确涉及 Git 时再检查 |
 | Tool Link `conflict` | 目标目录不是 ESL 管理链接 | 不覆盖；让用户手工处理冲突后重试 |
 | 更新跳过 linked | 当前是源码开发链接 | 直接修改本地源码并 validate，不要反复 update |

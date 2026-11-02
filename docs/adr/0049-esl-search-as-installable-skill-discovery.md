@@ -2,6 +2,8 @@
 
 Status: accepted
 
+Amended by ADR-0073: 匿名发现面从 `public` 改为 `anonymous`；`public` 现在表示平台已登录用户可发现与消费。筛选值扩展为 `private|public|anonymous`。
+
 消费者需要列出并查询「当前能从服务器安装的技能」，而现有 `esl search` 要求必填
 query、不携带登录 token，且结果字段过瘦；`esl list` 只列本机已装，
 `/api/skills/inventory` 则是含未发布技能的管理清单。我们决定**增强 `esl search`

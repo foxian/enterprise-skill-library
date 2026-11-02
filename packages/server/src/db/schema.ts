@@ -10,7 +10,7 @@ export const databaseSchema = `
     created_by TEXT NOT NULL DEFAULT '',
     owner TEXT NOT NULL DEFAULT 'platform',
     maintainers_json TEXT NOT NULL DEFAULT '[]',
-    visibility TEXT NOT NULL DEFAULT 'public',
+    visibility TEXT NOT NULL DEFAULT 'private',
     status TEXT NOT NULL DEFAULT 'published',
     git_repo_path TEXT NOT NULL,
     deletion_requested_by TEXT,

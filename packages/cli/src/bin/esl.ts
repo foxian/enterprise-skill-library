@@ -23,6 +23,7 @@ import {
   toAskUserQuestionPayload,
   toolDisplayName,
   type AgentInteractionField,
+  type SkillVisibility,
   type ToolLevel,
   type ToolName
 } from '@esl/core';
@@ -265,11 +266,12 @@ export async function adjustSearchFilters(
         message: 'Visibility',
         choices: [
           { name: 'All', value: 'all' },
-          { name: 'Public', value: 'public' },
-          { name: 'Private', value: 'private' }
+          { name: 'Private (authorized users)', value: 'private' },
+          { name: 'Public (signed-in users)', value: 'public' },
+          { name: 'Anonymous (anyone)', value: 'anonymous' }
         ]
       });
-      next.visibility = value === 'all' ? undefined : (value as 'public' | 'private');
+      next.visibility = value === 'all' ? undefined : (value as SkillVisibility);
     }
   }
 }
@@ -613,7 +615,7 @@ function addSearch(parent: Command, program: Command, path = 'esl skill search')
     .option('--namespace <namespace>', 'filter by namespace (org or user)')
     .option('--keyword <keyword>', 'hard filter by skill keyword')
     .addOption(
-      new Option('--visibility <visibility>', 'filter by visibility').choices(['public', 'private'])
+      new Option('--visibility <visibility>', 'filter by visibility').choices(['private', 'public', 'anonymous'])
     )
     .option('--limit <count>', 'maximum number of results (default 50)')
     .option('--json', 'Output as JSON')
@@ -622,7 +624,7 @@ function addSearch(parent: Command, program: Command, path = 'esl skill search')
       server?: string;
       namespace?: string;
       keyword?: string;
-      visibility?: 'public' | 'private';
+      visibility?: SkillVisibility;
       limit?: string;
       json?: boolean;
     }) => {
@@ -890,7 +892,7 @@ function addShare(parent: Command, program: Command): Command {
     .option('--user <username>', 'share with a member (read; add --write or --manage)')
     .option('--revoke-team <name>', 'revoke a team grant')
     .option('--revoke-user <username>', 'revoke a member grant')
-    .option('--visibility <visibility>', 'set skill visibility: public or private')
+    .option('--visibility <visibility>', 'set skill visibility: private, public, or anonymous')
     .option('--clear-grants', 'clear all explicit team and member grants (does not change visibility)')
     .option('-f, --force', 'skip the confirmation for --clear-grants')
     .option('--write', 'grant edit (write) permission where applicable')
@@ -916,6 +918,12 @@ function addShare(parent: Command, program: Command): Command {
         console.log(formatPermissionMatrix(outcome.matrix));
       } else if (outcome.kind === 'visibility') {
         console.log(`Skill visibility set to ${outcome.visibility}`);
+        if (outcome.visibility === 'anonymous') {
+          console.log(
+            'Anyone, including anonymous visitors, can now install its published versions. ' +
+              'Already-downloaded copies cannot be revoked by tightening visibility later.'
+          );
+        }
       } else {
         console.log('Skill sharing updated');
       }

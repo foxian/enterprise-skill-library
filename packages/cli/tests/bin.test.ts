@@ -475,7 +475,7 @@ describe('esl program', () => {
 
     expect(options).toEqual(expect.arrayContaining(['--namespace', '--keyword', '--visibility', '--limit']));
     expect((search?.options.find((option) => option.long === '--visibility') as { argChoices?: string[] }).argChoices)
-      .toEqual(['public', 'private']);
+      .toEqual(['private', 'public', 'anonymous']);
     expect((search as unknown as { _args: Array<{ required: boolean }> })._args[0].required).toBe(false);
   });
 
