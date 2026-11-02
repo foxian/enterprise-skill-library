@@ -2060,3 +2060,284 @@ function createSkillId(): string {
   const bytes = crypto.randomBytes(26);
   return `sk_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')}`;
 }
+
+// ── 外部 Git 引用 ──────────────────────────────────────────────────────────
+
+export type ExternalSyncState = 'idle' | 'syncing' | 'paused' | 'failed';
+
+export interface ExternalSourceRecord {
+  skillName: string;
+  repositoryUrl: string;
+  skillDirectory: string;
+  branch: string;
+  schedule: unknown;
+  syncState: ExternalSyncState;
+  lastContentFingerprint?: string | null;
+  lastSyncedCommit?: string | null;
+  lastSuccessfulAt?: string | null;
+  lastCheckedAt?: string | null;
+  nextCheckAt?: string | null;
+  currentError?: string | null;
+  errorCode?: string | null;
+  licenseBasis?: string | null;
+  licenseProvenance?: unknown;
+  licenseConfirmedBy?: string | null;
+  licenseConfirmedAt?: string | null;
+  extraFiles: string[];
+  catchupDue: boolean;
+  locked: boolean;
+}
+
+export interface ExternalSourceInput {
+  skillName: string;
+  repositoryUrl: string;
+  skillDirectory: string;
+  branch: string;
+  schedule: unknown;
+  syncState?: ExternalSyncState;
+  licenseBasis?: string;
+  licenseProvenance?: unknown;
+  licenseConfirmedBy?: string;
+  extraFiles?: string[];
+}
+
+interface ExternalSourceRow {
+  skill_name: string;
+  repository_url: string;
+  skill_directory: string;
+  branch: string;
+  schedule_json: string;
+  sync_state: ExternalSyncState;
+  last_content_fingerprint: string | null;
+  last_synced_commit: string | null;
+  last_successful_at: string | null;
+  last_checked_at: string | null;
+  next_check_at: string | null;
+  current_error: string | null;
+  error_code: string | null;
+  license_basis: string | null;
+  license_provenance_json: string | null;
+  license_confirmed_by: string | null;
+  license_confirmed_at: string | null;
+  extra_files_json: string;
+  catchup_due: number;
+  locked: number;
+}
+
+function deserializeExternalSource(row: ExternalSourceRow): ExternalSourceRecord {
+  return {
+    skillName: row.skill_name,
+    repositoryUrl: row.repository_url,
+    skillDirectory: row.skill_directory,
+    branch: row.branch,
+    schedule: JSON.parse(row.schedule_json),
+    syncState: row.sync_state,
+    lastContentFingerprint: row.last_content_fingerprint,
+    lastSyncedCommit: row.last_synced_commit,
+    lastSuccessfulAt: row.last_successful_at,
+    lastCheckedAt: row.last_checked_at,
+    nextCheckAt: row.next_check_at,
+    currentError: row.current_error,
+    errorCode: row.error_code,
+    licenseBasis: row.license_basis,
+    licenseProvenance: row.license_provenance_json ? JSON.parse(row.license_provenance_json) : null,
+    licenseConfirmedBy: row.license_confirmed_by,
+    licenseConfirmedAt: row.license_confirmed_at,
+    extraFiles: JSON.parse(row.extra_files_json) as string[],
+    catchupDue: row.catchup_due === 1,
+    locked: row.locked === 1
+  };
+}
+
+const externalSourceColumns = `
+  skill_name, repository_url, skill_directory, branch, schedule_json, sync_state,
+  last_content_fingerprint, last_synced_commit, last_successful_at,
+  last_checked_at, next_check_at, current_error, error_code,
+  license_basis, license_provenance_json, license_confirmed_by, license_confirmed_at,
+  extra_files_json, catchup_due, locked
+`;
+
+export class ExternalSourceRepository {
+  constructor(private readonly db: Database.Database) {}
+
+  create(input: ExternalSourceInput): ExternalSourceRecord {
+    this.db
+      .prepare(`
+        INSERT INTO skill_external_sources (
+          skill_name, repository_url, skill_directory, branch, schedule_json,
+          sync_state, license_basis, license_provenance_json,
+          license_confirmed_by, extra_files_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        input.skillName,
+        input.repositoryUrl,
+        input.skillDirectory,
+        input.branch,
+        JSON.stringify(input.schedule),
+        input.syncState ?? 'idle',
+        input.licenseBasis ?? null,
+        input.licenseProvenance ? JSON.stringify(input.licenseProvenance) : null,
+        input.licenseConfirmedBy ?? null,
+        JSON.stringify(input.extraFiles ?? [])
+      );
+    return this.get(input.skillName)!;
+  }
+
+  get(skillName: string): ExternalSourceRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT ${externalSourceColumns} FROM skill_external_sources WHERE skill_name = ?`)
+      .get(skillName) as ExternalSourceRow | undefined;
+    return row ? deserializeExternalSource(row) : undefined;
+  }
+
+  // 原子认领：只有非 syncing 的引用可被置为 syncing，返回是否认领成功（幂等闸门）。
+  claimForSync(skillName: string): boolean {
+    const result = this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET sync_state = 'syncing', updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ? AND sync_state != 'syncing'
+      `)
+      .run(skillName);
+    return result.changes > 0;
+  }
+
+  markPaused(skillName: string): void {
+    this.db
+      .prepare(`UPDATE skill_external_sources SET sync_state = 'paused', updated_at = CURRENT_TIMESTAMP WHERE skill_name = ?`)
+      .run(skillName);
+  }
+
+  markIdle(skillName: string): void {
+    this.db
+      .prepare(`UPDATE skill_external_sources SET sync_state = 'idle', updated_at = CURRENT_TIMESTAMP WHERE skill_name = ?`)
+      .run(skillName);
+  }
+
+  recordSuccess(input: {
+    skillName: string;
+    commit: string;
+    fingerprint: string;
+    nextCheckAt?: string | null;
+  }): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET sync_state = 'idle',
+            last_content_fingerprint = ?,
+            last_synced_commit = ?,
+            last_successful_at = CURRENT_TIMESTAMP,
+            last_checked_at = CURRENT_TIMESTAMP,
+            next_check_at = ?,
+            current_error = NULL,
+            error_code = NULL,
+            catchup_due = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(input.fingerprint, input.commit, input.nextCheckAt ?? null, input.skillName);
+  }
+
+  recordFailure(input: {
+    skillName: string;
+    error: string;
+    errorCode: string;
+    nextCheckAt?: string | null;
+  }): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET sync_state = 'failed',
+            last_checked_at = CURRENT_TIMESTAMP,
+            current_error = ?,
+            error_code = ?,
+            next_check_at = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(input.error, input.errorCode, input.nextCheckAt ?? null, input.skillName);
+  }
+
+  updateSchedule(skillName: string, schedule: unknown): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET schedule_json = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(JSON.stringify(schedule), skillName);
+  }
+
+  updateSourceBeforeLock(input: {
+    skillName: string;
+    repositoryUrl?: string;
+    skillDirectory?: string;
+    branch?: string;
+  }): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET repository_url = COALESCE(?, repository_url),
+            skill_directory = COALESCE(?, skill_directory),
+            branch = COALESCE(?, branch),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ? AND locked = 0
+      `)
+      .run(input.repositoryUrl ?? null, input.skillDirectory ?? null, input.branch ?? null, input.skillName);
+  }
+
+  confirmLicense(input: {
+    skillName: string;
+    basis: string;
+    provenance?: unknown;
+    confirmedBy: string;
+  }): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET license_basis = ?,
+            license_provenance_json = ?,
+            license_confirmed_by = ?,
+            license_confirmed_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(
+        input.basis,
+        input.provenance ? JSON.stringify(input.provenance) : null,
+        input.confirmedBy,
+        input.skillName
+      );
+  }
+
+  updateExtraFiles(skillName: string, extraFiles: string[]): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET extra_files_json = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(JSON.stringify(extraFiles), skillName);
+  }
+
+  setCatchupDue(skillName: string, due: boolean): void {
+    this.db
+      .prepare(`UPDATE skill_external_sources SET catchup_due = ? WHERE skill_name = ?`)
+      .run(due ? 1 : 0, skillName);
+  }
+
+  markLocked(skillName: string): void {
+    this.db
+      .prepare(`UPDATE skill_external_sources SET locked = 1 WHERE skill_name = ?`)
+      .run(skillName);
+  }
+
+  listAll(): ExternalSourceRecord[] {
+    const rows = this.db
+      .prepare(`SELECT ${externalSourceColumns} FROM skill_external_sources`)
+      .all() as ExternalSourceRow[];
+    return rows.map(deserializeExternalSource);
+  }
+}

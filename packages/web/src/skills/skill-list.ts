@@ -104,6 +104,8 @@ export interface SkillInventoryItem {
   relation: 'managed' | 'shared';
   /** 下载量（ADR-0067）：跨版本汇总的成功发放总量，从未下载为 0。 */
   downloadCount: number;
+  /** 外部 Git 引用（ADR-0074）：为 true 时「管理」进入只读外部面板。 */
+  external?: boolean;
 }
 
 export type SkillInventorySummary = SkillInventoryItem & { matrix?: PermissionMatrix };

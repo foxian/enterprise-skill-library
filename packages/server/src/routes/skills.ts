@@ -63,6 +63,12 @@ export interface SkillsRouteOptions {
   packageRoot?: string;
   downloadLogRepository?: DownloadLogRepository;
   serverIdentityRepository?: ServerIdentityRepository;
+  // 外部 Git 引用存储（可选，用于归档恢复语义；ADR-0074）。
+  externalSourceRepository?: {
+    get(skillName: string): unknown;
+    setCatchupDue(skillName: string, due: boolean): void;
+    markPaused(skillName: string): void;
+  };
 }
 
 // ADR-0064:依赖 Gitea Organization 团队的技能授权动作。个人命名空间(技能的
@@ -437,6 +443,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       access: SkillAccessLevel;
       relation: 'managed' | 'shared';
       skillId?: string;
+      external: boolean;
     }> = [];
     for (const skill of repository.listSkills()) {
       const access = await getAccessLevel(giteaService, skill, user.username);
@@ -452,7 +459,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         personalNamespace: !isOrgNamespace(skill.scope),
         access,
         relation: access === 'manage' ? 'managed' : 'shared',
-        skillId: skill.skillId
+        skillId: skill.skillId,
+        // 外部 Git 引用：列表据此分流到只读外部管理面板。
+        external: Boolean(options.externalSourceRepository?.get(skill.name))
       });
     }
     // 下载量（跨版本汇总）随技能清单一起返回，供管理后台列表与技能管理面板展示
@@ -1383,7 +1392,10 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user || !skill || !(await canManageSkill(giteaService, skill, user.username))) {
       return reply.status(403).send(apiError('forbiddenManagePermissionRequired'));
     }
-    if (typeof giteaService.setRepositoryArchived === 'function') {
+    // 外部引用没有 Gitea 侧仓库：跳过 Git Backend 归档操作，避免对不存在的仓库
+    // 返回 404 而阻断归档（ADR-0074）。
+    const isExternal = Boolean(options.externalSourceRepository?.get(name));
+    if (!isExternal && typeof giteaService.setRepositoryArchived === 'function') {
       try {
         const repo = skillRepo(skill);
         await giteaService.setRepositoryArchived(repo.owner, repo.name, true);
@@ -1392,6 +1404,7 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       }
     }
     repository.archiveSkill(name);
+    // 外部引用归档即停止同步（ADR-0074）：同步状态保持，调度器据归档态跳过。
     return reply.send(repository.getSkill(name));
   });
 
@@ -1410,7 +1423,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (skill.status !== 'archived') {
       return reply.status(409).send(apiError('onlyArchivedSkillsCanBeRestored'));
     }
-    if (typeof giteaService.setRepositoryArchived === 'function') {
+    const isExternal = Boolean(options.externalSourceRepository?.get(name));
+    if (!isExternal && typeof giteaService.setRepositoryArchived === 'function') {
       try {
         const repo = skillRepo(skill);
         await giteaService.setRepositoryArchived(repo.owner, repo.name, false);
@@ -1419,6 +1433,12 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       }
     }
     repository.restoreSkill(name, repository.hasEverPublished(name));
+    // 外部引用恢复后默认保持暂停，避免恢复动作意外联系上游；需管理者显式恢复同步
+    // （ADR-0074）。清除补跑标记，恢复不立即触发抓取。
+    if (options.externalSourceRepository?.get(name)) {
+      options.externalSourceRepository.setCatchupDue(name, false);
+      options.externalSourceRepository.markPaused(name);
+    }
     return reply.send(repository.getSkill(name));
   });
 

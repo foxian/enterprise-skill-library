@@ -16,6 +16,18 @@
         >
           <el-option v-for="scope in namespaces" :key="scope" :label="`@${scope}`" :value="scope" />
         </el-select>
+        <el-button
+          type="primary"
+          data-test="create-external-reference"
+          @click="showCreateDialog = true"
+        >
+          {{ t('external.create') }}
+        </el-button>
+        <ExternalReferenceCreateDialog
+          v-model="showCreateDialog"
+          :default-namespace="lockedNamespace"
+          @created="onExternalCreated"
+        />
       </div>
       <el-tabs v-model="activeTab">
         <el-tab-pane :label="t('skill.managedTab')" name="managed">
@@ -47,7 +59,7 @@
                   link
                   type="primary"
                   :data-test="`configure-${row.skillName}`"
-                  @click="openPermissions(row.scope, row.skillName)"
+                  @click="openManage(row)"
                 >
                   {{ t('actions.manage') }}
                 </el-button>
@@ -98,6 +110,7 @@
 
 <script setup lang="ts">
 import SkillIdentity from '../../components/SkillIdentity.vue';
+import ExternalReferenceCreateDialog from '../../components/ExternalReferenceCreateDialog.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { useRoute, useRouter } from 'vue-router';
@@ -168,6 +181,31 @@ function openPermissions(scope: string, skillName: string): void {
   });
 }
 
+// 外部引用技能分流到只读外部管理面板（ADR-0074）。
+const showCreateDialog = ref(false);
+
+function openManage(row: SkillInventoryItem): void {
+  if (row.external) {
+    void router.push({ name: 'me-external-manage', params: { scope: row.scope, skillName: row.skillName } });
+  } else {
+    openPermissions(row.scope, row.skillName);
+  }
+}
+
+async function onExternalCreated(fullName: string): Promise<void> {
+  const withoutAt = fullName.replace(/^@/, '');
+  const slash = withoutAt.indexOf('/');
+  const scope = withoutAt.slice(0, slash);
+  const shortName = withoutAt.slice(slash + 1);
+  showCreateDialog.value = false;
+  await router.push({
+    name: 'me-external-manage',
+    params: { scope, skillName: shortName }
+  });
+  // 刷新清单以显示新引用。
+  await loadInventory();
+}
+
 // 没有矩阵读取权限(或读取失败)的技能按默认私有展示共享状态
 function fallbackMatrix(item: SkillInventoryItem): PermissionMatrix {
   return {
@@ -181,7 +219,7 @@ function fallbackMatrix(item: SkillInventoryItem): PermissionMatrix {
   };
 }
 
-onMounted(async () => {
+async function loadInventory(): Promise<void> {
   loading.value = true;
   errorMessage.value = '';
   try {
@@ -195,7 +233,9 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(loadInventory);
 </script>
 
 <style scoped>

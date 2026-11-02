@@ -34,6 +34,10 @@ import { logEvent, logTaskFinished, logTaskStarted, taskLogger } from './logging
 import { STATUS_CODES } from 'node:http';
 import crypto from 'node:crypto';
 import { SmtpMailer, type Mailer } from './services/mailer.js';
+import { ExternalGitFetcher } from './services/external-git-fetcher.js';
+import { ExternalSourceRepository } from './db/database.js';
+import { registerExternalRoutes } from './routes/external.js';
+import { installExternalScheduler } from './services/external-scheduler.js';
 
 export interface AppOptions {
   dbPath: string;
@@ -49,6 +53,8 @@ export interface AppOptions {
   logger?: FastifyServerOptions['logger'];
   mailer?: Mailer;
   emailActionSecret?: string;
+  // 外部 Git 抓取的物化工作根目录；默认与 packages 同级。
+  externalFetchRoot?: string;
 }
 
 const PENDING_APPLICATION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -146,6 +152,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   const downloadLogRepository = new DownloadLogRepository(db);
   const serverIdentityRepository = new ServerIdentityRepository(db);
+  const externalSourceRepository = new ExternalSourceRepository(db);
+  const externalFetcher = new ExternalGitFetcher({
+    workRoot:
+      options.externalFetchRoot ?? path.join(path.dirname(options.dbPath), 'external-fetch')
+  });
   expireStalePendingApplications();
 
   // 下载日志的 90 天清理（ADR-0067）：启动后触发一次，再挂 24 小时周期定时器。
@@ -344,12 +355,32 @@ export function buildApp(options: AppOptions): FastifyInstance {
     skillTeamGrantRepository,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
     downloadLogRepository,
-    serverIdentityRepository
+    serverIdentityRepository,
+    externalSourceRepository
   });
   registerDownloadLogAdminRoutes(app, {
     giteaService: options.giteaService,
     downloadLogRepository
   });
+
+  registerExternalRoutes(app, {
+    repository,
+    externalSourceRepository,
+    adminRepository,
+    giteaService: options.giteaService,
+    tenantOrganizationRepository,
+    fetcher: externalFetcher,
+    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
+  });
+
+  installExternalScheduler(app, {
+    externalSourceRepository,
+    skillRepository: repository,
+    giteaService: options.giteaService,
+    fetcher: externalFetcher,
+    packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages')
+  });
+
   app.addHook('onClose', () => db.close());
 
   return app;
