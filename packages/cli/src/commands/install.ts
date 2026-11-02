@@ -37,7 +37,9 @@ import {
   skillSourceRelativeDir,
   installManifestKey,
   normalizeServerUrl,
+  normalizeSkillVisibility,
   type ReleaseGraphSource,
+  type SkillVisibility,
   validateReleaseManifest,
   validateSkillDirectory,
   validateSkillMd,
@@ -52,7 +54,7 @@ import {
   apiUrl,
   fetchWithTimeout,
   requireConfigured,
-  requireFreshToken,
+  resolveOptionalFreshToken,
   resolveNetworkConfig,
   withAuthGuidanceIfForbidden,
   projectSkillsDir,
@@ -183,7 +185,10 @@ async function installFromLocalPath(
 
   // 本地源按即将发布的规则拉已发布依赖：失败不回滚本地根源，但依赖图不留半套。
   const dependencies = await readSourceDependencies(resolved);
-  const authToken = Object.keys(dependencies).length > 0 ? await requireFreshToken(options) : undefined;
+  // 依赖可能全部是 anonymous 技能：没有登录态也允许尝试，由服务端逐包判定。
+  const authToken = Object.keys(dependencies).length > 0
+    ? await resolveOptionalFreshToken({ homeDir: options.homeDir })
+    : null;
   const committed: Array<PackageSwap> = [];
   try {
     await copySkillDirectory(resolved, targetDir);
@@ -209,17 +214,17 @@ async function installFromLocalPath(
     await addSkillDependency(dependencyRoot, identity, specifier);
     await addLockEntry(dependencyRoot, identity, lockEntry);
     await recordInstalledSkill(storeRoot, identity, lockEntry, specifier);
-    if (authToken) {
-      await installLocalSourceDependencies({
-        dependencies,
-        storeRoot,
-        dependencyRoot,
-        rootVisibility: undefined,
-        options,
-        authToken,
-        committed
-      });
-    }
+    // 无登录态也要解析依赖图：全部是 anonymous 依赖时本地源可以完整安装，
+    // 遇到 public/private 由服务端拒绝，而不是静默跳过依赖。
+    await installLocalSourceDependencies({
+      dependencies,
+      storeRoot,
+      dependencyRoot,
+      rootVisibility: undefined,
+      options,
+      authToken,
+      committed
+    });
   } catch (error) {
     await rollbackSwaps(committed);
     throw error;
@@ -279,7 +284,9 @@ async function installFromServer(
     // 本机尚未登记该实例地址时不猜地址，沿用当前 Server，随后用响应中的
     // Instance ID 校验；不一致会 fail-closed。
   }
-  const authToken = await requireFreshToken(options);
+  // 存在登录态就带上（可消费 private/public 及依赖），匿名也能安装
+  // anonymous 技能；服务端对越权包返回 401/403。
+  const authToken = await resolveOptionalFreshToken({ homeDir: options.homeDir });
   const info = await executeInfo(name, effectiveOptions);
   const instanceId = options.instanceId ?? info.instanceId;
   if (!instanceId) {
@@ -317,7 +324,6 @@ async function installFromServer(
         `not the locked instance ${options.instanceId}; refusing to install from a different source.`
     );
   }
-  const authHeader = gitAuthHeaderConfig(authToken);
   const version = options.version ?? highestStableVersion(info.versions ?? []);
   if (!version) {
     throw new Error(`Skill ${name} has no published Skill Release; use esl source for source access`);
@@ -334,13 +340,21 @@ async function installFromServer(
       projectRoot,
       effectiveOptions,
       authToken,
-      info.visibility === 'public' ? 'public' : info.visibility === 'private' ? 'private' : undefined,
+      info.visibility ? normalizeSkillVisibility(info.visibility) : undefined,
       // 根包上报用户原始 specifier；未显式给出 --version 时按 latest 上报（#136）。
       options.version ?? 'latest',
       instanceId
     );
   }
 
+  // git clone 不提供匿名消费：匿名安装只走 Published Skill Package。
+  if (!authToken) {
+    throw new Error(
+      `Skill ${name} has no Published Skill Package; anonymous installation requires a published package. ` +
+        'Run "esl login" to install it from source.'
+    );
+  }
+  const authHeader = gitAuthHeaderConfig(authToken);
   const remoteUrl = requireConfigured(info.cloneUrl, 'cloneUrl');
 
   // ADR-0053：已发布包走 HTTP 下载不依赖 git；仅 clone 路径 fail-fast 探测。
@@ -431,7 +445,7 @@ interface PlannedDependency {
   dependencyLock?: Record<string, LockedDependency>;
 }
 
-type Visibility = 'public' | 'private';
+type Visibility = SkillVisibility;
 
 /** 一次目录换入的记录：失败回滚时无旧副本则删、有旧副本则移回。 */
 export interface PackageSwap {
@@ -450,19 +464,21 @@ async function downloadPublishedPackage(
   resolvedPackageUrl: string,
   identity: string,
   options: InstallOptions,
-  authToken: string,
+  authToken: string | null,
   requested: string,
   allowLegacyFallback = false
 ): Promise<{ integrity: string; data: ParsedPublishedPackage; packageUrl: string }> {
   const fetchImpl = options.customFetch ?? fetch;
+  // 匿名安装不带 Authorization；服务端按技能可见性决定是否放行。
+  const headers: Record<string, string> = authToken ? { Authorization: `token ${authToken}` } : {};
   let response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
-    headers: { Authorization: `token ${authToken}` }
+    headers
   });
   // 冻锁不记录格式；只在 ZIP 不存在时尝试历史 JSON，其他错误不回退。
   if (allowLegacyFallback && response.status === 404) {
     resolvedPackageUrl = resolvedPackageUrl.replace(/\.zip$/, '.json');
     response = await fetchWithTimeout(fetchImpl, withRequestedSpecifier(resolvedPackageUrl, requested), {
-      headers: { Authorization: `token ${authToken}` }
+      headers
     });
   }
   if (!response.ok) {
@@ -570,7 +586,7 @@ export async function rollbackSwaps(
 async function planIncomingGraph(
   rootData: ParsedPublishedPackage,
   options: InstallOptions,
-  authToken: string
+  authToken: string | null
 ): Promise<{ nodes: Map<string, PlannedDependency> }> {
   const nodes = new Map<string, PlannedDependency>();
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
@@ -595,10 +611,11 @@ async function planIncomingGraph(
     }
   }
 
-  // 各身份可见性：Public 根全链 Public 校验消费。
+  // 各身份可见性：public 根要求已登录用户可读（public 或 anonymous），
+  // anonymous 根要求全链 anonymous。
   for (const [identity, node] of nodes) {
     const info = await executeInfo(identity, options);
-    node.visibility = info.visibility === 'public' ? 'public' : 'private';
+    node.visibility = normalizeSkillVisibility(info.visibility);
   }
   return { nodes };
 }
@@ -609,7 +626,7 @@ async function downloadPlannedDependency(input: {
   version: string;
   archiveUrl: string;
   options: InstallOptions;
-  authToken: string;
+  authToken: string | null;
   visibility?: Visibility;
   expected?: { skillId: string; version: string };
 }): Promise<PlannedDependency> {
@@ -642,7 +659,7 @@ async function downloadLockedDependency(
   identity: string,
   entry: LockedDependency,
   options: InstallOptions,
-  authToken: string
+  authToken: string | null
 ): Promise<PlannedDependency> {
   const serverUrl = options.server ?? (await resolveNetworkConfig(options)).server;
   return downloadPlannedDependency({
@@ -662,7 +679,7 @@ async function fetchDependencyVisibility(
 ): Promise<Visibility> {
   try {
     const info = await executeInfo(identity, options);
-    return info.visibility === 'public' ? 'public' : 'private';
+    return normalizeSkillVisibility(info.visibility);
   } catch (error) {
     if (error instanceof ApiError && error.status === 403) {
       throw new ApiError(403, 'dependency not visible', {
@@ -682,7 +699,7 @@ async function resolveMissingDependency(
   identity: string,
   ranges: readonly string[],
   options: InstallOptions,
-  authToken: string
+  authToken: string | null
 ): Promise<PlannedDependency> {
   const info = await executeInfo(identity, options);
   if (info.instanceId && options.instanceId && info.instanceId !== options.instanceId) {
@@ -726,7 +743,7 @@ async function resolveMissingDependency(
     archiveUrl: resolvedUrl,
     options,
     authToken,
-    visibility: info.visibility === 'public' ? 'public' : 'private'
+    visibility: normalizeSkillVisibility(info.visibility)
   });
 }
 
@@ -755,7 +772,7 @@ async function materializeDependencyGraph(input: {
   instanceId?: string;
   committed: Array<PackageSwap>;
   options: InstallOptions;
-  authToken: string;
+  authToken: string | null;
 }): Promise<string[]> {
   const {
     nodes,
@@ -878,8 +895,9 @@ async function materializeDependencyGraph(input: {
 
   if (rootVisibility === 'public') {
     for (const node of resolved.values()) {
-      if (node.visibility !== 'public') {
-        throw new ApiError(409, 'public chain has private node', {
+      // public 根要求全链对已登录用户可读：public 与 anonymous 都满足。
+      if (node.visibility !== 'public' && node.visibility !== 'anonymous') {
+        throw new ApiError(409, 'public chain has a node signed-in users cannot read', {
           code: 'releaseDependencyPublicChainMustBePublic',
           params: { identity: node.identity }
         });
@@ -951,7 +969,7 @@ function createHttpGraphSource(
     async listVersions(identity) {
       try {
         const info = await executeInfo(identity, options);
-        visibility.set(identity, info.visibility === 'public' ? 'public' : 'private');
+        visibility.set(identity, normalizeSkillVisibility(info.visibility));
         if (info.instanceId) {
           instanceIds.set(identity, info.instanceId);
         }
@@ -980,7 +998,7 @@ function createHttpGraphSource(
         skillId: release.skillId ?? info.skillId ?? '',
         version,
         checksum: release.checksum,
-        visibility: info.visibility === 'public' ? 'public' : 'private',
+        visibility: normalizeSkillVisibility(info.visibility),
         dependencies: release.releaseManifest?.dependencies ?? {}
       };
     }
@@ -1005,7 +1023,7 @@ export async function installLocalSourceDependencies(input: {
   dependencyRoot: string;
   rootVisibility: Visibility | undefined;
   options: InstallOptions;
-  authToken: string;
+  authToken: string | null;
   committed: Array<PackageSwap>;
 }): Promise<string[]> {
   const { dependencies, storeRoot, dependencyRoot, rootVisibility, options, authToken, committed } = input;
@@ -1058,7 +1076,7 @@ async function installPublishedPackage(
   packageUrl: string,
   projectRoot: string | null,
   options: InstallOptions,
-  authToken: string,
+  authToken: string | null,
   rootVisibility: Visibility | undefined,
   requestedSpecifier: string,
   instanceId: string

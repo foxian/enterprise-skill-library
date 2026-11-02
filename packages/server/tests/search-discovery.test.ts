@@ -69,6 +69,14 @@ describe('skill search discovery', () => {
       visibility: 'public',
       releases: [{ version: '1.0.0', keywords: [], displayName: 'Markdown Master' }]
     });
+    createPublishedSkill(repository, {
+      name: '@beta/open',
+      scope: 'beta',
+      skillName: 'open',
+      description: 'Anonymous open skill',
+      visibility: 'anonymous',
+      releases: [{ version: '1.0.0', keywords: ['open'] }]
+    });
     repository.createServerSkill({
       name: '@acme/draft',
       scope: 'acme',
@@ -95,23 +103,32 @@ describe('skill search discovery', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('anonymous browse returns public published skills with enriched fields', async () => {
+  it('anonymous browse returns only anonymous published skills with enriched fields', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/skills/search' });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([
       expect.objectContaining({
-        name: '@acme/tool',
-        scope: 'acme',
-        skillName: 'tool',
-        description: 'Org tool',
-        displayName: 'tool',
+        name: '@beta/open',
+        scope: 'beta',
+        skillName: 'open',
+        description: 'Anonymous open skill',
+        displayName: 'open',
         latestStableVersion: '1.0.0',
-        visibility: 'public'
-      }),
-      expect.objectContaining({ name: '@beta/lib', latestStableVersion: '1.2.0' }),
-      expect.objectContaining({ name: '@acme/friendly', displayName: 'Markdown Master' })
+        visibility: 'anonymous'
+      })
     ]);
+  });
+
+  it('a logged-in user sees public and anonymous skills across namespaces', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/skills/search',
+      headers: { authorization: 'token zoe-token' }
+    });
+
+    const names = (res.json() as Array<{ name: string }>).map((skill) => skill.name);
+    expect(names).toEqual(expect.arrayContaining(['@acme/tool', '@beta/lib', '@beta/open']));
   });
 
   it('a logged-in user additionally sees private skills they can read', async () => {
@@ -137,22 +154,30 @@ describe('skill search discovery', () => {
   });
 
   it('query matches identity, description, display name, and keywords', async () => {
-    const byDisplayName = await app.inject({ method: 'GET', url: '/api/skills/search?q=markdown' });
+    const auth = { authorization: 'token alice-token' };
+    const byDisplayName = await app.inject({ method: 'GET', url: '/api/skills/search?q=markdown', headers: auth });
     expect((byDisplayName.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@acme/friendly']);
 
-    const byKeyword = await app.inject({ method: 'GET', url: '/api/skills/search?q=code-review' });
+    const byKeyword = await app.inject({ method: 'GET', url: '/api/skills/search?q=code-review', headers: auth });
     expect((byKeyword.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@acme/tool']);
 
-    const byIdentity = await app.inject({ method: 'GET', url: '/api/skills/search?q=@beta/lib' });
+    const byIdentity = await app.inject({ method: 'GET', url: '/api/skills/search?q=@beta/lib', headers: auth });
     expect((byIdentity.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@beta/lib']);
   });
 
   it('filters by namespace, keyword, visibility, and limit', async () => {
-    const byNamespace = await app.inject({ method: 'GET', url: '/api/skills/search?namespace=beta' });
-    expect((byNamespace.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@beta/lib']);
+    const auth = { authorization: 'token alice-token' };
+    const byNamespace = await app.inject({ method: 'GET', url: '/api/skills/search?namespace=beta', headers: auth });
+    expect((byNamespace.json() as Array<{ name: string }>).map((s) => s.name)).toEqual([
+      '@beta/lib',
+      '@beta/open'
+    ]);
 
-    const byKeyword = await app.inject({ method: 'GET', url: '/api/skills/search?keyword=library' });
+    const byKeyword = await app.inject({ method: 'GET', url: '/api/skills/search?keyword=library', headers: auth });
     expect((byKeyword.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@beta/lib']);
+
+    const anonymousOnly = await app.inject({ method: 'GET', url: '/api/skills/search?visibility=anonymous' });
+    expect((anonymousOnly.json() as Array<{ name: string }>).map((s) => s.name)).toEqual(['@beta/open']);
 
     const removedKeyword = await app.inject({
       method: 'GET',
@@ -180,10 +205,12 @@ describe('skill search discovery', () => {
     expect((limited.json() as unknown[]).length).toBe(1);
   });
 
-  it('rejects anonymous private browsing with an explicit unauthorized error', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/skills/search?visibility=private' });
+  it('rejects anonymous filtering by public or private with an explicit unauthorized error', async () => {
+    const privateOnly = await app.inject({ method: 'GET', url: '/api/skills/search?visibility=private' });
+    expect(privateOnly.statusCode).toBe(401);
 
-    expect(res.statusCode).toBe(401);
+    const publicOnly = await app.inject({ method: 'GET', url: '/api/skills/search?visibility=public' });
+    expect(publicOnly.statusCode).toBe(401);
   });
 });
 

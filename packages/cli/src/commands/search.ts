@@ -5,7 +5,7 @@ import {
   type NetworkCommandOptions,
   resolveNetworkConfig
 } from './network-options.js';
-import { isBuiltinIdentity } from '@esl/core';
+import { isBuiltinIdentity, type SkillVisibility } from '@esl/core';
 import { requireOkResponse } from '../api-error.js';
 
 export interface SkillSearchResult {
@@ -25,7 +25,7 @@ export interface SkillSearchFilters {
   query?: string;
   namespace?: string;
   keyword?: string;
-  visibility?: 'public' | 'private';
+  visibility?: SkillVisibility;
   limit?: number;
 }
 
@@ -35,16 +35,21 @@ export async function executeSearch(
 ): Promise<SkillSearchResult[]> {
   const fetchImpl = options.customFetch ?? fetch;
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
-  // 与 info 对齐（ADR-0049）：存在有效登录态则随请求携带 Skill User Token，
-  // 匿名仍可浏览 public 已发布技能。
+  // 与 info 对齐（ADR-0049 / ADR-0073）：存在有效登录态则随请求携带 Skill
+  // User Token；匿名仍可浏览 anonymous 已发布技能，public 需要登录。
   const token = await resolveOptionalFreshToken({ homeDir: options.homeDir });
   const filters = new URLSearchParams();
   if (query !== undefined && query !== '') {
     filters.set('q', query);
   }
   const searchOptions = options as NetworkCommandOptions & SkillSearchFilters;
-  if (searchOptions.visibility === 'private' && !token) {
-    throw new Error('Searching private skills requires login; run "esl login" first');
+  // 只有 anonymous 是无登录态可筛的档位；public/private 都明确要求登录，
+  // 而不是悄悄返回空结果。
+  if (searchOptions.visibility && searchOptions.visibility !== 'anonymous' && !token) {
+    throw new Error(
+      `Searching ${searchOptions.visibility} skills requires login; run "esl login" first ` +
+        '(only anonymous skills are visible without an account)'
+    );
   }
   if (searchOptions.namespace) filters.set('namespace', searchOptions.namespace);
   if (searchOptions.keyword) filters.set('keyword', searchOptions.keyword);

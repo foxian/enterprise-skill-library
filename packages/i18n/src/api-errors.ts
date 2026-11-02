@@ -76,7 +76,7 @@ export const apiErrorMessages = {
   skillAlreadyExistsUseSourceAndGitPushToUpdateIt: 'Skill already exists; use source and Git push to update it',
   skillNotFound: 'Skill not found',
   forbiddenManagePermissionRequired: 'Forbidden: manage permission required',
-  visibilityMustBePublicOrPrivate: 'Visibility must be public or private',
+  visibilityMustBePrivatePublicOrAnonymous: 'Visibility must be private, public, or anonymous',
   forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers: 'Forbidden: no access to this private skill; request access from its maintainers',
   teamNotFoundInOrganization: 'Team not found in organization',
   personalNamespaceNoOrgSharing: 'Personal namespace skills do not support organization-wide or team authorization',
@@ -143,7 +143,13 @@ export const apiErrorMessages = {
   releaseDependencyCycle: 'Dependency graph contains a cycle: {path}',
   releaseDependencyNotVisible: 'Release dependency {identity} is not visible to you',
   releaseDependencyPublicChainMustBePublic:
-    'A public root cannot depend on a non-public skill: {identity}',
+    'A public root cannot depend on a skill that signed-in users cannot read: {identity}',
+  releaseDependencyAnonymousChainMustBeAnonymous:
+    'An anonymous root cannot depend on a non-anonymous skill: {identity}',
+  anonymousVisibilityRequiresAnonymousDependencyChain:
+    'Cannot make {identity} anonymous: its published dependency chain includes non-anonymous skills: {dependencies}',
+  anonymousDependentsRequireAnonymousVisibility:
+    'Cannot tighten visibility: published anonymous skills depend on {identity}: {dependents}',
   installedDependencyRangesConflict:
     'Installed and incoming locks for {identity} cannot both satisfy the declared ranges',
   validationFailed: 'Validation failed: {detail}',
@@ -227,7 +233,7 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   skillAlreadyExistsUseSourceAndGitPushToUpdateIt: '技能已存在；请使用 source 与 Git push 更新',
   skillNotFound: '技能不存在',
   forbiddenManagePermissionRequired: '禁止：需要 manage 权限',
-  visibilityMustBePublicOrPrivate: '可见性必须是 public 或 private',
+  visibilityMustBePrivatePublicOrAnonymous: '可见性必须是 private、public 或 anonymous',
   forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers: '禁止：无权访问该私有技能；请向其维护者申请访问',
   teamNotFoundInOrganization: '组织中不存在该团队',
   personalNamespaceNoOrgSharing: '个人命名空间技能不支持全组织授权与团队授权',
@@ -284,7 +290,13 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   releaseDependencyCycle: '依赖图存在环：{path}',
   releaseDependencyNotVisible: '发布依赖 {identity} 对你不可见',
   releaseDependencyPublicChainMustBePublic:
-    'Public 根不能依赖非 Public 技能：{identity}',
+    'Public 根不能依赖已登录用户读不到的技能：{identity}',
+  releaseDependencyAnonymousChainMustBeAnonymous:
+    'anonymous 根不能依赖非 anonymous 技能：{identity}',
+  anonymousVisibilityRequiresAnonymousDependencyChain:
+    '无法将 {identity} 设为 anonymous：其已发布依赖链包含非 anonymous 技能：{dependencies}',
+  anonymousDependentsRequireAnonymousVisibility:
+    '无法收紧可见性：已发布的 anonymous 技能仍依赖 {identity}：{dependents}',
   installedDependencyRangesConflict:
     '{identity} 的已装版本与新锁无法同时满足各方声明的范围',
   validationFailed: '校验失败：{detail}',

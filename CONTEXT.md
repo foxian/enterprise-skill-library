@@ -13,7 +13,7 @@ Organization 或 Skill User 占用，ADR-0032），以及保留 Scope（`local`�
 所有 Namespace 名共享一个全局扁平名字池：组织名与用户名先到先得，保留名
 （`local`、`builtin`、`admin`、`api`、`git`、`system`）不可用，且一经占用
 不得改名（ADR-0032）。技能可见性不再由 Namespace 决定，而是逐技能的
-Public/Private 设置（见技能可见性）。在 `@acme/code-review` 中，Namespace
+Private/Public/Anonymous 设置（见技能可见性）。在 `@acme/code-review` 中，Namespace
 是 `acme`；在 `@cnfox/my-skill` 中，Namespace 是个人命名空间 `cnfox`。
 保留 Scope 不是 Namespace。
 
@@ -493,10 +493,17 @@ _Avoid_: 团队名（当指团队标识名时）。
 
 ## 技能可见性 (Skill Visibility)
 
-逐技能设置的开放程度，由所有者成员或技能 Maintainer 切换。`public`：
-平台内所有 Skill User 都可搜索、安装；`private`（默认）：仅 Maintainer 与
-被授权的团队、成员可见可安装。组织成员对组织内 private 技能默认没有任何
-权限，授权通过共享给常设团队或逐技能添加团队、成员实现（ADR-0032）。可见性独立于显式授权：`public/private` 切换不增删团队或成员授权；清空全部显式授权也不改变可见性，且不影响所有者、Maintainer 或管理员基于角色获得的权限。
+逐技能设置的消费开放程度，由所有者成员或技能 Maintainer 切换，分三档：
+`private`（默认）仅 Maintainer 与被授权的团队、成员可见可安装；`public`
+平台内所有已登录 Skill User 都可搜索、安装；`anonymous` 任何人（含匿名访客）
+都可发现、查看并安装已发布版本，登录用户同样可消费。组织成员对组织内
+private 技能默认没有任何权限，授权通过共享给常设团队或逐技能添加团队、成员
+实现（ADR-0032）。`anonymous` 是消费面开放，不开放源码仓库、未发布内容或
+反馈协作权限；现有技能升级后保持原档位，新建技能默认 private（ADR-0073）。
+可见性独立于显式授权：三档切换都不增删团队或成员授权；清空全部显式授权也不
+改变可见性，且不影响所有者、Maintainer 或管理员基于角色获得的权限。匿名
+开放要求该技能全部仍可安装发布版本的完整依赖链也是 `anonymous`；反向收紧
+不得拉断仍在匿名发布的依赖方。已下载的本地副本不因收紧可见性被远程收回。
 
 ## 技能反馈 (Skill Feedback)
 
