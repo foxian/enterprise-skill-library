@@ -3,6 +3,7 @@
     :model-value="modelValue"
     :title="t('external.create')"
     width="640px"
+    class="external-create-dialog"
     data-test="external-create-dialog"
     @update:model-value="(value: boolean) => emit('update:modelValue', value)"
     @close="emit('update:modelValue', false)"
@@ -258,6 +259,8 @@ async function submit(): Promise<void> {
   margin-top: 4px;
 }
 
+
+
 .schedule-row {
   display: flex;
   gap: 8px;
@@ -271,5 +274,14 @@ async function submit(): Promise<void> {
 .preview-files {
   font-size: 12px;
   word-break: break-all;
+}
+</style>
+
+<style>
+/* 非 scoped：Element Plus 对话框内部结构不受 scoped 属性约束；用组件专属
+   class 限定范围，避免影响其他对话框。 */
+.external-create-dialog .el-dialog__body {
+  max-height: 62vh;
+  overflow-y: auto;
 }
 </style>
