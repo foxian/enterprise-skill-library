@@ -137,6 +137,11 @@ describe('esl upload source remote continuity', () => {
       },
       { homeDir }
     );
+    // 已确认实例的凭据按实例保存；顶层兼容视图不会用于已登记地址。
+    await saveCredentials(
+      { token: 'token', loginAt: new Date().toISOString(), instanceId: INSTANCE_A },
+      { homeDir }
+    );
     const execFileAsync = gitMock();
     await expect(runUpload(execFileAsync, infoFetch(INSTANCE_B))).rejects.toThrow(
       /registered to ESL Server instance|silently rebound/

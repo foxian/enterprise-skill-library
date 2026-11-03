@@ -6,6 +6,7 @@ import {
   AgentInteractionRequiredError,
   createAgentInteractionRequest,
   createMinimalReleaseManifest,
+  currentAccountSnapshot,
   ensureGitAvailable,
   loadConfig,
   titleCaseDisplayName,
@@ -104,8 +105,9 @@ async function resolveNamespaceChoices(options: InitOptions): Promise<string[] |
       // Fall back to the login-time cache below.
     }
   }
-  if (!memberships && config?.organizations) {
-    memberships = config.organizations;
+  const snapshot = config ? currentAccountSnapshot(config) : null;
+  if (!memberships && snapshot?.organizations) {
+    memberships = snapshot.organizations;
   }
   return memberships ? memberships.map((membership) => membership.org) : null;
 }

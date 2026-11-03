@@ -3,12 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  addPendingServerAddress,
   addServerAddress,
   createEmptyServerRegistry,
   discoverServerIdentity,
   findServerInstanceByAddress,
   normalizeServerUrl,
   removeServerAddress,
+  removeServerInstance,
+  resolveCurrentServerContext,
   selectServerInstance
 } from '../src/server/instance-identity.js';
 import { createToolLink, loadToolLinkManifest } from '../src/link/tool-links.js';
@@ -72,6 +75,84 @@ describe('server instance identity registry', () => {
     expect(result.removed).toBe(true);
     expect(result.registry.instances[0].preferredAddress).toBe('http://b.example.com');
     expect(selectServerInstance(result.registry, INSTANCE_A).selectedInstanceId).toBe(INSTANCE_A);
+  });
+
+  it('resolves the current address identity without trusting a stale selection', () => {
+    const registry = addServerAddress(createEmptyServerRegistry(), {
+      instanceId: INSTANCE_A,
+      url: 'http://a.example.com',
+      select: true
+    }).registry;
+
+    expect(
+      resolveCurrentServerContext({
+        server: 'http://a.example.com/',
+        servers: registry.instances,
+        selectedInstanceId: INSTANCE_A
+      })
+    ).toMatchObject({ status: 'confirmed', instanceId: INSTANCE_A, server: 'http://a.example.com' });
+
+    // selectedInstanceId 仍指向 A，但当前地址未登记：身份待确认，不能借用 A。
+    expect(
+      resolveCurrentServerContext({
+        server: 'http://new.example.com',
+        servers: registry.instances,
+        selectedInstanceId: INSTANCE_A
+      })
+    ).toMatchObject({ status: 'unconfirmed', instanceId: null });
+
+    expect(
+      resolveCurrentServerContext({ server: 'http://legacy.example.com' })
+    ).toMatchObject({ status: 'legacy' });
+    expect(resolveCurrentServerContext({ server: null })).toMatchObject({ status: 'none' });
+    expect(
+      resolveCurrentServerContext({
+        server: null,
+        servers: registry.instances
+      })
+    ).toMatchObject({ status: 'unconfirmed' });
+  });
+
+  it('saves and removes pending addresses, and confirms them into an instance', () => {
+    const pending = addPendingServerAddress(createEmptyServerRegistry(), {
+      url: 'http://pending.example.com/'
+    });
+    expect(pending.added).toBe(true);
+    expect(pending.registry.pendingAddresses).toEqual([
+      expect.objectContaining({ url: 'http://pending.example.com' })
+    ]);
+    expect(
+      resolveCurrentServerContext({
+        server: 'http://pending.example.com',
+        pendingAddresses: pending.registry.pendingAddresses
+      })
+    ).toMatchObject({ status: 'unconfirmed' });
+
+    const confirmed = addServerAddress(pending.registry, {
+      instanceId: INSTANCE_A,
+      url: 'http://pending.example.com',
+      select: true
+    });
+    expect(confirmed.registry.pendingAddresses).toEqual([]);
+    expect(confirmed.registry.selectedInstanceId).toBe(INSTANCE_A);
+
+    const removed = removeServerAddress(pending.registry, 'http://pending.example.com');
+    expect(removed).toMatchObject({ removed: true, removedPending: true, removedInstance: false });
+    expect(removed.registry.pendingAddresses).toEqual([]);
+  });
+
+  it('removes an entire instance registration only', () => {
+    let registry = addServerAddress(createEmptyServerRegistry(), {
+      instanceId: INSTANCE_A,
+      url: 'http://a.example.com',
+      select: true
+    }).registry;
+    registry = addServerAddress(registry, { instanceId: INSTANCE_B, url: 'http://b.example.com' }).registry;
+
+    const result = removeServerInstance(registry, INSTANCE_A);
+    expect(result.removed?.instanceId).toBe(INSTANCE_A);
+    expect(result.registry.instances.map((instance) => instance.instanceId)).toEqual([INSTANCE_B]);
+    expect(result.registry.selectedInstanceId).toBeNull();
   });
 
   it('discovers the instance ID anonymously and rejects malformed responses', async () => {
