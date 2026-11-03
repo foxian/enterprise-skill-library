@@ -23,6 +23,7 @@ import OrgMembersView from '../views/me/OrgMembersView.vue';
 import OrgTeamsView from '../views/me/OrgTeamsView.vue';
 import MeSkillsView from '../views/me/SkillsView.vue';
 import MeSkillManageView from '../views/me/SkillManageView.vue';
+import MeExternalReferenceManageView from '../views/me/ExternalReferenceManageView.vue';
 import InvitationsView from '../views/me/InvitationsView.vue';
 import PublicLayout from '../views/public/PublicLayout.vue';
 import PublicCatalogView from '../views/public/CatalogView.vue';
@@ -118,6 +119,7 @@ export const router = createRouter({
         },
         { path: 'skills', name: 'me-skills', component: MeSkillsView, meta: { title: 'routes.skills', description: 'routes.skillsDescription' } },
         { path: 'skills/:scope/:skillName/manage', name: 'me-skill-manage', component: MeSkillManageView, meta: { title: 'routes.skillManagement' } },
+        { path: 'skills/:scope/:skillName/external', name: 'me-external-manage', component: MeExternalReferenceManageView, meta: { title: 'external.title' } },
         { path: 'invitations', name: 'me-invitations', component: InvitationsView, meta: { title: 'routes.invitations', description: 'routes.invitationsDescription' } }
       ]
     },

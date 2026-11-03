@@ -258,4 +258,44 @@ export const databaseSchema = `
     instance_id TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- 外部 Git 技能引用配置（ADR-0074）：一行对应一个外部来源，与 skills 1:1。
+  -- 仓库地址 / 技能目录 / 分支在首次成功发布后锁定；计划、可见性仍可独立管理。
+  CREATE TABLE IF NOT EXISTS skill_external_sources (
+    skill_name TEXT PRIMARY KEY,
+    repository_url TEXT NOT NULL,
+    skill_directory TEXT NOT NULL DEFAULT '',
+    branch TEXT NOT NULL,
+    -- 日历计划（daily/weekly/monthly 字段 + 时区），JSON 存储。
+    schedule_json TEXT NOT NULL,
+    -- 同步状态机：idle | syncing | paused | failed
+    sync_state TEXT NOT NULL DEFAULT 'idle',
+    -- 最近一次成功抓取内容的指纹与上游 commit；无变化不发版的判定依据。
+    last_content_fingerprint TEXT,
+    last_synced_commit TEXT,
+    last_successful_at DATETIME,
+    last_checked_at DATETIME,
+    next_check_at DATETIME,
+    current_error TEXT,
+    error_code TEXT,
+    -- 许可证确认：管理者确认再分发依据；扩大公开范围需重新确认。
+    license_basis TEXT,
+    license_provenance_json TEXT,
+    license_confirmed_by TEXT,
+    license_confirmed_at DATETIME,
+    -- 已确认纳入的目录外许可/署名文件（相对仓库根）。
+    extra_files_json TEXT NOT NULL DEFAULT '[]',
+    -- 恢复/补跑标记：恢复后最多补一次最近遗漏检查。
+    catchup_due INTEGER NOT NULL DEFAULT 0,
+    locked INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (skill_name) REFERENCES skills(name) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS skill_external_sources_next_check_index
+    ON skill_external_sources (next_check_at);
+
+  CREATE INDEX IF NOT EXISTS skill_external_sources_sync_state_index
+    ON skill_external_sources (sync_state);
 `;

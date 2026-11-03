@@ -29,3 +29,8 @@ export * from './store/skill-store.js';
 export * from './skill/source-clean.js';
 export * from './skill/source-export.js';
 export * from './skill/published-package-archive.js';
+export * from './skill/external/calendar-schedule.js';
+export * from './skill/external/change-detection.js';
+export * from './skill/external/network-guard.js';
+export * from './skill/external/materialize-guard.js';
+export * from './skill/external/license-detect.js';

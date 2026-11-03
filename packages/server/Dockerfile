@@ -3,8 +3,9 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 ARG NPM_PROXY=
 # better-sqlite3 在没有对应预编译包时由 node-gyp 回退编译。
+# git 用于外部 Git 技能引用的抓取（ADR-0074）：仅读取数据，不执行上游脚本。
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
+ && apt-get install -y --no-install-recommends python3 make g++ git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 # 镜像源可参数化（ADR-0047）：默认中国镜像源；海外服务器构建时传
 # --build-arg NPM_REGISTRY=https://registry.npmjs.org
