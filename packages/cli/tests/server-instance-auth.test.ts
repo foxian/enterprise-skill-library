@@ -18,6 +18,7 @@ import {
   executeUseServer
 } from '../src/commands/server-registry.js';
 import { executeLogout, formatLogout } from '../src/commands/logout.js';
+import { executeLogin } from '../src/commands/login.js';
 import { executeWhoami, formatWhoami } from '../src/commands/whoami.js';
 import {
   requireFreshToken,
@@ -114,6 +115,11 @@ describe('ESL Server instance auth isolation', () => {
     await expect(requireFreshToken({ homeDir, server: 'http://b.example.com' })).rejects.toThrow(
       /current ESL Server .* is not logged in/i
     );
+
+    // 显式 --server B 时也不能把 A 的 token 交给 B。
+    expect(await resolveOptionalFreshToken({ homeDir, server: 'http://b.example.com' })).toBeNull();
+    expect((await resolveNetworkConfig({ homeDir, server: 'http://b.example.com' })).token).toBeNull();
+    expect(await resolveOptionalFreshToken({ homeDir, server: 'http://a.example.com' })).toBe('token-a');
 
     // A 的凭据与账户快照都还在。
     expect((await loadCredentials({ homeDir })).instances?.[INSTANCE_A]?.token).toBe('token-a');
@@ -271,6 +277,55 @@ describe('ESL Server instance auth isolation', () => {
     expect(fetchImpl).toHaveBeenCalled();
   });
 
+  it('promotes a token-file login made on a pending address after the address is confirmed', async () => {
+    await seedRegistry(
+      homeDir,
+      [instance(INSTANCE_A, ['http://a.example.com'])],
+      INSTANCE_A,
+      'http://a.example.com'
+    );
+    await seedLogin(homeDir, INSTANCE_A, 'token-a', 'alice');
+
+    // 离线把 B 保存为待确认地址。
+    await executeAddServerAddress('http://pending.example.com', {
+      homeDir,
+      customFetch: vi.fn().mockRejectedValue(new Error('offline')) as any
+    });
+    const tokenFile = path.join(homeDir, 'token-b.txt');
+    await fs.writeFile(tokenFile, 'token-b');
+    await executeLogin({
+      server: 'http://pending.example.com',
+      username: 'bob',
+      tokenFile,
+      homeDir,
+      customFetch: vi.fn() as any
+    });
+
+    const before = await executeWhoami({ homeDir });
+    expect(before.identityStatus).toBe('unconfirmed');
+    expect(before.loggedIn).toBe(false);
+
+    // 地址恢复可达后确认身份：顶层凭据/账户快照提升到实例 B。
+    await executeAddServerAddress('http://pending.example.com', {
+      homeDir,
+      acceptNewAddress: true,
+      customFetch: vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ instanceId: INSTANCE_B, protocolVersion: 1 })
+      }) as any
+    });
+
+    const after = await executeWhoami({ homeDir });
+    expect(after).toMatchObject({
+      identityStatus: 'confirmed',
+      instanceId: INSTANCE_B,
+      loggedIn: true,
+      username: 'bob'
+    });
+    expect(await requireFreshToken({ homeDir, server: 'http://pending.example.com' })).toBe('token-b');
+  });
+
   it('falls back within the same instance when the current address is removed', async () => {
     await seedRegistry(
       homeDir,
@@ -320,7 +375,9 @@ describe('ESL Server instance auth isolation', () => {
     expect(credentials.instances?.[INSTANCE_B]?.token).toBe('token-b');
 
     await expect(requireFreshToken({ homeDir })).rejects.toThrow(/not confirmed|not logged in/i);
-    expect((await executeWhoami({ homeDir })).identityStatus).toBe('unconfirmed');
+    const whoami = await executeWhoami({ homeDir });
+    expect(whoami.identityStatus).toBe('none');
+    expect(formatWhoami(whoami)).toContain('No ESL Server address selected');
   });
 
   it('removes a whole instance by ID while keeping other registrations and credentials', async () => {

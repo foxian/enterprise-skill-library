@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { resolveCurrentServerContext } from '../server/instance-identity.js';
+import { normalizeServerUrl, resolveCurrentServerContext } from '../server/instance-identity.js';
 import type { ServerInstanceRecord } from '../server/instance-identity.js';
 
 export interface LocalStorePaths {
@@ -88,6 +88,8 @@ export interface OrganizationMembership {
 export interface EslCredentials {
   token: string | null;
   loginAt: string | null;
+  /** 顶层 token 最近一次登录所用的地址；用于地址确认后提升到实例凭据。 */
+  address?: string | null;
   /** 按 Instance ID 隔离的凭据；顶层字段仅作为最近一次登录的兼容视图。 */
   instances?: Record<string, { token: string | null; loginAt: string | null }>;
 }
@@ -134,7 +136,10 @@ export interface EslConfig extends ConfigIdentity {
   tools: string[];
   /** 多 Server 实例登记（ADR-0071）；旧配置迁移前为空。 */
   servers?: ServerInstanceRecord[];
-  /** 当前选中实例；普通 install/update 以它作为来源上下文。 */
+  /**
+   * 当前选中实例的兼容视图。当前连接地址的实例绑定优先；它不是登录状态的
+   * 判断依据，也不能盖过地址所属实例。
+   */
   selectedInstanceId?: string | null;
   /** 已保存但尚未确认 Instance ID 的地址。 */
   pendingServerAddresses?: Array<{
@@ -159,6 +164,16 @@ export interface EslConfig extends ConfigIdentity {
   };
 }
 
+/** 从完整配置解析当前连接地址的身份，避免各调用方重复拼装字段。 */
+export function serverContextOfConfig(config: EslConfig): ReturnType<typeof resolveCurrentServerContext> {
+  return resolveCurrentServerContext({
+    server: config.server,
+    servers: config.servers ?? [],
+    selectedInstanceId: config.selectedInstanceId ?? null,
+    pendingAddresses: config.pendingServerAddresses ?? []
+  });
+}
+
 /** 只读取指定实例的账户快照；确认实例没有快照时返回 null，不回退到其他实例。 */
 export function accountForInstance(
   config: EslConfig,
@@ -175,16 +190,13 @@ export function accountForInstance(
  * 顶层字段；unconfirmed / none 不展示任何账户身份。
  */
 export function currentAccountSnapshot(config: EslConfig): InstanceAccountSnapshot | null {
-  const context = resolveCurrentServerContext({
-    server: config.server,
-    servers: config.servers ?? [],
-    selectedInstanceId: config.selectedInstanceId ?? null,
-    pendingAddresses: config.pendingServerAddresses ?? []
-  });
+  const context = serverContextOfConfig(config);
   if (context.status === 'confirmed' && context.instanceId) {
     return accountForInstance(config, context.instanceId);
   }
-  if (context.status === 'legacy' || context.status === 'none') {
+  const hasRegistry =
+    (config.servers?.length ?? 0) > 0 || (config.pendingServerAddresses?.length ?? 0) > 0;
+  if (context.status === 'legacy' || (context.status === 'none' && !hasRegistry)) {
     return {
       username: config.username,
       email: config.email ?? null,
@@ -257,6 +269,7 @@ export async function saveCredentials(
   const current = await loadCredentials(options);
   const token = credentials.token === undefined ? current.token : credentials.token;
   const loginAt = credentials.loginAt === undefined ? current.loginAt : credentials.loginAt;
+  const address = credentials.address === undefined ? current.address : credentials.address;
   const instances = { ...(current.instances ?? {}) };
   if (credentials.instanceId) {
     instances[credentials.instanceId] = { token, loginAt };
@@ -266,6 +279,7 @@ export async function saveCredentials(
   const updated: EslCredentials = {
     token,
     loginAt,
+    ...(address ? { address } : {}),
     ...(Object.keys(instances).length > 0 ? { instances } : {})
   };
   await fs.mkdir(paths.root, { recursive: true });
@@ -301,6 +315,7 @@ export async function clearCredentialsForInstance(
   const updated: EslCredentials = {
     token: clearTopLevel ? null : current.token,
     loginAt: clearTopLevel ? null : current.loginAt,
+    ...(!clearTopLevel && current.address ? { address: current.address } : {}),
     ...(Object.keys(instances).length > 0 ? { instances } : {})
   };
   await fs.mkdir(paths.root, { recursive: true });
@@ -312,12 +327,55 @@ export async function clearCredentialsForInstance(
   return updated;
 }
 
-/** 删除实例本地登记时清理凭据；没有凭据时也保证文件存在且可读。 */
-export async function removeInstanceCredentials(
+/**
+ * 地址确认归属某个实例后，把“最近一次登录仍停留在顶层”的凭据与账户快照
+ * 提升到该实例。只有顶层凭据记录的登录地址正是这个地址时才迁移，避免把
+ * 另一个实例的登录错误归到新确认的实例。
+ */
+export async function adoptAddressViewForInstance(
+  address: string,
   instanceId: string,
   options: LocalStoreOptions = {}
-): Promise<EslCredentials> {
-  return clearCredentialsForInstance(instanceId, options);
+): Promise<void> {
+  let normalized: string;
+  try {
+    normalized = normalizeServerUrl(address);
+  } catch {
+    return;
+  }
+  const credentials = await loadCredentials(options).catch(() => null);
+  if (!credentials?.address || normalizeServerUrl(credentials.address) !== normalized) {
+    return;
+  }
+  if (credentials.token && !credentials.instances?.[instanceId]) {
+    await saveCredentials(
+      { token: credentials.token, loginAt: credentials.loginAt, instanceId },
+      options
+    );
+  }
+  const config = await loadConfig(options).catch(() => null);
+  if (
+    !config ||
+    config.instanceAccounts?.[instanceId] ||
+    !(config.username || config.email || config.organizations)
+  ) {
+    return;
+  }
+  await saveConfig(
+    {
+      instanceAccounts: {
+        ...(config.instanceAccounts ?? {}),
+        [instanceId]: {
+          username: config.username ?? null,
+          email: config.email ?? null,
+          organizations: config.organizations ?? null,
+          locale: config.locale ?? null,
+          legacyIdentity: config.legacyIdentity ?? false
+        }
+      }
+    },
+    options
+  );
 }
 
 export async function clearCredentials(options: LocalStoreOptions = {}): Promise<EslCredentials> {

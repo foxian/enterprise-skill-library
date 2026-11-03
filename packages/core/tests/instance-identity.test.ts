@@ -110,7 +110,7 @@ describe('server instance identity registry', () => {
         server: null,
         servers: registry.instances
       })
-    ).toMatchObject({ status: 'unconfirmed' });
+    ).toMatchObject({ status: 'none' });
   });
 
   it('saves and removes pending addresses, and confirms them into an instance', () => {

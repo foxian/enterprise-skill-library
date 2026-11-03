@@ -59,7 +59,10 @@ export async function executeInfo(name: string, options: NetworkCommandOptions =
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
   // 存在有效登录态时随请求携带 Skill User Token，private 技能对其维护账号可见；
   // public 技能匿名也能访问。
-  const token = await resolveOptionalFreshToken({ homeDir: options.homeDir });
+  const token = await resolveOptionalFreshToken({
+    homeDir: options.homeDir,
+    server: options.server
+  });
   const res = await fetchWithTimeout(
     fetchImpl,
     apiUrl(server, `/api/skills/${encodeURIComponent(name)}`),

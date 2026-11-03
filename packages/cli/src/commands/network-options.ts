@@ -1,4 +1,5 @@
 import {
+  adoptAddressViewForInstance,
   credentialsForInstance,
   discoverServerIdentity,
   findServerInstanceByAddress,
@@ -13,6 +14,7 @@ import {
   saveConfig,
   skillSourceDirectoryName,
   addServerAddress,
+  tryNormalizeServerUrl,
   type LocalStoreOptions,
   type OrganizationMembership,
   type ServerRegistry
@@ -74,17 +76,6 @@ function registryFromConfig(config: {
     instances: Array.isArray(config.servers) ? config.servers : [],
     selectedInstanceId: config.selectedInstanceId ?? null
   };
-}
-
-function normalizeServerUrlOrNull(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  try {
-    return normalizeServerUrl(value);
-  } catch {
-    return null;
-  }
 }
 
 async function tokenForInstance(options: LocalStoreOptions, instanceId: string): Promise<string | null> {
@@ -205,7 +196,7 @@ export async function resolveServerContext(
     const registration = addServerAddress(registry, {
       instanceId: discovered.instanceId,
       url: server,
-      select: normalizeServerUrlOrNull(config?.server) === server
+      select: tryNormalizeServerUrl(config?.server) === server
     });
     await saveConfig(
       {
@@ -215,6 +206,9 @@ export async function resolveServerContext(
       },
       { homeDir: options.homeDir }
     );
+    await adoptAddressViewForInstance(server, discovered.instanceId, {
+      homeDir: options.homeDir
+    });
   } catch {
     // 登记失败不影响本次只读/安装请求；下一次命令会重新发现。
   }

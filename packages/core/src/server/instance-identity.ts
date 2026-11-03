@@ -73,6 +73,18 @@ export function normalizeServerUrl(url: string): string {
   return trimmed.replace(/\/+$/, '');
 }
 
+/** 规范化可解析地址；无效或空值返回 null，供只读/容错路径使用。 */
+export function tryNormalizeServerUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return normalizeServerUrl(value);
+  } catch {
+    return null;
+  }
+}
+
 /** 短前缀默认长度：工具链接目录既要可读，也要足以区分实例。 */
 export const DEFAULT_INSTANCE_PREFIX_LENGTH = 6;
 
@@ -135,16 +147,7 @@ export interface CurrentServerInput {
  */
 export function resolveCurrentServerContext(input: CurrentServerInput): CurrentServerContext {
   if (!input.server) {
-    // 没有当前地址时：旧版单 Server 配置可继续用顶层凭据；一旦登记过实例
-    // 或待确认地址，就没有可确定的当前实例，不能猜用任何一份凭据。
-    const hasRegistry =
-      (input.servers?.length ?? 0) > 0 || (input.pendingAddresses?.length ?? 0) > 0;
-    return {
-      server: null,
-      status: hasRegistry ? 'unconfirmed' : 'none',
-      instanceId: null,
-      instance: null
-    };
+    return { server: null, status: 'none', instanceId: null, instance: null };
   }
   let server: string;
   try {

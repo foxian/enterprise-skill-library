@@ -3,8 +3,8 @@ import {
   credentialsForInstance,
   loadConfig,
   loadCredentials,
-  resolveCurrentServerContext,
   saveConfig,
+  serverContextOfConfig,
   type InstanceAccountSnapshot,
   type LocalStoreOptions,
   type OrganizationMembership,
@@ -27,6 +27,7 @@ export interface WhoamiResult {
   /** 当前地址的身份状态；unconfirmed 时不得把本地凭据当作已登录。 */
   identityStatus: ServerIdentityStatus;
   instanceId: string | null;
+  hasRegisteredInstances: boolean;
   username: string | null;
   /** 登录时刻记录的用户邮箱快照；token-file 离线登录或旧配置为 null。 */
   email: string | null;
@@ -42,12 +43,9 @@ export interface WhoamiResult {
 export async function executeWhoami(options: WhoamiOptions = {}): Promise<WhoamiResult> {
   const config = await loadConfig({ homeDir: options.homeDir });
   const allCredentials = await loadCredentials({ homeDir: options.homeDir });
-  const context = resolveCurrentServerContext({
-    server: config.server,
-    servers: config.servers ?? [],
-    selectedInstanceId: config.selectedInstanceId ?? null,
-    pendingAddresses: config.pendingServerAddresses ?? []
-  });
+  const context = serverContextOfConfig(config);
+  const hasRegistry =
+    (config.servers?.length ?? 0) > 0 || (config.pendingServerAddresses?.length ?? 0) > 0;
 
   const identityStatus: ServerIdentityStatus = context.status;
   let credentials = { token: null as string | null, loginAt: null as string | null };
@@ -57,7 +55,7 @@ export async function executeWhoami(options: WhoamiOptions = {}): Promise<Whoami
     // 已确认实例只读该实例的凭据与账户快照，绝不回退到顶层遗留值。
     credentials = credentialsForInstance(allCredentials, context.instanceId);
     snapshot = accountForInstance(config, context.instanceId);
-  } else if (identityStatus === 'legacy' || identityStatus === 'none') {
+  } else if (identityStatus === 'legacy' || (identityStatus === 'none' && !hasRegistry)) {
     credentials = credentialsForInstance(allCredentials, null);
     snapshot = {
       username: config.username,
@@ -125,6 +123,7 @@ export async function executeWhoami(options: WhoamiOptions = {}): Promise<Whoami
     loggedIn: identityStatus === 'unconfirmed' ? false : Boolean(credentials.token),
     identityStatus,
     instanceId: context.instanceId,
+    hasRegisteredInstances: hasRegistry,
     username: snapshot?.username ?? null,
     email,
     organizations,
@@ -144,6 +143,9 @@ export function formatWhoami(result: WhoamiResult): string {
       'The current Server address is not bound to a confirmed instance. Authenticating commands stop until you confirm it with "esl config server list".'
     );
     return lines.join('\n');
+  }
+  if (result.identityStatus === 'none' && result.hasRegisteredInstances) {
+    return 'No ESL Server address selected. Run "esl config server list" to choose an address.';
   }
   if (!result.loggedIn) {
     return result.identityStatus === 'confirmed'

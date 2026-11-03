@@ -1917,11 +1917,24 @@ function isPromptCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === 'ExitPromptError';
 }
 
+const GLOBAL_VALUE_FLAGS = new Set([
+  '--locale',
+  '-C',
+  '--cd',
+  '--agent-tool',
+  '--params-json'
+]);
+
 function isServerListArgv(argv: string[]): boolean {
   // `esl config server list`（可带全局旗标）是只读接口：启动期的更新检查、
   // 待同步内置技能重试和身份发现都不得为它写配置/凭据。
   const positionals: string[] = [];
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (GLOBAL_VALUE_FLAGS.has(arg)) {
+      index += 1;
+      continue;
+    }
     if (arg.startsWith('-')) continue;
     positionals.push(arg);
   }

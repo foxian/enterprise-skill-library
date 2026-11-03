@@ -187,7 +187,10 @@ async function installFromLocalPath(
   const dependencies = await readSourceDependencies(resolved);
   // 依赖可能全部是 anonymous 技能：没有登录态也允许尝试，由服务端逐包判定。
   const authToken = Object.keys(dependencies).length > 0
-    ? await resolveOptionalFreshToken({ homeDir: options.homeDir })
+    ? await resolveOptionalFreshToken({
+        homeDir: options.homeDir,
+        server: options.server
+      })
     : null;
   const committed: Array<PackageSwap> = [];
   try {
@@ -286,7 +289,10 @@ async function installFromServer(
   }
   // 存在登录态就带上（可消费 private/public 及依赖），匿名也能安装
   // anonymous 技能；服务端对越权包返回 401/403。
-  const authToken = await resolveOptionalFreshToken({ homeDir: options.homeDir });
+  const authToken = await resolveOptionalFreshToken({
+    homeDir: options.homeDir,
+    server: options.server
+  });
   const info = await executeInfo(name, effectiveOptions);
   const instanceId = options.instanceId ?? info.instanceId;
   if (!instanceId) {

@@ -2,6 +2,7 @@ import {
   accountForInstance,
   addPendingServerAddress,
   addServerAddress,
+  adoptAddressViewForInstance,
   clearCredentialsForInstance,
   discoverServerIdentity,
   findPendingServerAddress,
@@ -18,6 +19,7 @@ import {
   saveCredentials,
   selectServerInstance,
   selectedServerInstance,
+  tryNormalizeServerUrl,
   type EslConfig,
   type InstanceAccountSnapshot,
   type LocalStoreOptions,
@@ -230,6 +232,7 @@ export async function executeSetServer(
   if (wasLegacy) {
     await migrateLegacyViewToInstance(discovered, options);
   }
+  await adoptAddressViewForInstance(server, discovered, { homeDir: options.homeDir });
   return { server, instanceId: discovered, ...(warned ? { warned } : {}) };
 }
 
@@ -259,6 +262,14 @@ export async function executeAddServerAddress(
   if (options.instanceId && options.instanceId !== discovered) {
     throw new Error(
       `Address ${server} reports ESL Server instance ${discovered}, not ${options.instanceId}; refusing to register it.`
+    );
+  }
+  const pending = findPendingServerAddress(registry, server);
+  if (pending?.declaredInstanceId && pending.declaredInstanceId !== discovered) {
+    throw new Error(
+      `Address ${server} was saved with declared Instance ID ${pending.declaredInstanceId}, ` +
+        `but it now reports ${discovered}; refusing to confirm it silently. Remove the pending ` +
+        `registration first if this change is expected.`
     );
   }
   const binding = findServerInstanceByAddress(registry, server);
@@ -292,6 +303,7 @@ export async function executeAddServerAddress(
     selectedInstanceId: registry.selectedInstanceId
   };
   await persistRegistry(next, { homeDir: options.homeDir });
+  await adoptAddressViewForInstance(server, discovered, { homeDir: options.homeDir });
   return { server, instanceId: discovered, ...(known ? { warned: true } : {}) };
 }
 
@@ -317,7 +329,7 @@ export async function executeListServers(options: LocalStoreOptions = {}): Promi
     return { instances: [], pendingAddresses: [] };
   }
   const registry = registryOf(config);
-  const current = config.server ? normalizeServerUrl(config.server) : null;
+  const current = config.server ? tryNormalizeServerUrl(config.server) : null;
   return {
     instances: registry.instances.map((instance) => ({
       instanceId: instance.instanceId,
@@ -351,7 +363,7 @@ export async function executeUseServer(
   const config = await loadOrInitConfig(options);
   const key = instanceIdOrAddress.trim();
   const registry = registryOf(config);
-  const pending = findPendingServerAddress(registry, normalizeServerUrlOrNull(key) ?? key);
+  const pending = findPendingServerAddress(registry, tryNormalizeServerUrl(key) ?? key);
   if (pending) {
     await persistRegistry(
       { ...registry, selectedInstanceId: null },
@@ -392,16 +404,8 @@ export async function executeUseServer(
   return { instanceId: instance.instanceId, server: targetAddress };
 }
 
-function normalizeServerUrlOrNull(value: string): string | null {
-  try {
-    return normalizeServerUrl(value);
-  } catch {
-    return null;
-  }
-}
-
 function findServerBinding(registry: ServerRegistry, key: string) {
-  const normalized = normalizeServerUrlOrNull(key);
+  const normalized = tryNormalizeServerUrl(key);
   return normalized ? findServerInstanceByAddress(registry, normalized) : null;
 }
 
@@ -426,7 +430,7 @@ export async function executeRemoveServer(
   const config = await loadOrInitConfig(options);
   const registry = registryOf(config);
   const key = instanceIdOrAddress.trim();
-  const currentAddress = config.server ? normalizeServerUrlOrNull(config.server) : null;
+  const currentAddress = config.server ? tryNormalizeServerUrl(config.server) : null;
   const instance = findServerInstanceById(registry, key);
 
   if (instance) {
@@ -483,8 +487,8 @@ export async function executeRemoveServer(
     const remaining = result.registry.instances.find(
       (candidate) => candidate.instanceId === binding.instance.instanceId
     );
-    fallbackAddress = remaining?.preferredAddress ?? null;
     if (currentAddress === url) {
+      fallbackAddress = remaining?.preferredAddress ?? null;
       nextServer = fallbackAddress;
     }
   }
@@ -566,6 +570,11 @@ export async function runStartupIdentityDiscovery(
       // `esl config server add/confirm` 完成安全确认。
       return { discovered: false, instanceId: identity.instanceId };
     }
+    const pending = findPendingServerAddress(registry, normalizeServerUrl(config.server));
+    if (pending?.declaredInstanceId && pending.declaredInstanceId !== identity.instanceId) {
+      // 待确认地址声明过别的 Instance ID：不自动确认，保留给用户处理。
+      return { discovered: false, instanceId: null };
+    }
     const registration = addServerAddress(registry, {
       instanceId: identity.instanceId,
       url: config.server,
@@ -578,6 +587,7 @@ export async function runStartupIdentityDiscovery(
     if (wasLegacy) {
       await migrateLegacyViewToInstance(identity.instanceId, options);
     }
+    await adoptAddressViewForInstance(config.server, identity.instanceId, options);
     return { discovered: true, instanceId: identity.instanceId };
   } catch {
     await saveConfig(

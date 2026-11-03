@@ -4,8 +4,8 @@ import {
   credentialsForInstance,
   loadConfig,
   loadCredentials,
-  resolveCurrentServerContext,
   saveConfig,
+  serverContextOfConfig,
   type LocalStoreOptions,
   type ServerIdentityStatus
 } from '@esl/core';
@@ -20,12 +20,9 @@ export interface LogoutResult {
 
 export async function executeLogout(options: LocalStoreOptions = {}): Promise<LogoutResult> {
   const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
-  const context = resolveCurrentServerContext({
-    server: config?.server ?? null,
-    servers: config?.servers ?? [],
-    selectedInstanceId: config?.selectedInstanceId ?? null,
-    pendingAddresses: config?.pendingServerAddresses ?? []
-  });
+  const context = serverContextOfConfig(
+    config ?? { server: null, username: null, organizations: null, tools: [] }
+  );
 
   // 身份未知（或没有可确定地址但已登记多实例）时不能猜测要清哪个实例。
   if (
@@ -42,9 +39,12 @@ export async function executeLogout(options: LocalStoreOptions = {}): Promise<Lo
 
   if (context.status === 'confirmed' && context.instanceId) {
     let hadCredentials = false;
+    let topLevelMatchesCurrent = false;
     try {
       const credentials = await loadCredentials({ homeDir: options.homeDir });
-      hadCredentials = Boolean(credentialsForInstance(credentials, context.instanceId).token);
+      const selected = credentialsForInstance(credentials, context.instanceId);
+      hadCredentials = Boolean(selected.token);
+      topLevelMatchesCurrent = Boolean(selected.token && selected.token === credentials.token);
     } catch {
       hadCredentials = false;
     }
@@ -57,10 +57,10 @@ export async function executeLogout(options: LocalStoreOptions = {}): Promise<Lo
       await saveConfig(
         {
           instanceAccounts,
-          // 顶层字段是兼容视图：当前实例登出后不能继续显示它的账户。
-          username: null,
-          email: null,
-          organizations: null
+          // 顶层字段是“最近一次登录”的兼容视图；只有它属于当前实例时才清空。
+          ...(topLevelMatchesCurrent
+            ? { username: null, email: null, organizations: null }
+            : {})
         },
         { homeDir: options.homeDir }
       );

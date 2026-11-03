@@ -110,7 +110,12 @@ export async function executeLogin(options: LoginOptions): Promise<LoginResult> 
   };
 
   await saveCredentials(
-    { token, loginAt: new Date().toISOString(), ...(instanceId ? { instanceId } : {}) },
+    {
+      token,
+      loginAt: new Date().toISOString(),
+      address: normalizeServerUrl(server),
+      ...(instanceId ? { instanceId } : {})
+    },
     { homeDir: options.homeDir }
   );
   // 显式清掉旧版标记：重新登录后 organizations 已是新形状，提示不该跟着旧配置
