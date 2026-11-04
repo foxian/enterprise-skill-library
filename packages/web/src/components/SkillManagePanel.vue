@@ -1,5 +1,6 @@
 <template>
   <div data-test="skill-manage-panel">
+    <PageBreadcrumb :items="breadcrumbItems" />
     <div class="console-toolbar">
       <div class="panel-identity">
         <h2 class="panel-title">{{ t('skill.manageTitle', { identity: context?.displayName ?? skillName }) }}</h2>
@@ -365,6 +366,11 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import type { SkillVisibility } from '@esl/core/dist/skill/visibility.js';
 import { apiRequest } from '../api/client';
 import { shortUsername } from '../utils/short-username';
+import PageBreadcrumb, { type PageBreadcrumbItem } from './layout/PageBreadcrumb.vue';
+import {
+  orgScopeFromQuery,
+  resolveSkillListLocation
+} from '../skills/manage-navigation';
 import {
   deriveShareState,
   statusText,
@@ -384,6 +390,36 @@ const props = defineProps<{
   scope: string;
   skillName: string;
 }>();
+
+// 同一面板挂在个人与超管两棵路由下（me-skill-manage / super-skill-manage），
+// 位置语义只能按路由名前缀区分——沿用删除成功后跳转的既有判定方式。
+const isSuper = computed(() => String(route.name ?? '').startsWith('super-'));
+// 从组织详情「技能」页签进入时，面包屑沿 我的组织 / @org / 技能 逐级回退；
+// 其余入口（全局列表、概览页）回全局技能列表。
+const orgFromQuery = computed(() => (isSuper.value ? '' : orgScopeFromQuery(route)));
+const breadcrumbItems = computed<PageBreadcrumbItem[]>(() => {
+  if (isSuper.value) {
+    return [
+      { label: t('nav.skillOverview'), to: { name: 'super-skills' }, test: 'crumb-super-skills' },
+      { label: `@${props.scope}/${props.skillName}`, test: 'crumb-current' }
+    ];
+  }
+  const identity = `@${props.scope}/${props.skillName}`;
+  const listLocation = resolveSkillListLocation(route, false);
+  if (orgFromQuery.value) {
+    const org = orgFromQuery.value;
+    return [
+      { label: t('nav.myOrganizations'), to: { name: 'me-orgs' }, test: 'crumb-my-orgs' },
+      { label: `@${org}`, to: { name: 'me-org-members', params: { org } }, test: 'crumb-org' },
+      { label: t('nav.skills'), to: listLocation, test: 'crumb-org-skills' },
+      { label: identity, test: 'crumb-current' }
+    ];
+  }
+  return [
+    { label: t('nav.skills'), to: listLocation, test: 'crumb-skills' },
+    { label: identity, test: 'crumb-current' }
+  ];
+});
 
 const matrix = ref<PermissionMatrix>({
   scope: props.scope,
@@ -659,7 +695,7 @@ async function deleteWholeSkill(): Promise<void> {
     );
     deleteDialogVisible.value = false;
     ElMessage.success(t('skill.skillDeleted'));
-    await router.push(String(route.name ?? '').startsWith('super-') ? { name: 'super-skills' } : { name: 'me-skills' });
+    await router.push(resolveSkillListLocation(route, isSuper.value));
   } catch (error) {
     await loadMatrix();
     errorMessage.value = formatRequestError(error);

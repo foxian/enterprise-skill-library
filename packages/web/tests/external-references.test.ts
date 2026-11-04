@@ -186,4 +186,30 @@ describe('外部 Git 引用管理面板', () => {
     expect(router.currentRoute.value.name).toBe('me-skill-manage');
     expect(router.currentRoute.value.params).toMatchObject({ scope: 'acme', skillName: 'webapp-testing' });
   });
+
+  it('面包屑沿列表 → 技能 → 外部引用回退，并透传来源与列表位置', async () => {
+    const { router } = await import('../src/router');
+    useApiMock(() => ({ status: 200, json: reference() }));
+    wrapper = await mountConsoleView(
+      {
+        components: { ExternalReferenceManagePanel },
+        template: '<ExternalReferenceManagePanel scope="acme" skill-name="webapp-testing" />'
+      } as never,
+      {
+        account: 'owner',
+        route: '/admin/me/skills/acme/webapp-testing/external?from=org-skills&org=acme&tab=shared&page=2'
+      }
+    );
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="crumb-my-orgs"]').text()).toBe('我的组织');
+    expect(wrapper.find('[data-test="crumb-org-skills"]').text()).toBe('技能');
+    expect(wrapper.find('[data-test="crumb-skill"]').text()).toBe('@acme/webapp-testing');
+    expect(wrapper.find('[data-test="crumb-current"]').text()).toBe('外部 Git 引用');
+
+    await wrapper.find('[data-test="external-open-lifecycle"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('me-skill-manage');
+    expect(router.currentRoute.value.query).toEqual({ from: 'org-skills', org: 'acme', tab: 'shared', page: '2' });
+  });
 });

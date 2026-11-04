@@ -1,5 +1,6 @@
 <template>
   <div>
+    <PageBreadcrumb :items="breadcrumbItems" />
     <div class="org-identity">
       <span class="org-name" data-test="org-identity">@{{ org }}</span>
       <el-tag :type="identityTagType(identity ?? '')" size="small">{{ t(identityLabel(identity ?? '')) }}</el-tag>
@@ -45,6 +46,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType } from '../../constants/org-identity';
+import PageBreadcrumb, { type PageBreadcrumbItem } from '../../components/layout/PageBreadcrumb.vue';
 import { useAuthStore } from '../../stores/auth';
 
 const { t } = useLocaleState();
@@ -58,6 +60,13 @@ const auth = useAuthStore();
 const org = computed<string>(() => String(route.params.org ?? ''));
 const identity = computed(() => auth.identityOf(org.value));
 const isOwnerMember = computed(() => auth.isOwnerMember(org.value));
+
+// 组织详情是「我的组织」下的二级页：三个页签共用一条两级面包屑，
+// 当前页签由下方 el-tabs 表达，不再重复第三级。
+const breadcrumbItems = computed<PageBreadcrumbItem[]>(() => [
+  { label: t('nav.myOrganizations'), to: { name: 'me-orgs' }, test: 'crumb-my-orgs' },
+  { label: `@${org.value}`, test: 'crumb-current' }
+]);
 
 const activeTab = computed<string>(() => {
   const name = String(route.name ?? '');

@@ -122,6 +122,7 @@ import {
   type PermissionMatrix,
   type SkillInventoryItem
 } from '../../skills/skill-list';
+import { buildManageEntryQuery } from '../../skills/manage-navigation';
 
 const { t, formatNumber } = useLocaleState();
 
@@ -137,7 +138,9 @@ interface ManagedRow extends SkillInventoryItem {
   state: ReturnType<typeof deriveShareState>;
 }
 
-const activeTab = ref<'managed' | 'shared'>('managed');
+// 页签/页码与 URL query 双向同步：从技能管理页返回（或浏览器后退）时恢复原位置，
+// 否则整表重挂载会把用户丢回第 1 页"我管理的"，看起来像原来那行技能不见了。
+const activeTab = ref<'managed' | 'shared'>(route.query.tab === 'shared' ? 'shared' : 'managed');
 const managedRows = ref<ManagedRow[]>([]);
 const sharedRows = ref<SkillInventoryItem[]>([]);
 const loading = ref(false);
@@ -168,16 +171,51 @@ const visibleSharedRows = computed(() =>
   namespaceFilter.value ? sharedRows.value.filter((row) => row.scope === namespaceFilter.value) : sharedRows.value
 );
 
-const currentPage = ref(1);
+const initialPage = Number.parseInt(String(route.query.page ?? '1'), 10);
+const currentPage = ref(Number.isFinite(initialPage) && initialPage > 1 ? initialPage : 1);
 const pageSize = ref(20);
 const pagedManagedRows = computed(() => visibleManagedRows.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value));
 const pagedSharedRows = computed(() => visibleSharedRows.value.slice((currentPage.value - 1) * pageSize.value, currentPage.value * pageSize.value));
 watch([namespaceFilter, activeTab, pageSize], () => { currentPage.value = 1; });
 
+// 翻页/切页签用 replace 写回 URL：不污染历史栈，同时让面包屑/后退能复原位置。
+// 单独一个 watcher 观察组合状态，避免同一 flush 内多次 replace 互相覆盖。
+function syncQuery(patch: Record<string, string | undefined>): void {
+  const merged = new Map<string, string>();
+  for (const [key, value] of Object.entries(route.query)) {
+    if (typeof value === 'string' && value) merged.set(key, value);
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value) merged.set(key, value);
+    else merged.delete(key);
+  }
+  // 锁定命名空间的组织视图由路由决定范围，URL 上不出现 namespace。
+  if (props.lockedNamespace) merged.delete('namespace');
+  const next = Object.fromEntries(merged);
+  const currentQuery = new URLSearchParams(
+    Object.entries(route.query).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  ).toString();
+  if (currentQuery === new URLSearchParams(next).toString()) return;
+  void router.replace({ query: next });
+}
+
+watch(
+  () => ({ tab: activeTab.value, page: currentPage.value, namespace: namespaceFilter.value }),
+  (state) => {
+    const patch: Record<string, string | undefined> = {
+      tab: state.tab === 'shared' ? 'shared' : undefined,
+      page: state.page > 1 ? String(state.page) : undefined
+    };
+    if (!props.lockedNamespace) patch.namespace = state.namespace || undefined;
+    syncQuery(patch);
+  }
+);
+
 function openPermissions(scope: string, skillName: string): void {
   void router.push({
     name: 'me-skill-manage',
-    params: { scope, skillName }
+    params: { scope, skillName },
+    query: buildManageEntryQuery(route, { tab: activeTab.value, page: currentPage.value })
   });
 }
 
@@ -186,7 +224,11 @@ const showCreateDialog = ref(false);
 
 function openManage(row: SkillInventoryItem): void {
   if (row.external) {
-    void router.push({ name: 'me-external-manage', params: { scope: row.scope, skillName: row.skillName } });
+    void router.push({
+      name: 'me-external-manage',
+      params: { scope: row.scope, skillName: row.skillName },
+      query: buildManageEntryQuery(route, { tab: activeTab.value, page: currentPage.value })
+    });
   } else {
     openPermissions(row.scope, row.skillName);
   }
@@ -200,7 +242,8 @@ async function onExternalCreated(fullName: string): Promise<void> {
   showCreateDialog.value = false;
   await router.push({
     name: 'me-external-manage',
-    params: { scope, skillName: shortName }
+    params: { scope, skillName: shortName },
+    query: buildManageEntryQuery(route, { tab: activeTab.value, page: currentPage.value })
   });
   // 刷新清单以显示新引用。
   await loadInventory();

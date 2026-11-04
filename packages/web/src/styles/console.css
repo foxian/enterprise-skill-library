@@ -38,6 +38,7 @@ body {
   padding: 0 20px;
   color: #e8edee;
   font-weight: 600;
+  text-decoration: none;
   letter-spacing: 0.5px;
   border-bottom: 1px solid var(--ink-700);
 }

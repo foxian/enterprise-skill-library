@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/login.page';
+import { loginApi, uploadSkill } from '../helpers/e2e-api';
 import { SUPER_STATE, resolveTestEnv } from '../helpers/env';
 
 // 控制台视角与组织治理（ADR-0033 / ADR-0035）：平台角色只有超管与普通用户两个，
@@ -47,6 +48,42 @@ test('所有者成员在本组织看到治理入口，并可进入组织详情',
   await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/members$/);
   await expect(page.getByTestId('members-table')).toBeVisible();
   await expect(page.getByTestId('org-identity')).toHaveText('@acme');
+});
+
+test('从组织技能页签进入管理页后，面包屑可逐级返回且侧边栏保持定位', async ({ page }) => {
+  // 准备一个 acme 命名空间下的技能（alice 是所有者成员，可直接上传）
+  const api = await loginApi('alice', env.devPassword);
+  const skillName = `nav-${Date.now().toString(36)}`;
+  const identity = `@acme/${skillName}`;
+  await uploadSkill(api, identity, '面包屑导航用例');
+  await api.dispose();
+
+  const login = new LoginPage(page);
+  await login.goto();
+  await login.login({ username: 'alice', password: env.devPassword });
+  await expect(page).toHaveURL(/\/admin\/me\/overview$/);
+
+  await page.goto('/admin/me/orgs/acme/skills');
+  await page.getByTestId(`configure-${skillName}`).click();
+
+  await expect(page).toHaveURL(/\/admin\/me\/skills\/acme\/[^/]+\/manage/);
+  const url = new URL(page.url());
+  expect(url.searchParams.get('from')).toBe('org-skills');
+  expect(url.searchParams.get('org')).toBe('acme');
+
+  await expect(page.getByTestId('crumb-my-orgs')).toHaveText('我的组织');
+  await expect(page.getByTestId('crumb-org')).toHaveText('@acme');
+  await expect(page.getByTestId('crumb-org-skills')).toHaveText('技能');
+  await expect(page.getByTestId('crumb-current')).toHaveText(identity);
+  // 深层页不再整栏无高亮：URL 落在 /admin/me/skills 子树，父级菜单「技能」保持选中
+  await expect(page.getByRole('menuitem', { name: '技能' })).toHaveClass(/is-active/);
+
+  await page.getByTestId('crumb-org-skills').click();
+  await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/skills$/);
+
+  // 品牌区回工作台首页（不是公开目录）
+  await page.getByTestId('console-brand').click();
+  await expect(page).toHaveURL(/\/admin\/me\/overview$/);
 });
 
 test('组织成员在同一页面只看到只读视图，且直接敲治理 URL 会被退回组织列表', async ({ page }) => {

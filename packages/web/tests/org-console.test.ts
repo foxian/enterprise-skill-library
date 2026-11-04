@@ -7,6 +7,7 @@ import TeamMemberPanel from '../src/components/TeamMemberPanel.vue';
 import OrgDetailLayout from '../src/views/me/OrgDetailLayout.vue';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
 import { setFetchImpl } from '../src/api/client';
+import { router } from '../src/router';
 
 // 组织成员治理（ADR-0032 / #55）：成员为全局账号；直拉即生效，邀请制下
 // 对方接受后入组；移出即离开组织并自动退出常设团队。团队管理仅自定义团队。
@@ -448,6 +449,26 @@ describe('组织治理界面', () => {
     expect(wrapper.find('[data-test="org-identity"]').text()).toContain('@acme');
     expect(wrapper.text()).toContain('管理成员');
     expect(wrapper.find('[data-test="org-danger-zone"]').exists()).toBe(false);
+  });
+
+  it('组织详情二级页面包屑可回「我的组织」列表', async () => {
+    useApiMock((method, url) => {
+      if (url === '/api/orgs/acme/members') return { status: 200, json: [] };
+      if (url === '/api/public/platform-info') return { status: 200, json: { memberAddMode: 'direct' } };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(OrgDetailLayout, {
+      account: 'owner',
+      route: '/admin/me/orgs/acme/teams'
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="crumb-my-orgs"]').text()).toBe('我的组织');
+    expect(wrapper.find('[data-test="crumb-current"]').text()).toBe('@acme');
+
+    await wrapper.find('[data-test="crumb-my-orgs"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('me-orgs');
   });
 });
 
