@@ -21,6 +21,8 @@ export interface ExternalLicenseInfo {
 
 export interface ExternalReferenceView {
   skillName: string;
+  description: string;
+  latestVersion: string | null;
   repositoryUrl: string;
   skillDirectory: string;
   branch: string;
@@ -39,12 +41,25 @@ export interface ExternalReferenceView {
   catchupDue: boolean;
 }
 
+export interface ExternalLicenseCandidate {
+  // 相对仓库根的路径。
+  path: string;
+  text: string;
+  // 目录内候选已随技能内容打包，无需作为 extraFiles 再选入。
+  insideSkillDirectory: boolean;
+}
+
 export interface ExternalPreviewResult {
   branch: string;
   commit: string;
   files: string[];
+  skillName: string;
+  description: string;
   detectedLicense: string | null;
   licenseProvenance: { path: string; source: string } | null;
+  licenseCandidates: ExternalLicenseCandidate[];
+  nameConflict: boolean;
+  existingExternal: boolean;
 }
 
 export interface ExternalSyncResult {
@@ -60,25 +75,26 @@ function referencePath(scope: string, skillName: string): string {
   return `/api/external-references/${encodeURIComponent(scope)}/${encodeURIComponent(skillName)}`;
 }
 
-// 创建前预览：解析默认分支、抓取内容、检测许可证来源。
+// 创建前预览：解析默认分支、抓取内容、读取技能名称与描述，并展示许可候选文件。
 export async function previewExternalReference(input: {
   repositoryUrl: string;
   branch?: string;
   skillDirectory?: string;
   extraFiles?: string[];
+  scope?: string;
 }): Promise<ExternalPreviewResult> {
   return apiRequest('/api/external-references/preview', { method: 'POST', body: input });
 }
 
 export interface CreateExternalReferenceInput {
   scope: string;
-  shortName: string;
   repositoryUrl: string;
   branch?: string;
   skillDirectory?: string;
   extraFiles?: string[];
   visibility?: 'private' | 'public';
   schedule?: ExternalSchedule;
+  confirmLicense?: boolean;
 }
 
 export async function createExternalReference(
@@ -95,10 +111,12 @@ export async function getExternalReference(
 }
 
 export interface UpdateExternalReferenceInput {
+  repositoryUrl?: string;
   branch?: string;
   schedule?: ExternalSchedule;
   visibility?: 'private' | 'public';
   extraFiles?: string[];
+  confirmLicense?: boolean;
 }
 
 export async function updateExternalReference(

@@ -16,6 +16,8 @@ afterEach(async () => {
 function reference(overrides: Record<string, unknown> = {}) {
   return {
     skillName: '@acme/webapp-testing',
+    description: 'Browser automation for web apps',
+    latestVersion: '0.1.1',
     repositoryUrl: 'https://github.com/anthropics/skills.git',
     skillDirectory: 'webapp-testing',
     branch: 'main',
@@ -58,6 +60,8 @@ describe('外部 Git 引用管理面板', () => {
     expect(wrapper!.find('[data-test="external-view-branch"]').text()).toBe('main');
     expect(wrapper!.find('[data-test="external-view-commit"]').text()).toBe('abc123de');
     expect(wrapper!.find('[data-test="external-view-license"]').text()).toBe('MIT');
+    expect(wrapper!.find('[data-test="external-view-description"]').text()).toContain('Browser automation');
+    expect(wrapper!.find('[data-test="external-view-version"]').text()).toBe('0.1.1');
   });
 
   it('显示只读提示，且不存在编辑/上传类控件', async () => {
@@ -66,6 +70,63 @@ describe('外部 Git 引用管理面板', () => {
     expect(wrapper!.find('[data-test="external-readonly-alert"]').exists()).toBe(true);
     expect(wrapper!.find('[data-test="upload-source"]').exists()).toBe(false);
     expect(wrapper!.find('[data-test="edit-skill-content"]').exists()).toBe(false);
+  });
+
+  it('编辑来源先预览新来源，保存时只提交 URL 与许可选择', async () => {
+    const { requests } = await mountPanel((method, url) => {
+      if (method === 'POST' && url.endsWith('/preview')) {
+        return {
+          status: 200,
+          json: {
+            branch: 'main',
+            commit: 'b'.repeat(40),
+            files: ['SKILL.md'],
+            skillName: 'webapp-testing',
+            description: 'Fork description',
+            detectedLicense: 'MIT',
+            licenseProvenance: { path: 'LICENSE', source: 'file' },
+            licenseCandidates: [
+              { path: 'LICENSE', text: 'MIT License', insideSkillDirectory: false }
+            ],
+            nameConflict: false
+          }
+        };
+      }
+      if (method === 'PATCH') {
+        return {
+          status: 200,
+          json: reference({ repositoryUrl: 'https://github.com/fork/skills.git' })
+        };
+      }
+      return { status: 200, json: reference() };
+    });
+
+    const vm = wrapper!.findComponent(ExternalReferenceManagePanel).vm as unknown as {
+      editUrl: string;
+      openEditSource: () => void;
+      previewEdit: () => Promise<void>;
+      saveSource: () => Promise<void>;
+      editPreview: { description: string } | null;
+    };
+    vm.openEditSource();
+    vm.editUrl = 'https://github.com/fork/skills.git';
+    await flushPromises();
+
+    await vm.previewEdit();
+    await flushPromises();
+    expect(vm.editPreview?.description).toBe('Fork description');
+
+    await vm.saveSource();
+    await flushPromises();
+
+    const patch = requests.find((request) => request.method === 'PATCH');
+    expect(patch?.body).toMatchObject({
+      repositoryUrl: 'https://github.com/fork/skills.git',
+      extraFiles: ['LICENSE']
+    });
+    // 保存来源不会提交计划或可见性，避免顺带改动其他配置。
+    expect(patch?.body).not.toHaveProperty('schedule');
+    expect(patch?.body).not.toHaveProperty('visibility');
   });
 
   it('保存配置提交计划与可见性变更', async () => {

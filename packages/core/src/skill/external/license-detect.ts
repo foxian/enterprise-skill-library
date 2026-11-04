@@ -1,4 +1,5 @@
 import type { ByteFileMap } from '../published-package-archive.js';
+import { validateSkillMd } from '../skill-md.js';
 
 // 引入外部技能时的许可证探测与元数据映射（ADR-0074）：只做“检测 + 展示来源”，
 // 是否具备再分发权利由管理者显式确认；检测不到时绝不猜测默认许可证。
@@ -66,14 +67,46 @@ function matchLicenseText(text: string): string | undefined {
   return undefined;
 }
 
-// 先看候选许可证文件，再参考上游 release.json；任何命中都记录来源路径。
-export function detectLicenseFromFiles(files: ByteFileMap): DetectedLicense {
-  for (const candidate of LICENSE_FILE_CANDIDATES) {
-    const body = files[candidate];
-    if (!body) continue;
-    const license = matchLicenseText(body.toString('utf8'));
-    if (license) return { license, provenance: { path: candidate, source: 'file' } };
+export interface LicenseCandidateText {
+  path: string;
+  text: string;
+}
+
+function candidateNameIndex(filePath: string): number {
+  const name = filePath.split('/').pop()?.toLowerCase() ?? '';
+  return LICENSE_FILE_CANDIDATES.findIndex((candidate) => candidate.toLowerCase() === name);
+}
+
+function candidateDepth(filePath: string): number {
+  return filePath.split('/').filter((part) => part.length > 0).length - 1;
+}
+
+// 候选文件按调用方给出的优先级依次识别；任何命中都记录来源路径。
+// 预览/编辑来源时调用方已按“技能目录优先、祖先目录由近及远”排序。
+export function detectLicenseFromCandidates(
+  candidates: LicenseCandidateText[]
+): DetectedLicense {
+  for (const candidate of candidates) {
+    const license = matchLicenseText(candidate.text);
+    if (license) return { license, provenance: { path: candidate.path, source: 'file' } };
   }
+  return {};
+}
+
+export function detectLicenseFromFiles(files: ByteFileMap): DetectedLicense {
+  const candidates: LicenseCandidateText[] = Object.keys(files)
+    .filter((filePath) => candidateNameIndex(filePath) >= 0)
+    .sort((left, right) => {
+      // 越靠近技能根目录的候选越可信，避免误取嵌套依赖里的第三方许可证。
+      const depthOrder = candidateDepth(left) - candidateDepth(right);
+      if (depthOrder !== 0) return depthOrder;
+      const nameOrder = candidateNameIndex(left) - candidateNameIndex(right);
+      if (nameOrder !== 0) return nameOrder;
+      return left.localeCompare(right);
+    })
+    .map((filePath) => ({ path: filePath, text: files[filePath].toString('utf8') }));
+  const detected = detectLicenseFromCandidates(candidates);
+  if (detected.license) return detected;
   const releaseJson = files['release.json'];
   if (releaseJson) {
     try {
@@ -147,6 +180,11 @@ export function mergeUpstreamMetadata(input: MergeInput): MergedUpstreamMetadata
     } catch {
       // 非法 release.json：忽略其全部提示，保留平台生成值。
     }
+  }
+  // release.json 未提供描述时，回退到上游 SKILL.md 的 frontmatter 描述。
+  if (!merged.description && input.upstreamFiles['SKILL.md']) {
+    const skillMd = validateSkillMd(input.upstreamFiles['SKILL.md'].toString('utf8'));
+    if (skillMd.success) merged.description = skillMd.data.description;
   }
   return merged;
 }

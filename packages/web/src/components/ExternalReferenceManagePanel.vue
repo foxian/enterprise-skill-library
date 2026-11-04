@@ -25,9 +25,37 @@
       data-test="external-message"
     />
 
-    <el-card class="section-card" data-test="external-source-card" v-loading="loading">
-      <template #header>{{ t('external.source') }}</template>
-      <el-descriptions :column="1" border>
+    <el-card class="section-card" data-test="external-info-card" v-loading="loading">
+      <template #header>{{ t('external.info') }}</template>
+      <el-descriptions :column="1" border label-width="96px">
+        <el-descriptions-item :label="t('external.skillName')">
+          <code data-test="external-view-name">{{ reference?.skillName }}</code>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.description')">
+          <span data-test="external-view-description">
+            {{ reference?.description || t('external.noDescription') }}
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.latestVersion')">
+          <span data-test="external-view-version">{{ reference?.latestVersion ?? '—' }}</span>
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-card>
+
+    <el-card class="section-card" data-test="external-source-card">
+      <template #header>
+        <div class="card-header">
+          <span>{{ t('external.source') }}</span>
+          <el-button
+            size="small"
+            data-test="external-edit-source-btn"
+            @click="openEditSource"
+          >
+            {{ t('external.editSource') }}
+          </el-button>
+        </div>
+      </template>
+      <el-descriptions :column="1" border label-width="140px">
         <el-descriptions-item :label="t('external.repositoryUrl')">
           <code data-test="external-view-url">{{ reference?.repositoryUrl }}</code>
         </el-descriptions-item>
@@ -57,7 +85,7 @@
 
     <el-card class="section-card" data-test="external-license-card">
       <template #header>{{ t('external.license') }}</template>
-      <el-descriptions :column="1" border>
+      <el-descriptions :column="1" border label-width="96px">
         <el-descriptions-item :label="t('external.licenseBasis')">
           <span data-test="external-view-license">{{ reference?.license.basis ?? '—' }}</span>
         </el-descriptions-item>
@@ -153,6 +181,96 @@
         {{ t('external.openLifecycle') }}
       </el-button>
     </el-card>
+
+    <el-dialog
+      v-model="editVisible"
+      :title="t('external.editSourceTitle')"
+      width="600px"
+      data-test="external-edit-source-dialog"
+    >
+      <el-form label-position="top">
+        <el-form-item :label="t('external.repositoryUrl')">
+          <el-input v-model="editUrl" data-test="external-edit-url" />
+          <div class="form-hint">{{ t('external.repositoryUrlHint') }}</div>
+          <div class="form-hint">{{ t('external.editSourceHint') }}</div>
+        </el-form-item>
+      </el-form>
+
+      <el-descriptions v-if="editPreview" :column="1" border label-width="96px" class="edit-preview">
+        <el-descriptions-item :label="t('external.skillName')">
+          <code data-test="external-edit-preview-name">{{ editPreview.skillName }}</code>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.description')">
+          <span data-test="external-edit-preview-description">
+            {{ editPreview.description || t('external.noDescription') }}
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.license')">
+          <span data-test="external-edit-preview-license">
+            {{
+              editPreview.detectedLicense
+                ? `${t('external.detectedLicense')}: ${editPreview.detectedLicense}`
+                : t('external.noLicenseDetected')
+            }}
+          </span>
+          <span v-if="editPreview.licenseProvenance" class="provenance">
+            {{ editPreview.licenseProvenance.path }}
+          </span>
+        </el-descriptions-item>
+      </el-descriptions>
+
+      <div v-if="editPreview && editPreview.licenseCandidates.length > 0" class="candidate-block">
+        <div class="candidate-title">{{ t('external.licenseCandidates') }}</div>
+        <el-radio-group v-model="editLicensePath" data-test="external-edit-license-candidates">
+          <el-radio
+            v-for="candidate in editPreview.licenseCandidates"
+            :key="candidate.path"
+            :value="candidate.path"
+            class="candidate-option"
+          >
+            <code>{{ candidate.path }}</code>
+            <el-tag v-if="candidate.insideSkillDirectory" size="small" type="info" class="candidate-tag">
+              {{ t('external.insideSkillDirectory') }}
+            </el-tag>
+          </el-radio>
+        </el-radio-group>
+        <pre v-if="editSelectedCandidate" class="license-text">{{ editSelectedCandidate.text }}</pre>
+      </div>
+
+      <el-checkbox
+        v-if="editPreview?.detectedLicense"
+        v-model="editConfirmLicense"
+        data-test="external-edit-confirm-license"
+        class="confirm-license"
+      >
+        {{ t('external.confirmLicenseCheckbox') }}
+      </el-checkbox>
+      <el-alert
+        v-if="editError"
+        type="error"
+        :title="editError"
+        :closable="false"
+        class="edit-error"
+        data-test="external-edit-error"
+      />
+
+      <template #footer>
+        <el-button data-test="external-edit-cancel" @click="editVisible = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button data-test="external-edit-preview-btn" :loading="editLoading" @click="previewEdit">
+          {{ t('external.preview') }}
+        </el-button>
+        <el-button
+          type="primary"
+          data-test="external-edit-save-btn"
+          :loading="editLoading"
+          @click="saveSource"
+        >
+          {{ t('external.saveSource') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -164,9 +282,11 @@ import {
   confirmExternalLicense,
   getExternalReference,
   pauseExternalReference,
+  previewExternalReference,
   resumeExternalReference,
   syncExternalReference,
   updateExternalReference,
+  type ExternalPreviewResult,
   type ExternalReferenceView,
   type ExternalSyncState
 } from '../skills/external-references';
@@ -222,8 +342,29 @@ const stateTagType = computed(() => {
 });
 const isPaused = computed(() => reference.value?.syncState === 'paused');
 
+// 编辑来源：低频操作，独立对话框；目录与跟踪分支保持只读（ADR-0075）。
+const editVisible = ref(false);
+const editUrl = ref('');
+const editPreview = ref<ExternalPreviewResult | null>(null);
+const editLicensePath = ref('');
+const editConfirmLicense = ref(false);
+const editError = ref('');
+const editLoading = ref(false);
+const previewedEditUrl = ref('');
+
+const editSelectedCandidate = computed(() =>
+  editPreview.value?.licenseCandidates.find(
+    (candidate) => candidate.path === editLicensePath.value
+  )
+);
+
 function shortCommit(value?: string | null): string {
   return value ? value.slice(0, 8) : '—';
+}
+
+function normalizedDirectory(): string {
+  const directory = reference.value?.skillDirectory ?? '';
+  return directory === '/' ? '' : directory;
 }
 
 function applyReference(next: ExternalReferenceView): void {
@@ -328,6 +469,83 @@ async function confirmLicense(): Promise<void> {
   }
 }
 
+function openEditSource(): void {
+  editUrl.value = reference.value?.repositoryUrl ?? '';
+  editPreview.value = null;
+  editLicensePath.value = '';
+  editConfirmLicense.value = false;
+  editError.value = '';
+  previewedEditUrl.value = '';
+  editVisible.value = true;
+}
+
+async function previewEdit(): Promise<void> {
+  if (!reference.value) return;
+  editLoading.value = true;
+  editError.value = '';
+  try {
+    editPreview.value = await previewExternalReference({
+      scope: props.scope,
+      repositoryUrl: editUrl.value,
+      branch: reference.value.branch,
+      skillDirectory: normalizedDirectory()
+    });
+    previewedEditUrl.value = editUrl.value.trim();
+    editLicensePath.value =
+      editPreview.value.licenseProvenance?.path ??
+      editPreview.value.licenseCandidates[0]?.path ??
+      '';
+    editConfirmLicense.value = false;
+  } catch (error) {
+    editPreview.value = null;
+    editError.value = formatRequestError(error);
+  } finally {
+    editLoading.value = false;
+  }
+}
+
+function editExtraFiles(): string[] {
+  const candidate = editPreview.value?.licenseCandidates.find(
+    (item) => item.path === editLicensePath.value
+  );
+  return candidate && !candidate.insideSkillDirectory ? [candidate.path] : [];
+}
+
+async function saveSource(): Promise<void> {
+  if (!reference.value) return;
+  const nextUrl = editUrl.value.trim();
+  if (!nextUrl) {
+    editError.value = t('external.sourceUrlRequired');
+    return;
+  }
+  // 地址未变时无需重新验证来源，直接关闭。
+  if (nextUrl === reference.value.repositoryUrl) {
+    editVisible.value = false;
+    return;
+  }
+  if (!editPreview.value || previewedEditUrl.value !== nextUrl) {
+    editError.value = t('external.previewRequired');
+    return;
+  }
+  editLoading.value = true;
+  editError.value = '';
+  try {
+    const updated = await updateExternalReference(props.scope, props.skillName, {
+      repositoryUrl: nextUrl,
+      extraFiles: editExtraFiles(),
+      confirmLicense: editConfirmLicense.value && Boolean(editPreview.value.detectedLicense)
+    });
+    applyReference(updated);
+    editVisible.value = false;
+    flash(t('external.sourceSaved'), 'success');
+  } catch (error) {
+    // 验证失败保留原配置；服务端未写入任何变更。
+    editError.value = formatRequestError(error);
+  } finally {
+    editLoading.value = false;
+  }
+}
+
 onMounted(load);
 
 // 移除引用沿用既有治理：先归档，再在既有生命周期面板按权限与确认流程删除整个
@@ -337,7 +555,16 @@ function openLifecycle(): void {
 }
 
 // 测试接缝：暴露草稿状态与操作方法，便于不依赖 el-select 内部 DOM 结构地驱动。
-defineExpose({ draft, load, licenseBasis });
+defineExpose({
+  draft,
+  load,
+  licenseBasis,
+  editUrl,
+  editPreview,
+  openEditSource,
+  previewEdit,
+  saveSource
+});
 </script>
 
 <style scoped>
@@ -347,6 +574,12 @@ defineExpose({ draft, load, licenseBasis });
 
 .section-card {
   margin-bottom: 16px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .error-text {
@@ -381,5 +614,59 @@ defineExpose({ draft, load, licenseBasis });
   font-size: 13px;
   color: var(--el-text-color-secondary);
   margin: 0 0 12px;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 4px;
+}
+
+.edit-preview {
+  margin-top: 12px;
+}
+
+.provenance {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.candidate-block {
+  margin-top: 12px;
+}
+
+.candidate-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.candidate-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.candidate-tag {
+  margin-left: 8px;
+}
+
+.confirm-license {
+  margin-top: 12px;
+}
+
+.edit-error {
+  margin-top: 12px;
+}
+
+.license-text {
+  max-height: 160px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  white-space: pre-wrap;
 }
 </style>

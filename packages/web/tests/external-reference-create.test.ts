@@ -40,35 +40,57 @@ async function clickByTest(testId: string): Promise<void> {
 }
 
 describe('外部引用创建对话框', () => {
-  it('填写仓库地址后预览，解析分支并展示检测到的许可证', async () => {
+  function previewBody(overrides: Record<string, unknown> = {}) {
+    return {
+      branch: 'main',
+      commit: 'a'.repeat(40),
+      files: ['SKILL.md', 'note.txt'],
+      skillName: 'webapp-testing',
+      description: 'Browser automation for web apps',
+      detectedLicense: 'MIT',
+      licenseProvenance: { path: 'LICENSE', source: 'file' },
+      licenseCandidates: [
+        { path: 'LICENSE', text: 'MIT License', insideSkillDirectory: false }
+      ],
+      nameConflict: false,
+      existingExternal: false,
+      ...overrides
+    };
+  }
+
+  it('填写仓库地址后预览，展示上游名称、描述与许可证', async () => {
     const { requests } = await mountDialog((method, url) => {
       if (method === 'POST' && url === '/api/external-references/preview') {
-        return {
-          status: 200,
-          json: {
-            branch: 'main',
-            commit: 'a'.repeat(40),
-            files: ['SKILL.md', 'note.txt', 'LICENSE'],
-            detectedLicense: 'MIT',
-            licenseProvenance: { path: 'LICENSE', source: 'file' }
-          }
-        };
+        return { status: 200, json: previewBody() };
       }
       return { status: 200, json: {} };
     });
 
     setValue('external-repository-url', 'https://github.com/anthropics/skills.git');
+    setValue('external-skill-directory', 'skills/webapp-testing');
     await clickByTest('external-preview-btn');
 
     const previewRequest = requests.find((request) => request.url.endsWith('/preview'));
     expect(previewRequest?.body).toMatchObject({
-      repositoryUrl: 'https://github.com/anthropics/skills.git'
+      repositoryUrl: 'https://github.com/anthropics/skills.git',
+      skillDirectory: 'skills/webapp-testing'
     });
-    expect((document.querySelector('[data-test="external-preview-alert"]') as HTMLElement)?.textContent ?? '').toContain('MIT');
+    expect(
+      (document.querySelector('[data-test="external-preview-alert"]') as HTMLElement)?.textContent ?? ''
+    ).toContain('MIT');
+    expect(document.querySelector('[data-test="external-preview-name"]')?.textContent).toContain(
+      'webapp-testing'
+    );
+    expect(
+      document.querySelector('[data-test="external-preview-description"]')?.textContent
+    ).toContain('Browser automation');
   });
 
-  it('提交创建，携带命名空间、短名、目录、计划与可见性', async () => {
+  it('提交创建时自动使用上游名称，携带命名空间、目录、计划与可见性', async () => {
     const { requests } = await mountDialog((method, url) => {
+      if (method === 'POST' && url === '/api/external-references/preview') {
+        return { status: 200, json: previewBody() };
+      }
       if (method === 'POST' && url === '/api/external-references') {
         return {
           status: 201,
@@ -81,10 +103,10 @@ describe('外部引用创建对话框', () => {
       return { status: 200, json: {} };
     });
 
-    setValue('external-short-name', 'webapp-testing');
     setValue('external-repository-url', 'https://github.com/anthropics/skills.git');
-    setValue('external-skill-directory', 'webapp-testing');
-
+    setValue('external-skill-directory', 'skills/webapp-testing');
+    await clickByTest('external-preview-btn');
+    await clickByTest('external-confirm-license');
     await clickByTest('external-submit');
 
     const createRequest = requests.find(
@@ -92,11 +114,52 @@ describe('外部引用创建对话框', () => {
     );
     expect(createRequest?.body).toMatchObject({
       scope: 'carol',
-      shortName: 'webapp-testing',
-      skillDirectory: 'webapp-testing',
+      repositoryUrl: 'https://github.com/anthropics/skills.git',
+      skillDirectory: 'skills/webapp-testing',
       visibility: 'private',
-      schedule: expect.objectContaining({ frequency: 'daily' })
+      schedule: expect.objectContaining({ frequency: 'daily' }),
+      extraFiles: ['LICENSE'],
+      confirmLicense: true
     });
+    // 不再手填短名；名称由上游 SKILL.md 自动读取。
+    expect(createRequest?.body).not.toHaveProperty('shortName');
+  });
+
+  it('未预览时不允许创建，避免名称与描述缺失', async () => {
+    const { requests } = await mountDialog(() => ({ status: 200, json: {} }));
+
+    setValue('external-repository-url', 'https://github.com/anthropics/skills.git');
+    await clickByTest('external-submit');
+
+    expect(
+      (document.querySelector('[data-test="external-create-error"]') as HTMLElement)?.textContent ?? ''
+    ).toContain('预览');
+    expect(
+      requests.some(
+        (request) => request.method === 'POST' && request.url === '/api/external-references'
+      )
+    ).toBe(false);
+  });
+
+  it('上游名称冲突时阻止创建', async () => {
+    const { requests } = await mountDialog((method, url) => {
+      if (method === 'POST' && url.endsWith('/preview')) {
+        return { status: 200, json: previewBody({ nameConflict: true }) };
+      }
+      return { status: 200, json: {} };
+    });
+
+    setValue('external-repository-url', 'https://github.com/anthropics/skills.git');
+    setValue('external-skill-directory', 'skills/webapp-testing');
+    await clickByTest('external-preview-btn');
+
+    expect(document.querySelector('[data-test="external-name-conflict"]')).not.toBeNull();
+    await clickByTest('external-submit');
+    expect(
+      requests.some(
+        (request) => request.method === 'POST' && request.url === '/api/external-references'
+      )
+    ).toBe(false);
   });
 
   it('预览被拒绝（非 HTTPS）时展示错误，不发起创建', async () => {
@@ -108,6 +171,7 @@ describe('外部引用创建对话框', () => {
     });
 
     setValue('external-repository-url', 'http://example.com/repo.git');
+    setValue('external-skill-directory', 'webapp-testing');
     await clickByTest('external-preview-btn');
 
     expect((document.querySelector('[data-test="external-create-error"]') as HTMLElement)?.textContent ?? '').toContain('HTTPS');

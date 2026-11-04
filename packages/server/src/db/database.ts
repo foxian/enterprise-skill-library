@@ -2166,8 +2166,8 @@ export class ExternalSourceRepository {
         INSERT INTO skill_external_sources (
           skill_name, repository_url, skill_directory, branch, schedule_json,
           sync_state, license_basis, license_provenance_json,
-          license_confirmed_by, extra_files_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          license_confirmed_by, license_confirmed_at, extra_files_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END, ?)
       `)
       .run(
         input.skillName,
@@ -2178,6 +2178,7 @@ export class ExternalSourceRepository {
         input.syncState ?? 'idle',
         input.licenseBasis ?? null,
         input.licenseProvenance ? JSON.stringify(input.licenseProvenance) : null,
+        input.licenseConfirmedBy ?? null,
         input.licenseConfirmedBy ?? null,
         JSON.stringify(input.extraFiles ?? [])
       );
@@ -2212,6 +2213,20 @@ export class ExternalSourceRepository {
   markIdle(skillName: string): void {
     this.db
       .prepare(`UPDATE skill_external_sources SET sync_state = 'idle', updated_at = CURRENT_TIMESTAMP WHERE skill_name = ?`)
+      .run(skillName);
+  }
+
+  // 来源切换成功后清除旧来源的失败信息；暂停/同步中的状态保持不变。
+  clearSyncError(skillName: string): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET current_error = NULL,
+            error_code = NULL,
+            sync_state = CASE WHEN sync_state IN ('paused', 'syncing') THEN sync_state ELSE 'idle' END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
       .run(skillName);
   }
 
@@ -2286,6 +2301,41 @@ export class ExternalSourceRepository {
         WHERE skill_name = ? AND locked = 0
       `)
       .run(input.repositoryUrl ?? null, input.skillDirectory ?? null, input.branch ?? null, input.skillName);
+  }
+
+  // 修改来源 URL 不受首次发布后的锁定限制（ADR-0075）；目录与分支仍由调用方守卫。
+  updateRepositoryUrl(skillName: string, repositoryUrl: string): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET repository_url = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(repositoryUrl, skillName);
+  }
+
+  // 来源切换后清除既有许可确认，只保留本次检测线索，等待管理者重新确认（ADR-0075）。
+  resetLicenseConfirmation(input: {
+    skillName: string;
+    basis: string | null;
+    provenance?: unknown;
+  }): void {
+    this.db
+      .prepare(`
+        UPDATE skill_external_sources
+        SET license_basis = ?,
+            license_provenance_json = ?,
+            license_confirmed_by = NULL,
+            license_confirmed_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE skill_name = ?
+      `)
+      .run(
+        input.basis,
+        input.provenance ? JSON.stringify(input.provenance) : null,
+        input.skillName
+      );
   }
 
   confirmLicense(input: {
