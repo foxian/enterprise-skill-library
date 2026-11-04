@@ -1,9 +1,6 @@
 <template>
   <div>
-    <el-breadcrumb class="page-breadcrumb" separator="/">
-      <el-breadcrumb-item :to="{ name: 'super-orgs' }">{{ t('nav.orgManagement') }}</el-breadcrumb-item>
-      <el-breadcrumb-item>{{ orgName }}</el-breadcrumb-item>
-    </el-breadcrumb>
+    <PageBreadcrumb :items="breadcrumbItems" />
     <el-card class="data-card" shadow="never" data-test="org-summary">
       <el-descriptions :column="3" border>
         <el-descriptions-item :label="t('columns.organizationName')">{{ summary?.name ?? orgName }}</el-descriptions-item>
@@ -146,6 +143,7 @@ import type { OrgIdentity } from '@esl/core/dist/org/standing-teams.js';
 import { apiRequest } from '../../api/client';
 import { identityLabel, identityTagType, promotionLabel } from '../../constants/org-identity';
 import { orgStatusTagType, orgStatusText } from '../../constants/org-status';
+import PageBreadcrumb, { type PageBreadcrumbItem } from '../../components/layout/PageBreadcrumb.vue';
 
 const { t, formatDate, formatNumber } = useLocaleState();
 
@@ -167,6 +165,10 @@ interface AdminMemberView {
 }
 
 const orgName = computed(() => String(route.params.orgName ?? ''));
+const breadcrumbItems = computed<PageBreadcrumbItem[]>(() => [
+  { label: t('nav.orgManagement'), to: { name: 'super-orgs' }, test: 'crumb-super-orgs' },
+  { label: orgName.value, test: 'crumb-current' }
+]);
 const summary = ref<OrgSummary | null>(null);
 const members = ref<AdminMemberView[]>([]);
 const membersLoading = ref(false);

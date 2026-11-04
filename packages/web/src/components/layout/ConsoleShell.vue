@@ -1,11 +1,11 @@
 <template>
   <el-container class="console-shell" direction="horizontal">
     <el-aside width="var(--sidebar-width)">
-      <div class="console-brand">
+      <router-link class="console-brand" :to="auth.homePath" data-test="console-brand">
         <span class="console-brand-mark" aria-hidden="true"></span>
         <span class="console-brand-text">{{ brand }}</span>
-      </div>
-      <el-menu router :default-active="route.path" class="console-menu">
+      </router-link>
+      <el-menu router :default-active="activeMenuPath" class="console-menu">
         <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
           <el-icon v-if="item.icon" class="console-menu-icon">
             <component :is="item.icon" />
@@ -71,7 +71,7 @@ export interface ConsoleMenuItem {
   icon?: Component;
 }
 
-defineProps<{
+const props = defineProps<{
   brand: string;
   menuItems: ConsoleMenuItem[];
 }>();
@@ -81,6 +81,20 @@ const route = useRoute();
 const router = useRouter();
 const { t } = useLocaleState();
 const dialog = ref<InstanceType<typeof ChangePasswordDialog> | null>(null);
+
+/**
+ * 二级路由（organizations/:org/members、skills/:scope/:name/manage 等）不匹配
+ * 任何菜单项，原来整栏无高亮。这里回落到最长前缀的菜单项，让用户知道
+ * 自己属于哪个栏目。`${index}/` 带尾斜杠匹配，避免 /skills 误中 /skills-x。
+ */
+const activeMenuPath = computed<string>(() => {
+  const path = route.path;
+  if (props.menuItems.some((item) => item.index === path)) return path;
+  const parent = props.menuItems
+    .filter((item) => path.startsWith(`${item.index}/`))
+    .sort((a, b) => b.index.length - a.index.length)[0];
+  return parent?.index ?? path;
+});
 
 const avatarText = computed<string>(() => (auth.username ?? '?').charAt(0).toUpperCase());
 

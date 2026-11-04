@@ -38,6 +38,59 @@ afterEach(async () => {
   await resetConsole();
 });
 
+const meMenu = [
+  { index: '/admin/me/overview', label: '概览' },
+  { index: '/admin/me/orgs', label: '我的组织' },
+  { index: '/admin/me/skills', label: '技能' },
+  { index: '/admin/me/invitations', label: '邀请' }
+];
+
+function menuItemText(view: VueWrapper, label: string): DOMWrapper<Element> {
+  const item = view.findAll('.el-menu-item').find((candidate) => candidate.text() === label);
+  if (!item) {
+    throw new Error(`menu item ${label} not found`);
+  }
+  return item;
+}
+
+describe('ConsoleShell 导航定位', () => {
+  it('组织详情二级页高亮「我的组织」菜单', async () => {
+    useApiMock(() => ({ status: 200, json: {} }));
+    wrapper = await mountConsoleView(ConsoleShell as never, {
+      account: 'owner',
+      route: '/admin/me/orgs/acme/members',
+      props: { brand: '墨库', menuItems: meMenu }
+    });
+    await flushPromises();
+
+    expect(menuItemText(wrapper, '我的组织').classes()).toContain('is-active');
+  });
+
+  it('技能管理深层页高亮「技能」菜单', async () => {
+    useApiMock(() => ({ status: 200, json: {} }));
+    wrapper = await mountConsoleView(ConsoleShell as never, {
+      account: 'owner',
+      route: '/admin/me/skills/acme/reviewer/manage',
+      props: { brand: '墨库', menuItems: meMenu }
+    });
+    await flushPromises();
+
+    expect(menuItemText(wrapper, '技能').classes()).toContain('is-active');
+  });
+
+  it('品牌区可点，回工作台首页而非公开目录', async () => {
+    useApiMock(() => ({ status: 200, json: {} }));
+    wrapper = await mountConsoleView(ConsoleShell as never, {
+      account: 'owner',
+      route: '/admin/me/skills',
+      props: { brand: '墨库', menuItems: meMenu }
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="console-brand"]').attributes('href')).toBe('/admin/me/overview');
+  });
+});
+
 describe('ConsoleShell 侧边栏用户菜单 修改密码', () => {
   it('顶栏语言切换保存账户偏好并立即更新控制台文案', async () => {
     const { requests } = useApiMock((method, url) => {

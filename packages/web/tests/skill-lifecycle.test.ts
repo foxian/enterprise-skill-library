@@ -36,10 +36,10 @@ function permissions(status: string, lifecycle = { canArchive: true, canRestore:
   };
 }
 
-async function mountPanel() {
+async function mountPanel(route = '/admin/me/skills', account: 'member' | 'owner' = 'member') {
   wrapper = await mountConsoleView(
     { components: { SkillManagePanel }, template: '<SkillManagePanel scope="acme" skill-name="reviewer" />' } as never,
-    { account: 'member', route: '/admin/me/skills' }
+    { account, route }
   );
   await flushPromises();
   return wrapper;
@@ -140,5 +140,37 @@ describe('Skill 生命周期', () => {
     await flushPromises();
 
     expect(wrapper!.find('.page-error').text()).toContain('Gitea unavailable');
+  });
+
+  it('从组织技能页签进入时，删除成功后回到该组织技能列表并保留位置', async () => {
+    const { router } = await import('../src/router');
+    useApiMock((method, url) => {
+      if (method === 'GET' && url === '/api/skills/acme/reviewer/delete-context') {
+        return { status: 200, json: { name: '@acme/reviewer', everPublished: true, releasesRemoved: 1, dependents: [] } };
+      }
+      if (method === 'POST' && url === '/api/skills/acme/reviewer/delete') {
+        return { status: 200, json: { deleted: true, name: '@acme/reviewer' } };
+      }
+      return { status: 200, json: permissions('archived', { canArchive: false, canRestore: true, canDelete: true }) };
+    });
+    // 回退目标是组织技能页签：需要组织运营权，普通成员会被守卫送回组织列表。
+    await mountPanel('/admin/me/skills/acme/reviewer/manage?from=org-skills&org=acme&tab=shared&page=3', 'owner');
+
+    await wrapper!.find('[data-test="delete-skill"]').trigger('click');
+    await flushPromises();
+    const reason = wrapper!.find('textarea[data-test="delete-reason-input"]').element as HTMLTextAreaElement;
+    reason.value = '治理清理';
+    reason.dispatchEvent(new Event('input'));
+    await flushPromises();
+    const confirm = wrapper!.find('input[data-test="delete-confirm-input"]').element as HTMLInputElement;
+    confirm.value = '@acme/reviewer';
+    confirm.dispatchEvent(new Event('input'));
+    await flushPromises();
+    await wrapper!.find('[data-test="confirm-delete-skill"]').trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe('me-org-skills');
+    expect(router.currentRoute.value.params.org).toBe('acme');
+    expect(router.currentRoute.value.query).toEqual({ tab: 'shared', page: '3' });
   });
 });

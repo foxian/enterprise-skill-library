@@ -1,5 +1,6 @@
 <template>
   <div data-test="external-manage-panel">
+    <PageBreadcrumb :items="breadcrumbItems" />
     <div class="console-toolbar">
       <div class="panel-identity">
         <h2 class="panel-title">{{ t('external.title') }}</h2>
@@ -276,8 +277,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useLocaleState, formatRequestError } from '../i18n/locale';
+import PageBreadcrumb, { type PageBreadcrumbItem } from './layout/PageBreadcrumb.vue';
+import {
+  orgScopeFromQuery,
+  passthroughEntryQuery,
+  resolveSkillListLocation
+} from '../skills/manage-navigation';
 import {
   confirmExternalLicense,
   getExternalReference,
@@ -293,7 +300,37 @@ import {
 
 const props = defineProps<{ scope: string; skillName: string }>();
 const { t, formatDate } = useLocaleState();
+const route = useRoute();
 const router = useRouter();
+
+const identity = computed(() => `@${props.scope}/${props.skillName}`);
+const skillLocation = computed(() => ({
+  name: 'me-skill-manage',
+  params: { scope: props.scope, skillName: props.skillName },
+  query: passthroughEntryQuery(route)
+}));
+// 面包屑把所属技能作为中间一级（外部引用是在技能之下配置的），
+// 组织入口再在前面补 我的组织 / @org / 技能 三段。
+const breadcrumbItems = computed<PageBreadcrumbItem[]>(() => {
+  const items: PageBreadcrumbItem[] = [];
+  const org = orgScopeFromQuery(route);
+  if (org) {
+    items.push(
+      { label: t('nav.myOrganizations'), to: { name: 'me-orgs' }, test: 'crumb-my-orgs' },
+      { label: `@${org}`, to: { name: 'me-org-members', params: { org } }, test: 'crumb-org' },
+      { label: t('nav.skills'), to: resolveSkillListLocation(route, false), test: 'crumb-org-skills' }
+    );
+  } else {
+    items.push(
+      { label: t('nav.skills'), to: resolveSkillListLocation(route, false), test: 'crumb-skills' }
+    );
+  }
+  items.push(
+    { label: identity.value, to: skillLocation.value, test: 'crumb-skill' },
+    { label: t('external.title'), test: 'crumb-current' }
+  );
+  return items;
+});
 
 const reference = ref<ExternalReferenceView | null>(null);
 const loading = ref(false);
@@ -551,7 +588,7 @@ onMounted(load);
 // 移除引用沿用既有治理：先归档，再在既有生命周期面板按权限与确认流程删除整个
 // 技能（ADR-0074），不新增绕过删除权限的入口。
 function openLifecycle(): void {
-  void router.push({ name: 'me-skill-manage', params: { scope: props.scope, skillName: props.skillName } });
+  void router.push(skillLocation.value);
 }
 
 // 测试接缝：暴露草稿状态与操作方法，便于不依赖 el-select 内部 DOM 结构地驱动。

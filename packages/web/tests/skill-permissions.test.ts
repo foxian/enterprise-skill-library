@@ -8,6 +8,7 @@ import SkillListView from '../src/views/me/SkillsView.vue';
 import SkillManageView from '../src/views/me/SkillManageView.vue';
 import SuperSkillsView from '../src/views/super/SkillsView.vue';
 import { deriveShareState } from '../src/skills/skill-list';
+import { router } from '../src/router';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
 
 const skills = [
@@ -945,5 +946,109 @@ describe('deriveShareState 状态推导', () => {
       }).key
     ).toBe('custom');
     expect(deriveShareState({ ...baseMatrix }).key).toBe('private');
+  });
+});
+
+describe('二级页面包屑与列表位置恢复', () => {
+  function mockManageApi(): void {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return { status: 200, json: matrixFor('reviewer') };
+      }
+      return { status: 200, json: [] };
+    });
+  }
+
+  it('默认入口的面包屑指向全局技能列表', async () => {
+    mockManageApi();
+    wrapper = await mountConsoleView(SkillManageView, {
+      account: 'owner',
+      route: '/admin/me/skills/acme/reviewer/manage'
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="crumb-skills"]').text()).toBe('技能');
+    expect(wrapper.find('[data-test="crumb-current"]').text()).toBe('@acme/reviewer');
+
+    await wrapper.find('[data-test="crumb-skills"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('me-skills');
+  });
+
+  it('组织技能页签入口的面包屑逐级回退，并保留列表位置', async () => {
+    mockManageApi();
+    wrapper = await mountConsoleView(SkillManageView, {
+      account: 'owner',
+      route: '/admin/me/skills/acme/reviewer/manage?from=org-skills&org=acme&tab=shared&page=2'
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="crumb-my-orgs"]').text()).toBe('我的组织');
+    expect(wrapper.find('[data-test="crumb-org"]').text()).toBe('@acme');
+    expect(wrapper.find('[data-test="crumb-org-skills"]').text()).toBe('技能');
+
+    await wrapper.find('[data-test="crumb-org-skills"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('me-org-skills');
+    expect(router.currentRoute.value.params.org).toBe('acme');
+    expect(router.currentRoute.value.query).toEqual({ tab: 'shared', page: '2' });
+  });
+
+  it('列表页从 URL 恢复页签与页码', async () => {
+    const rows = Array.from({ length: 25 }, (_value, index) => ({
+      name: `@acme/build-${index}`,
+      scope: 'acme',
+      skillName: `build-${index}`,
+      createdBy: 'acme_alice',
+      status: 'active-published',
+      access: 'manage',
+      relation: 'managed'
+    }));
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') return { status: 200, json: rows };
+      // 清单加载会逐技能读权限矩阵；返回合法矩阵，避免分享状态推导失败导致整表清空。
+      if (url.endsWith('/permissions')) return { status: 200, json: matrixFor('build') };
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SkillListView, {
+      account: 'owner',
+      route: '/admin/me/skills?page=2'
+    });
+    await flushPromises();
+
+    const table = wrapper.find('[data-test="skill-list-managed"]').text();
+    expect(table).toContain('@acme/build-24');
+    expect(table).not.toContain('@acme/build-0');
+
+    // 翻页用 replace 写回 URL，不新增历史记录
+    wrapper.findComponent(ElPagination).vm.$emit('update:current-page', 1);
+    await flushPromises();
+    expect(router.currentRoute.value.query.page).toBeUndefined();
+  });
+
+  it('进入管理页时把来源与列表状态编码进 query', async () => {
+    useApiMock((_method, url) => {
+      if (url === '/api/skills/inventory') {
+        return {
+          status: 200,
+          json: [inventoryView(skills[0], { status: 'active-published', access: 'manage', relation: 'managed' })]
+        };
+      }
+      if (url === '/api/skills/acme/reviewer/permissions') {
+        return { status: 200, json: matrixFor('reviewer') };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(SkillListView, {
+      account: 'owner',
+      route: '/admin/me/skills?tab=shared&namespace=acme'
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-test="configure-reviewer"]').trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe('me-skill-manage');
+    expect(router.currentRoute.value.query).toEqual({ from: 'skills', namespace: 'acme', tab: 'shared' });
   });
 });
