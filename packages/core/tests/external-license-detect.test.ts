@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  detectLicenseFromCandidates,
   detectLicenseFromFiles,
   LICENSE_FILE_CANDIDATES,
   mergeUpstreamMetadata
@@ -58,6 +59,49 @@ describe('detectLicenseFromFiles', () => {
     const result = detectLicenseFromFiles(files);
     expect(result.provenance?.path).toBe('LICENSE.md');
   });
+
+  it('目录外许可文件按仓库相对路径参与识别', () => {
+    const files = mapOf({
+      'SKILL.md': '---\nname: webapp-testing\ndescription: Up\n---\n',
+      'LICENSE': 'MIT License\nfree of charge'
+    });
+    const result = detectLicenseFromFiles(files);
+    expect(result.license).toBe('MIT');
+    expect(result.provenance?.path).toBe('LICENSE');
+  });
+});
+
+describe('detectLicenseFromCandidates', () => {
+  it('按调用方给出的优先级识别候选许可文件', () => {
+    const result = detectLicenseFromCandidates([
+      { path: 'skills/webapp-testing/LICENSE', text: 'MIT License\nfree of charge' },
+      { path: 'LICENSE', text: 'Apache License\nVersion 2.0' }
+    ]);
+    expect(result.license).toBe('MIT');
+    expect(result.provenance?.path).toBe('skills/webapp-testing/LICENSE');
+  });
+
+  it('同名候选文件按 LICENSE 优先于 LICENSE.md', () => {
+    const result = detectLicenseFromFiles(
+      mapOf({
+        'LICENSE.md': 'Apache License\nVersion 2.0',
+        LICENSE: 'MIT License\nfree of charge'
+      })
+    );
+    expect(result.license).toBe('MIT');
+    expect(result.provenance?.path).toBe('LICENSE');
+  });
+
+  it('嵌套依赖中的许可证不覆盖技能根目录的许可证', () => {
+    const result = detectLicenseFromFiles(
+      mapOf({
+        'LICENSE.md': 'Apache License\nVersion 2.0',
+        'vendor/lib/LICENSE': 'MIT License\nfree of charge'
+      })
+    );
+    expect(result.license).toBe('Apache-2.0');
+    expect(result.provenance?.path).toBe('LICENSE.md');
+  });
 });
 
 describe('mergeUpstreamMetadata', () => {
@@ -96,8 +140,19 @@ describe('mergeUpstreamMetadata', () => {
     expect(merged.keywords).toEqual(['test']);
   });
 
-  it('上游 release.json 中的身份字段不能覆盖平台身份', () => {
+  it('release.json 未提供描述时回退到 SKILL.md 描述', () => {
     const merged = mergeUpstreamMetadata({
+      platformIdentity: '@alice/webapp-testing',
+      platformVersion: '0.1.0',
+      detectedLicense: 'MIT',
+      upstreamFiles: mapOf({
+        'SKILL.md': '---\nname: webapp-testing\ndescription: From SKILL.md\n---\n# hi\n'
+      })
+    });
+    expect(merged.description).toBe('From SKILL.md');
+  });
+
+  it('上游 release.json 中的身份字段不能覆盖平台身份', () => {    const merged = mergeUpstreamMetadata({
       platformIdentity: '@alice/locked-name',
       platformVersion: '0.1.0',
       detectedLicense: 'MIT',

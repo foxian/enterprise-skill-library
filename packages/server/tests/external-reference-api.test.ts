@@ -11,6 +11,9 @@ import { initDatabase, TenantOrganizationRepository } from '../src/db/database.j
 
 const execFileAsync = promisify(execFile);
 
+// Git 克隆与提交在 CI/Windows 并行运行时可能超过默认 5 秒。
+vi.setConfig({ testTimeout: 20_000 });
+
 async function git(args: string[], cwd: string): Promise<void> {
   await execFileAsync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', ...args], { cwd });
 }
@@ -93,9 +96,17 @@ describe('External Reference API', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.branch).toBe('main');
+    expect(body.skillName).toBe('webapp-testing');
+    expect(body.description).toBe('Up');
     expect(body.detectedLicense).toBe('MIT');
     expect(body.licenseProvenance.path).toBe('LICENSE');
     expect(body.files).toContain('SKILL.md');
+    // 祖先目录中的 LICENSE 作为候选返回，供管理者选择。
+    expect(body.licenseCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'LICENSE', insideSkillDirectory: false })
+      ])
+    );
   });
 
   it('创建引用并经许可证确认后发布 0.1.0，可通过详情读取', async () => {
@@ -106,7 +117,6 @@ describe('External Reference API', () => {
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'webapp-testing',
         repositoryUrl: upstreamDir,
         skillDirectory: 'webapp-testing',
         extraFiles: ['LICENSE'],
@@ -116,6 +126,9 @@ describe('External Reference API', () => {
     });
     expect(create.statusCode).toBe(201);
     expect(create.json().initialSync.outcome).toBe('license-confirmation-required');
+    // 名称与描述自动来自上游 SKILL.md。
+    expect(create.json().skillName).toBe('@alice/webapp-testing');
+    expect(create.json().description).toBe('Up');
 
     // 确认许可证。
     const license = await app.inject({
@@ -146,35 +159,58 @@ describe('External Reference API', () => {
     expect(detail.json()).toMatchObject({
       branch: 'main',
       skillDirectory: 'webapp-testing',
+      description: 'Up',
+      latestVersion: '0.1.0',
       syncState: 'idle',
       locked: true
     });
   });
 
-  it('重名引用被拒绝', async () => {
-    await app.inject({
+  it('创建时确认许可证可直接发布 0.1.0', async () => {
+    const create = await app.inject({
       method: 'POST',
       url: '/api/external-references',
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'dup-name',
         repositoryUrl: upstreamDir,
-        skillDirectory: 'webapp-testing'
+        skillDirectory: 'webapp-testing',
+        extraFiles: ['LICENSE'],
+        confirmLicense: true
       }
+    });
+    expect(create.statusCode).toBe(201);
+    expect(create.json().initialSync.outcome).toBe('published');
+    expect(create.json().initialSync.version).toBe('0.1.0');
+    expect(create.json()).toMatchObject({
+      skillName: '@alice/webapp-testing',
+      description: 'Up',
+      latestVersion: '0.1.0',
+      locked: true
+    });
+    expect(create.json().license.confirmedAt).not.toBeNull();
+  });
+
+  it('重名引用被拒绝', async () => {
+    const payload = {
+      scope: 'alice',
+      repositoryUrl: upstreamDir,
+      skillDirectory: 'webapp-testing'
+    };
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references',
+      headers: auth,
+      payload
     });
     const second = await app.inject({
       method: 'POST',
       url: '/api/external-references',
       headers: auth,
-      payload: {
-        scope: 'alice',
-        shortName: 'dup-name',
-        repositoryUrl: upstreamDir,
-        skillDirectory: 'webapp-testing'
-      }
+      payload
     });
     expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe('skillNameAlreadyExists');
   });
 
   it('非 HTTPS 地址预览被拒绝', async () => {
@@ -195,7 +231,6 @@ describe('External Reference API', () => {
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'paused-skill',
         repositoryUrl: upstreamDir,
         skillDirectory: 'webapp-testing',
         extraFiles: ['LICENSE']
@@ -203,7 +238,7 @@ describe('External Reference API', () => {
     });
     const pause = await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/paused-skill/pause',
+      url: '/api/external-references/@alice/webapp-testing/pause',
       headers: auth
     });
     expect(pause.statusCode).toBe(200);
@@ -212,7 +247,7 @@ describe('External Reference API', () => {
     // 暂停期间立即同步被拒绝（409），且状态仍保持暂停。
     const syncWhilePaused = await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/paused-skill/sync',
+      url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
     expect(syncWhilePaused.statusCode).toBe(409);
@@ -220,7 +255,7 @@ describe('External Reference API', () => {
 
     const resume = await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/paused-skill/resume',
+      url: '/api/external-references/@alice/webapp-testing/resume',
       headers: auth
     });
     expect(resume.json().catchupDue).toBe(true);
@@ -235,7 +270,6 @@ describe('External Reference API', () => {
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'archive-skill',
         repositoryUrl: upstreamDir,
         skillDirectory: 'webapp-testing',
         extraFiles: ['LICENSE']
@@ -243,20 +277,20 @@ describe('External Reference API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/archive-skill/license',
+      url: '/api/external-references/@alice/webapp-testing/license',
       headers: auth,
       payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
     });
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/archive-skill/sync',
+      url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
 
     // 归档。
     const archive = await app.inject({
       method: 'POST',
-      url: '/api/skills/@alice/archive-skill/archive',
+      url: '/api/skills/@alice/webapp-testing/archive',
       headers: auth
     });
     expect(archive.json().status).toBe('archived');
@@ -265,7 +299,7 @@ describe('External Reference API', () => {
     // 归档后立即同步应失败（已归档）。
     const syncArchived = await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/archive-skill/sync',
+      url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
     expect(syncArchived.statusCode).not.toBe(200);
@@ -273,13 +307,13 @@ describe('External Reference API', () => {
     // 恢复：技能恢复，但外部引用默认保持暂停。
     const restoreRes = await app.inject({
       method: 'POST',
-      url: '/api/skills/@alice/archive-skill/restore',
+      url: '/api/skills/@alice/webapp-testing/restore',
       headers: auth
     });
     expect(restoreRes.statusCode).toBe(200);
     const detail = await app.inject({
       method: 'GET',
-      url: '/api/external-references/@alice/archive-skill',
+      url: '/api/external-references/@alice/webapp-testing',
       headers: auth
     });
     expect(detail.json().syncState).toBe('paused');
@@ -287,7 +321,7 @@ describe('External Reference API', () => {
     // 显式恢复同步后才会回到计划并标记补跑。
     const resume = await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/archive-skill/resume',
+      url: '/api/external-references/@alice/webapp-testing/resume',
       headers: auth
     });
     expect(resume.json().syncState).toBe('idle');
@@ -301,7 +335,6 @@ describe('External Reference API', () => {
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'editable-skill',
         repositoryUrl: upstreamDir,
         skillDirectory: 'webapp-testing',
         branch: 'main',
@@ -312,7 +345,7 @@ describe('External Reference API', () => {
     // 未锁定：可改目录与分支。
     const beforeLock = await app.inject({
       method: 'PATCH',
-      url: '/api/external-references/@alice/editable-skill',
+      url: '/api/external-references/@alice/webapp-testing',
       headers: auth,
       payload: { skillDirectory: 'webapp-testing', branch: 'main' }
     });
@@ -321,19 +354,19 @@ describe('External Reference API', () => {
     // 确认许可并发布 → 锁定来源。
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/editable-skill/license',
+      url: '/api/external-references/@alice/webapp-testing/license',
       headers: auth,
       payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
     });
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/editable-skill/sync',
+      url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
 
     const afterLock = await app.inject({
       method: 'PATCH',
-      url: '/api/external-references/@alice/editable-skill',
+      url: '/api/external-references/@alice/webapp-testing',
       headers: auth,
       payload: { branch: 'other' }
     });
@@ -343,12 +376,155 @@ describe('External Reference API', () => {
     // 计划仍可独立修改。
     const scheduleUpdate = await app.inject({
       method: 'PATCH',
-      url: '/api/external-references/@alice/editable-skill',
+      url: '/api/external-references/@alice/webapp-testing',
       headers: auth,
       payload: { schedule: { frequency: 'weekly', weekday: 3, time: '10:00', timeZone: 'UTC' } }
     });
     expect(scheduleUpdate.statusCode).toBe(200);
     expect(scheduleUpdate.json().schedule).toMatchObject({ frequency: 'weekly', weekday: 3 });
+  });
+
+  it('首次发布后可编辑来源 URL，保存不发版并保留技能身份与历史', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references',
+      headers: auth,
+      payload: {
+        scope: 'alice',
+        repositoryUrl: upstreamDir,
+        skillDirectory: 'webapp-testing',
+        extraFiles: ['LICENSE']
+      }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references/@alice/webapp-testing/license',
+      headers: auth,
+      payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
+    });
+    const firstSync = await app.inject({
+      method: 'POST',
+      url: '/api/external-references/@alice/webapp-testing/sync',
+      headers: auth
+    });
+    expect(firstSync.json().version).toBe('0.1.0');
+
+    // 构造一个内容有变化的上游 fork。
+    const forkRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'esl-extapi-fork-'));
+    const forkDir = path.join(forkRoot, 'fork.git');
+    try {
+      await execFileAsync('git', ['clone', upstreamDir, forkDir]);
+      await fsp.writeFile(path.join(forkDir, 'webapp-testing', 'note.txt'), 'v2');
+      await git(['add', '.'], forkDir);
+      await git(['commit', '-m', 'fork change'], forkDir);
+
+      const update = await app.inject({
+        method: 'PATCH',
+        url: '/api/external-references/@alice/webapp-testing',
+        headers: auth,
+        payload: { repositoryUrl: forkDir }
+      });
+      expect(update.statusCode).toBe(200);
+      expect(update.json().repositoryUrl).toBe(forkDir);
+      // 目录与分支保持锁定，技能身份与历史版本不变。
+      expect(update.json()).toMatchObject({
+        skillName: '@alice/webapp-testing',
+        skillDirectory: 'webapp-testing',
+        branch: 'main',
+        locked: true,
+        latestVersion: '0.1.0'
+      });
+      // 新来源需要重新确认许可；保存地址本身不产生新版本。
+      expect(update.json().license.confirmedAt).toBeNull();
+
+      const pending = await app.inject({
+        method: 'POST',
+        url: '/api/external-references/@alice/webapp-testing/sync',
+        headers: auth
+      });
+      expect(pending.json().outcome).toBe('license-confirmation-required');
+
+      await app.inject({
+        method: 'POST',
+        url: '/api/external-references/@alice/webapp-testing/license',
+        headers: auth,
+        payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
+      });
+      const secondSync = await app.inject({
+        method: 'POST',
+        url: '/api/external-references/@alice/webapp-testing/sync',
+        headers: auth
+      });
+      expect(secondSync.json().outcome).toBe('published');
+      expect(secondSync.json().version).toBe('0.1.1');
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: '/api/external-references/@alice/webapp-testing',
+        headers: auth
+      });
+      expect(detail.json()).toMatchObject({
+        skillName: '@alice/webapp-testing',
+        latestVersion: '0.1.1',
+        repositoryUrl: forkDir
+      });
+    } finally {
+      await fsp.rm(forkRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('来源验证失败时不写入任何变更', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references',
+      headers: auth,
+      payload: {
+        scope: 'alice',
+        repositoryUrl: upstreamDir,
+        skillDirectory: 'webapp-testing',
+        extraFiles: ['LICENSE']
+      }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references/@alice/webapp-testing/license',
+      headers: auth,
+      payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/external-references/@alice/webapp-testing/sync',
+      headers: auth
+    });
+
+    // 新来源没有许可证，却要求一并确认：应拒绝，且保留原来源与确认状态。
+    const noLicenseRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'esl-extapi-nolicense-'));
+    const noLicenseDir = path.join(noLicenseRoot, 'repo.git');
+    try {
+      await execFileAsync('git', ['clone', upstreamDir, noLicenseDir]);
+      await fsp.rm(path.join(noLicenseDir, 'LICENSE'), { force: true });
+      await git(['add', '-A'], noLicenseDir);
+      await git(['commit', '-m', 'drop license'], noLicenseDir);
+
+      const rejected = await app.inject({
+        method: 'PATCH',
+        url: '/api/external-references/@alice/webapp-testing',
+        headers: auth,
+        payload: { repositoryUrl: noLicenseDir, extraFiles: [], confirmLicense: true }
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json().code).toBe('externalSourceLicenseConfirmationRequired');
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: '/api/external-references/@alice/webapp-testing',
+        headers: auth
+      });
+      expect(detail.json().repositoryUrl).toBe(upstreamDir);
+      expect(detail.json().license.confirmedAt).not.toBeNull();
+    } finally {
+      await fsp.rm(noLicenseRoot, { recursive: true, force: true });
+    }
   });
 
   it('发布的外部 Release 保留上游文件字节', async () => {
@@ -358,7 +534,6 @@ describe('External Reference API', () => {
       headers: auth,
       payload: {
         scope: 'alice',
-        shortName: 'bytes-skill',
         repositoryUrl: upstreamDir,
         skillDirectory: 'webapp-testing',
         extraFiles: ['LICENSE']
@@ -366,19 +541,19 @@ describe('External Reference API', () => {
     });
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/bytes-skill/license',
+      url: '/api/external-references/@alice/webapp-testing/license',
       headers: auth,
       payload: { basis: 'MIT', extraFiles: ['LICENSE'] }
     });
     await app.inject({
       method: 'POST',
-      url: '/api/external-references/@alice/bytes-skill/sync',
+      url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
     // 通过 Release 列表拿到消费者下载地址，验证上游文件字节被原样保留。
     const releasesRes = await app.inject({
       method: 'GET',
-      url: '/api/skills/@alice/bytes-skill',
+      url: '/api/skills/@alice/webapp-testing',
       headers: auth
     });
     expect(releasesRes.statusCode).toBe(200);

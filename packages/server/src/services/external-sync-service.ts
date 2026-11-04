@@ -257,6 +257,11 @@ export async function synchronizeExternalReference(
     deps.skillRepository.addVersion(skill.name, version);
   }
   deps.skillRepository.markPublished(skill.name);
+  // 描述来自上游 SKILL.md（release.json 可覆盖），只在成功发布后更新（ADR-0075）。
+  deps.skillRepository.updateSkillDescription(
+    skill.name,
+    metadata.description ?? skillMdValidation.data.description
+  );
 
   // 首次成功后锁定来源配置。
   deps.externalSourceRepository.markLocked(skillName);

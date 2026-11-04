@@ -19,29 +19,30 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item :label="t('external.shortName')">
-        <el-input v-model="form.shortName" data-test="external-short-name" />
-      </el-form-item>
       <el-form-item :label="t('external.repositoryUrl')">
         <el-input v-model="form.repositoryUrl" data-test="external-repository-url" />
         <div class="form-hint">{{ t('external.repositoryUrlHint') }}</div>
       </el-form-item>
+      <el-form-item :label="t('external.skillLocation')">
+        <el-radio-group v-model="form.skillLocation" data-test="external-skill-location">
+          <el-radio value="root">{{ t('external.repositoryRoot') }}</el-radio>
+          <el-radio value="subdirectory">{{ t('external.repositorySubdirectory') }}</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item
+        v-if="form.skillLocation === 'subdirectory'"
+        :label="t('external.skillDirectory')"
+      >
+        <el-input
+          v-model="form.skillDirectory"
+          data-test="external-skill-directory"
+          :placeholder="t('external.skillDirectoryPlaceholder')"
+        />
+        <div class="form-hint">{{ t('external.skillDirectoryHint') }}</div>
+      </el-form-item>
       <el-form-item :label="t('external.branch')">
         <el-input v-model="form.branch" data-test="external-branch" :placeholder="t('external.preview')" />
         <div class="form-hint">{{ t('external.branchHint') }}</div>
-      </el-form-item>
-      <el-form-item :label="t('external.skillDirectory')">
-        <el-input v-model="form.skillDirectory" data-test="external-skill-directory" />
-        <div class="form-hint">{{ t('external.skillDirectoryHint') }}</div>
-      </el-form-item>
-      <el-form-item :label="t('external.extraFiles')">
-        <el-input
-          v-model="extraFilesText"
-          type="textarea"
-          :rows="2"
-          data-test="external-extra-files"
-        />
-        <div class="form-hint">{{ t('external.extraFilesHint') }}</div>
       </el-form-item>
       <el-form-item :label="t('external.visibility')">
         <el-radio-group v-model="form.visibility" data-test="external-visibility">
@@ -79,19 +80,81 @@
       </el-form-item>
     </el-form>
 
+    <el-card v-if="previewResult" class="preview-card" data-test="external-preview-alert">
+      <template #header>{{ t('external.previewResult') }}</template>
+      <el-descriptions :column="1" border label-width="96px">
+        <el-descriptions-item :label="t('external.skillName')">
+          <code data-test="external-preview-name">{{ previewResult.skillName }}</code>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.description')">
+          <span data-test="external-preview-description">
+            {{ previewResult.description || t('external.noDescription') }}
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.branch')">
+          <code>{{ previewResult.branch }}</code>
+        </el-descriptions-item>
+        <el-descriptions-item :label="t('external.license')">
+          <span data-test="external-preview-license">
+            {{
+              previewResult.detectedLicense
+                ? `${t('external.detectedLicense')}: ${previewResult.detectedLicense}`
+                : t('external.noLicenseDetected')
+            }}
+          </span>
+          <span v-if="previewResult.licenseProvenance" class="provenance">
+            {{ previewResult.licenseProvenance.path }}
+          </span>
+        </el-descriptions-item>
+      </el-descriptions>
+
+      <div v-if="previewResult.licenseCandidates.length > 0" class="candidate-block">
+        <div class="candidate-title">{{ t('external.licenseCandidates') }}</div>
+        <el-radio-group v-model="selectedLicensePath" data-test="external-license-candidates">
+          <el-radio
+            v-for="candidate in previewResult.licenseCandidates"
+            :key="candidate.path"
+            :value="candidate.path"
+            class="candidate-option"
+          >
+            <code>{{ candidate.path }}</code>
+            <el-tag v-if="candidate.insideSkillDirectory" size="small" type="info" class="candidate-tag">
+              {{ t('external.insideSkillDirectory') }}
+            </el-tag>
+          </el-radio>
+        </el-radio-group>
+        <div class="form-hint">{{ t('external.licenseCandidateHint') }}</div>
+        <pre v-if="selectedCandidate" class="license-text">{{ selectedCandidate.text }}</pre>
+      </div>
+
+      <el-checkbox
+        v-if="previewResult.detectedLicense"
+        v-model="confirmLicense"
+        data-test="external-confirm-license"
+        class="confirm-license"
+      >
+        {{ t('external.confirmLicenseCheckbox') }}
+      </el-checkbox>
+      <el-alert
+        v-else
+        type="warning"
+        :closable="false"
+        :title="t('external.licenseNotDetectedHint')"
+        class="preview-alert"
+      />
+    </el-card>
+
     <el-alert
-      v-if="previewResult"
-      type="info"
+      v-if="previewResult?.nameConflict"
+      type="error"
+      :title="t('external.nameConflict')"
       :closable="false"
       class="preview-alert"
-      data-test="external-preview-alert"
+      data-test="external-name-conflict"
     >
-      <template #title>
-        {{ previewResult.detectedLicense
-          ? `${t('external.detectedLicense')}: ${previewResult.detectedLicense}`
-          : t('external.noLicenseDetected') }}
-      </template>
-      <div class="preview-files">{{ previewResult.files.join(', ') }}</div>
+      <el-button size="small" data-test="external-open-existing" @click="openExistingSkill">
+        {{ t('external.openExistingSkill') }}
+      </el-button>
     </el-alert>
     <el-alert
       v-if="errorMessage"
@@ -122,7 +185,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { useLocaleState, formatRequestError } from '../i18n/locale';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -133,6 +197,7 @@ import {
 
 const { t } = useLocaleState();
 const auth = useAuthStore();
+const router = useRouter();
 
 const props = defineProps<{
   modelValue: boolean;
@@ -146,10 +211,10 @@ const emit = defineEmits<{
 
 interface FormState {
   scope: string;
-  shortName: string;
   repositoryUrl: string;
-  branch: string;
+  skillLocation: 'root' | 'subdirectory';
   skillDirectory: string;
+  branch: string;
   visibility: 'private' | 'public';
   schedule: {
     frequency: 'daily' | 'weekly' | 'monthly';
@@ -163,20 +228,23 @@ interface FormState {
 function initialForm(): FormState {
   return {
     scope: props.defaultNamespace ?? auth.username ?? 'local',
-    shortName: '',
     repositoryUrl: '',
-    branch: '',
+    skillLocation: 'subdirectory',
     skillDirectory: '',
+    branch: '',
     visibility: 'private',
     schedule: { frequency: 'daily', time: '09:00', timeZone: 'UTC', weekday: 1, dayOfMonth: 1 }
   };
 }
 
 const form = reactive<FormState>(initialForm());
-const extraFilesText = ref('');
 const loading = ref(false);
 const errorMessage = ref('');
 const previewResult = ref<ExternalPreviewResult | null>(null);
+const selectedLicensePath = ref('');
+const confirmLicense = ref(false);
+// 预览时的输入快照：提交前若来源字段变化，要求重新预览，避免创建与预览不一致。
+const previewedSource = ref('');
 
 // 可归属的命名空间：自己 + 所在组织。
 const namespaces = computed<string[]>(() =>
@@ -195,11 +263,22 @@ const weekOptions = [
   { value: 7, label: 'external.sun' }
 ] as const;
 
-function extraFiles(): string[] {
-  return extraFilesText.value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+const skillDirectory = computed(() =>
+  form.skillLocation === 'subdirectory' ? form.skillDirectory.trim() : ''
+);
+
+const selectedCandidate = computed(() =>
+  previewResult.value?.licenseCandidates.find(
+    (candidate) => candidate.path === selectedLicensePath.value
+  )
+);
+
+function sourceSnapshot(): string {
+  return JSON.stringify({
+    repositoryUrl: form.repositoryUrl.trim(),
+    branch: form.branch.trim(),
+    skillDirectory: skillDirectory.value
+  });
 }
 
 function buildSchedule() {
@@ -210,37 +289,80 @@ function buildSchedule() {
   return base;
 }
 
+// 目录外许可文件必须显式选入；目录内候选已随技能内容打包。
+function extraFiles(): string[] {
+  const candidate = selectedCandidate.value;
+  return candidate && !candidate.insideSkillDirectory ? [candidate.path] : [];
+}
+
 async function runPreview(): Promise<void> {
-  loading.value = true;
   errorMessage.value = '';
+  if (form.skillLocation === 'subdirectory' && !form.skillDirectory.trim()) {
+    errorMessage.value = t('external.skillDirectoryRequired');
+    return;
+  }
+  loading.value = true;
   try {
     previewResult.value = await previewExternalReference({
+      scope: form.scope,
       repositoryUrl: form.repositoryUrl,
       branch: form.branch || undefined,
-      skillDirectory: form.skillDirectory || undefined,
-      extraFiles: extraFiles()
+      skillDirectory: skillDirectory.value || undefined
     });
     if (!form.branch) form.branch = previewResult.value.branch;
+    previewedSource.value = sourceSnapshot();
+    selectedLicensePath.value =
+      previewResult.value.licenseProvenance?.path ??
+      previewResult.value.licenseCandidates[0]?.path ??
+      '';
+    confirmLicense.value = false;
+    // 预览结果位于表单下方，自动滚动到结果卡片，避免用户误以为没有响应。
+    await nextTick();
+    document
+      .querySelector('[data-test="external-preview-alert"]')
+      ?.scrollIntoView?.({ block: 'nearest' });
   } catch (error) {
+    previewResult.value = null;
     errorMessage.value = formatRequestError(error);
   } finally {
     loading.value = false;
   }
 }
 
+function openExistingSkill(): void {
+  if (!previewResult.value) return;
+  emit('update:modelValue', false);
+  void router.push({
+    name: previewResult.value.existingExternal ? 'me-external-manage' : 'me-skill-manage',
+    params: { scope: form.scope, skillName: previewResult.value.skillName }
+  });
+}
+
 async function submit(): Promise<void> {
-  loading.value = true;
   errorMessage.value = '';
+  if (!previewResult.value) {
+    errorMessage.value = t('external.previewRequired');
+    return;
+  }
+  if (previewedSource.value !== sourceSnapshot()) {
+    errorMessage.value = t('external.previewChanged');
+    return;
+  }
+  if (previewResult.value.nameConflict) {
+    errorMessage.value = t('external.nameConflict');
+    return;
+  }
+  loading.value = true;
   try {
     const created = await createExternalReference({
       scope: form.scope,
-      shortName: form.shortName,
       repositoryUrl: form.repositoryUrl,
       branch: form.branch || undefined,
-      skillDirectory: form.skillDirectory || undefined,
+      skillDirectory: skillDirectory.value || undefined,
       extraFiles: extraFiles(),
       visibility: form.visibility,
-      schedule: buildSchedule()
+      schedule: buildSchedule(),
+      confirmLicense: confirmLicense.value && Boolean(previewResult.value.detectedLicense)
     });
     emit('created', created.skillName);
     emit('update:modelValue', false);
@@ -259,8 +381,6 @@ async function submit(): Promise<void> {
   margin-top: 4px;
 }
 
-
-
 .schedule-row {
   display: flex;
   gap: 8px;
@@ -271,9 +391,48 @@ async function submit(): Promise<void> {
   margin-top: 12px;
 }
 
-.preview-files {
+.preview-card {
+  margin-top: 12px;
+}
+
+.provenance {
+  margin-left: 8px;
   font-size: 12px;
-  word-break: break-all;
+  color: var(--el-text-color-secondary);
+}
+
+.candidate-block {
+  margin-top: 12px;
+}
+
+.candidate-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.candidate-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.candidate-tag {
+  margin-left: 8px;
+}
+
+.license-text {
+  max-height: 160px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--el-fill-color-light);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.confirm-license {
+  margin-top: 12px;
 }
 </style>
 

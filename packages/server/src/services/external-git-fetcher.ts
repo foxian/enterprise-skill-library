@@ -11,6 +11,7 @@ import {
   collectFilesWithinBoundary,
   DEFAULT_FETCH_LIMITS,
   detectUnsupportedMechanisms,
+  LICENSE_FILE_CANDIDATES,
   type FetchLimits,
   type HostLookup
 } from '@esl/core';
@@ -24,7 +25,9 @@ const execFileAsync = promisify(execFile);
 const GIT_NETWORK_CONFIG = [
   '-c', 'http.followRedirects=false',
   '-c', 'credential.helper=',
-  '-c', 'core.askPass='
+  '-c', 'core.askPass=',
+  // 上游文件必须按原始字节保存（ADR-0074）；Windows 默认的换行转换会改写字节。
+  '-c', 'core.autocrlf=false'
 ];
 
 // 外部 Git 抓取器（ADR-0074）：只用 git 读取数据，不执行上游脚本、不安装依赖、
@@ -55,11 +58,22 @@ export interface FetchInput {
   skillDirectory: string;
   // 已确认的目录外许可/署名文件（相对仓库根）。
   extraFiles: string[];
+  // 预览/编辑来源时额外收集技能目录及祖先目录中的许可候选文件。
+  includeLicenseCandidates?: boolean;
+}
+
+export interface LicenseCandidateFile {
+  // 相对仓库根的路径。
+  path: string;
+  text: string;
+  // 是否位于所选技能目录内（目录内文件已随技能内容打包，无需重复选入）。
+  insideSkillDirectory: boolean;
 }
 
 export interface FetchResult {
   commit: string;
   files: ByteFileMap;
+  licenseCandidates?: LicenseCandidateFile[];
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -209,7 +223,48 @@ export class ExternalGitFetcher {
     }
     assertMaterializationLimits(files, this.limits);
 
-    return { commit, files };
+    const licenseCandidates = input.includeLicenseCandidates
+      ? await this.collectLicenseCandidates(checkoutDir, skillDirectory)
+      : undefined;
+
+    return { commit, files, licenseCandidates };
+  }
+
+  // 从技能目录逐级向上收集许可候选文件，供预览与编辑来源时展示原文并由管理者选择。
+  // 目录内候选随技能内容打包；祖先目录候选需由管理者显式选为 extraFiles 才会参与同步。
+  private async collectLicenseCandidates(
+    checkoutDir: string,
+    skillDirectory: string
+  ): Promise<LicenseCandidateFile[]> {
+    const root = path.resolve(checkoutDir);
+    const boundary = path.resolve(path.join(checkoutDir, skillDirectory));
+    const candidates: LicenseCandidateFile[] = [];
+    let current = boundary;
+
+    while (true) {
+      const entries = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
+      const byLowerName = new Map(
+        entries.filter((entry) => entry.isFile()).map((entry) => [entry.name.toLowerCase(), entry.name])
+      );
+      for (const candidate of LICENSE_FILE_CANDIDATES) {
+        const actualName = byLowerName.get(candidate.toLowerCase());
+        if (!actualName) continue;
+        const absolute = path.join(current, actualName);
+        const relative = path.relative(root, absolute).split(path.sep).join('/');
+        candidates.push({
+          path: relative,
+          text: await fs.readFile(absolute, 'utf8'),
+          insideSkillDirectory: current === boundary
+        });
+      }
+      if (current === root) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+
+    // 技能目录优先，祖先目录按由近及远排列；调用方按此顺序识别许可证。
+    return candidates;
   }
 
   private normalizeExtraPath(extra: string): string {

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parsePublishedSkillPackage, type CalendarSchedule } from '@esl/core';
 import {
   initDatabase,
@@ -17,6 +17,9 @@ import { synchronizeExternalReference } from '../src/services/external-sync-serv
 import type Database from 'better-sqlite3';
 
 const execFileAsync = promisify(execFile);
+
+// Git 克隆与提交在 CI/Windows 并行运行时可能超过默认 5 秒。
+vi.setConfig({ testTimeout: 20_000 });
 
 async function git(args: string[], cwd: string): Promise<void> {
   await execFileAsync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', ...args], { cwd });
@@ -153,6 +156,8 @@ describe('External sync service', () => {
     );
     // 发布后来源被锁定。
     expect(externalSourceRepository.get('@alice/webapp-testing')?.locked).toBe(true);
+    // 描述随成功发布从上游 SKILL.md 同步。
+    expect(skillRepository.getSkill('@alice/webapp-testing')?.description).toBe('Up');
   });
 
   it('无内容变化时不发版，结果为 unchanged', async () => {

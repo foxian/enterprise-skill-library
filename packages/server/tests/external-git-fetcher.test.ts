@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import { ExternalGitFetcher } from '../src/services/external-git-fetcher.js';
 
 const execFileAsync = promisify(execFile);
+
+// Git 克隆与提交在 CI/Windows 并行运行时可能超过默认 5 秒。
+vi.setConfig({ testTimeout: 20_000 });
 
 async function git(args: string[], cwd: string): Promise<void> {
   await execFileAsync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=Test', ...args], { cwd });
