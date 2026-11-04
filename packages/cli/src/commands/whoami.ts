@@ -1,9 +1,14 @@
 import {
+  accountForInstance,
+  credentialsForInstance,
   loadConfig,
   loadCredentials,
   saveConfig,
+  serverContextOfConfig,
+  type InstanceAccountSnapshot,
   type LocalStoreOptions,
-  type OrganizationMembership
+  type OrganizationMembership,
+  type ServerIdentityStatus
 } from '@esl/core';
 import { fetchAccountProfile, fetchMyOrganizations, isLoginFresh, resolveLoginTtlMs } from './network-options.js';
 import { resolveServer } from './config.js';
@@ -19,6 +24,10 @@ export interface WhoamiOptions extends LocalStoreOptions {
 
 export interface WhoamiResult {
   loggedIn: boolean;
+  /** 当前地址的身份状态；unconfirmed 时不得把本地凭据当作已登录。 */
+  identityStatus: ServerIdentityStatus;
+  instanceId: string | null;
+  hasRegisteredInstances: boolean;
   username: string | null;
   /** 登录时刻记录的用户邮箱快照；token-file 离线登录或旧配置为 null。 */
   email: string | null;
@@ -33,36 +42,92 @@ export interface WhoamiResult {
 
 export async function executeWhoami(options: WhoamiOptions = {}): Promise<WhoamiResult> {
   const config = await loadConfig({ homeDir: options.homeDir });
-  const credentials = await loadCredentials({ homeDir: options.homeDir });
+  const allCredentials = await loadCredentials({ homeDir: options.homeDir });
+  const context = serverContextOfConfig(config);
+  const hasRegistry =
+    (config.servers?.length ?? 0) > 0 || (config.pendingServerAddresses?.length ?? 0) > 0;
 
-  const token = credentials.token;
+  const identityStatus: ServerIdentityStatus = context.status;
+  let credentials = { token: null as string | null, loginAt: null as string | null };
+  let snapshot: InstanceAccountSnapshot | null = null;
+
+  if (identityStatus === 'confirmed' && context.instanceId) {
+    // 已确认实例只读该实例的凭据与账户快照，绝不回退到顶层遗留值。
+    credentials = credentialsForInstance(allCredentials, context.instanceId);
+    snapshot = accountForInstance(config, context.instanceId);
+  } else if (identityStatus === 'legacy' || (identityStatus === 'none' && !hasRegistry)) {
+    credentials = credentialsForInstance(allCredentials, null);
+    snapshot = {
+      username: config.username,
+      email: config.email ?? null,
+      organizations: config.organizations,
+      locale: config.locale ?? null,
+      legacyIdentity: config.legacyIdentity ?? false
+    };
+  }
+  // unconfirmed：不读取任何凭据或账户快照，状态保持未知。
+
   const loginAt = credentials.loginAt;
   const loginAtMs = loginAt ? Date.parse(loginAt) : NaN;
   const expired = !isLoginFresh(loginAt);
-
-  let email = config.email ?? null;
-  let organizations = config.organizations ?? null;
-  let server = config.server ?? null;
+  let email = snapshot?.email ?? null;
+  let organizations = snapshot?.organizations ?? null;
+  let server = context.server ?? config.server ?? null;
 
   if (options.online) {
-    if (!token) {
-      throw new Error('Not logged in; run esl login to authenticate.');
+    if (identityStatus === 'unconfirmed') {
+      throw new Error(
+        `The ESL Server identity at ${server ?? 'the configured address'} is not confirmed. ` +
+          'Register or confirm the address with "esl config server list" before authenticating.'
+      );
     }
-    server = await resolveServer({ homeDir: options.homeDir });
+    if (!credentials.token) {
+      throw new Error(
+        identityStatus === 'confirmed'
+          ? 'The current ESL Server is not logged in; run esl login to authenticate.'
+          : 'Not logged in; run esl login to authenticate.'
+      );
+    }
+    server = context.server ?? (await resolveServer({ homeDir: options.homeDir }));
     const fetchImpl = options.customFetch ?? fetch;
-    email = (await fetchAccountProfile(server, token, fetchImpl)).email;
-    organizations = await fetchMyOrganizations(server, token, fetchImpl);
-    // 写回本地快照：后续默认（离线）whoami 也反映这次核实到的资料。只更新账户资料，
-    // 不碰 loginAt——核实资料不是重新登录，不该延长会话有效期。
-    await saveConfig({ email, organizations }, { homeDir: options.homeDir });
+    email = (await fetchAccountProfile(server, credentials.token, fetchImpl)).email;
+    organizations = await fetchMyOrganizations(server, credentials.token, fetchImpl);
+
+    const nextSnapshot: InstanceAccountSnapshot = {
+      username: snapshot?.username ?? null,
+      email,
+      organizations,
+      locale: snapshot?.locale ?? config.locale ?? null,
+      legacyIdentity: snapshot?.legacyIdentity ?? false
+    };
+    // 写回当前实例快照：后续默认（离线）whoami 也反映这次核实到的资料。只更新
+    // 账户资料，不碰 loginAt——核实资料不是重新登录，不该延长会话有效期。
+    await saveConfig(
+      {
+        email,
+        organizations,
+        ...(identityStatus === 'confirmed' && context.instanceId
+          ? {
+              instanceAccounts: {
+                ...(config.instanceAccounts ?? {}),
+                [context.instanceId]: nextSnapshot
+              }
+            }
+          : {})
+      },
+      { homeDir: options.homeDir }
+    );
   }
 
   return {
-    loggedIn: Boolean(token),
-    username: config.username ?? null,
+    loggedIn: identityStatus === 'unconfirmed' ? false : Boolean(credentials.token),
+    identityStatus,
+    instanceId: context.instanceId,
+    hasRegisteredInstances: hasRegistry,
+    username: snapshot?.username ?? null,
     email,
     organizations,
-    legacyIdentity: config.legacyIdentity ?? false,
+    legacyIdentity: snapshot?.legacyIdentity ?? false,
     server,
     loginAt,
     expiresAt: loginAt && !Number.isNaN(loginAtMs) ? new Date(loginAtMs + resolveLoginTtlMs()).toISOString() : null,
@@ -71,8 +136,21 @@ export async function executeWhoami(options: WhoamiOptions = {}): Promise<Whoami
 }
 
 export function formatWhoami(result: WhoamiResult): string {
+  if (result.identityStatus === 'unconfirmed') {
+    const lines = [`Server: ${result.server ?? '(unknown)'}`];
+    lines.push('Status: identity unconfirmed');
+    lines.push(
+      'The current Server address is not bound to a confirmed instance. Authenticating commands stop until you confirm it with "esl config server list".'
+    );
+    return lines.join('\n');
+  }
+  if (result.identityStatus === 'none' && result.hasRegisteredInstances) {
+    return 'No ESL Server address selected. Run "esl config server list" to choose an address.';
+  }
   if (!result.loggedIn) {
-    return 'Not logged in. Run esl login to authenticate.';
+    return result.identityStatus === 'confirmed'
+      ? `Not logged in to the current ESL Server (${result.server ?? 'unknown'}). Run esl login to authenticate.`
+      : 'Not logged in. Run esl login to authenticate.';
   }
   const lines: string[] = [];
   if (result.legacyIdentity) {

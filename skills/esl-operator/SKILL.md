@@ -23,12 +23,19 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
   `https://cloud.enterprise-skills.com/`；只有私有、自托管或本地 Server 才需要向用户确认地址。
   写入 `config set-server` 前仍须确认用户确实要覆盖默认地址，密码由用户在自己的终端输入。
 - **多 Server 实例**：每个 ESL Server 实例有稳定的 Instance ID，地址只是连接方式。
-  `esl config server list` 查看已登记实例与地址；`esl config server add <url>` 登记备用
-  地址；`esl config server use <instance-id-or-url>` 切换当前实例；`esl config server remove`
-  只删除本地登记，**不会**删除已安装技能或服务器数据。新地址声称已知 Instance ID 时
-  会提示“可能是伪造”的安全警告，必须由用户确认或显式追加 `--accept-new-address`；
-  已登记地址返回不同 Instance ID 时 CLI 会 fail-closed，必须先移除旧登记再重新添加。
-  不要建议用户为日常 install/update 传 `--instance-id`：CLI 默认使用当前选中实例。
+  `whoami`、登录、登出和认证请求都绑定**当前地址所属实例**；切换实例不会清除另一个
+  实例的登录，也不会把旧实例的 token/用户/邮箱/组织展示给新实例。当前地址身份未确认
+  时（`identity unconfirmed`）认证命令在发送凭据前停止，`logout` 也拒绝猜测清理。
+  `esl config server list` 查看和管理实例与地址；TTY 下进入「实例 → 地址 → 操作」流程，
+  只有确认后才切换/删除。AI 或脚本必须用 `--json` 或 `--no-input`，这两种模式只读。
+  `esl config server add <url>` 登记备用地址（身份发现失败时保存为待确认）；
+  `esl config server use <instance-id-or-url>` 切换当前实例；`esl config server remove`
+  只删除本地登记，**不会**删除已安装技能或服务器数据；删除最后一个地址会同时清理该
+  实例本地凭据，删除当前地址时会先回退到同一实例的其他已确认地址。
+  新地址声称已知 Instance ID 时会提示“可能是伪造”的安全警告，必须由用户确认或显式追加
+  `--accept-new-address`；已登记地址返回不同 Instance ID 时 CLI 会 fail-closed，必须先
+  移除旧登记再重新添加。不要建议用户为日常 install/update 传 `--instance-id`：
+  CLI 默认使用当前选中实例。
 
 目标明确且满足当前任务前置条件后再执行。普通 CLI 用户不需要 Docker。
 
@@ -98,7 +105,7 @@ ESL 是企业技能注册平台；`esl` 是它的 CLI。本技能让你（AI）�
 
 ## 三条不可妥协的规则
 
-**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`、`esl skill share`（**无任何目标旗标**，查看权限矩阵）——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`（带任何目标旗标：`--all` / `--team` / `--user` / `--revoke-team` / `--revoke-user` / `--visibility` / `--clear-grants`，清空授权时非交互需 `--force`）、`esl release depend add`、`esl release depend remove`、`esl account whoami --online`/`esl whoami --online`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config server add`/`use`/`remove`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。被拒绝就停，不要降级、不要换条路偷偷跑。
+**1. 读写分级执行。** 这是核心安全契约。只读、非变更的命令——`esl skill search`、`esl skill info`、`esl skill use`、`esl skill list`/`esl list`/`esl ls`、`esl account whoami`/`esl whoami`、`esl config server list --json`（或 `--no-input`）、`esl source validate`、`esl source status`、`esl release depend`（无子命令）/ `esl release depend list`、`esl skill share`（**无任何目标旗标**，查看权限矩阵）——直接跑，跑完把结果给用户；其中 `search` 由 AI 调用时必须加 `--json`，避免进入人类专用 TTY 会话。`list`/`ls` 对人类在 TTY 下会进入**两级交互管理台**（ADR-0058：选技能 → 详情内确认执行 update / 期望 Tool Link 集合对账 / unlink / uninstall），因此 **AI 调用 `list` 一律加 `--json`（或 `--no-input`）保持只读**，变更改调对应专用命令。会改状态或写盘的命令——`esl skill install`/`esl install`、`esl link`、`esl unlink`、`esl skill update`/`esl update`、`esl skill uninstall`/`esl uninstall`、`esl source init`、`esl source upload`、`esl source reset`、`esl source export`、`esl source clean`、`esl source rename`、`esl source clone`、`esl release publish`/`esl publish`、`esl release version`/`esl version`、`esl release deprecate`、`esl release notes`、`esl release delete`、`esl release repair-tag`、`esl skill share`（带任何目标旗标：`--all` / `--team` / `--user` / `--revoke-team` / `--revoke-user` / `--visibility` / `--clear-grants`，清空授权时非交互需 `--force`）、`esl release depend add`、`esl release depend remove`、`esl account whoami --online`/`esl whoami --online`、`esl account login`/`esl login`、`esl account logout`/`esl logout`、`esl config set-server`、`esl config server list`（TTY 管理台：确认后才切换/删除）、`esl config server add`/`use`/`remove`、`esl config preferred-tools`——先把你**将要执行**的完整命令（含旗标）回显给用户，等用户明确同意后再跑。AI 调用 `config server list` 一律加 `--json` 或 `--no-input`，避免进入 TTY 管理台。被拒绝就停，不要降级、不要换条路偷偷跑。
 
 为什么：`esl skill install` 会把远端内容拉进项目、`esl release publish` 把东西推到全公司共享的服务器、`esl skill uninstall` 删东西——这些不可逆或会被别人看到，用户应当先看清要跑什么。只读命令无成本，直接跑才省事。`list` 管理台的动作每次都经 CLI 确认门闩，但 AI 不应把它当变更入口——那些动作由 CLI 自己的确认框把关，AI 无法替用户应答。
 

@@ -1,4 +1,6 @@
 import {
+  accountForInstance,
+  addPendingServerAddress,
   addServerAddress,
   discoverServerIdentity,
   findServerInstanceByAddress,
@@ -8,8 +10,10 @@ import {
   normalizeServerUrl,
   saveConfig,
   saveCredentials,
+  type InstanceAccountSnapshot,
   type LocalStoreOptions,
-  type OrganizationMembership
+  type OrganizationMembership,
+  type ServerRegistry
 } from '@esl/core';
 import { resolveLocale, translateApiError } from '@esl/i18n';
 import fs from 'node:fs/promises';
@@ -64,34 +68,79 @@ export async function executeLogin(options: LoginOptions): Promise<LoginResult> 
     activeLocale
   );
 
-  // token-file 离线登录拿不到组织/邮箱/locale 这些服务端事实，但"拿不到"不等于
-  // 它们失效了。同一账号重登（token 过期后刷新）时旧值仍然有效，保留本地已有值；
-  // 换成别的账号则必须清空——否则会拿新 token 配上一个账号的身份，whoami 显示
-  // 一个拼接出来的假身份。用户名在平台上全局唯一，是可靠的同一账号判据。
-  const keepPreviousIdentity = Boolean(options.tokenFile) && currentConfig.username === username;
-  const identity = keepPreviousIdentity
-    ? {
-        email: currentConfig.email ?? null,
-        organizations: currentConfig.organizations ?? null,
-        locale: currentConfig.locale ?? null
-      }
-    : { email, organizations, locale };
-
   // 登录后尽力登记来源实例：登录本身不依赖身份发现（Server 可能暂时不可达），
   // 但发现成功时把凭据按实例保存，并缓存地址与 Instance ID 的绑定。
-  // token-file 登录按约定完全不联网，因此不在这里探测身份。
+  // token-file 登录完全不联网，但仍可复用本地已确认的地址绑定。
+  const currentRegistry: ServerRegistry = {
+    instances: currentConfig.servers ?? [],
+    selectedInstanceId: currentConfig.selectedInstanceId ?? null,
+    pendingAddresses: currentConfig.pendingServerAddresses ?? []
+  };
+  const localBinding = findServerInstanceByAddress(currentRegistry, normalizeServerUrl(server));
   const instanceId = options.tokenFile
-    ? null
+    ? localBinding?.instance.instanceId ?? null
     : await registerInstanceAfterLogin(options, server, fetchImpl);
 
+  // token-file 离线登录拿不到组织/邮箱/locale 这些服务端事实，但"拿不到"不等于
+  // 它们失效了。同一实例、同一账号重登（token 过期后刷新）时旧值仍然有效；
+  // 换成别的账号则必须清空——否则会拿新 token 配上一个账号的身份。
+  const previousSnapshot = instanceId
+    ? accountForInstance(currentConfig, instanceId)
+    : {
+        username: currentConfig.username,
+        email: currentConfig.email ?? null,
+        organizations: currentConfig.organizations,
+        locale: currentConfig.locale ?? null
+      };
+  const keepPreviousIdentity =
+    Boolean(options.tokenFile) && previousSnapshot?.username === username;
+  const identity = keepPreviousIdentity
+    ? {
+        email: previousSnapshot?.email ?? null,
+        organizations: previousSnapshot?.organizations ?? null,
+        locale: previousSnapshot?.locale ?? null
+      }
+    : { email, organizations, locale };
+  const accountSnapshot: InstanceAccountSnapshot = {
+    username,
+    email: identity.email ?? null,
+    organizations: identity.organizations ?? null,
+    locale: identity.locale ?? null,
+    legacyIdentity: false
+  };
+
   await saveCredentials(
-    { token, loginAt: new Date().toISOString(), ...(instanceId ? { instanceId } : {}) },
+    {
+      token,
+      loginAt: new Date().toISOString(),
+      address: normalizeServerUrl(server),
+      ...(instanceId ? { instanceId } : {})
+    },
     { homeDir: options.homeDir }
   );
   // 显式清掉旧版标记：重新登录后 organizations 已是新形状，提示不该跟着旧配置
-  // 一直留在 whoami 输出里。
+  // 一直留在 whoami 输出里。账户快照按实例保存，顶层字段仅作为兼容视图。
+  const nextInstanceAccounts = instanceId
+    ? { ...(currentConfig.instanceAccounts ?? {}), [instanceId]: accountSnapshot }
+    : currentConfig.instanceAccounts;
+  const pendingLogin =
+    !instanceId && (currentConfig.servers?.length ?? 0) > 0
+      ? addPendingServerAddress(currentRegistry, { url: server })
+      : null;
   await saveConfig(
-    { server, username, ...identity, legacyIdentity: false },
+    {
+      server,
+      username,
+      ...identity,
+      legacyIdentity: false,
+      ...(nextInstanceAccounts ? { instanceAccounts: nextInstanceAccounts } : {}),
+      ...(pendingLogin
+        ? {
+            selectedInstanceId: null,
+            pendingServerAddresses: pendingLogin.registry.pendingAddresses ?? []
+          }
+        : {})
+    },
     { homeDir: options.homeDir }
   );
 
@@ -106,13 +155,33 @@ async function registerInstanceAfterLogin(
   try {
     const identity = await discoverServerIdentity(server, { fetchImpl, timeoutMs: 2_000 });
     const config = await loadConfig({ homeDir: options.homeDir });
-    const registry = { instances: config.servers ?? [], selectedInstanceId: config.selectedInstanceId ?? null };
+    const registry: ServerRegistry = {
+      instances: config.servers ?? [],
+      selectedInstanceId: config.selectedInstanceId ?? null,
+      pendingAddresses: config.pendingServerAddresses ?? []
+    };
     const binding = findServerInstanceByAddress(registry, normalizeServerUrl(server));
     if (binding && binding.instance.instanceId !== identity.instanceId) {
-      // 已登记地址换了身份：不改绑，交给远程命令报 fail-closed 错误。
+      // 已登记地址换了身份：不把新凭据写进旧实例，也不静默改绑。
+      throw new Error(
+        `Address ${server} is registered to ESL Server instance ${binding.instance.instanceId}, ` +
+          `but it now reports ${identity.instanceId}. Refusing to store credentials against ` +
+          `a silently rebound address; remove the old registration first ("esl config server remove ${server}").`
+      );
+    }
+    if (binding) {
+      // 登录到已确认地址：当前地址即当前实例，同步 selectedInstanceId。
+      await saveConfig(
+        {
+          servers: registry.instances,
+          selectedInstanceId: binding.instance.instanceId,
+          pendingServerAddresses: registry.pendingAddresses ?? []
+        },
+        { homeDir: options.homeDir }
+      );
       return binding.instance.instanceId;
     }
-    if (!binding && findServerInstanceById(registry, identity.instanceId)) {
+    if (findServerInstanceById(registry, identity.instanceId)) {
       // 新地址声明已知实例：登录不替用户做地址确认，保持未登记。
       return identity.instanceId;
     }
@@ -124,7 +193,8 @@ async function registerInstanceAfterLogin(
     await saveConfig(
       {
         servers: registration.registry.instances,
-        selectedInstanceId: registration.registry.selectedInstanceId
+        selectedInstanceId: registration.registry.selectedInstanceId,
+        pendingServerAddresses: registration.registry.pendingAddresses ?? []
       },
       { homeDir: options.homeDir }
     );

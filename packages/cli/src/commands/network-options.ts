@@ -1,4 +1,5 @@
 import {
+  adoptAddressViewForInstance,
   credentialsForInstance,
   discoverServerIdentity,
   findServerInstanceByAddress,
@@ -7,11 +8,13 @@ import {
   loadConfig,
   loadCredentials,
   normalizeServerUrl,
+  resolveCurrentServerContext,
   resolveLocalStorePaths,
   resolveProjectStorePaths,
   saveConfig,
   skillSourceDirectoryName,
   addServerAddress,
+  tryNormalizeServerUrl,
   type LocalStoreOptions,
   type OrganizationMembership,
   type ServerRegistry
@@ -33,12 +36,29 @@ export interface ResolvedNetworkConfig {
 }
 
 export async function resolveNetworkConfig(options: NetworkCommandOptions): Promise<ResolvedNetworkConfig> {
-  const credentials = await loadCredentials({ homeDir: options.homeDir });
+  const credentials = await loadCredentials({ homeDir: options.homeDir }).catch(() => ({
+    token: null,
+    loginAt: null
+  }));
   const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
-  const instanceId = config?.selectedInstanceId ?? null;
+  const requested =
+    options.server ?? process.env.ESL_SERVER ?? config?.server ?? DEFAULT_ESL_SERVER;
+  // 目标地址决定凭据：--server 指向另一实例时，不能继续使用当前选中实例的 token。
+  const context = resolveCurrentServerContext({
+    server: requested,
+    servers: config?.servers ?? [],
+    selectedInstanceId: config?.selectedInstanceId ?? null,
+    pendingAddresses: config?.pendingServerAddresses ?? []
+  });
+  const token =
+    context.status === 'confirmed'
+      ? credentialsForInstance(credentials, context.instanceId).token
+      : context.status === 'legacy' || context.status === 'none'
+        ? credentialsForInstance(credentials, null).token
+        : null;
   return {
     server: await resolveServer({ server: options.server, homeDir: options.homeDir }),
-    token: credentialsForInstance(credentials, instanceId).token
+    token
   };
 }
 
@@ -142,7 +162,19 @@ export async function resolveServerContext(
     discovered = await discoverServerIdentity(server, { fetchImpl: options.customFetch });
   } catch (error) {
     if (!requireIdentity) {
-      return { server, instanceId: null, token: await loadCredentials({ homeDir: options.homeDir }).then((c) => c.token).catch(() => null) };
+      // 身份未知时不能把遗留顶层 token 发给这个地址；只有旧版单 Server
+      // 配置（没有任何实例登记）才保留原有匿名/本地凭据行为。
+      const current = resolveCurrentServerContext({
+        server,
+        servers: registry.instances,
+        selectedInstanceId: registry.selectedInstanceId,
+        pendingAddresses: registry.pendingAddresses
+      });
+      const token =
+        current.status === 'legacy'
+          ? await loadCredentials({ homeDir: options.homeDir }).then((c) => c.token).catch(() => null)
+          : null;
+      return { server, instanceId: null, token };
     }
     throw new Error(
       `${(error as Error).message} Remote commands need the Server Instance ID to isolate skill sources; ` +
@@ -161,11 +193,22 @@ export async function resolveServerContext(
 
   // 未知实例：按新来源登记，不迁移任何旧实例数据（新地址不会误接管已知来源）。
   try {
-    const registration = addServerAddress(registry, { instanceId: discovered.instanceId, url: server });
+    const registration = addServerAddress(registry, {
+      instanceId: discovered.instanceId,
+      url: server,
+      select: tryNormalizeServerUrl(config?.server) === server
+    });
     await saveConfig(
-      { servers: registration.registry.instances, selectedInstanceId: registration.registry.selectedInstanceId },
+      {
+        servers: registration.registry.instances,
+        selectedInstanceId: registration.registry.selectedInstanceId,
+        pendingServerAddresses: registration.registry.pendingAddresses ?? []
+      },
       { homeDir: options.homeDir }
     );
+    await adoptAddressViewForInstance(server, discovered.instanceId, {
+      homeDir: options.homeDir
+    });
   } catch {
     // 登记失败不影响本次只读/安装请求；下一次命令会重新发现。
   }
@@ -227,11 +270,50 @@ export function isLoginFresh(loginAt: string | null | undefined): boolean {
   return !Number.isNaN(loginAtMs) && Date.now() - loginAtMs <= resolveLoginTtlMs();
 }
 
-export async function requireFreshToken(options: LocalStoreOptions = {}): Promise<string> {
-  const credentials = await loadCredentials({ homeDir: options.homeDir });
+export interface TokenResolveOptions extends LocalStoreOptions {
+  /** 目标地址；未传时使用 ESL_SERVER / 已保存地址 / 公共云。 */
+  server?: string;
+}
+
+function tokenContext(
+  config: Awaited<ReturnType<typeof loadConfig>> | null,
+  address: string
+): ReturnType<typeof resolveCurrentServerContext> {
+  return resolveCurrentServerContext({
+    server: address,
+    servers: config?.servers ?? [],
+    selectedInstanceId: config?.selectedInstanceId ?? null,
+    pendingAddresses: config?.pendingServerAddresses ?? []
+  });
+}
+
+export async function requireFreshToken(options: TokenResolveOptions = {}): Promise<string> {
+  const credentials = await loadCredentials({ homeDir: options.homeDir }).catch(() => ({
+    token: null,
+    loginAt: null
+  }));
   const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
-  const selected = credentialsForInstance(credentials, config?.selectedInstanceId ?? null);
-  const token = requireConfigured(selected.token, 'token');
+  const address = options.server ?? process.env.ESL_SERVER ?? config?.server ?? DEFAULT_ESL_SERVER;
+  const context = tokenContext(config, address);
+  if (context.status === 'unconfirmed') {
+    throw new Error(
+      `The ESL Server identity at ${context.server ?? address} is not confirmed. ` +
+        'Authenticating commands stop before sending credentials; confirm the address with "esl config server list" first.'
+    );
+  }
+  const selected =
+    context.status === 'confirmed'
+      ? credentialsForInstance(credentials, context.instanceId)
+      : credentialsForInstance(credentials, null);
+  if (!selected.token) {
+    if (context.status === 'confirmed') {
+      throw new Error(
+        `The current ESL Server (${context.server ?? address}) is not logged in; run esl login to authenticate.`
+      );
+    }
+    throw new Error('Missing token; run esl login or pass --token');
+  }
+  const token = selected.token;
   if (!isLoginFresh(selected.loginAt)) {
     throw new Error('Login expired; run esl login to re-authenticate');
   }
@@ -239,13 +321,21 @@ export async function requireFreshToken(options: LocalStoreOptions = {}): Promis
 }
 
 // 匿名也可用的请求所用尽力而为的凭据：登录仍在有效期则返回 token，缺失或过期返回 null（调用方按匿名处理）。
-export async function resolveOptionalFreshToken(options: LocalStoreOptions = {}): Promise<string | null> {
+export async function resolveOptionalFreshToken(options: TokenResolveOptions = {}): Promise<string | null> {
   let token: string | null;
   let loginAt: string | null;
   try {
     const credentials = await loadCredentials({ homeDir: options.homeDir });
     const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
-    const selected = credentialsForInstance(credentials, config?.selectedInstanceId ?? null);
+    const address = options.server ?? process.env.ESL_SERVER ?? config?.server ?? DEFAULT_ESL_SERVER;
+    const context = tokenContext(config, address);
+    if (context.status === 'unconfirmed') {
+      return null;
+    }
+    const selected =
+      context.status === 'confirmed'
+        ? credentialsForInstance(credentials, context.instanceId)
+        : credentialsForInstance(credentials, null);
     token = selected.token;
     loginAt = selected.loginAt;
   } catch {

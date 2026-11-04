@@ -51,6 +51,7 @@ import { executeChangeOwnPassword } from '../commands/admin.js';
 import { executeSource } from '../commands/source.js';
 import { executeList, formatSkillListLine } from '../commands/list.js';
 import { runListSession } from '../commands/list-interaction.js';
+import { runServerListSession } from '../commands/server-list-interaction.js';
 import { executeUse } from '../commands/use.js';
 import { executeInit } from '../commands/init.js';
 import { executeInstall } from '../commands/install.js';
@@ -1454,12 +1455,17 @@ function addServerCommands(parent: Command, program: Command): Command {
     .description('List registered ESL Server instances and addresses')
     .option('--json', 'Output as JSON')
     .action(async (options: { json?: boolean }) => {
+      // TTY + 未禁用输入 + 非 --json 才进入管理台；其余情况保持只读文本/JSON。
+      if (program.opts().input !== false && !options.json && isInteractive()) {
+        await runServerListSession();
+        return;
+      }
       const result = await executeListServers();
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
         return;
       }
-      if (result.instances.length === 0) {
+      if (result.instances.length === 0 && result.pendingAddresses.length === 0) {
         console.log('No ESL Server instances registered.');
         return;
       }
@@ -1468,8 +1474,16 @@ function addServerCommands(parent: Command, program: Command): Command {
           `${instance.selected ? '*' : ' '} ${instance.instanceId}  preferred: ${instance.preferredAddress}`
         );
         for (const address of instance.addresses) {
-          console.log(`    ${address.preferred ? '* ' : '  '}${address.url}`);
+          const tags = [address.preferred ? 'preferred' : null, address.current ? 'current' : null]
+            .filter(Boolean)
+            .join(', ');
+          console.log(`    ${address.url}${tags ? `  [${tags}]` : ''}`);
         }
+      }
+      for (const pending of result.pendingAddresses) {
+        console.log(
+          `  ${pending.url}  [unconfirmed identity${pending.current ? ', current' : ''}]`
+        );
       }
     });
 
@@ -1490,7 +1504,11 @@ function addServerCommands(parent: Command, program: Command): Command {
           return confirm(question);
         }
       });
-      console.log(`Registered ${result.server} for instance ${result.instanceId}`);
+      console.log(
+        result.pending
+          ? `Saved ${result.server} as an unconfirmed address; its Instance ID will be confirmed when the Server is reachable.`
+          : `Registered ${result.server} for instance ${result.instanceId}`
+      );
     });
 
   server
@@ -1499,7 +1517,11 @@ function addServerCommands(parent: Command, program: Command): Command {
     .argument('<instance-id-or-url>', 'Instance ID or a registered address')
     .action(async (identifier: string) => {
       const result = await executeUseServer(identifier);
-      console.log(`Using ESL Server instance ${result.instanceId} at ${result.server}`);
+      console.log(
+        result.pending
+          ? `Using unconfirmed address ${result.server}; confirm its Instance ID before authenticating.`
+          : `Using ESL Server instance ${result.instanceId} at ${result.server}`
+      );
     });
 
   server
@@ -1508,11 +1530,18 @@ function addServerCommands(parent: Command, program: Command): Command {
     .argument('<instance-id-or-url>', 'Instance ID or a registered address')
     .action(async (identifier: string) => {
       const result = await executeRemoveServer(identifier);
-      console.log(
-        result.removedInstance
-          ? `Removed instance registration (${result.removedAddresses.length} address(es))`
-          : `Removed address registration ${result.removedAddresses[0]}`
-      );
+      if (result.removedInstance) {
+        console.log(
+          `Removed instance registration (${result.removedAddresses.length} address(es)); ` +
+            'local credentials for that instance were cleared.'
+        );
+      } else if (result.fallbackAddress) {
+        console.log(
+          `Removed address registration ${result.removedAddresses[0]}; switched to ${result.fallbackAddress} within the same instance.`
+        );
+      } else {
+        console.log(`Removed address registration ${result.removedAddresses[0]}`);
+      }
     });
 
   return server;
@@ -1700,6 +1729,12 @@ function addUnlink(program: Command): Command {
     });
 }
 
+function isReadOnlyServerListCommand(command: Command): boolean {
+  const server = command.parent;
+  const config = server?.parent;
+  return command.name() === 'list' && server?.name() === 'server' && config?.name() === 'config';
+}
+
 export function createProgram(): Command {
   const program = new Command();
 
@@ -1766,7 +1801,10 @@ export function createProgram(): Command {
 
     // 启动期身份发现（ADR-0071）：仅当本地没有 Instance ID 缓存时尝试；失败只
     // 记录退避时间，不阻止本地命令。远程命令会在执行时重试并给出可行动错误。
-    await runStartupIdentityDiscovery().catch(() => undefined);
+    // `config server list` 是只读接口：完整执行过程不得写配置/凭据。
+    if (!isReadOnlyServerListCommand(actionCommand)) {
+      await runStartupIdentityDiscovery().catch(() => undefined);
+    }
   });
 
   // --- resource command surfaces (ADR-0059) ---
@@ -1879,8 +1917,37 @@ function isPromptCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === 'ExitPromptError';
 }
 
+const GLOBAL_VALUE_FLAGS = new Set([
+  '--locale',
+  '-C',
+  '--cd',
+  '--agent-tool',
+  '--params-json'
+]);
+
+function isServerListArgv(argv: string[]): boolean {
+  // `esl config server list`（可带全局旗标）是只读接口：启动期的更新检查、
+  // 待同步内置技能重试和身份发现都不得为它写配置/凭据。
+  const positionals: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (GLOBAL_VALUE_FLAGS.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('-')) continue;
+    positionals.push(arg);
+  }
+  return (
+    positionals[0] === 'config' &&
+    positionals[1] === 'server' &&
+    positionals[2] === 'list'
+  );
+}
+
 export async function run(argv: string[]): Promise<void> {
   const debug = argv.includes('-d') || argv.includes('--debug');
+  const readOnlyServerList = isServerListArgv(argv);
   const onSigint = () => {
     console.error('\nInterrupted');
     process.exit(130);
@@ -1888,10 +1955,12 @@ export async function run(argv: string[]): Promise<void> {
   process.on('SIGINT', onSigint);
 
   try {
-    await retryPendingGlobalSync({});
+    if (!readOnlyServerList) {
+      await retryPendingGlobalSync({});
+    }
     const hasInfoOnlyFlag = argv.includes('--help') || argv.includes('-h') || argv.includes('--version') || argv.includes('-V');
     const isSelfUpdate = argv.includes('self-update');
-    if (!hasInfoOnlyFlag && !isSelfUpdate) {
+    if (!hasInfoOnlyFlag && !isSelfUpdate && !readOnlyServerList) {
       await maybeNotifyCliUpdate({
         json: argv.includes('--json'),
         agentInteraction: argv.includes('--agent-interaction')

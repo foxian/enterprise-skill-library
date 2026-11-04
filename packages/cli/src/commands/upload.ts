@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
+  currentAccountSnapshot,
   ensureGitAvailable,
   fileExists,
   findServerInstanceByAddress,
@@ -147,8 +148,9 @@ export interface GitIdentity {
 async function resolveFallbackGitIdentity(options: UploadOptions): Promise<GitIdentity> {
   try {
     const config = await loadConfig({ homeDir: options.homeDir });
-    if (config.username) {
-      return { name: config.username, email: giteaUserEmail(config.username) };
+    const username = currentAccountSnapshot(config)?.username;
+    if (username) {
+      return { name: username, email: giteaUserEmail(username) };
     }
   } catch {
     // Fall through to the generic placeholder identity.
@@ -428,12 +430,13 @@ async function assertHostedNamespace(options: UploadOptions, declaredIdentity: s
   let expectedNamespace: string;
   if (!declaredIdentity.startsWith('@')) {
     const config = await loadConfig({ homeDir: options.homeDir }).catch(() => null);
-    if (!config?.username) {
+    const username = config ? currentAccountSnapshot(config)?.username : null;
+    if (!username) {
       throw new Error(
         `Cannot verify the bare release.json name "${declaredIdentity}" against the hosted source; log in again so the personal namespace can be resolved`
       );
     }
-    expectedNamespace = config.username;
+    expectedNamespace = username;
   } else {
     expectedNamespace = namespaceFromIdentity(declaredIdentity);
   }

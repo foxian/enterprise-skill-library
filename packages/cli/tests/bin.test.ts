@@ -1290,6 +1290,123 @@ describe('esl program', () => {
     }
   });
 
+  it('prints server list as text without prompting when not interactive', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-server-list-bin-'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      await initializeLocalStore({ homeDir });
+      await saveConfig(
+        {
+          server: 'http://a.example.com',
+          selectedInstanceId: '11111111-1111-4111-8111-111111111111',
+          servers: [
+            {
+              instanceId: '11111111-1111-4111-8111-111111111111',
+              preferredAddress: 'http://a.example.com',
+              addresses: [
+                { url: 'http://a.example.com', confirmedAt: '2026-01-01T00:00:00.000Z' }
+              ]
+            }
+          ]
+        },
+        { homeDir }
+      );
+      vi.mocked(isInteractive).mockReturnValue(false);
+      const program = createProgram();
+
+      await program.parseAsync(['config', 'server', 'list'], { from: 'user' });
+
+      expect(selectMock).not.toHaveBeenCalled();
+      const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('11111111-1111-4111-8111-111111111111');
+      expect(output).toContain('http://a.example.com');
+    } finally {
+      homedirSpy.mockRestore();
+      logSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps server list --json read-only on a TTY without startup identity discovery', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-server-list-json-'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      await initializeLocalStore({ homeDir });
+      // 旧版单 Server 配置：启动身份发现若能写会在这里补登记。
+      await saveConfig(
+        {
+          server: 'http://legacy.example.com',
+          pendingServerAddresses: [
+            { url: 'http://legacy.example.com', addedAt: '2026-01-01T00:00:00.000Z' }
+          ]
+        },
+        { homeDir }
+      );
+      const configPath = path.join(homeDir, '.eslib', 'config.json');
+      const before = fs.readFileSync(configPath, 'utf8');
+      vi.mocked(isInteractive).mockReturnValue(true);
+      const program = createProgram();
+
+      await program.parseAsync(['config', 'server', 'list', '--json'], { from: 'user' });
+
+      expect(selectMock).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+      const payload = JSON.parse(logSpy.mock.calls.map((call) => call.join(' ')).join('\n'));
+      expect(payload.instances).toEqual([]);
+      expect(payload.pendingAddresses).toEqual([
+        { url: 'http://legacy.example.com', current: true, addedAt: '2026-01-01T00:00:00.000Z' }
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+      homedirSpy.mockRestore();
+      logSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('enters the server address management session on a TTY', async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'esl-server-list-tty-bin-'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
+    try {
+      await initializeLocalStore({ homeDir });
+      await saveConfig(
+        {
+          server: 'http://a.example.com',
+          selectedInstanceId: '11111111-1111-4111-8111-111111111111',
+          servers: [
+            {
+              instanceId: '11111111-1111-4111-8111-111111111111',
+              preferredAddress: 'http://a.example.com',
+              addresses: [
+                { url: 'http://a.example.com', confirmedAt: '2026-01-01T00:00:00.000Z' }
+              ]
+            }
+          ]
+        },
+        { homeDir }
+      );
+      vi.mocked(isInteractive).mockReturnValue(true);
+      selectMock.mockResolvedValueOnce('instance:11111111-1111-4111-8111-111111111111');
+      selectMock.mockResolvedValueOnce('__exit__');
+      const program = createProgram();
+
+      await program.parseAsync(['config', 'server', 'list'], { from: 'user' });
+
+      expect(selectMock).toHaveBeenCalled();
+      const first = selectMock.mock.calls[0] as [{ message: string }];
+      expect(first[0].message).toContain('Select an ESL Server instance');
+    } finally {
+      homedirSpy.mockRestore();
+      logSpy.mockRestore();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it('stays read-only for list under --no-input even on a TTY', async () => {
     const tmp = withTempCwd();
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

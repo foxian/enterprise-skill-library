@@ -37,7 +37,10 @@ export async function executeSearch(
   const server = options.server ?? (await resolveNetworkConfig(options)).server;
   // 与 info 对齐（ADR-0049 / ADR-0073）：存在有效登录态则随请求携带 Skill
   // User Token；匿名仍可浏览 anonymous 已发布技能，public 需要登录。
-  const token = await resolveOptionalFreshToken({ homeDir: options.homeDir });
+  const token = await resolveOptionalFreshToken({
+    homeDir: options.homeDir,
+    server: options.server
+  });
   const filters = new URLSearchParams();
   if (query !== undefined && query !== '') {
     filters.set('q', query);

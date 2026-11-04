@@ -156,6 +156,53 @@ describe('CLI Server instance registry', () => {
     expect(context).toMatchObject({ server: 'http://b.example.com', instanceId: INSTANCE_A });
   });
 
+  it('saves an address as pending when identity discovery fails', async () => {
+    const added = await executeAddServerAddress('http://pending.example.com', {
+      homeDir,
+      customFetch: vi.fn().mockRejectedValue(new Error('offline')) as any
+    });
+    expect(added).toMatchObject({ instanceId: null, pending: true });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.selectedInstanceId ?? null).toBeNull();
+    expect(config.pendingServerAddresses).toEqual([
+      expect.objectContaining({ url: 'http://pending.example.com' })
+    ]);
+    const listed = await executeListServers({ homeDir });
+    expect(listed.pendingAddresses[0]).toMatchObject({
+      url: 'http://pending.example.com',
+      current: false
+    });
+  });
+
+  it('does not switch the selected instance when add registers the first instance', async () => {
+    await executeAddServerAddress('http://a.example.com', {
+      homeDir,
+      customFetch: vi.fn().mockResolvedValue(identityResponse(INSTANCE_A)) as any
+    });
+
+    const config = await loadConfig({ homeDir });
+    expect(config.servers?.[0].instanceId).toBe(INSTANCE_A);
+    expect(config.selectedInstanceId ?? null).toBeNull();
+    expect(config.server).toBeNull();
+  });
+
+  it('keeps the local binding when switching to a registered address while offline', async () => {
+    await executeSetServer('http://a.example.com', {
+      homeDir,
+      customFetch: vi.fn().mockResolvedValue(identityResponse(INSTANCE_A)) as any
+    });
+
+    const result = await executeSetServer('http://a.example.com', {
+      homeDir,
+      customFetch: vi.fn().mockRejectedValue(new Error('offline')) as any
+    });
+    expect(result).toMatchObject({ instanceId: INSTANCE_A });
+    const config = await loadConfig({ homeDir });
+    expect(config.selectedInstanceId).toBe(INSTANCE_A);
+    expect(config.pendingServerAddresses ?? []).toEqual([]);
+  });
+
   it('does not silently bind a new startup address that claims a known instance', async () => {
     await executeSetServer('http://a.example.com', {
       homeDir,

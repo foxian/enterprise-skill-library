@@ -27,13 +27,25 @@ export interface ServerInstanceRecord {
   preferredAddress: string;
 }
 
+/**
+ * 已保存但尚未确认 Instance ID 的地址（离线登记 / 身份发现失败）。
+ * 地址本身是连接入口，确认前不归属任何实例，也不能用于认证。
+ */
+export interface PendingServerAddressRecord {
+  url: string;
+  addedAt: string;
+  /** 用户显式声明的 Instance ID；仅在确认时用于校验，不构成信任。 */
+  declaredInstanceId?: string | null;
+}
+
 export interface ServerRegistry {
   instances: ServerInstanceRecord[];
   selectedInstanceId: string | null;
+  pendingAddresses?: PendingServerAddressRecord[];
 }
 
 export function createEmptyServerRegistry(): ServerRegistry {
-  return { instances: [], selectedInstanceId: null };
+  return { instances: [], selectedInstanceId: null, pendingAddresses: [] };
 }
 
 export function isValidInstanceId(value: unknown): value is string {
@@ -59,6 +71,18 @@ export function normalizeServerUrl(url: string): string {
     throw new Error(`Unsupported Server URL protocol: ${parsed.protocol}`);
   }
   return trimmed.replace(/\/+$/, '');
+}
+
+/** 规范化可解析地址；无效或空值返回 null，供只读/容错路径使用。 */
+export function tryNormalizeServerUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return normalizeServerUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 /** 短前缀默认长度：工具链接目录既要可读，也要足以区分实例。 */
@@ -87,6 +111,106 @@ export function findServerInstanceById(
   instanceId: string
 ): ServerInstanceRecord | null {
   return registry.instances.find((instance) => instance.instanceId === instanceId) ?? null;
+}
+
+export function findPendingServerAddress(
+  registry: ServerRegistry,
+  url: string
+): PendingServerAddressRecord | null {
+  return (registry.pendingAddresses ?? []).find((address) => address.url === url) ?? null;
+}
+
+export type ServerIdentityStatus = 'confirmed' | 'unconfirmed' | 'legacy' | 'none';
+
+export interface CurrentServerContext {
+  server: string | null;
+  status: ServerIdentityStatus;
+  instanceId: string | null;
+  instance: ServerInstanceRecord | null;
+}
+
+export interface CurrentServerInput {
+  server?: string | null;
+  servers?: ServerInstanceRecord[];
+  selectedInstanceId?: string | null;
+  pendingAddresses?: PendingServerAddressRecord[];
+}
+
+/**
+ * 当前连接地址的权威身份。地址是连接入口：已登记地址的 Instance ID 决定当前
+ * 实例；selectedInstanceId 只是普通远程命令的旧视图，不能盖过地址绑定。
+ *
+ * - confirmed：当前地址已登记到某个实例。
+ * - unconfirmed：当前地址尚未确认身份（新地址发现失败 / 地址已换身份）。
+ * - legacy：旧版单 Server 配置，尚未登记任何实例或待确认地址。
+ * - none：还没有配置地址。
+ */
+export function resolveCurrentServerContext(input: CurrentServerInput): CurrentServerContext {
+  if (!input.server) {
+    return { server: null, status: 'none', instanceId: null, instance: null };
+  }
+  let server: string;
+  try {
+    server = normalizeServerUrl(input.server);
+  } catch {
+    return { server: input.server, status: 'unconfirmed', instanceId: null, instance: null };
+  }
+  const registry: ServerRegistry = {
+    instances: input.servers ?? [],
+    selectedInstanceId: input.selectedInstanceId ?? null,
+    pendingAddresses: input.pendingAddresses ?? []
+  };
+  const binding = findServerInstanceByAddress(registry, server);
+  if (binding) {
+    return {
+      server,
+      status: 'confirmed',
+      instanceId: binding.instance.instanceId,
+      instance: binding.instance
+    };
+  }
+  const pending = findPendingServerAddress(registry, server);
+  if (registry.instances.length === 0 && !pending) {
+    return { server, status: 'legacy', instanceId: null, instance: null };
+  }
+  return { server, status: 'unconfirmed', instanceId: null, instance: null };
+}
+
+export interface AddPendingServerAddressInput {
+  url: string;
+  now?: string;
+  declaredInstanceId?: string | null;
+}
+
+/** 保存一个尚未确认身份的地址；已登记到实例的地址不会重复进入待确认列表。 */
+export function addPendingServerAddress(
+  registry: ServerRegistry,
+  input: AddPendingServerAddressInput
+): { registry: ServerRegistry; added: boolean } {
+  const url = normalizeServerUrl(input.url);
+  if (findServerInstanceByAddress(registry, url)) {
+    return { registry, added: false };
+  }
+  const pendingAddresses = [...(registry.pendingAddresses ?? [])];
+  const existing = pendingAddresses.find((address) => address.url === url);
+  if (existing) {
+    const declaredInstanceId = input.declaredInstanceId ?? existing.declaredInstanceId ?? null;
+    return {
+      registry: {
+        ...registry,
+        pendingAddresses: pendingAddresses.map((address) =>
+          address.url === url ? { ...address, declaredInstanceId } : address
+        )
+      },
+      added: false
+    };
+  }
+  pendingAddresses.push({
+    url,
+    addedAt: input.now ?? new Date().toISOString(),
+    ...(input.declaredInstanceId ? { declaredInstanceId: input.declaredInstanceId } : {})
+  });
+  return { registry: { ...registry, pendingAddresses }, added: true };
 }
 
 export function selectedServerInstance(registry: ServerRegistry): ServerInstanceRecord | null {
@@ -163,7 +287,8 @@ export function addServerAddress(
   return {
     registry: {
       instances,
-      selectedInstanceId: selectedInstanceId ?? (createdInstance && instances.length === 1 ? input.instanceId : registry.selectedInstanceId)
+      selectedInstanceId: selectedInstanceId ?? (createdInstance && instances.length === 1 ? input.instanceId : registry.selectedInstanceId),
+      pendingAddresses: (registry.pendingAddresses ?? []).filter((address) => address.url !== url)
     },
     instance,
     createdInstance,
@@ -175,6 +300,7 @@ export interface RemoveServerAddressResult {
   registry: ServerRegistry;
   removed: boolean;
   removedInstance: boolean;
+  removedPending: boolean;
 }
 
 /** 移除地址只改本地登记；已安装技能、凭据和 Server 端数据都不动。 */
@@ -182,6 +308,12 @@ export function removeServerAddress(registry: ServerRegistry, url: string): Remo
   const normalized = normalizeServerUrl(url);
   let removed = false;
   let removedInstance = false;
+  const pendingAddresses = registry.pendingAddresses ?? [];
+  const keptPending = pendingAddresses.filter((address) => address.url !== normalized);
+  const removedPending = keptPending.length !== pendingAddresses.length;
+  if (removedPending) {
+    removed = true;
+  }
   const instances: ServerInstanceRecord[] = [];
   for (const instance of registry.instances) {
     const addresses = instance.addresses.filter((address) => address.url !== normalized);
@@ -204,9 +336,29 @@ export function removeServerAddress(registry: ServerRegistry, url: string): Remo
       ? registry.selectedInstanceId
       : null;
   return {
-    registry: { instances, selectedInstanceId },
+    registry: { instances, selectedInstanceId, pendingAddresses: keptPending },
     removed,
-    removedInstance
+    removedInstance,
+    removedPending
+  };
+}
+
+export function removeServerInstance(
+  registry: ServerRegistry,
+  instanceId: string
+): { registry: ServerRegistry; removed: ServerInstanceRecord | null } {
+  const removed = findServerInstanceById(registry, instanceId);
+  if (!removed) {
+    return { registry, removed: null };
+  }
+  return {
+    registry: {
+      instances: registry.instances.filter((instance) => instance.instanceId !== instanceId),
+      selectedInstanceId:
+        registry.selectedInstanceId === instanceId ? null : registry.selectedInstanceId,
+      pendingAddresses: registry.pendingAddresses ?? []
+    },
+    removed
   };
 }
 

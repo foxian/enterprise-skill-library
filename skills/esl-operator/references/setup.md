@@ -48,17 +48,28 @@ Server、登录状态和 Store 放在持久化目录中，才能跨会话复用�
 
 | 目的 | 命令 |
 |---|---|
-| 查看实例与地址 | `esl config server list [--json]` |
+| 查看和管理实例与地址 | `esl config server list`（TTY）/ `--json`（脚本）/ `--no-input`（文本） |
 | 为已知实例登记备用地址 | `esl config server add <url>` |
 | 切换当前实例 | `esl config server use <instance-id-or-url>` |
 | 删除本地登记 | `esl config server remove <instance-id-or-url>` |
 | 设置并登记默认地址 | `esl config set-server <url>` |
 
+- **登录状态按实例隔离**：每个实例各自保存凭据和账户快照。切换到实例 B 不会清掉
+  实例 A 的登录；B 没有凭据时 `whoami` 只显示 B 未登录，认证命令停止并提示先登录
+  B，绝不会把 A 的 token/用户名/邮箱/组织带到 B。切回 A 继续使用 A 的记录。
+- 同一实例的多个已确认地址共享该实例的凭据；地址迁移不需要重复登录。
 - 新地址返回**已知** Instance ID 时，CLI 会提示该地址可能伪造并要求确认；非交互场景
   必须由用户明确同意后再追加 `--accept-new-address`，不要替用户直接加。
 - 已登记地址返回**不同** Instance ID 时 CLI fail-closed；先 `esl config server remove <url>`
   再重新添加，绝不要绕过或手工改配置文件。
-- `remove` 只清理本地地址/凭据登记，不删除已安装技能、项目依赖或服务器侧数据。
+- 身份发现失败时地址仍可保存为**待确认**（`server add` 离线配置）；此时 `whoami`
+  显示 `identity unconfirmed`，认证命令在发送凭据前停止。不要把它当作已登录或未登录。
+- `esl config server list` 在默认 TTY 下进入「实例 → 地址 → 操作」管理台；选择本身
+  不写配置，只有确认「使用此地址」或「删除此地址」才生效。脚本/AI 必须用 `--json`
+  或 `--no-input`，这两种模式只读，不会提示、切换或删除。
+- 删除地址：非最后一个地址保留实例凭据；删除当前地址且同实例还有其他已确认地址时，
+  自动回退到该实例的另一个地址；删除最后一个地址会同时删除该实例的本地登记与凭据。
+  只影响本地，不删除已安装技能、项目依赖或服务器侧数据，也不影响其他实例。
 - 首选地址不可用时，远程命令会尝试同一实例的其他已确认地址；本地命令不依赖 Server。
 - 不同实例的同名技能可以共存：Store 路径含完整 Instance ID，工具链接名含实例短前缀
   （如 `acme_reviewer_111111`）。`@builtin/*` 不进入实例层级。
@@ -77,13 +88,17 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 - **upload 报「地址迁移未验证」时**：报错说明 esl remote 指向旧地址而配置是新地址、但技能身份在当前服务器验证不过——先让用户确认当前登录账号能否读到该技能（换维护账号重登再 `esl source upload`）；只有确认服务器上确实没有该源时，才走手动 `git remote remove esl` + 重新 `esl source upload`（按新技能重建，历史 Release 不回来）。绝不主动提议删 remote。
 
 ## 查看登录状态
-`esl account whoami`（快捷：`esl whoami`）—— 输出当前用户名 / Email / Organization memberships（组织成员关系列表）/ Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in`）。默认只读，可直接跑。状态不明时先跑它。展示的是**登录时记录的快照**：邮箱在密码登录时从服务器取回并存在本机，之后在网页上改了邮箱需重新登录才会刷新；`--token-file` 离线登录不取邮箱，同一账号重登保留原有邮箱与组织列表，换账号重登则清空（不显示 Email 行）。
+`esl account whoami`（快捷：`esl whoami`）—— 输出**当前连接地址所属实例**的用户名 / Email / Organization memberships（组织成员关系列表）/ Server / 登录时间 / 过期时间 / 状态（`active` / `expired` / `Not logged in` / `identity unconfirmed`）。默认只读，可直接跑。状态不明时先跑它。
+
+展示的是当前实例在登录时记录的**账户快照**，不会串到其他实例：邮箱在密码登录时从服务器取回并存在本机，之后在网页上改了邮箱需重新登录才会刷新；`--token-file` 离线登录不取邮箱，同一实例、同一账号重登保留原有邮箱与组织列表，换账号重登则清空（不显示 Email 行）。
+
+`identity unconfirmed` 表示当前地址的身份还没确认（例如新地址离线登记、身份发现失败）。它既不是「已登录」也不是「未登录」；应先 `esl config server list` 确认或删除该地址，认证命令在那之前不会发送任何凭据。
 
 `--online` 旗标：向服务器核实账户资料（邮箱、组织隶属）并把结果写回本地快照，随后默认的离线 whoami 也反映最新值。它是**写命令**（更新本机配置），执行前按写命令规则先回显、等用户确认。用户改过邮箱/组织后想让本地立刻跟上，或只有 token 文件（无法用密码重登）时，提议它。未登录、服务器地址缺失、或请求失败（含 token 失效）时直接报错，不回退到本地旧值——避免把陈旧资料当成刚核实的结果。
 （全局身份模型：一条凭据走遍个人命名空间与所有所在组织，组织列表由服务端按 Git Backend 成员关系派生。旧版配置带 `org`/`role` 字段时输出一行重新登录提示。）
 
 ## 登录
-`esl account login`（快捷：`esl login`）—— 交互式（推荐）：依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后 token 写入本机所有者只读文件，默认 30 天有效；可用环境变量 `ESL_LOGIN_TTL_HOURS`（单位：小时）调整 TTL。
+`esl account login`（快捷：`esl login`）—— 交互式（推荐）：依次提示 `Username:` 与隐藏的密码（**无组织输入**）。登录成功后 token 与账户快照按**当前实例**写入本机所有者只读文件，默认 30 天有效；可用环境变量 `ESL_LOGIN_TTL_HOURS`（单位：小时）调整 TTL。登录 B 不会覆盖或清除 A 的登录。
 
 旗标：
 - `--username <name>`：指定用户名（仍会交互提示密码）
@@ -94,7 +109,9 @@ ESL Server 换域名/IP 且**数据整体迁移**（技能、版本、Release �
 账号是全局的：注册后即拥有个人命名空间 `@用户名`，被拉入组织后同样一份凭据即可访问组织命名空间，无需按组织分别登录。平台管理员不通过 CLI 登录——打开管理后台（`http://<server>/admin/`），用 `GITEA_ADMIN_USERNAME` 账号（默认 `eslroot`）与密码登录。
 
 ## 登出
-`esl account logout`（快捷：`esl logout`）—— 清除本机凭据（token 与登录时间戳），保留 server / 组织 / 工具配置。幂等：未登录时执行也成功。登出后 `esl account whoami` 显示 `Not logged in`，需要登录态的命令（install/update/source upload 等）会提示先 `esl account login`；离线命令（`list`/`source validate`）与已安装技能的本地使用不受影响。用户想在共享机器上清除凭据、或要换一个组织账号登录时，提议它。写命令，先回显再执行。
+`esl account logout`（快捷：`esl logout`）—— 只清除**当前实例**的凭据（token、登录时间戳与该实例账户快照），其他实例的登录保持不变；server / 工具配置也保留。幂等：当前实例未登录时执行也成功。
+
+当前地址身份未确认时，`logout` **拒绝执行**并说明先确认地址，避免错误清除旧实例凭据。登出后 `esl account whoami` 显示当前实例 `Not logged in`，需要登录态的命令（install/update/source upload 等）会提示先 `esl account login`；离线命令（`list`/`source validate`）与已安装技能的本地使用不受影响。用户想在共享机器上清除凭据、或要换一个组织账号登录时，提议它。写命令，先回显再执行。
 
 ## AI 行为（重要）
 - **交互式密码登录让用户自己跑**：`esl account login` 会在它自己的终端提示输入密码，你替它跑反而会卡住或把密码暴露给会话。引导用户在自己的终端执行。
