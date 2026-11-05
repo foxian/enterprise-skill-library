@@ -2,6 +2,14 @@
   <div data-test="external-manage-panel">
     <PageBreadcrumb :items="breadcrumbItems" />
     <div class="console-toolbar">
+      <el-button
+        text
+        data-test="external-back-to-list"
+        :icon="ArrowLeft"
+        @click="backToSkillList"
+      >
+        {{ t('common.back') }}
+      </el-button>
       <div class="panel-identity">
         <h2 class="panel-title">{{ t('external.title') }}</h2>
         <code class="skill-path">@{{ scope }}/{{ skillName }}</code>
@@ -193,6 +201,14 @@
         <el-form-item :label="t('external.repositoryUrl')">
           <el-input v-model="editUrl" data-test="external-edit-url" />
           <div class="form-hint">{{ t('external.repositoryUrlHint') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('external.skillDirectory')">
+          <el-input
+            v-model="editDirectory"
+            data-test="external-edit-directory"
+            :placeholder="t('external.skillDirectoryPlaceholder')"
+          />
+          <div class="form-hint">{{ t('external.skillDirectoryHint') }}</div>
           <div class="form-hint">{{ t('external.editSourceHint') }}</div>
         </el-form-item>
       </el-form>
@@ -278,6 +294,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { ArrowLeft } from '@element-plus/icons-vue';
 import { useLocaleState, formatRequestError } from '../i18n/locale';
 import PageBreadcrumb, { type PageBreadcrumbItem } from './layout/PageBreadcrumb.vue';
 import {
@@ -379,15 +396,17 @@ const stateTagType = computed(() => {
 });
 const isPaused = computed(() => reference.value?.syncState === 'paused');
 
-// 编辑来源：低频操作，独立对话框；目录与跟踪分支保持只读（ADR-0075）。
+// 编辑来源：低频操作，独立对话框；跟踪分支保持只读（ADR-0075）。
 const editVisible = ref(false);
 const editUrl = ref('');
+const editDirectory = ref('');
 const editPreview = ref<ExternalPreviewResult | null>(null);
 const editLicensePath = ref('');
 const editConfirmLicense = ref(false);
 const editError = ref('');
 const editLoading = ref(false);
 const previewedEditUrl = ref('');
+const previewedEditDirectory = ref('');
 
 const editSelectedCandidate = computed(() =>
   editPreview.value?.licenseCandidates.find(
@@ -402,6 +421,15 @@ function shortCommit(value?: string | null): string {
 function normalizedDirectory(): string {
   const directory = reference.value?.skillDirectory ?? '';
   return directory === '/' ? '' : directory;
+}
+
+function normalizeEditDirectory(): string {
+  const directory = editDirectory.value.trim();
+  return directory === '/' ? '' : directory;
+}
+
+function backToSkillList(): void {
+  void router.push(resolveSkillListLocation(route, false));
 }
 
 function applyReference(next: ExternalReferenceView): void {
@@ -508,11 +536,13 @@ async function confirmLicense(): Promise<void> {
 
 function openEditSource(): void {
   editUrl.value = reference.value?.repositoryUrl ?? '';
+  editDirectory.value = normalizedDirectory();
   editPreview.value = null;
   editLicensePath.value = '';
   editConfirmLicense.value = false;
   editError.value = '';
   previewedEditUrl.value = '';
+  previewedEditDirectory.value = '';
   editVisible.value = true;
 }
 
@@ -525,9 +555,10 @@ async function previewEdit(): Promise<void> {
       scope: props.scope,
       repositoryUrl: editUrl.value,
       branch: reference.value.branch,
-      skillDirectory: normalizedDirectory()
+      skillDirectory: normalizeEditDirectory()
     });
     previewedEditUrl.value = editUrl.value.trim();
+    previewedEditDirectory.value = normalizeEditDirectory();
     editLicensePath.value =
       editPreview.value.licenseProvenance?.path ??
       editPreview.value.licenseCandidates[0]?.path ??
@@ -551,16 +582,21 @@ function editExtraFiles(): string[] {
 async function saveSource(): Promise<void> {
   if (!reference.value) return;
   const nextUrl = editUrl.value.trim();
+  const nextDirectory = normalizeEditDirectory();
   if (!nextUrl) {
     editError.value = t('external.sourceUrlRequired');
     return;
   }
-  // 地址未变时无需重新验证来源，直接关闭。
-  if (nextUrl === reference.value.repositoryUrl) {
+  // 来源地址和目录均未变时无需重新验证来源，直接关闭。
+  if (nextUrl === reference.value.repositoryUrl && nextDirectory === normalizedDirectory()) {
     editVisible.value = false;
     return;
   }
-  if (!editPreview.value || previewedEditUrl.value !== nextUrl) {
+  if (
+    !editPreview.value ||
+    previewedEditUrl.value !== nextUrl ||
+    previewedEditDirectory.value !== nextDirectory
+  ) {
     editError.value = t('external.previewRequired');
     return;
   }
@@ -569,6 +605,7 @@ async function saveSource(): Promise<void> {
   try {
     const updated = await updateExternalReference(props.scope, props.skillName, {
       repositoryUrl: nextUrl,
+      skillDirectory: nextDirectory,
       extraFiles: editExtraFiles(),
       confirmLicense: editConfirmLicense.value && Boolean(editPreview.value.detectedLicense)
     });
@@ -597,6 +634,7 @@ defineExpose({
   load,
   licenseBasis,
   editUrl,
+  editDirectory,
   editPreview,
   openEditSource,
   previewEdit,

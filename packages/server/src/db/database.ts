@@ -2285,7 +2285,7 @@ export class ExternalSourceRepository {
       .run(JSON.stringify(schedule), skillName);
   }
 
-  updateSourceBeforeLock(input: {
+  updateSource(input: {
     skillName: string;
     repositoryUrl?: string;
     skillDirectory?: string;
@@ -2298,12 +2298,12 @@ export class ExternalSourceRepository {
             skill_directory = COALESCE(?, skill_directory),
             branch = COALESCE(?, branch),
             updated_at = CURRENT_TIMESTAMP
-        WHERE skill_name = ? AND locked = 0
+        WHERE skill_name = ?
       `)
       .run(input.repositoryUrl ?? null, input.skillDirectory ?? null, input.branch ?? null, input.skillName);
   }
 
-  // 修改来源 URL 不受首次发布后的锁定限制（ADR-0075）；目录与分支仍由调用方守卫。
+  // 修改来源 URL 与技能目录不受首次发布后的锁定限制（ADR-0075）；分支仍由调用方守卫。
   updateRepositoryUrl(skillName: string, repositoryUrl: string): void {
     this.db
       .prepare(`

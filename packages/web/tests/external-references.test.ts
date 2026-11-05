@@ -72,7 +72,7 @@ describe('外部 Git 引用管理面板', () => {
     expect(wrapper!.find('[data-test="edit-skill-content"]').exists()).toBe(false);
   });
 
-  it('编辑来源先预览新来源，保存时只提交 URL 与许可选择', async () => {
+  it('编辑来源先预览新来源，保存时提交 URL、目录与许可选择', async () => {
     const { requests } = await mountPanel((method, url) => {
       if (method === 'POST' && url.endsWith('/preview')) {
         return {
@@ -95,7 +95,10 @@ describe('外部 Git 引用管理面板', () => {
       if (method === 'PATCH') {
         return {
           status: 200,
-          json: reference({ repositoryUrl: 'https://github.com/fork/skills.git' })
+          json: reference({
+            repositoryUrl: 'https://github.com/fork/skills.git',
+            skillDirectory: 'new-skill'
+          })
         };
       }
       return { status: 200, json: reference() };
@@ -103,6 +106,7 @@ describe('外部 Git 引用管理面板', () => {
 
     const vm = wrapper!.findComponent(ExternalReferenceManagePanel).vm as unknown as {
       editUrl: string;
+      editDirectory: string;
       openEditSource: () => void;
       previewEdit: () => Promise<void>;
       saveSource: () => Promise<void>;
@@ -110,6 +114,7 @@ describe('外部 Git 引用管理面板', () => {
     };
     vm.openEditSource();
     vm.editUrl = 'https://github.com/fork/skills.git';
+    vm.editDirectory = 'new-skill';
     await flushPromises();
 
     await vm.previewEdit();
@@ -122,6 +127,7 @@ describe('外部 Git 引用管理面板', () => {
     const patch = requests.find((request) => request.method === 'PATCH');
     expect(patch?.body).toMatchObject({
       repositoryUrl: 'https://github.com/fork/skills.git',
+      skillDirectory: 'new-skill',
       extraFiles: ['LICENSE']
     });
     // 保存来源不会提交计划或可见性，避免顺带改动其他配置。
@@ -272,5 +278,21 @@ describe('外部 Git 引用管理面板', () => {
     await flushPromises();
     expect(router.currentRoute.value.name).toBe('me-skill-manage');
     expect(router.currentRoute.value.query).toEqual({ from: 'org-skills', org: 'acme', tab: 'shared', page: '2' });
+  });
+
+  it('返回按钮回到来源技能列表并恢复列表状态', async () => {
+    const { router } = await import('../src/router');
+    await mountPanel(() => ({ status: 200, json: reference() }));
+
+    await router.replace({
+      name: 'me-external-manage',
+      params: { scope: 'acme', skillName: 'webapp-testing' },
+      query: { from: 'skills', namespace: 'acme', tab: 'shared', page: '2' }
+    });
+    await wrapper!.find('[data-test="external-back-to-list"]').trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe('me-skills');
+    expect(router.currentRoute.value.query).toEqual({ namespace: 'acme', tab: 'shared', page: '2' });
   });
 });
