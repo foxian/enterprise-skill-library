@@ -53,6 +53,11 @@ describe('External Reference API', () => {
       '---\nname: webapp-testing\ndescription: Up\n---\n# hi\n'
     );
     await fsp.writeFile(path.join(upstreamDir, 'webapp-testing', 'note.txt'), 'v1');
+    await fsp.mkdir(path.join(upstreamDir, 'alternate-skill'), { recursive: true });
+    await fsp.writeFile(
+      path.join(upstreamDir, 'alternate-skill', 'SKILL.md'),
+      '---\nname: webapp-testing\ndescription: Up\n---\n# alternate\n'
+    );
     await fsp.writeFile(
       path.join(upstreamDir, 'LICENSE'),
       'MIT License\n\nPermission is hereby granted, free of charge\n'
@@ -328,7 +333,7 @@ describe('External Reference API', () => {
     expect(resume.json().catchupDue).toBe(true);
   });
 
-  it('首次发布前可修正来源；锁定后拒绝改来源但仍可改计划', async () => {
+  it('首次发布前可修正来源；锁定后仅允许修改目录而拒绝改分支', async () => {
     await app.inject({
       method: 'POST',
       url: '/api/external-references',
@@ -363,6 +368,15 @@ describe('External Reference API', () => {
       url: '/api/external-references/@alice/webapp-testing/sync',
       headers: auth
     });
+
+    const afterLockDirectory = await app.inject({
+      method: 'PATCH',
+      url: '/api/external-references/@alice/webapp-testing',
+      headers: auth,
+      payload: { skillDirectory: 'alternate-skill' }
+    });
+    expect(afterLockDirectory.statusCode).toBe(200);
+    expect(afterLockDirectory.json().skillDirectory).toBe('alternate-skill');
 
     const afterLock = await app.inject({
       method: 'PATCH',

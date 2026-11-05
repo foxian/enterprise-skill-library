@@ -350,8 +350,8 @@ export function registerExternalRoutes(app: FastifyInstance, options: ExternalRo
     );
   });
 
-  // 更新配置：计划、可见性、目录外文件，以及来源 URL。
-  // 首次发布后目录与跟踪分支锁定，但仓库 URL 仍可由管理者修改（ADR-0075）。
+  // 更新配置：计划、可见性、来源 URL、技能目录及目录外文件。
+  // 首次发布后跟踪分支锁定；仓库 URL 与技能目录仍可由管理者修改（ADR-0075）。
   app.patch('/api/external-references/:scope/:skillName', async (request, reply) => {
     const user = await currentUser(request);
     const params = request.params as { scope: string; skillName: string };
@@ -381,8 +381,8 @@ export function registerExternalRoutes(app: FastifyInstance, options: ExternalRo
     const nextBranch = body.branch?.trim() || record.branch;
     const branchChanged = nextBranch !== record.branch;
 
-    // 目录与跟踪分支在首次成功发布后锁定；URL 不受此限制。
-    if (record.locked && (directoryChanged || branchChanged)) {
+    // 跟踪分支在首次成功发布后锁定；URL 与技能目录不受此限制。
+    if (record.locked && branchChanged) {
       return reply.status(409).send(apiError('externalSourceLocked'));
     }
 
@@ -451,7 +451,7 @@ export function registerExternalRoutes(app: FastifyInstance, options: ExternalRo
     }
 
     if (sourceChanged) {
-      externalSourceRepository.updateSourceBeforeLock({
+      externalSourceRepository.updateSource({
         skillName: fullName,
         repositoryUrl: urlChanged ? nextUrl : undefined,
         skillDirectory: directoryChanged ? nextDirectory : undefined,

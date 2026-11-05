@@ -183,7 +183,7 @@ export const apiErrorMessages = {
   externalSourceLicenseConfirmationRequired: 'License basis must be confirmed before publication',
   externalSourcePaused: 'Synchronization is paused',
   externalSourceArchived: 'The external skill is archived',
-  externalSourceLocked: 'The skill directory and tracking branch are locked after the first successful publication',
+  externalSourceLocked: 'The tracking branch is locked after the first successful publication',
   externalSourceSyncFailed: 'External reference synchronization failed',
   consumerProjectRootRequired:
     'Cannot determine the Consumer Project Root from {directory}: its parent has no .skills.json or .eslib. Run from the project root, initialize the parent as a Consumer Project Root, or pass --global.',
@@ -375,7 +375,7 @@ export const apiErrorMessagesZhCN: Record<ApiErrorCode, string> = {
   externalSourceLicenseConfirmationRequired: '发布前必须确认许可证依据',
   externalSourcePaused: '同步已暂停',
   externalSourceArchived: '该外部技能已归档',
-  externalSourceLocked: '首次成功发布后技能目录与跟踪分支已锁定',
+  externalSourceLocked: '首次成功发布后跟踪分支已锁定',
   externalSourceSyncFailed: '外部引用同步失败',
   consumerProjectRootRequired:
     '无法从 {directory} 判断 Consumer Project Root：其上一级没有 .skills.json 或 .eslib。请在项目根执行、把上一级初始化为 Consumer Project Root，或传 --global。',

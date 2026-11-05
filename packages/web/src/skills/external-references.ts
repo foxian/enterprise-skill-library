@@ -112,6 +112,7 @@ export async function getExternalReference(
 
 export interface UpdateExternalReferenceInput {
   repositoryUrl?: string;
+  skillDirectory?: string;
   branch?: string;
   schedule?: ExternalSchedule;
   visibility?: 'private' | 'public';
