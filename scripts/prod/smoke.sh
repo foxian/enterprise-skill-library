@@ -8,11 +8,22 @@
 #
 #   bash scripts/prod/smoke.sh [BASE_URL]
 #
-# BASE_URL defaults to $1, then $ESL_SERVER_URL, then http://localhost:4070.
+# BASE_URL 取值顺序：$1 → $ESL_SERVER_URL → http://localhost:4070。
+# 回退到 localhost:4070 仅适合本机开发实例；对生产入口验证请显式传入地址，
+# 或先 source .env，避免把开发实例的通过误当成生产可用。
 
 set -euo pipefail
 
-BASE_URL="${1:-${ESL_SERVER_URL:-http://localhost:4070}}"
+if [ -n "${1:-}" ]; then
+  BASE_URL="$1"
+elif [ -n "${ESL_SERVER_URL:-}" ]; then
+  BASE_URL="$ESL_SERVER_URL"
+else
+  BASE_URL="http://localhost:4070"
+  echo "smoke: WARNING — 未提供地址且 ESL_SERVER_URL 为空，回退到 $BASE_URL" >&2
+  echo "smoke: 该地址通常只对应本机开发实例；生产入口请显式传入，例如：" >&2
+  echo "smoke:   bash scripts/prod/smoke.sh https://<your-entry>" >&2
+fi
 BASE_URL="${BASE_URL%/}"
 
 fail() { echo "smoke: FAIL — $1" >&2; exit 1; }

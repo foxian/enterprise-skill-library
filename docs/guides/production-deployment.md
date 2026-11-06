@@ -183,6 +183,8 @@ Restore」词条）。
   `/health`、API 边界、Git Backend 维护入口。冒烟地址取显式参数，其次
   `.env` 的 `ESL_SERVER_URL`，最后回退 `http://localhost:4070`；生产未发布
   宿主端口时，务必先设好 `ESL_SERVER_URL` 或显式传入可达的入口地址。
+  回退到 `localhost:4070` 时脚本会打印 WARNING：该端口通常只对应本机开发
+  实例，不能作为生产可用的证据；请以显式传入的生产入口结果为准。
 - **Git Backend 恢复入口**：生产环境不暴露 3001 直连端口；Gitea 的维护
   登录页经 `<你的入口地址>/git/user/login` 访问（与用户同一入口）
 - **自定义路由未生效**：检查 `.conf` 文件是否在 `nginx-conf.d/` 中、
