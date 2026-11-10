@@ -46,7 +46,7 @@ describe('Bootstrap Reset 生产护栏', () => {
     // 拒绝理由须是护栏本身，而非 docker 缺失等意外错误
     expect(output).toContain('ESL_ENVIRONMENT');
     expect(output).toContain('production');
-    // 备份恢复指引（CONTEXT.md：备份/恢复是生产唯一的"回到过去"手段）
+    // 备份恢复指引（GLOSSARY.md：备份/恢复是生产唯一的"回到过去"手段）
     expect(output).toMatch(/backup|restore|备份|恢复/i);
     // 未触碰任何数据
     expect(existsSync(join(dataDir, 'api', 'esl.db'))).toBe(true);

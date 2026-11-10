@@ -22,7 +22,7 @@ The five canonical triage roles map to the repo's local label vocabulary. See `d
 
 ### Domain docs
 
-This repo uses single-context domain docs: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
+This repo uses single-context domain docs: root `GLOSSARY.md` plus `docs/adr/`. See `docs/agents/domain.md`.
 
 <!-- ESL-AUTO-GENERATED-START -->
 <!-- Future `esl adapt codex` output goes here. Do not edit this block manually. -->

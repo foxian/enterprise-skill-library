@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生产备份（ADR-0047 / CONTEXT.md「备份 Backup」）：单文件归档，恢复用
+# 生产备份（ADR-0047 / GLOSSARY.md「备份 Backup」）：单文件归档，恢复用
 # scripts/prod/restore.sh。
 #
 # 用法：

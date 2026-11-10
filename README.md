@@ -190,7 +190,7 @@ seeding are documented in the
 - [Production deployment](docs/guides/production-deployment.md)
 - [Platform support](docs/guides/platform-support.md)
 - [Server logging](docs/guides/logging.md) · [Docker troubleshooting](docs/guides/docker-troubleshooting.md)
-- [Domain context](CONTEXT.md)
+- [Glossary](GLOSSARY.md)
 - [Architecture decisions](docs/adr/) · [Product decisions](docs/decisions/)
 - [CLI guidelines reference](docs/reference/command-line-interface-guidelines.md)
 

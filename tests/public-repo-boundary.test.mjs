@@ -38,7 +38,7 @@ const PUBLIC_CONFIG_FILES = [
 
 // 需要扫描的核心文档与技能文件
 const PUBLIC_DOC_FILES = [
-  'CONTEXT.md',
+  'GLOSSARY.md',
   'README.md',
   'README.zh-CN.md',
   'docs/adr/0068-domain-and-service-entrypoints.md',
@@ -128,8 +128,8 @@ describe('公开仓库产品边界 — 术语与 ADR-0060 一致', () => {
     expect(adr060).toContain('上游版本');
   });
 
-  it('CONTEXT.md 包含产品层、实例层、私有部署仓库和上游版本术语', () => {
-    const context = readRepoFile('CONTEXT.md');
+  it('GLOSSARY.md 包含产品层、实例层、私有部署仓库和上游版本术语', () => {
+    const context = readRepoFile('GLOSSARY.md');
     expect(context).toContain('产品层');
     expect(context).toContain('实例层');
     expect(context).toContain('私有部署仓库');

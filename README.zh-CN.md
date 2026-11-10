@@ -180,7 +180,7 @@ docker compose up --build
 - [生产部署](docs/guides/production-deployment.md)
 - [平台支持](docs/guides/platform-support.md)
 - [Server 日志](docs/guides/logging.md) · [Docker 故障排查](docs/guides/docker-troubleshooting.md)
-- [领域术语](CONTEXT.md)
+- [领域术语](GLOSSARY.md)
 - [架构决策](docs/adr/) · [产品决策](docs/decisions/)
 - [CLI 规范参考](docs/reference/command-line-interface-guidelines.md)
 

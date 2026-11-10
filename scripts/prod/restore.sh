@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生产恢复（ADR-0047 / CONTEXT.md「恢复 Restore」）：从 backup.sh 归档
+# 生产恢复（ADR-0047 / GLOSSARY.md「恢复 Restore」）：从 backup.sh 归档
 # 将持久数据回退到备份时刻状态。停服操作，是备份的逆操作。
 #
 # 用法：
