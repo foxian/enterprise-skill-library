@@ -43,7 +43,7 @@ describe('个人信息页 用户邮箱', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/profile' });
+    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/personal-info' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="email-pending-reminder"]').text()).toContain('邮箱待补全');
@@ -76,7 +76,7 @@ describe('个人信息页 用户邮箱', () => {
       }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/profile' });
+    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/personal-info' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="email-pending-reminder"]').text()).toContain('新邮箱待验证');

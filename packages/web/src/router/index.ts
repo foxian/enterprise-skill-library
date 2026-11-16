@@ -98,7 +98,7 @@ export const router = createRouter({
       ]
     },
     {
-      // 个人控制台（ADR-0035）：概览 / 我的组织 / 技能 / 邀请。组织治理挂在
+      // 个人控制台（ADR-0035）：概览 / 个人信息 / 我的组织 / 技能 / 邀请。组织治理挂在
       // 「我的组织」下，不是独立视角。
       path: '/admin/me',
       component: PersonalLayout,
@@ -106,7 +106,7 @@ export const router = createRouter({
       children: [
         { path: '', redirect: { name: 'me-overview' } },
         { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: 'routes.overview', description: 'routes.overviewDescription' } },
-        { path: 'profile', name: 'me-profile', component: PersonalInfoView, meta: { title: 'routes.personalInfo', description: 'routes.personalInfoDescription' } },
+        { path: 'personal-info', name: 'me-personal-info', component: PersonalInfoView, meta: { title: 'routes.personalInfo', description: 'routes.personalInfoDescription' } },
         { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: 'routes.myOrganizations', description: 'routes.myOrganizationsDescription' } },
         {
           path: 'orgs/:org',

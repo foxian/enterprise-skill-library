@@ -43,7 +43,7 @@ describe('概览页邮箱提醒横幅', () => {
     await wrapper.find('[data-test="go-personal-info"]').trigger('click');
     await flushPromises();
 
-    expect(router.currentRoute.value.name).toBe('me-profile');
+    expect(router.currentRoute.value.name).toBe('me-personal-info');
     expect(router.currentRoute.value.hash).toBe('#email');
     expect(wrapper.find('[data-test="personal-info-card"]').classes()).toContain('is-highlighted');
   });
@@ -57,6 +57,21 @@ describe('概览页邮箱提醒横幅', () => {
     expect(notice.exists()).toBe(true);
     expect(notice.text()).toContain('新邮箱正在等待验证');
     expect(wrapper.find('[data-test="profile-email-submit"]').exists()).toBe(false);
+
+    await wrapper.find('[data-test="go-personal-info"]').trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe('me-personal-info');
+    expect(router.currentRoute.value.hash).toBe('#email');
+  });
+
+  it('待补全且待验证时以待验证提示为准', async () => {
+    mockOverview({ emailPendingCompletion: true, emailPendingVerification: true });
+    wrapper = await mountConsoleView(OverviewView, { account: 'solo', route: '/admin/me/overview' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="email-notice-info"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="email-notice-warning"]').exists()).toBe(false);
   });
 
   it('邮箱状态正常时不渲染提醒横幅', async () => {

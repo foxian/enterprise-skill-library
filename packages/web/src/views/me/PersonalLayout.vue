@@ -16,7 +16,7 @@ import { useLocaleState } from '../../i18n/locale';
 const { t } = useLocaleState();
 const menuItems = computed<ConsoleMenuItem[]>(() => [
   { index: '/admin/me/overview', label: t('nav.overview'), icon: DataBoard },
-  { index: '/admin/me/profile', label: t('nav.personalInfo'), icon: User },
+  { index: '/admin/me/personal-info', label: t('nav.personalInfo'), icon: User },
   { index: '/admin/me/orgs', label: t('nav.myOrganizations'), icon: OfficeBuilding },
   { index: '/admin/me/skills', label: t('nav.skills'), icon: Files },
   { index: '/admin/me/invitations', label: t('nav.invitations'), icon: Promotion }

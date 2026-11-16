@@ -25,7 +25,7 @@ describe('个人信息入口', () => {
       }
       return { status: 200, json: {} };
     });
-    wrapper = await mountConsoleView(App, { account: 'solo', route: '/admin/me/profile' });
+    wrapper = await mountConsoleView(App, { account: 'solo', route: '/admin/me/personal-info' });
     await flushPromises();
 
     const labels = wrapper.findAll('.el-menu-item').map((item) => item.text());
@@ -52,7 +52,7 @@ describe('个人信息入口', () => {
     await item.trigger('click');
     await flushPromises();
 
-    expect(router.currentRoute.value.name).toBe('me-profile');
+    expect(router.currentRoute.value.name).toBe('me-personal-info');
   });
 
   it('超管控制台不渲染个人信息入口', async () => {

@@ -125,7 +125,7 @@ const currentDescription = computed<string>(() => {
 
 async function onCommand(command: string): Promise<void> {
   if (command === 'personal-info') {
-    await router.push({ name: 'me-profile' });
+    await router.push({ name: 'me-personal-info' });
   } else if (command === 'change-password') {
     dialog.value?.open();
   } else if (command === 'logout') {

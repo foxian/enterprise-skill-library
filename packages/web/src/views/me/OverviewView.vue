@@ -131,19 +131,20 @@ const emailStatus = ref<EmailStatus | null>(null);
 const organizations = computed(() => auth.organizations);
 const todoCount = computed(() => invitations.value.length + pendingApplications.value.length);
 // 待补全用 warning 保持醒目；待验证用 info 降低打扰强度，两者结构一致。
+// 待补全用户提交改邮后两个标记会同时为真，此时以待验证为准（与个人信息页标签优先级一致）。
 const emailNotice = computed<EmailNotice | null>(() => {
-  if (emailStatus.value?.emailPendingCompletion) {
-    return {
-      type: 'warning',
-      messageKey: 'overview.emailPendingCompletionBanner',
-      actionKey: 'overview.goCompleteEmail'
-    };
-  }
   if (emailStatus.value?.emailPendingVerification) {
     return {
       type: 'info',
       messageKey: 'overview.emailPendingVerificationBanner',
       actionKey: 'overview.viewEmailStatus'
+    };
+  }
+  if (emailStatus.value?.emailPendingCompletion) {
+    return {
+      type: 'warning',
+      messageKey: 'overview.emailPendingCompletionBanner',
+      actionKey: 'overview.goCompleteEmail'
     };
   }
   return null;
@@ -162,7 +163,7 @@ function goSkills(): void {
 }
 
 function goPersonalInfo(): void {
-  void router.push({ name: 'me-profile', hash: '#email' });
+  void router.push({ name: 'me-personal-info', hash: '#email' });
 }
 
 function openSkill(scope: string, skillName: string): void {

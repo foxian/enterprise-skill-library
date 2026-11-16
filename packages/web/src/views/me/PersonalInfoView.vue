@@ -11,18 +11,18 @@
         <div class="card-header">
           <span>{{ t('profile.emailTitle') }}</span>
           <el-tag
-            v-if="profile && (profile.emailPendingVerification || profile.emailPendingCompletion)"
+            v-if="emailPending"
             type="warning"
             size="small"
             data-test="email-pending-reminder"
           >
-            {{ profile.emailPendingVerification ? t('profile.emailPendingVerification') : t('userManagement.emailPendingCompletion') }}
+            {{ profile?.emailPendingVerification ? t('profile.emailPendingVerification') : t('userManagement.emailPendingCompletion') }}
           </el-tag>
         </div>
       </template>
       <p v-if="profile" class="profile-email" data-test="profile-email">{{ profile.email }}</p>
       <el-alert
-        v-if="profile && (profile.emailPendingVerification || profile.emailPendingCompletion)"
+        v-if="emailPending"
         type="warning"
         :title="t('profile.emailPendingHint')"
         :closable="false"
@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { apiRequest } from '../../api/client';
@@ -79,6 +79,9 @@ const savingEmail = ref(false);
 const errorMessage = ref('');
 const highlighted = ref(false);
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+
+// 待补全或待验证任一成立即提醒；标签文案仍以待验证优先。
+const emailPending = computed(() => Boolean(profile.value && (profile.value.emailPendingVerification || profile.value.emailPendingCompletion)));
 
 async function loadProfile(): Promise<void> {
   errorMessage.value = '';
@@ -116,10 +119,8 @@ async function changeEmail(): Promise<void> {
 
 onMounted(async () => {
   await loadProfile();
-  // 概览页横幅带着 #email 锚点跳转过来：落位到邮箱区块并短暂高亮，帮助用户聚焦。
+  // 概览页横幅带着 #email 锚点跳转过来：路由 scrollBehavior 已负责落位，这里只做短暂高亮。
   if (route.hash === '#email') {
-    const target = document.getElementById('email');
-    target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
     highlighted.value = true;
     highlightTimer = setTimeout(() => {
       highlighted.value = false;
