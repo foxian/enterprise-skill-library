@@ -32,6 +32,11 @@
                   <span v-if="managerOrgsLabel" class="console-user-meta-org">{{ managerOrgsLabel }}</span>
                 </div>
               </div>
+              <el-dropdown-item
+                v-if="!auth.isPlatformAdmin"
+                command="personal-info"
+                data-test="personal-info"
+              >{{ t('nav.personalInfo') }}</el-dropdown-item>
               <el-dropdown-item command="change-password" data-test="change-password">{{ t('common.changePassword') }}</el-dropdown-item>
               <el-dropdown-item command="logout" divided data-test="logout">{{ t('common.signOut') }}</el-dropdown-item>
             </el-dropdown-menu>
@@ -119,7 +124,9 @@ const currentDescription = computed<string>(() => {
 });
 
 async function onCommand(command: string): Promise<void> {
-  if (command === 'change-password') {
+  if (command === 'personal-info') {
+    await router.push({ name: 'me-profile' });
+  } else if (command === 'change-password') {
     dialog.value?.open();
   } else if (command === 'logout') {
     auth.logout();

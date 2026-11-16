@@ -17,6 +17,7 @@ import SuperSkillManage from '../views/super/SkillManageView.vue';
 import SuperDownloadLogs from '../views/super/DownloadLogsView.vue';
 import PersonalLayout from '../views/me/PersonalLayout.vue';
 import OverviewView from '../views/me/OverviewView.vue';
+import PersonalInfoView from '../views/me/PersonalInfoView.vue';
 import MeOrgsView from '../views/me/OrgsView.vue';
 import OrgDetailLayout from '../views/me/OrgDetailLayout.vue';
 import OrgMembersView from '../views/me/OrgMembersView.vue';
@@ -100,6 +101,7 @@ export const router = createRouter({
       children: [
         { path: '', redirect: { name: 'me-overview' } },
         { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: 'routes.overview', description: 'routes.overviewDescription' } },
+        { path: 'profile', name: 'me-profile', component: PersonalInfoView, meta: { title: 'routes.personalInfo', description: 'routes.personalInfoDescription' } },
         { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: 'routes.myOrganizations', description: 'routes.myOrganizationsDescription' } },
         {
           path: 'orgs/:org',
