@@ -47,8 +47,13 @@ export interface ConsoleRouteMeta {
 
 export const router = createRouter({
   history: createWebHistory(),
-  // 前进/后退恢复原滚动位置；新导航回到顶部，避免深层页带着长列表的滚动偏移出现。
-  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
+  // 前进/后退恢复原滚动位置；带锚点的新导航定位到目标元素；其余新导航回到顶部，
+  // 避免深层页带着长列表的滚动偏移出现。
+  scrollBehavior: (to, _from, savedPosition) => {
+    if (savedPosition) return savedPosition;
+    if (to.hash) return { el: to.hash };
+    return { top: 0 };
+  },
   routes: [
     // 消费者目录（ADR-0073）：匿名访客无需登录即可浏览 anonymous 已发布技能。
     // 管理控制台继续挂在 /admin 下，由既有守卫保护。

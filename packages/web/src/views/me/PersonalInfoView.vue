@@ -1,6 +1,12 @@
 <template>
   <div>
-    <el-card id="email" class="data-card" shadow="never">
+    <el-card
+      id="email"
+      class="data-card personal-info-card"
+      :class="{ 'is-highlighted': highlighted }"
+      shadow="never"
+      data-test="personal-info-card"
+    >
       <template #header>
         <div class="card-header">
           <span>{{ t('profile.emailTitle') }}</span>
@@ -50,12 +56,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { apiRequest } from '../../api/client';
 import { ElMessage } from 'element-plus';
 
 const { t } = useLocaleState();
+const route = useRoute();
 
 interface AccountProfile {
   username: string;
@@ -69,6 +77,8 @@ const newEmail = ref('');
 const currentPassword = ref('');
 const savingEmail = ref(false);
 const errorMessage = ref('');
+const highlighted = ref(false);
+let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function loadProfile(): Promise<void> {
   errorMessage.value = '';
@@ -104,7 +114,22 @@ async function changeEmail(): Promise<void> {
   }
 }
 
-onMounted(loadProfile);
+onMounted(async () => {
+  await loadProfile();
+  // 概览页横幅带着 #email 锚点跳转过来：落位到邮箱区块并短暂高亮，帮助用户聚焦。
+  if (route.hash === '#email') {
+    const target = document.getElementById('email');
+    target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    highlighted.value = true;
+    highlightTimer = setTimeout(() => {
+      highlighted.value = false;
+    }, 2000);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (highlightTimer) clearTimeout(highlightTimer);
+});
 </script>
 
 <style scoped>
@@ -116,6 +141,15 @@ onMounted(loadProfile);
 
 .page-error {
   margin-top: 16px;
+}
+
+.personal-info-card {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.personal-info-card.is-highlighted {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
 }
 
 .profile-email {

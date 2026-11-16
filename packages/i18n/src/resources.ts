@@ -632,7 +632,11 @@ const zhCN: TranslationTree = {
     allOrganizations: '全部组织',
     managedSkills: '我管理的技能',
     allSkills: '全部技能',
-    noManagedSkills: '你还没有管理任何技能'
+    noManagedSkills: '你还没有管理任何技能',
+    emailPendingCompletionBanner: '当前邮箱尚未补全，补全后才能正常使用账户能力。',
+    emailPendingVerificationBanner: '新邮箱正在等待验证，验证完成前旧邮箱继续有效。',
+    goCompleteEmail: '去补全',
+    viewEmailStatus: '查看'
   },
   apiError: apiErrorMessagesZhCN
 };
@@ -1264,7 +1268,11 @@ const enUS: TranslationTree = {
     allOrganizations: 'All organizations',
     managedSkills: 'Skills I manage',
     allSkills: 'All skills',
-    noManagedSkills: 'You do not manage any skills'
+    noManagedSkills: 'You do not manage any skills',
+    emailPendingCompletionBanner: 'Your email is not complete yet. Complete it to keep your account fully usable.',
+    emailPendingVerificationBanner: 'Your new email is awaiting verification; the previous email stays in use until then.',
+    goCompleteEmail: 'Complete now',
+    viewEmailStatus: 'View'
   },
   apiError: apiErrorMessages
 };
