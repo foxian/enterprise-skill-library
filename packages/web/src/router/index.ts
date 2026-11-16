@@ -17,6 +17,7 @@ import SuperSkillManage from '../views/super/SkillManageView.vue';
 import SuperDownloadLogs from '../views/super/DownloadLogsView.vue';
 import PersonalLayout from '../views/me/PersonalLayout.vue';
 import OverviewView from '../views/me/OverviewView.vue';
+import PersonalInfoView from '../views/me/PersonalInfoView.vue';
 import MeOrgsView from '../views/me/OrgsView.vue';
 import OrgDetailLayout from '../views/me/OrgDetailLayout.vue';
 import OrgMembersView from '../views/me/OrgMembersView.vue';
@@ -46,8 +47,13 @@ export interface ConsoleRouteMeta {
 
 export const router = createRouter({
   history: createWebHistory(),
-  // 前进/后退恢复原滚动位置；新导航回到顶部，避免深层页带着长列表的滚动偏移出现。
-  scrollBehavior: (_to, _from, savedPosition) => savedPosition ?? { top: 0 },
+  // 前进/后退恢复原滚动位置；带锚点的新导航定位到目标元素；其余新导航回到顶部，
+  // 避免深层页带着长列表的滚动偏移出现。
+  scrollBehavior: (to, _from, savedPosition) => {
+    if (savedPosition) return savedPosition;
+    if (to.hash) return { el: to.hash };
+    return { top: 0 };
+  },
   routes: [
     // 消费者目录（ADR-0073）：匿名访客无需登录即可浏览 anonymous 已发布技能。
     // 管理控制台继续挂在 /admin 下，由既有守卫保护。
@@ -92,7 +98,7 @@ export const router = createRouter({
       ]
     },
     {
-      // 个人控制台（ADR-0035）：概览 / 我的组织 / 技能 / 邀请。组织治理挂在
+      // 个人控制台（ADR-0035）：概览 / 个人信息 / 我的组织 / 技能 / 邀请。组织治理挂在
       // 「我的组织」下，不是独立视角。
       path: '/admin/me',
       component: PersonalLayout,
@@ -100,6 +106,7 @@ export const router = createRouter({
       children: [
         { path: '', redirect: { name: 'me-overview' } },
         { path: 'overview', name: 'me-overview', component: OverviewView, meta: { title: 'routes.overview', description: 'routes.overviewDescription' } },
+        { path: 'personal-info', name: 'me-personal-info', component: PersonalInfoView, meta: { title: 'routes.personalInfo', description: 'routes.personalInfoDescription' } },
         { path: 'orgs', name: 'me-orgs', component: MeOrgsView, meta: { title: 'routes.myOrganizations', description: 'routes.myOrganizationsDescription' } },
         {
           path: 'orgs/:org',

@@ -67,6 +67,7 @@ const zhCN: TranslationTree = {
     downloadLogs: '下载日志',
     platformSettings: '平台设置',
     overview: '概览',
+    personalInfo: '个人信息',
     myOrganizations: '我的组织',
     skills: '技能',
     invitations: '邀请',
@@ -105,6 +106,8 @@ const zhCN: TranslationTree = {
     platformSettingsDescription: '配置组织注册的审批模式与平台级策略',
     overview: '概览',
     overviewDescription: '待办、我的组织与我管理的技能',
+    personalInfo: '个人信息',
+    personalInfoDescription: '查看当前邮箱并维护邮箱状态',
     myOrganizations: '我的组织',
     myOrganizationsDescription: '创建组织、查看我在每个组织中的身份',
     orgMembers: '成员管理',
@@ -629,7 +632,11 @@ const zhCN: TranslationTree = {
     allOrganizations: '全部组织',
     managedSkills: '我管理的技能',
     allSkills: '全部技能',
-    noManagedSkills: '你还没有管理任何技能'
+    noManagedSkills: '你还没有管理任何技能',
+    emailPendingCompletionBanner: '当前邮箱尚未补全，补全后才能正常使用账户能力。',
+    emailPendingVerificationBanner: '新邮箱正在等待验证，验证完成前旧邮箱继续有效。',
+    goCompleteEmail: '去补全',
+    viewEmailStatus: '查看'
   },
   apiError: apiErrorMessagesZhCN
 };
@@ -696,6 +703,7 @@ const enUS: TranslationTree = {
     downloadLogs: 'Download logs',
     platformSettings: 'Platform settings',
     overview: 'Overview',
+    personalInfo: 'Personal info',
     myOrganizations: 'My organizations',
     skills: 'Skills',
     invitations: 'Invitations',
@@ -734,6 +742,8 @@ const enUS: TranslationTree = {
     platformSettingsDescription: 'Configure organization approval mode and platform policies',
     overview: 'Overview',
     overviewDescription: 'Todos, organizations, and managed skills',
+    personalInfo: 'Personal info',
+    personalInfoDescription: 'View your current email and maintain its status',
     myOrganizations: 'My organizations',
     myOrganizationsDescription: 'Create organizations and view your identity in each',
     orgMembers: 'Members',
@@ -1258,7 +1268,11 @@ const enUS: TranslationTree = {
     allOrganizations: 'All organizations',
     managedSkills: 'Skills I manage',
     allSkills: 'All skills',
-    noManagedSkills: 'You do not manage any skills'
+    noManagedSkills: 'You do not manage any skills',
+    emailPendingCompletionBanner: 'Your email is not complete yet. Complete it to keep your account fully usable.',
+    emailPendingVerificationBanner: 'Your new email is awaiting verification; the previous email stays in use until then.',
+    goCompleteEmail: 'Complete now',
+    viewEmailStatus: 'View'
   },
   apiError: apiErrorMessages
 };

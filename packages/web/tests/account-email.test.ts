@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, type VueWrapper } from '@vue/test-utils';
-import OverviewView from '../src/views/me/OverviewView.vue';
+import PersonalInfoView from '../src/views/me/PersonalInfoView.vue';
 import { mountConsoleView, resetConsole, useApiMock } from './helpers';
 
 let wrapper: VueWrapper | undefined;
@@ -18,7 +18,7 @@ async function setInput(view: VueWrapper, testId: string, value: string): Promis
   await input.trigger('input');
 }
 
-describe('Personal Console Skill User Email', () => {
+describe('个人信息页 用户邮箱', () => {
   it('展示待补全提醒并携带当前密码提交新邮箱', async () => {
     const { requests } = useApiMock((method, url) => {
       if (method === 'GET' && url === '/api/account/profile') {
@@ -41,12 +41,9 @@ describe('Personal Console Skill User Email', () => {
           }
         };
       }
-      if (method === 'GET' && url === '/api/orgs/mine') {
-        return { status: 200, json: { organizations: [], pendingApplications: [] } };
-      }
       return { status: 200, json: [] };
     });
-    wrapper = await mountConsoleView(OverviewView, { account: 'solo', route: '/admin/me/overview' });
+    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/personal-info' });
     await flushPromises();
 
     expect(wrapper.find('[data-test="email-pending-reminder"]').text()).toContain('邮箱待补全');
@@ -62,5 +59,26 @@ describe('Personal Console Skill User Email', () => {
       email: 'legacy@example.com',
       currentPassword: 'legacy-password'
     });
+  });
+
+  it('待验证状态展示待验证提醒', async () => {
+    useApiMock((method, url) => {
+      if (method === 'GET' && url === '/api/account/profile') {
+        return {
+          status: 200,
+          json: {
+            username: 'pending',
+            email: 'pending@example.com',
+            emailPendingCompletion: false,
+            emailPendingVerification: true
+          }
+        };
+      }
+      return { status: 200, json: [] };
+    });
+    wrapper = await mountConsoleView(PersonalInfoView, { account: 'solo', route: '/admin/me/personal-info' });
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="email-pending-reminder"]').text()).toContain('新邮箱待验证');
   });
 });
