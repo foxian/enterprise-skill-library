@@ -2,6 +2,7 @@ node_modules/
 packages/*/dist/
 .superpowers/
 .worktrees/
+worktrees/
 .env
 
 # Local data directory (default ESL bind-mount location)

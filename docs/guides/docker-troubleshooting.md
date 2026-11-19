@@ -63,6 +63,45 @@ docker info
 
 The output should include `Registry Mirrors`.
 
+## Debian Package Fetch Failures During Builds
+
+When `docker compose build api` fails in the `apt-get update && apt-get install`
+layer with `502 Bad Gateway` from `deb.debian.org` (Fastly edge IPs) or
+`Connection failed` from a mirror, the upstream package CDN is flaky from your
+network. `Acquire::Retries` does not reliably help, and Docker Desktop's
+built-in proxy (`http.docker.internal:3128`, shown as `HTTP Proxy` in
+`docker info`) can add another failure point. Direct access may still hit
+intermittent 502s.
+
+Build from a temporary copy of the Dockerfile that points the base image's
+Debian sources at a reachable mirror, with the Docker Desktop proxy bypassed.
+The tracked `packages/server/Dockerfile` stays unchanged:
+
+```bash
+# 1. Copy the Dockerfile and add a mirror switch before apt-get update in the
+#    first RUN, e.g. for bookworm's deb822 source file:
+#      sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' \
+#        /etc/apt/sources.list.d/debian.sources
+cp packages/server/Dockerfile docker/tmp-server-build.Dockerfile
+# ...edit docker/tmp-server-build.Dockerfile to add the sed line...
+
+# 2. Build with the compose image tag, bypassing the proxy:
+docker build -f docker/tmp-server-build.Dockerfile -t enterprise-skill-library-api \
+  --build-arg HTTP_PROXY= --build-arg HTTPS_PROXY= --build-arg NO_PROXY='*' .
+
+# 3. Recreate api, then restart nginx so it re-resolves the api hostname:
+docker compose up -d api
+docker compose restart server
+
+# 4. Clean up the temporary Dockerfile:
+rm docker/tmp-server-build.Dockerfile
+```
+
+Verify with `curl -o /dev/null -w '%{http_code}\n' http://localhost:4070/health`.
+
+Any reachable Debian mirror works; keep both the `/debian` and
+`/debian-security` URLs pointing at the same host.
+
 ## Runtime Diagnosis
 
 Use these commands after following the normal startup procedure:
