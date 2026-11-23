@@ -201,6 +201,27 @@ describe('个人控制台技能目录', () => {
     expect(router.currentRoute.value.query.q).toBe('beta');
   });
 
+  it('切桶只发一次请求，保留已提交关键词且不清空未提交输入', async () => {
+    const { requests } = mockCatalog([]);
+    await mountCatalog('member', '/admin/me/catalog?bucket=all&q=alpha');
+
+    const input = wrapper!.find('[data-test="catalog-search-input"]');
+    // 输入但未提交：切桶不应把它当成新的搜索条件，也不应清空输入框。
+    await input.setValue('draft');
+    await wrapper!.find('[data-test="catalog-bucket"] input[value="org"]').setValue(true);
+    await flushPromises();
+
+    const urls = catalogRequests(requests);
+    // 初次进入 + 切桶，各一次；route 是唯一数据源，不能再由两个 watcher 各触发一次。
+    expect(urls).toHaveLength(2);
+    expect(urls[0].searchParams.get('bucket')).toBe('all');
+    expect(urls[0].searchParams.get('q')).toBe('alpha');
+    expect(urls[1].searchParams.get('bucket')).toBe('org');
+    expect(urls[1].searchParams.get('q')).toBe('alpha');
+    expect((input.element as HTMLInputElement).value).toBe('draft');
+    expect(router.currentRoute.value.query.q).toBe('alpha');
+  });
+
   it('直接打开带 bucket 与 q 的链接时恢复筛选并加载', async () => {
     const { requests } = mockCatalog([grantedItem]);
     await mountCatalog('member', '/admin/me/catalog?bucket=granted&q=alpha');

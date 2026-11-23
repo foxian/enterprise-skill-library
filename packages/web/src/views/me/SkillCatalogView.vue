@@ -90,8 +90,11 @@ import { readCatalogBucket, type CatalogBucket } from '../../skills/catalog-quer
 import { useAuthStore } from '../../stores/auth';
 
 // 个人控制台「技能目录」（spec #200 / T4）：消费登录态目录 API，展示当前主体
-// 此刻有权安装的全部已发布技能。桶与关键词是列表的唯二筛选维度，二者 AND 叠加，
-// 并双向同步到 URL query，便于分享、刷新和 T5 从详情页返回时恢复原视图。
+// 此刻有权安装的全部已发布技能。桶与关键词是列表的唯二筛选维度，二者 AND 叠加。
+//
+// route query 是筛选的唯一真相：桶与「已提交关键词」都从 URL 派生，输入框只是未
+// 提交的草稿。切桶或搜索都只改一次 URL，加载由同一个 route watcher 触发一次；
+// 草稿输入不参与请求，切桶时既不清空也不额外请求。
 
 interface CatalogItem {
   identity: string;
@@ -120,9 +123,31 @@ const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
-const bucket = ref<CatalogBucket>(readCatalogBucket(route.query.bucket));
-const searchInput = ref<string>(typeof route.query.q === 'string' ? route.query.q : '');
-const appliedQuery = ref<string>(searchInput.value.trim());
+const appliedQuery = computed<string>(() =>
+  typeof route.query.q === 'string' ? route.query.q.trim() : ''
+);
+const searchInput = ref<string>(appliedQuery.value);
+
+// 只写回两个筛选维度；用 replace 避免每次输入都往历史栈压一条记录。URL 未变化时
+// 不产生导航，也就不会触发多余加载。
+function writeQuery(nextBucket: CatalogBucket, nextQuery: string): void {
+  const next: Record<string, string> = { bucket: nextBucket };
+  if (nextQuery) next.q = nextQuery;
+  const current = new URLSearchParams(
+    Object.entries(route.query).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  ).toString();
+  if (current === new URLSearchParams(next).toString()) return;
+  void router.replace({ query: next });
+}
+
+// 桶同样以 URL 为真相：单选组只负责把选择写回 query，订阅由 route watcher 统一做。
+const bucket = computed<CatalogBucket>({
+  get: () => readCatalogBucket(route.query.bucket),
+  set: (next) => {
+    if (readCatalogBucket(route.query.bucket) === next) return;
+    writeQuery(next, appliedQuery.value);
+  }
+});
 const items = ref<CatalogItem[]>([]);
 const loading = ref(false);
 const errorMessage = ref('');
@@ -136,17 +161,6 @@ const emptyDescription = computed<string>(() => {
   if (bucket.value === 'all') return t('skillCatalog.emptyAll');
   return t('skillCatalog.emptyBucket');
 });
-
-// 只写回两个筛选维度；用 replace 避免每次输入都往历史栈压一条记录。
-function syncQuery(): void {
-  const next: Record<string, string> = { bucket: bucket.value };
-  if (appliedQuery.value) next.q = appliedQuery.value;
-  const current = new URLSearchParams(
-    Object.entries(route.query).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-  ).toString();
-  if (current === new URLSearchParams(next).toString()) return;
-  void router.replace({ query: next });
-}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -194,15 +208,8 @@ function restoreScrollPosition(): void {
   }
 }
 
-function onBucketChange(): void {
-  syncQuery();
-  void load();
-}
-
 function submitSearch(): void {
-  appliedQuery.value = searchInput.value.trim();
-  syncQuery();
-  void load();
+  writeQuery(bucket.value, searchInput.value.trim());
 }
 
 // 卡片跳共用详情页（/skills/:scope/:skillName），并带上返回恢复上下文：
@@ -233,25 +240,16 @@ function sourceText(item: CatalogItem): string {
   return t('skillCatalog.sourceSelf');
 }
 
-// 浏览器前进/后退或直接打开带参 URL 时，让界面跟随 URL 重新加载。桶本身有独立
-// watcher（负责写回 URL 并加载），这里只在桶未变、仅关键词变化时补一次加载。
-watch(
-  () => [route.query.bucket, route.query.q],
-  () => {
-    const nextBucket = readCatalogBucket(route.query.bucket);
-    const nextQuery = typeof route.query.q === 'string' ? route.query.q : '';
-    const bucketChanged = nextBucket !== bucket.value;
-    if (!bucketChanged && nextQuery === searchInput.value && nextQuery.trim() === appliedQuery.value) {
-      return;
-    }
-    bucket.value = nextBucket;
-    searchInput.value = nextQuery;
-    appliedQuery.value = nextQuery.trim();
-    if (!bucketChanged) void load();
-  }
-);
+// 浏览器前进/后退、表单提交、切桶都只改一次 URL：加载在这里统一发生一次。
+watch([bucket, appliedQuery], () => {
+  void load();
+});
 
-watch(bucket, onBucketChange);
+// URL 的已提交关键词变化时同步草稿（如前进/后退）；切桶不改变 q，未提交输入保留。
+watch(appliedQuery, (value) => {
+  searchInput.value = value;
+});
+
 // 漏斗第一层（ADR-0077）只按「页面进入」计一次：切桶、搜索、刷新列表都在
 // onMounted 之外，因此不会重复产生 catalog_view。
 onMounted(() => {
