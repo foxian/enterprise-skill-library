@@ -145,10 +145,11 @@ describe('skill catalog', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  async function catalog(token?: string) {
+  async function catalog(token?: string, query: Record<string, string> = {}) {
+    const search = new URLSearchParams(query).toString();
     return app.inject({
       method: 'GET',
-      url: '/api/catalog/skills',
+      url: `/api/catalog/skills${search ? `?${search}` : ''}`,
       ...(token ? { headers: { authorization: `token ${token}` } } : {})
     });
   }
@@ -248,6 +249,130 @@ describe('skill catalog', () => {
     expect(names).toContain('@bob/secret');
   });
 
+  it('classifies every entry into exactly one of the three mutually exclusive buckets', async () => {
+    const all = (await catalog('alice-token')).json() as CatalogEntryView[];
+    const allNames = all.map((entry) => entry.identity).sort();
+    expect(all.map((entry) => entry.bucket).sort()).toEqual(
+      ['org', 'org', 'org', 'org', 'granted', 'granted', 'platform'].sort()
+    );
+
+    const orgRes = await catalog('alice-token', { bucket: 'org' });
+    const platformRes = await catalog('alice-token', { bucket: 'platform' });
+    const grantedRes = await catalog('alice-token', { bucket: 'granted' });
+
+    expect(identities(orgRes)).toEqual(
+      ['@acme/tool', '@acme/notes', '@beta/lib', '@beta/open'].sort()
+    );
+    expect(identities(platformRes)).toEqual(['@alice/pub']);
+    expect(identities(grantedRes)).toEqual(['@bob/secret', '@alice/mine'].sort());
+
+    const union = [...identities(orgRes), ...identities(platformRes), ...identities(grantedRes)];
+    expect(union.sort()).toEqual(allNames);
+    expect(new Set(union).size).toBe(union.length);
+    // 不传 bucket 等价于 all。
+    expect(identities(await catalog('alice-token', { bucket: 'all' }))).toEqual(allNames);
+  });
+
+  it('exposes the bucket and the source subject of each entry', async () => {
+    const entries = (await catalog('alice-token')).json() as CatalogEntryView[];
+    const byIdentity = new Map(entries.map((entry) => [entry.identity, entry]));
+
+    expect(byIdentity.get('@acme/tool')).toMatchObject({
+      bucket: 'org',
+      source: { kind: 'organization', name: 'acme' }
+    });
+    expect(byIdentity.get('@acme/notes')).toMatchObject({
+      bucket: 'org',
+      source: { kind: 'organization', name: 'acme' }
+    });
+    // 多组织扁平聚合：同一桶里保留各自组织名，不按组织分组。
+    expect(byIdentity.get('@beta/lib')).toMatchObject({
+      bucket: 'org',
+      namespaceName: 'beta',
+      source: { kind: 'organization', name: 'beta' }
+    });
+    // 他人直授的个人 private：来源是技能所属的个人命名空间主体。
+    expect(byIdentity.get('@bob/secret')).toMatchObject({
+      bucket: 'granted',
+      namespaceKind: 'personal',
+      source: { kind: 'person', name: 'bob' }
+    });
+    // 本人的技能由后端给出 kind: 'self'，「我的技能」文案由 Web 映射。
+    expect(byIdentity.get('@alice/mine')).toMatchObject({
+      bucket: 'granted',
+      source: { kind: 'self', name: 'alice' }
+    });
+    expect(byIdentity.get('@alice/pub')).toMatchObject({
+      bucket: 'platform',
+      source: { kind: 'self', name: 'alice' }
+    });
+  });
+
+  it('rejects an invalid bucket or limit', async () => {
+    for (const query of [
+      { bucket: 'team' },
+      { bucket: '' },
+      { limit: '0' },
+      { limit: '-1' },
+      { limit: 'abc' },
+      { limit: '1.5' }
+    ]) {
+      const res = await catalog('alice-token', query);
+      expect(res.statusCode, JSON.stringify(query)).toBe(400);
+    }
+  });
+
+  it('applies limit after bucket filtering', async () => {
+    const all = await catalog('alice-token', { limit: '2' });
+    expect(all.statusCode).toBe(200);
+    expect((all.json() as unknown[]).length).toBe(2);
+
+    const org = await catalog('alice-token', { bucket: 'org', limit: '2' });
+    const names = identities(org);
+    expect(names.length).toBe(2);
+    expect(names.every((name) => ['@acme/tool', '@acme/notes', '@beta/lib', '@beta/open'].includes(name))).toBe(
+      true
+    );
+  });
+
+  it('applies the keyword inside the selected bucket only', async () => {
+    // notes 属于「我的组织」桶，在 granted 桶里必须为空。
+    expect(identities(await catalog('alice-token', { bucket: 'org', q: 'notes' }))).toEqual(['@acme/notes']);
+    expect(identities(await catalog('alice-token', { bucket: 'granted', q: 'notes' }))).toEqual([]);
+    // displayName 与 keywords 都是关键词字段；大小写不敏感。
+    expect(identities(await catalog('alice-token', { bucket: 'org', q: 'ACME TOOL' }))).toEqual(['@acme/tool']);
+    expect(identities(await catalog('alice-token', { bucket: 'org', q: 'code-review' }))).toEqual(['@acme/tool']);
+    // 跨全集时同一关键词才会越过桶边界。
+    expect(identities(await catalog('alice-token', { bucket: 'all', q: 'secret' }))).toEqual(['@bob/secret']);
+  });
+
+  it('never reaches skills the caller cannot read through a keyword', async () => {
+    // zoe 既不在 acme/beta，也没有被直授：private 技能对她是不可见的。
+    expect(identities(await catalog('zoe-token', { q: 'secret' }))).toEqual([]);
+    expect(identities(await catalog('zoe-token', { q: 'notes' }))).toEqual([]);
+    // 未发布、已归档与冻结组织技能的文本命中同样不得出现。
+    expect(identities(await catalog('alice-token', { q: 'draft' }))).toEqual([]);
+    expect(identities(await catalog('alice-token', { q: 'archived' }))).toEqual([]);
+    expect(identities(await catalog('alice-token', { q: 'legacy' }))).toEqual([]);
+  });
+
+  it('keeps the catalog order in step with the public catalog', async () => {
+    const catalogNames = ((await catalog('zoe-token')).json() as CatalogEntryView[]).map(
+      (entry) => entry.identity
+    );
+    const search = await app.inject({
+      method: 'GET',
+      url: '/api/skills/search',
+      headers: { authorization: 'token zoe-token' }
+    });
+    // 公开搜索多出冻结组织的 legacy 技能（本票不改公开目录口径）；其余条目的
+    // 相对顺序必须与技能目录完全一致。
+    const shared = (search.json() as Array<{ name: string }>)
+      .map((entry) => entry.name)
+      .filter((name) => catalogNames.includes(name));
+    expect(shared).toEqual(catalogNames);
+  });
+
   it('keeps the public search response contract unchanged', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/skills/search' });
     expect(res.statusCode).toBe(200);
@@ -265,6 +390,14 @@ describe('skill catalog', () => {
     ]);
   });
 });
+
+interface CatalogEntryView {
+  identity: string;
+  bucket: string;
+  namespaceKind: string;
+  namespaceName: string;
+  source: { kind: string; name: string };
+}
 
 interface SeedSkill {
   name: string;

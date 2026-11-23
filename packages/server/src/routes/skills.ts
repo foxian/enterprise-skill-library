@@ -2,6 +2,7 @@ import { apiError } from '../errors.js';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   highestStableVersion,
+  matchesCatalogQuery,
   ReleaseGraphError,
   releaseGraphErrorStatus,
   resolveReleaseGraph,
@@ -367,7 +368,6 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user && visibility !== undefined && visibility !== 'anonymous') {
       return reply.status(401).send(apiError('unauthorizedMissingToken'));
     }
-    const lowerQuery = q.toLowerCase();
     const lowerKeyword = keyword?.trim().toLowerCase();
     // 可安装技能发现与登录技能目录共用同一服务（#199 / spec #200）：服务负责已发布
     // 过滤、请求时刻可读判定与富化，本路由只做搜索面自己的字段过滤。
@@ -388,14 +388,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     }> = [];
     for (const entry of discovered) {
       if (visibility && entry.visibility !== visibility) continue;
-      // query 还要匹配显示名与 keywords（不在 skills 表），文本匹配仍在内存里做。
-      if (lowerQuery) {
-        const keywords = (entry.keywords ?? []).map((keyword) => keyword.toLowerCase());
-        const haystack = [entry.identity, entry.description, entry.displayName, ...keywords]
-          .join('\n')
-          .toLowerCase();
-        if (!haystack.includes(lowerQuery)) continue;
-      }
+      // 关键词字段集（名称/描述/显示名/keywords）与技能目录共用 core 的同一实现。
+      if (!matchesCatalogQuery(entry, q)) continue;
       if (
         lowerKeyword &&
         !(entry.keywords ?? []).some((entryKeyword) => entryKeyword.toLowerCase() === lowerKeyword)

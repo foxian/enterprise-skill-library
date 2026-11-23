@@ -50,6 +50,45 @@ describe('API Server Database', () => {
     db.close();
   });
 
+  it('orders discoverable skills by creation time then name', () => {
+    const db = initDatabase(dbPath);
+    const repo = new SkillRepository(db);
+    const create = (name: string) => {
+      const [scope, skillName] = name.slice(1).split('/');
+      repo.createServerSkill({
+        name,
+        scope: scope!,
+        skillName: skillName!,
+        description: `${name} skill`,
+        createdBy: 'alice',
+        owner: 'alice',
+        maintainers: ['alice'],
+        visibility: 'public',
+        gitRepoPath: `${scope}/${skillName}`,
+        status: 'active-published'
+      });
+    };
+    // 默认 created_at 是秒级 CURRENT_TIMESTAMP；用受控值覆盖，使排序断言与运行时刻无关。
+    const setCreatedAt = (name: string, createdAt: string) => {
+      db.prepare('UPDATE skills SET created_at = ? WHERE name = ?').run(createdAt, name);
+    };
+
+    create('@zeta/one');
+    create('@alpha/two');
+    create('@alpha/three');
+    setCreatedAt('@zeta/one', '2024-01-02 00:00:00');
+    setCreatedAt('@alpha/two', '2024-01-01 00:00:00');
+    setCreatedAt('@alpha/three', '2024-01-01 00:00:00');
+
+    // 同一创建时刻用名称升序兜底，保证目录与公开搜索共用一个确定顺序。
+    expect(repo.searchSkills('').map((skill) => skill.name)).toEqual([
+      '@alpha/three',
+      '@alpha/two',
+      '@zeta/one'
+    ]);
+    db.close();
+  });
+
   it('migrates legacy skill rows without deleting data and is idempotent', () => {
     const legacyDb = new Database(dbPath);
     legacyDb.exec(`

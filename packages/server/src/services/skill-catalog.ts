@@ -1,8 +1,10 @@
 import {
   discoverCatalogEntries,
+  filterCatalogEntries,
   highestStableVersion,
   isSignedInReadable,
   normalizeSkillVisibility,
+  type CatalogBucket,
   type CatalogCandidate,
   type CatalogEntry,
   type CatalogPrincipal
@@ -36,6 +38,16 @@ export interface SkillCatalogDependencies {
 export interface CatalogDiscoveryOptions {
   /** 命名空间硬过滤（公开目录 `/api/skills/search` 的 `namespace` 参数）。 */
   namespace?: string;
+  /**
+   * 浏览桶（技术核查 §1.3）：`all` 为默认全集，其余取三桶之一。归桶是纯函数，
+   * 越权条目已在候选阶段被排除，因此桶筛选不会放宽权限。
+   */
+  bucket?: CatalogBucket;
+  /**
+   * 关键词（技术核查 §4.5：名称/描述/显示名/最新 Release keywords）。
+   * 与桶 AND 叠加；空串表示不过滤。
+   */
+  query?: string;
   /**
    * 归桶与来源需要主体的组织集合。目录端点开启；不消费桶的调用方（公共搜索）
    * 跳过这次 Git Backend 查询，避免给高频搜索加一次远端调用。
@@ -103,7 +115,11 @@ export class SkillCatalogService {
     }
 
     const catalogPrincipal: CatalogPrincipal = { username: principal.username, organizationScopes };
-    const entries = discoverCatalogEntries(candidates, catalogPrincipal);
+    // 先归桶/关键词（纯内存、只作用于已确认可读的条目），再批量取下载量。
+    const entries = filterCatalogEntries(discoverCatalogEntries(candidates, catalogPrincipal), {
+      bucket: options.bucket,
+      query: options.query
+    });
     // 下载量（跨版本汇总）是公开信号（ADR-0067）：批量取，不逐条查。
     const counts = downloadLogRepository?.getSkillDownloadCounts(
       [...skillIds.values()].filter((skillId): skillId is string => Boolean(skillId))
@@ -159,7 +175,7 @@ export class SkillCatalogService {
     try {
       return (await this.dependencies.giteaService.listUserOrgs(username)).map((org) => org.name);
     } catch (error) {
-      // 本票的响应不暴露桶；组织集合解析失败只影响 T3 的归桶，不阻断目录，也不放宽权限。
+      // 组织集合解析失败只影响归桶（org 桶退化为空），不阻断目录，也不放宽权限。
       logEvent(
         logger,
         'warn',

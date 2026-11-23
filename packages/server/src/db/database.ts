@@ -617,6 +617,8 @@ export class SkillRepository {
   // 支持空 query（浏览全部）与 namespace 硬过滤；query 除名称/描述外还
   // 匹配当前源码显示名与最近发布快照 displayName（ADR-0048）。显示名的
   // 对外解析与 keywords 富化仍在路由层基于 Release 快照完成。
+  // 显式排序（技能目录 #203）：创建时间升序，同秒用名称兜底，保证公开目录与
+  // 登录技能目录共用同一个确定顺序，不再依赖 SQLite 的隐式 rowid 顺序。
   searchSkills(query: string, filters: { namespace?: string } = {}): SkillRecord[] {
     const clauses: string[] = [
       `(name LIKE ? OR description LIKE ? OR display_name LIKE ? OR EXISTS (
@@ -650,6 +652,7 @@ export class SkillRepository {
         git_repo_path AS gitRepoPath
       FROM skills
       WHERE ${clauses.join(' AND ')}
+      ORDER BY created_at ASC, name ASC
     `);
     return (stmt.all(...params) as (Omit<SkillRecord, 'maintainers'> & { maintainersJson: string })[])
       .map(deserializeSkill);
