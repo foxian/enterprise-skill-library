@@ -192,6 +192,11 @@ docker compose exec api npm run seed --workspace @esl/server
 （默认为 `false`，因此生产环境以干净数据库启动），然后执行
 `docker compose up -d api` 使新值生效到容器中。
 
+开启 `ESL_AUTO_SEED` 还会写入技能目录验收数据集（多组织普通成员 `bob`、无组织用户
+`carol`、两个组织与各可见性/授权形态技能）。账号密码、技能矩阵与 PM 走查步骤见
+[`docs/research/199-skill-catalog-acceptance-walkthrough.md`](../research/199-skill-catalog-acceptance-walkthrough.md)。
+两个 seed 任务都可重复执行，失败只记录任务日志、不阻塞启动。
+
 ## 权限数据初始化
 
 从旧版固定团队权限模型切换到技能级团队授权时，执行一次权限数据初始化。该操作会
