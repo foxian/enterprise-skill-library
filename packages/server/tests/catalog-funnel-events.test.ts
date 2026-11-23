@@ -181,6 +181,13 @@ describe('catalog funnel events', () => {
     expect(rows.map((row) => row.bucket)).toEqual(['granted', null, null, null]);
   });
 
+  it('drops a bucket that is not one of the shared catalog buckets', async () => {
+    // 桶枚举与守卫来自 core（目录口径）；非法值只在 skill_catalog 下被宽容置空。
+    await report({ action: 'catalog_view', trafficSource: 'skill_catalog', bucket: 'team' });
+    const [row] = recorded();
+    expect(row).toMatchObject({ trafficSource: 'skill_catalog', bucket: null });
+  });
+
   it('rejects a malformed credential but accepts the absence of one', async () => {
     const anonymous = await report({ action: 'catalog_view' });
     expect(anonymous.statusCode).toBe(202);

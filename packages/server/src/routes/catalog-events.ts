@@ -1,11 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { isCatalogBucket, type CatalogBucket } from '@esl/core';
 import type { AdminRepository, CatalogFunnelEventRepository } from '../db/database.js';
 import {
   isCatalogFunnelAction,
-  isCatalogFunnelBucket,
   isCatalogTrafficSource,
   type CatalogFunnelAction,
-  type CatalogFunnelBucket,
   type CatalogTrafficSource
 } from '../db/database.js';
 import { apiError } from '../errors.js';
@@ -78,8 +77,10 @@ export function registerCatalogEventRoutes(
     const trafficSource: CatalogTrafficSource = isCatalogTrafficSource(body.trafficSource)
       ? body.trafficSource
       : 'direct_or_unknown';
-    const bucket: CatalogFunnelBucket | null =
-      trafficSource === 'skill_catalog' && isCatalogFunnelBucket(body.bucket) ? body.bucket : null;
+    // 桶枚举复用 core 的目录口径（CatalogBucket）与其守卫，server 不另建一套。
+    const bucketValue = typeof body.bucket === 'string' ? body.bucket : '';
+    const bucket: CatalogBucket | null =
+      trafficSource === 'skill_catalog' && isCatalogBucket(bucketValue) ? bucketValue : null;
 
     catalogFunnelEventRepository.record({
       subjectUserId: user?.id ?? null,

@@ -1,4 +1,5 @@
 import { quietPost } from './client';
+import type { CatalogBucket } from '../skills/catalog-query';
 
 // 技能目录漏斗埋点（#199 / spec #200，本票 #206 / ADR-0077）：只上报三层动作与
 // 最小上下文——动作、技能 id、桶、来源标记。绝不带上搜索关键词、IP、User-Agent
@@ -6,7 +7,6 @@ import { quietPost } from './client';
 
 export type CatalogFunnelAction = 'catalog_view' | 'detail_view' | 'install_command_copy';
 export type CatalogTrafficSource = 'skill_catalog' | 'public_catalog' | 'direct_or_unknown';
-export type CatalogFunnelBucket = 'all' | 'platform' | 'org' | 'granted';
 
 const TRAFFIC_SOURCES: readonly CatalogTrafficSource[] = [
   'skill_catalog',
@@ -25,7 +25,7 @@ export interface CatalogFunnelEventInput {
   action: CatalogFunnelAction;
   /** `detail_view` / `install_command_copy` 必填；`catalog_view` 不传。 */
   skillId?: string | null;
-  bucket?: CatalogFunnelBucket | null;
+  bucket?: CatalogBucket | null;
   trafficSource?: unknown;
 }
 

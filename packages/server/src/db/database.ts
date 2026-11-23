@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
+import type { CatalogBucket } from '@esl/core';
 import { databaseSchema } from './schema.js';
 import { logEvent, type DiagnosticLogger } from '../logging.js';
 
@@ -1020,10 +1021,10 @@ export class DownloadLogRepository {
 }
 
 // 技能目录漏斗事件（#199 / ADR-0077）。动作与来源都是封闭枚举；主体由服务端从
-// 登录态解析，客户端传来的身份与时间一律忽略。
+// 登录态解析，客户端传来的身份与时间一律忽略。桶枚举复用 core 的目录口径
+// （`CatalogBucket`），server 不另建一套。
 export type CatalogFunnelAction = 'catalog_view' | 'detail_view' | 'install_command_copy';
 export type CatalogTrafficSource = 'skill_catalog' | 'public_catalog' | 'direct_or_unknown';
-export type CatalogFunnelBucket = 'all' | 'platform' | 'org' | 'granted';
 
 export const CATALOG_FUNNEL_ACTIONS: readonly CatalogFunnelAction[] = [
   'catalog_view',
@@ -1037,13 +1038,6 @@ export const CATALOG_TRAFFIC_SOURCES: readonly CatalogTrafficSource[] = [
   'direct_or_unknown'
 ];
 
-export const CATALOG_FUNNEL_BUCKETS: readonly CatalogFunnelBucket[] = [
-  'all',
-  'platform',
-  'org',
-  'granted'
-];
-
 export function isCatalogFunnelAction(value: unknown): value is CatalogFunnelAction {
   return typeof value === 'string' && (CATALOG_FUNNEL_ACTIONS as readonly string[]).includes(value);
 }
@@ -1052,16 +1046,12 @@ export function isCatalogTrafficSource(value: unknown): value is CatalogTrafficS
   return typeof value === 'string' && (CATALOG_TRAFFIC_SOURCES as readonly string[]).includes(value);
 }
 
-export function isCatalogFunnelBucket(value: unknown): value is CatalogFunnelBucket {
-  return typeof value === 'string' && (CATALOG_FUNNEL_BUCKETS as readonly string[]).includes(value);
-}
-
 export interface CatalogFunnelEventRecord {
   subjectUserId?: string | null;
   subjectUsername?: string | null;
   skillId?: string | null;
   action: CatalogFunnelAction;
-  bucket?: CatalogFunnelBucket | null;
+  bucket?: CatalogBucket | null;
   trafficSource: CatalogTrafficSource;
 }
 
@@ -1080,7 +1070,7 @@ export interface CatalogFunnelEventView {
   subjectUsername: string | null;
   skillId: string | null;
   action: CatalogFunnelAction;
-  bucket: CatalogFunnelBucket | null;
+  bucket: CatalogBucket | null;
   trafficSource: CatalogTrafficSource;
   occurredAt: string;
 }
