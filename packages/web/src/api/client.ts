@@ -69,3 +69,23 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
   }
   return (await response.json()) as T;
 }
+
+/**
+ * 静默上报（漏斗事件，ADR-0077）：复用同一个 fetch 接缝与登录态，但把一切失败
+ * 吞掉。不走 `apiRequest`——埋点失败不得登出、不得弹错，也不必解析空响应体
+ * （事件端点返回 202 无响应体，`response.json()` 会失败）。
+ */
+export function quietPost(path: string, body: unknown): void {
+  try {
+    const auth = useAuthStore();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth.token) {
+      headers.Authorization = `token ${auth.token}`;
+    }
+    void Promise.resolve(fetchImpl(path, { method: 'POST', headers, body: JSON.stringify(body) })).catch(
+      () => undefined
+    );
+  } catch {
+    // 上报失败不影响页面。
+  }
+}

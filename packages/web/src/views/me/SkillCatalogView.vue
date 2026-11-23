@@ -84,6 +84,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiRequest } from '../../api/client';
+import { reportCatalogFunnelEvent } from '../../api/funnel-events';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { readCatalogBucket, type CatalogBucket } from '../../skills/catalog-query';
 import { useAuthStore } from '../../stores/auth';
@@ -251,7 +252,16 @@ watch(
 );
 
 watch(bucket, onBucketChange);
-onMounted(load);
+// 漏斗第一层（ADR-0077）只按「页面进入」计一次：切桶、搜索、刷新列表都在
+// onMounted 之外，因此不会重复产生 catalog_view。
+onMounted(() => {
+  reportCatalogFunnelEvent({
+    action: 'catalog_view',
+    bucket: bucket.value,
+    trafficSource: 'skill_catalog'
+  });
+  void load();
+});
 </script>
 
 <style scoped>

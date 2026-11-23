@@ -80,6 +80,7 @@ import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, type RouteLocationRaw } from 'vue-router';
 import { ApiError, apiRequest } from '../../api/client';
+import { reportCatalogFunnelEvent } from '../../api/funnel-events';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { readCatalogBucket } from '../../skills/catalog-query';
 import { visibilityTagType, visibilityTextKey } from '../../skills/visibility';
@@ -94,6 +95,8 @@ interface PublicRelease {
 
 interface PublicSkill {
   name: string;
+  // 详情响应的稳定技能 id（ADR-0077）：漏斗第二、三层事件以它作为分析键。
+  skillId?: string;
   displayName?: string;
   description: string;
   keywords?: string[];
@@ -169,6 +172,20 @@ function visibilityText(visibility: string): string {
   return t(visibilityTextKey(visibility));
 }
 
+// 漏斗第二、三层（ADR-0077）：只有详情内容成功渲染后才可能发生；统一拒绝页、
+// 未登录提示与加载失败都不上报。桶只在技能目录来向携带。
+function reportDetailFunnelEvent(action: 'detail_view' | 'install_command_copy'): void {
+  const skillId = skill.value?.skillId;
+  // 详情契约缺技能 id 时宁可不报，也不发出无法归属的漏斗事件。
+  if (!skillId) return;
+  reportCatalogFunnelEvent({
+    action,
+    skillId,
+    bucket: trafficSource.value === 'skill_catalog' ? readCatalogBucket(route.query.bucket) : null,
+    trafficSource: trafficSource.value
+  });
+}
+
 // 复制安装命令：把成功/失败收敛为可观察的返回值，供后续计数（T6）与外层复用；
 // 剪贴板不可用（非安全上下文、权限被拒）时命令本身仍展示，不阻断浏览，也不提示成功。
 async function copyCommand(): Promise<boolean> {
@@ -177,6 +194,8 @@ async function copyCommand(): Promise<boolean> {
   } catch {
     return false;
   }
+  // 只有剪贴板写入成功 resolve 后才是第三层动作；失败不产生事件。
+  reportDetailFunnelEvent('install_command_copy');
   ElMessage.success(t('catalog.copied'));
   return true;
 }
@@ -190,6 +209,7 @@ async function load(): Promise<void> {
     skill.value = await apiRequest<PublicSkill>(
       `/api/skills/${encodeURIComponent(identity.value)}`
     );
+    reportDetailFunnelEvent('detail_view');
   } catch (error) {
     skill.value = null;
     if (error instanceof ApiError && error.status === 401) {
