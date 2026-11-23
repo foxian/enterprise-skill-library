@@ -437,6 +437,8 @@ body: { skillId?: string, action: 'catalog_view'|'detail_view'|'install_command_
 - 保留 `ESL_AUTO_SEED` 作为本地演示开关；验收 seed 不要依赖它自动跑，提供显式命令，避免生产误开。
 - 测试夹具可复用 server 测试的 fake Gitea；如果 seed 需要 Gitea 团队/协作者，使用 `GiteaService` 的幂等调用（`applyOrgIdentity` 等），不要直接改 Gitea 数据库。
 
+> 实现回修（2026-11-23）：本节的「验收 seed 不要依赖 `ESL_AUTO_SEED` 自动跑，提供显式命令」与 ticket #207 的接入要求冲突。以 ticket 为准：验收 seed 串在账号 seed 之后随 `ESL_AUTO_SEED` 自动执行，生产默认关闭；见走查文档 §3.1。
+
 ---
 
 ## 9. 两个候选 ADR 的落档决策
