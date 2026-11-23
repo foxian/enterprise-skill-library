@@ -177,3 +177,40 @@ docker 集成栈，是否执行以交付记录为准，未执行时不以其他�
 开发者模式或管理员权限）；CLI 用例是全量并发下的超时，单文件运行时通过。两者都不是
 断言失败，未修改或跳过测试来掩盖环境问题。
 
+## 8. 浏览器级验收走查（webapp-testing，2026-11-23）
+
+为 AC 做真实浏览器复核，起了一份与常驻开发栈（4070 / 3001）隔离的 docker 栈
+（端口 4080 / 3002，独立数据目录），`ESL_AUTO_SEED=true`，两个 seed 任务均
+`succeeded`。用 Playwright（Chromium headless，中文 locale）按「bob / carol / 匿名」
+三段走查，共 70 项断言全部通过：
+
+| 覆盖 | 结论 | 证据 |
+|---|---|---|
+| AC1 侧边栏第六项、既有页面不变 | 通过 | 侧边栏 6 项且第 5 项为「技能目录」；「技能」页仍可进入且无错误态。 |
+| AC2 默认「全部」恰为 12 条可安装全集 | 通过 | bob 全集与验收矩阵逐条一致；secret / owner-only / unshared / draft / retired 均不出现。 |
+| AC3 三态不可区分 | 通过 | 越权 private、已归档、不存在三页文本逐字节一致，均为「无权访问或已下架」错误态，不泄露技能名与版本。 |
+| AC4 三桶互斥、就近、扁平聚合、来源 | 通过 | 平台 3 / 组织 7 / 授权 2，并集等于全集且无重复；组织 private 显示 acme/beta，本人 private 显示「我的技能」，直授显示 dave。 |
+| AC5 无组织用户 | 通过 | carol 全集 5 条，「我的组织」「授权给我」为空态，专门空态文案为「你还没有加入任何组织…」，平台公开仍可浏览。 |
+| AC6 关键词与桶 AND | 通过 | 组织桶 `code-review` 仅剩 `@acme/custom-team-tool`，切平台桶即空；`secret` 在四个桶均为空且关键词写回 URL。 |
+| AC7 卡片字段与来源行 | 通过 | 版本 / 可见性 / 命名空间 / 下载量齐备，来源行文案正确。 |
+| AC8 详情 → 复制 → 返回恢复 | 通过 | 授权 private 详情可读，复制按钮把安装命令写入剪贴板；「返回技能目录」回到原桶且 `q` 仍在，列表按原筛选重新请求。 |
+| AC9 归档/撤销后列表消失、详情同形 | 通过 | 以 alice 经 API 归档 `@acme/member-grant-tool` 后 bob 列表 11 条且该技能消失、详情与不存在同形；恢复后回到 12 条。 |
+| AC10 三层埋点 | 通过 | 浏览器捕获并经 DB 复核：`catalog_view`×6、`detail_view`（`skill_catalog` / `public_catalog` / `direct_or_unknown`）、`install_command_copy`×2。 |
+| AC11 匿名只见 anonymous、公开来向 | 通过 | 匿名 `/skills` 只有 `@alice/anon-tool`；登录主体从公开目录卡片进入同一详情时返回出口仍是公开目录，不出现「返回技能目录」。 |
+
+未做浏览器级覆盖的仍是「真实剪贴板授权弹窗以外的视觉观感」与平台超管直拼出口
+（后者在 §5.8 已有口径）；AC12（seed 可重复）仍由 `seed-acceptance.test.ts` 覆盖。
+
+走查中遇到、但**与本票改动无关**的既有环境/测试缺口（供后续开票，未在本票修复）：
+
+1. **Windows 检出的 `docker/gitea-bootstrap.sh` 是 CRLF**：`core.autocrlf=true` 且仓库无
+   `.gitattributes`，全新数据目录第一次 `docker compose up` 会在 bootstrap 步骤报
+   `set: illegal option -` 并中止整栈启动。本地先转 LF 后恢复。建议补 `*.sh text eol=lf`。
+2. **`npm run test:e2e` 当前跑不通**（与本票无关的既有漂移）：
+   - `e2e/helpers/e2e-api.ts` 注册不带 `email`，接口早已 `400 emailIsRequired`；
+   - `downloadPackage` 仍按 JSON 解析，而包接口已回传 zip（`PK…`）；
+   - `console-routing.spec.ts` 部分用例依赖既有数据（超管控制台入口、面包屑用例在常驻栈上同样失败）；
+   - 另需 `E2E_GITEA_URL` 指向目标栈的 gitea，默认 3001 会命中常驻开发栈而 401。
+   本票改写 `golden-path.spec.ts` 的三处 ADR-0076 断言在各自用例中均先于坏点
+   （`downloadPackage`）执行通过，未暴露新回归。
+
