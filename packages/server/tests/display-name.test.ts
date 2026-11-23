@@ -163,6 +163,42 @@ describe('skill display name', () => {
     expect(res.json()[0].displayName).toBe('markdown-master');
   });
 
+  it('显示名 trim 后为空时回退短名（历史数据绕过 schema 的空白快照）', async () => {
+    await upload('源码显示名');
+    const db = initDatabase(dbPath);
+    const repository = new SkillRepository(db);
+    repository.createRelease({
+      skillId: repository.getSkill('@alice/markdown-master')!.skillId!,
+      skillName: '@alice/markdown-master',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: 'packages/markdown-master-1.0.0.tgz',
+      checksum: 'checksum-markdown-master',
+      releaseManifest: {
+        schemaVersion: 4,
+        name: '@alice/markdown-master',
+        version: '1.0.0',
+        license: 'MIT',
+        displayName: '   ',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      dependencyLock: {},
+      createdBy: 'alice'
+    });
+    db.close();
+
+    const info = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@alice/markdown-master',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(info.statusCode).toBe(200);
+    // 与目录口径一致：trim 后非空才采用，否则回退 Identity 短名。
+    expect(info.json().displayName).toBe('markdown-master');
+  });
+
   it('search 可匹配 displayName 关键词', async () => {
     await upload('Markdown Master');
     await publish('1.0.0', 'Markdown 排版大师');

@@ -208,6 +208,59 @@ describe('skill visibility', () => {
     expect(archived.body).toBe(missing.body);
   });
 
+  it('两个消费详情 DTO 都下发排除预发布后的最新稳定版', async () => {
+    const db = initDatabase(dbPath);
+    const repository = new SkillRepository(db);
+    repository.createServerSkill({
+      name: '@acme/versioned',
+      scope: 'acme',
+      skillName: 'versioned',
+      description: 'Versioned tool',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      // anonymous 让匿名走精简 DTO，登录主体走完整 DTO，两个分支都要断言。
+      visibility: 'anonymous',
+      gitRepoPath: 'acme/versioned',
+      status: 'active-published'
+    });
+    const versioned = repository.getSkill('@acme/versioned')!;
+    for (const version of ['1.0.0+build.5', '1.1.0-beta.1']) {
+      repository.createRelease({
+        skillId: versioned.skillId!,
+        skillName: '@acme/versioned',
+        version,
+        sourceCommit: `commit-${version}`,
+        packagePath: `packages/versioned-${version}.tgz`,
+        checksum: `checksum-${version}`,
+        releaseManifest: {
+          schemaVersion: 3,
+          name: '@acme/versioned',
+          version,
+          license: 'MIT',
+          keywords: [],
+          compatibility: {},
+          dependencies: {}
+        },
+        dependencyLock: {},
+        createdBy: 'alice'
+      });
+    }
+    db.close();
+
+    const anonymous = await app.inject({ method: 'GET', url: '/api/skills/@acme/versioned' });
+    expect(anonymous.statusCode).toBe(200);
+    expect(anonymous.json().latestStableVersion).toBe('1.0.0+build.5');
+
+    const full = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@acme/versioned',
+      headers: { authorization: 'token alice-token' }
+    });
+    expect(full.statusCode).toBe(200);
+    expect(full.json().latestStableVersion).toBe('1.0.0+build.5');
+  });
+
   it('授权维护者读取 private 详情仍返回完整 DTO 与安装命令所需字段', async () => {
     const info = await app.inject({
       method: 'GET',

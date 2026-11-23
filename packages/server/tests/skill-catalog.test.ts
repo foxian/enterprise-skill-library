@@ -366,6 +366,53 @@ describe('skill catalog', () => {
     });
   });
 
+  it('applies the same trim rule to catalog display names', async () => {
+    const db = initDatabase(dbPath);
+    const repository = new SkillRepository(db);
+    repository.createServerSkill({
+      name: '@alice/blank-name',
+      scope: 'alice',
+      skillName: 'blank-name',
+      description: 'Legacy whitespace display name',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'public',
+      gitRepoPath: 'alice/blank-name',
+      status: 'active-published'
+    });
+    const blank = repository.getSkill('@alice/blank-name')!;
+    repository.createRelease({
+      skillId: blank.skillId!,
+      skillName: '@alice/blank-name',
+      version: '1.0.0',
+      sourceCommit: 'abc123',
+      packagePath: 'packages/blank-name-1.0.0.tgz',
+      checksum: 'checksum-blank-name',
+      releaseManifest: {
+        schemaVersion: 4,
+        name: '@alice/blank-name',
+        version: '1.0.0',
+        license: 'MIT',
+        displayName: '   ',
+        keywords: [],
+        compatibility: {},
+        dependencies: {}
+      },
+      dependencyLock: {},
+      createdBy: 'alice'
+    });
+    db.close();
+
+    const entries = (await catalog('alice-token')).json() as Array<{
+      identity: string;
+      displayName: string;
+    }>;
+    expect(entries.find((entry) => entry.identity === '@alice/blank-name')?.displayName).toBe(
+      'blank-name'
+    );
+  });
+
   it('rejects an invalid bucket or limit', async () => {
     for (const query of [
       { bucket: 'team' },

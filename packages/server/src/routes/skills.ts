@@ -1599,6 +1599,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         keywords: latestReleaseKeywords(releases),
         visibility: skill.visibility,
         instanceId,
+        // 最新稳定版（排除 prerelease）由服务端给出：Web 不再用正则自判，否则带
+        // build metadata 的合法稳定版（如 1.0.0+build.5）会被漏掉。
+        latestStableVersion: latest?.version,
         versions: sortVersionsDescending(repository.getVersions(name)),
         downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
         releases: releasesView.map((release) => ({
@@ -1626,6 +1629,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
       // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。
       keywords: latestReleaseKeywords(releases),
+      // 与匿名 DTO 同口径：最新稳定版由服务端计算，Web 直接展示。
+      latestStableVersion: latest?.version,
       versions: sortVersionsDescending(repository.getVersions(name)),
       downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
       releases: releasesView,
@@ -1752,14 +1757,15 @@ async function getPermissionMatrix(
 
 // 技能显示名解析（ADR-0048）：消费面与管理面标题共用同一规则——
 // 1) 曾发布 → 取最近一次 Skill Release（按发布时间，含预发布）快照的 displayName；
-//    字段缺失或为空 → 回退 Identity 短名（不读 upload 脏值）；
+//    字段缺失、空串或纯空白 → 回退 Identity 短名（不读 upload 脏值）；
 // 2) 从未发布（active-unreleased）→ 取 upload 同步到服务器的当前源码 displayName；
 // 3) 仍未设置 → Identity 短名原文（运行时不做 Title Case）。
+// 「空白即未设置」与目录侧 `catalogDisplayName` 保持同一口径（trim 后非空才采用）。
 function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord): string {
   const releases = repository.getReleases(skill.name);
   if (releases.length > 0) {
     const manifest = releases[0].releaseManifest as { displayName?: unknown };
-    if (typeof manifest.displayName === 'string' && manifest.displayName.length > 0) {
+    if (typeof manifest.displayName === 'string' && manifest.displayName.trim().length > 0) {
       return manifest.displayName;
     }
     return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
