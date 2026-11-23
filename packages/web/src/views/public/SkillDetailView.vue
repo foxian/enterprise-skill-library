@@ -1,6 +1,8 @@
 <template>
   <section>
-    <router-link to="/skills" class="detail-back" data-test="detail-back">{{ t('catalog.back') }}</router-link>
+    <router-link :to="backTarget" class="detail-back" data-test="detail-back">
+      {{ t(backLabelKey) }}
+    </router-link>
 
     <el-alert
       v-if="loginRequired"
@@ -74,11 +76,14 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, type RouteLocationRaw } from 'vue-router';
 import { ApiError, apiRequest } from '../../api/client';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
+import { readCatalogBucket } from '../../skills/catalog-query';
 import { visibilityTagType, visibilityTextKey } from '../../skills/visibility';
+import { useAuthStore } from '../../stores/auth';
 
 interface PublicRelease {
   version: string;
@@ -99,11 +104,42 @@ interface PublicSkill {
 }
 
 const route = useRoute();
+const auth = useAuthStore();
 const { t } = useLocaleState();
 const skill = ref<PublicSkill | null>(null);
 const loading = ref(false);
 const errorMessage = ref('');
 const loginRequired = ref(false);
+
+// 来向标记（T4 目录卡片带 skill_catalog，公开目录卡片带 public_catalog）。未知值
+// 与缺失一律按「直拼 URL」处理，避免伪造参数额外开出口。
+const TRAFFIC_SOURCES = ['skill_catalog', 'public_catalog'] as const;
+
+const trafficSource = computed<string | null>(() => {
+  const raw = route.query.traffic_source;
+  return typeof raw === 'string' && (TRAFFIC_SOURCES as readonly string[]).includes(raw) ? raw : null;
+});
+
+// 单一返回出口：匿名、公开目录来向与平台管理员都回公开目录（ADR-0033：超管
+// 不进个人控制台，指过去只会被守卫弹回登录页）；登录主体其余情况回技能目录
+// （直拼 URL 默认全量视图）。匿名永不出现「返回技能目录」。
+const backIsCatalog = computed<boolean>(
+  () => auth.isLoggedIn && !auth.isPlatformAdmin && trafficSource.value !== 'public_catalog'
+);
+
+const backTarget = computed<RouteLocationRaw>(() => {
+  if (!backIsCatalog.value) {
+    return '/skills';
+  }
+  const query: Record<string, string> = { bucket: readCatalogBucket(route.query.bucket) };
+  const keyword = typeof route.query.q === 'string' ? route.query.q.trim() : '';
+  if (keyword) query.q = keyword;
+  return { name: 'me-catalog', query };
+});
+
+const backLabelKey = computed<string>(() =>
+  backIsCatalog.value ? 'catalog.backToSkillCatalog' : 'catalog.back'
+);
 
 const identity = computed(() => {
   const scope = String(route.params.scope ?? '').replace(/^@/, '');
@@ -133,15 +169,20 @@ function visibilityText(visibility: string): string {
   return t(visibilityTextKey(visibility));
 }
 
-async function copyCommand(): Promise<void> {
+// 复制安装命令：把成功/失败收敛为可观察的返回值，供后续计数（T6）与外层复用；
+// 剪贴板不可用（非安全上下文、权限被拒）时命令本身仍展示，不阻断浏览，也不提示成功。
+async function copyCommand(): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(installCommand.value);
   } catch {
-    // 非安全上下文里 clipboard 不可用；命令本身已展示，复制失败不阻断浏览。
+    return false;
   }
+  ElMessage.success(t('catalog.copied'));
+  return true;
 }
 
 async function load(): Promise<void> {
+  const wasLoggedIn = auth.isLoggedIn;
   loading.value = true;
   errorMessage.value = '';
   loginRequired.value = false;
@@ -155,9 +196,10 @@ async function load(): Promise<void> {
       // 未登录：给出登录入口，而不是泄露技能是否存在。
       loginRequired.value = true;
     } else if (error instanceof ApiError && error.status === 404) {
-      errorMessage.value = t('catalog.notFound');
+      // 已登录主体的 404 覆盖「不存在 / 无权 / 已归档」三种状态（ADR-0076），
+      // 只能给出统一提示；匿名保持既有「未找到该技能」。
+      errorMessage.value = wasLoggedIn ? t('catalog.unavailable') : t('catalog.notFound');
     } else {
-      // 403 是已登录但无权读取 private：沿用服务端的可行动文案。
       errorMessage.value = formatRequestError(error) || t('catalog.loadFailed');
     }
   } finally {

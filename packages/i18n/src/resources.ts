@@ -546,6 +546,7 @@ const zhCN: TranslationTree = {
     copy: '复制',
     copied: '已复制',
     back: '返回技能列表',
+    backToSkillCatalog: '返回技能目录',
     versions: '版本',
     latest: '最新版本',
     downloads: '下载量：{{count}}',
@@ -557,6 +558,7 @@ const zhCN: TranslationTree = {
     visibilityPublic: '登录用户可安装',
     visibilityPrivate: '仅授权用户',
     notFound: '未找到该技能',
+    unavailable: '无权访问或已下架',
     releaseNotes: '发布历史',
     sourceRepository: '源码仓库',
     details: '技能详情'
@@ -1206,6 +1208,7 @@ const enUS: TranslationTree = {
     copy: 'Copy',
     copied: 'Copied',
     back: 'Back to skills',
+    backToSkillCatalog: 'Back to skill catalog',
     versions: 'Versions',
     latest: 'Latest version',
     downloads: 'Downloads: {{count}}',
@@ -1217,6 +1220,7 @@ const enUS: TranslationTree = {
     visibilityPublic: 'Signed-in users can install',
     visibilityPrivate: 'Authorized users only',
     notFound: 'Skill not found',
+    unavailable: 'You do not have access, or this skill is no longer available',
     releaseNotes: 'Release history',
     sourceRepository: 'Source repository',
     details: 'Skill details'

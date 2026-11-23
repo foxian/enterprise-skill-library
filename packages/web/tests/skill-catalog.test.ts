@@ -13,6 +13,7 @@ afterEach(async () => {
   wrapper?.unmount();
   wrapper = undefined;
   document.body.innerHTML = '';
+  sessionStorage.clear();
   vi.restoreAllMocks();
   await resetConsole();
 });
@@ -297,5 +298,20 @@ describe('个人控制台技能目录', () => {
     expect(url.searchParams.get('traffic_source')).toBe('skill_catalog');
     expect(url.searchParams.get('bucket')).toBe('org');
     expect(url.searchParams.get('q')).toBe('acme');
+  });
+
+  it('从详情返回目录时尽力恢复离开前的滚动位置', async () => {
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    mockCatalog([orgItem]);
+    await mountCatalog('member');
+
+    Object.defineProperty(window, 'scrollY', { value: 480, configurable: true });
+    await wrapper!.find('[data-test="catalog-item-link"]').trigger('click');
+    await flushPromises();
+    expect(router.currentRoute.value.name).toBe('public-skill-detail');
+
+    wrapper!.unmount();
+    await mountCatalog('member');
+    expect(scrollTo).toHaveBeenCalledWith({ top: 480 });
   });
 });

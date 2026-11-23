@@ -38,7 +38,12 @@
       <el-empty v-if="!loading && items.length === 0" :description="emptyDescription" data-test="catalog-empty" />
       <article v-for="item in items" :key="item.identity" class="catalog-card" data-test="catalog-item">
         <div class="catalog-card-main">
-          <router-link class="catalog-card-title" :to="detailTarget(item)" data-test="catalog-item-link">
+          <router-link
+            class="catalog-card-title"
+            :to="detailTarget(item)"
+            data-test="catalog-item-link"
+            @click="rememberScrollPosition"
+          >
             {{ item.displayName || item.skillName }}
           </router-link>
           <div class="catalog-card-identity">{{ item.identity }}</div>
@@ -76,10 +81,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiRequest } from '../../api/client';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
+import { readCatalogBucket, type CatalogBucket } from '../../skills/catalog-query';
 import { useAuthStore } from '../../stores/auth';
 
 // 个人控制台「技能目录」（spec #200 / T4）：消费登录态目录 API，展示当前主体
@@ -101,8 +107,6 @@ interface CatalogItem {
   source: { kind: 'organization' | 'person' | 'self'; name: string };
 }
 
-type CatalogBucket = 'all' | 'platform' | 'org' | 'granted';
-
 const BUCKET_OPTIONS = [
   { value: 'all', labelKey: 'skillCatalog.bucketAll' },
   { value: 'platform', labelKey: 'skillCatalog.bucketPlatform' },
@@ -110,20 +114,12 @@ const BUCKET_OPTIONS = [
   { value: 'granted', labelKey: 'skillCatalog.bucketGranted' }
 ] as const;
 
-const VALID_BUCKETS = BUCKET_OPTIONS.map((option) => option.value);
-
-function readBucket(value: unknown): CatalogBucket {
-  return typeof value === 'string' && (VALID_BUCKETS as readonly string[]).includes(value)
-    ? (value as CatalogBucket)
-    : 'all';
-}
-
 const { t } = useLocaleState();
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
-const bucket = ref<CatalogBucket>(readBucket(route.query.bucket));
+const bucket = ref<CatalogBucket>(readCatalogBucket(route.query.bucket));
 const searchInput = ref<string>(typeof route.query.q === 'string' ? route.query.q : '');
 const appliedQuery = ref<string>(searchInput.value.trim());
 const items = ref<CatalogItem[]>([]);
@@ -158,10 +154,42 @@ async function load(): Promise<void> {
     const params = new URLSearchParams({ bucket: bucket.value });
     if (appliedQuery.value) params.set('q', appliedQuery.value);
     items.value = await apiRequest<CatalogItem[]>(`/api/catalog/skills?${params.toString()}`);
+    await nextTick();
+    restoreScrollPosition();
   } catch (error) {
     errorMessage.value = formatRequestError(error) || t('skillCatalog.loadFailed');
   } finally {
     loading.value = false;
+  }
+}
+
+// 从目录进入详情时记下离开前的滚动位置；回到同一筛选视图后尽力恢复（V1 不承诺
+// 精确位置）。sessionStorage 只在本次标签页有效，且用后即删，避免别的列表误用。
+const SCROLL_KEY = 'esl-skill-catalog-scroll';
+
+function rememberScrollPosition(): void {
+  try {
+    sessionStorage.setItem(
+      SCROLL_KEY,
+      JSON.stringify({ top: window.scrollY, bucket: bucket.value, q: appliedQuery.value })
+    );
+  } catch {
+    // 记录失败不影响导航。
+  }
+}
+
+function restoreScrollPosition(): void {
+  try {
+    const raw = sessionStorage.getItem(SCROLL_KEY);
+    if (!raw) return;
+    sessionStorage.removeItem(SCROLL_KEY);
+    const saved = JSON.parse(raw) as { top?: unknown; bucket?: unknown; q?: unknown };
+    // 只恢复同一个筛选视图；换了桶或关键词时列表内容不同，旧位置没有意义。
+    if (saved.bucket !== bucket.value || saved.q !== appliedQuery.value) return;
+    if (typeof saved.top !== 'number' || saved.top <= 0) return;
+    window.scrollTo({ top: saved.top });
+  } catch {
+    // 尽力恢复；失败不阻断浏览。
   }
 }
 
@@ -209,7 +237,7 @@ function sourceText(item: CatalogItem): string {
 watch(
   () => [route.query.bucket, route.query.q],
   () => {
-    const nextBucket = readBucket(route.query.bucket);
+    const nextBucket = readCatalogBucket(route.query.bucket);
     const nextQuery = typeof route.query.q === 'string' ? route.query.q : '';
     const bucketChanged = nextBucket !== bucket.value;
     if (!bucketChanged && nextQuery === searchInput.value && nextQuery.trim() === appliedQuery.value) {
