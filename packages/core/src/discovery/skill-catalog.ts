@@ -32,6 +32,20 @@ export type CatalogNamespaceKind = 'organization' | 'personal';
 /** 技能目录三桶（spec #200：互斥、就近、每技能恰好一桶）加默认全集。 */
 export type CatalogBucket = 'all' | 'platform' | 'org' | 'granted';
 
+/** 三桶加全集的稳定取值，供 API 参数校验与前端切换共用。 */
+export const CATALOG_BUCKETS = ['all', 'platform', 'org', 'granted'] as const;
+
+/** 运行时校验 `bucket` 参数；非四值之一一律视为非法入参。 */
+export function isCatalogBucket(value: string): value is CatalogBucket {
+  return (CATALOG_BUCKETS as readonly string[]).includes(value);
+}
+
+/** 浏览筛选：桶默认全集，关键词为空即不过滤；二者 AND 叠加。 */
+export interface CatalogFilter {
+  bucket?: CatalogBucket;
+  query?: string;
+}
+
 /** private 卡片的来源行：组织技能、他人个人技能、本人技能（「我的技能」）。 */
 export interface CatalogSource {
   kind: 'organization' | 'person' | 'self';
@@ -141,4 +155,34 @@ export function discoverCatalogEntries(
       bucket: classifyCatalogBucket(candidate, principal),
       source: resolveCatalogSource(candidate, principal)
     }));
+}
+
+/**
+ * 关键词匹配的唯一样本：名称（`@scope/name`）、描述、显示名、最新 Release
+ * keywords（技术核查 §4.5）。大小写不敏感的子串匹配，空白关键词视为不过滤。
+ */
+export function matchesCatalogQuery(
+  entry: Pick<CatalogCandidate, 'identity' | 'description' | 'displayName' | 'keywords'>,
+  query: string
+): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [entry.identity, entry.description, entry.displayName, ...(entry.keywords ?? [])].some(
+    (field) => field.toLowerCase().includes(normalized)
+  );
+}
+
+/**
+ * 浏览筛选：桶与关键词 AND 叠加。可读性已在发现阶段决定，这里只做纯内存筛选，
+ * 因此关键词不可能把无权条目带进来。`all` 是三桶并集，语义上等同不过滤桶。
+ */
+export function filterCatalogEntries(
+  entries: readonly CatalogEntry[],
+  filter: CatalogFilter = {}
+): CatalogEntry[] {
+  const bucket = filter.bucket ?? 'all';
+  const query = filter.query ?? '';
+  return entries.filter(
+    (entry) => (bucket === 'all' || entry.bucket === bucket) && matchesCatalogQuery(entry, query)
+  );
 }

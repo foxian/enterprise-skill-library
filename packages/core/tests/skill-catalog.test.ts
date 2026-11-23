@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   discoverCatalogEntries,
+  filterCatalogEntries,
+  type CatalogBucket,
   type CatalogCandidate,
   type CatalogNamespaceKind,
   type CatalogPrincipal,
@@ -148,5 +150,118 @@ describe('discoverCatalogEntries', () => {
     expect(identities(entries)).toEqual(['@beta/open']);
     // 匿名主体没有组织集合，组织 public/anonymous 按「平台公开」呈现。
     expect(entries[0]).toMatchObject({ bucket: 'platform', namespaceKind: 'organization' });
+  });
+});
+
+// 桶筛选与关键词（本票 #203）：浏览器只会在 `all` 与三个互斥桶之间切换，关键词
+// 必须与当前桶 AND 叠加；筛选是纯内存操作，可读性已在发现阶段决定，不反向依赖 Gitea。
+describe('filterCatalogEntries', () => {
+  const alice: CatalogPrincipal = { username: 'alice', organizationScopes: ['acme', 'beta'] };
+  const aliceEntries = entriesFor(alice, (identity) =>
+    ['@acme/notes', '@bob/secret', '@alice/mine'].includes(identity)
+  );
+
+  function ofBucket(bucket: CatalogBucket) {
+    return filterCatalogEntries(aliceEntries, { bucket });
+  }
+
+  it('splits the full set into three mutually exclusive buckets whose union is the whole set', () => {
+    const all = filterCatalogEntries(aliceEntries, { bucket: 'all' });
+    const org = ofBucket('org');
+    const platform = ofBucket('platform');
+    const granted = ofBucket('granted');
+
+    // 期望来自验收口径（技术核查 §1.3），不是从实现反推。
+    expect(identities(all)).toEqual(
+      [
+        '@acme/tool',
+        '@acme/notes',
+        '@beta/lib',
+        '@beta/open',
+        '@bob/secret',
+        '@alice/mine',
+        '@alice/pub'
+      ].sort()
+    );
+    expect(identities(org)).toEqual(
+      ['@acme/tool', '@acme/notes', '@beta/lib', '@beta/open'].sort()
+    );
+    expect(identities(platform)).toEqual(['@alice/pub']);
+    expect(identities(granted)).toEqual(['@bob/secret', '@alice/mine'].sort());
+
+    const union = [...org, ...platform, ...granted].map((entry) => entry.identity);
+    expect(union.sort()).toEqual(identities(all));
+    // 三桶两两不交：并集条数等于各桶条数之和。
+    expect(new Set(union).size).toBe(union.length);
+  });
+
+  it('flattens multiple organizations into one bucket and keeps each organization name', () => {
+    const org = ofBucket('org');
+
+    expect(org.map((entry) => [entry.identity, entry.source.name]).sort()).toEqual(
+      [
+        ['@acme/notes', 'acme'],
+        ['@acme/tool', 'acme'],
+        ['@beta/lib', 'beta'],
+        ['@beta/open', 'beta']
+      ].sort()
+    );
+  });
+
+  it('returns an empty bucket for a subject without organizations or grants', () => {
+    const zoeEntries = entriesFor({ username: 'zoe', organizationScopes: [] }, () => false);
+
+    expect(filterCatalogEntries(zoeEntries, { bucket: 'org' })).toEqual([]);
+    expect(filterCatalogEntries(zoeEntries, { bucket: 'granted' })).toEqual([]);
+    expect(identities(filterCatalogEntries(zoeEntries, { bucket: 'platform' }))).toEqual(
+      ['@acme/tool', '@beta/lib', '@beta/open', '@alice/pub'].sort()
+    );
+  });
+
+  it('combines the keyword with the selected bucket using AND', () => {
+    expect(identities(filterCatalogEntries(aliceEntries, { bucket: 'org', query: 'notes' }))).toEqual([
+      '@acme/notes'
+    ]);
+    expect(identities(filterCatalogEntries(aliceEntries, { bucket: 'granted', query: 'secret' }))).toEqual([
+      '@bob/secret'
+    ]);
+    // 跨桶命中不算：`notes` 属于 org 桶，在 granted 桶里必须为空。
+    expect(filterCatalogEntries(aliceEntries, { bucket: 'granted', query: 'notes' })).toEqual([]);
+    expect(filterCatalogEntries(aliceEntries, { bucket: 'platform', query: 'acme' })).toEqual([]);
+    // 只有 all 才跨全集。
+    expect(identities(filterCatalogEntries(aliceEntries, { bucket: 'all', query: 'notes' }))).toEqual([
+      '@acme/notes'
+    ]);
+  });
+
+  it('matches identity, description, display name, and release keywords case-insensitively', () => {
+    const entry = {
+      ...seed({ identity: '@gamma/alpha-skill', scope: 'gamma' }, false),
+      description: 'Unrelated prose',
+      displayName: 'Delta Display',
+      keywords: ['epsilon', 'Zeta Tag']
+    };
+    const entries = discoverCatalogEntries([entry], { username: 'zoe', organizationScopes: [] });
+
+    const matched = (query: string) =>
+      filterCatalogEntries(entries, { bucket: 'all', query }).map((item) => item.identity);
+
+    expect(matched('gamma')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('alpha-skill')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('UNRELATED')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('delta display')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('epsilon')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('zeta tag')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('  epsilon  ')).toEqual(['@gamma/alpha-skill']);
+    expect(matched('gamma-tool')).toEqual([]);
+  });
+
+  it('treats an empty or blank keyword as no keyword filter', () => {
+    expect(identities(filterCatalogEntries(aliceEntries, { bucket: 'all', query: '' }))).toEqual(
+      ['@acme/tool', '@acme/notes', '@beta/lib', '@beta/open', '@bob/secret', '@alice/mine', '@alice/pub'].sort()
+    );
+    expect(identities(filterCatalogEntries(aliceEntries, { bucket: 'org', query: '   ' }))).toEqual(
+      ['@acme/tool', '@acme/notes', '@beta/lib', '@beta/open'].sort()
+    );
   });
 });
