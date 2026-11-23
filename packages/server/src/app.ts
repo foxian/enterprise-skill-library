@@ -129,6 +129,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // the full source tree are not rejected by the 1MB Fastify default.
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 200 * 1024 * 1024 });
   const db = initDatabase(options.dbPath, app.log);
+  // 先建 repository：autoSeed 的验收数据必须复用 buildApp 已持有的连接，不能再
+  // 另开一个数据库（#207 修复 J4）。
+  const repository = new SkillRepository(db);
+  const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   if (options.autoSeed) {
     seedDevelopmentData(options.dbPath);
     // 开发环境同时产出全局账号与示例组织（ADR-0032）；尽力而为，不阻塞启动。
@@ -146,7 +150,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
         const catalogSeedLogger = taskLogger(app.log, catalogSeedTaskId);
         logTaskStarted(catalogSeedLogger, catalogSeedTaskId, 'Seeding skill catalog acceptance data');
         try {
-          await seedCatalogAcceptanceData(options.dbPath, options.giteaService);
+          await seedCatalogAcceptanceData(
+            { skills: repository, skillTeamGrants: skillTeamGrantRepository },
+            options.giteaService
+          );
           logTaskFinished(catalogSeedLogger, catalogSeedTaskId);
         } catch (error: unknown) {
           logTaskFinished(catalogSeedLogger, catalogSeedTaskId, error);
@@ -154,7 +161,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
       })
       .catch((error: unknown) => logTaskFinished(seedLogger, seedTaskId, error));
   }
-  const repository = new SkillRepository(db);
   const adminRepository = new AdminRepository(db);
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
@@ -167,7 +173,6 @@ export function buildApp(options: AppOptions): FastifyInstance {
     process.env.ESL_EMAIL_ACTION_SECRET ??
     crypto.randomBytes(32).toString('hex');
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
-  const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   const downloadLogRepository = new DownloadLogRepository(db);
   const catalogFunnelEventRepository = new CatalogFunnelEventRepository(db);
   const serverIdentityRepository = new ServerIdentityRepository(db);

@@ -3,11 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { parseSkillIdentity } from '@esl/core';
 import { buildApp } from '../src/app.js';
 import {
   CatalogFunnelEventRepository,
   initDatabase,
   SkillRepository,
+  SkillTeamGrantRepository,
   TenantOrganizationRepository
 } from '../src/db/database.js';
 import {
@@ -49,10 +51,16 @@ describe('skill catalog acceptance seed', () => {
     const db = initDatabase(dbPath);
     try {
       await seedDevelopmentAccounts(gitea as never, new TenantOrganizationRepository(db));
+      await seedCatalogAcceptanceData(
+        {
+          skills: new SkillRepository(db),
+          skillTeamGrants: new SkillTeamGrantRepository(db)
+        },
+        gitea as never
+      );
     } finally {
       db.close();
     }
-    await seedCatalogAcceptanceData(dbPath, gitea as never);
 
     app = await buildApp({ dbPath, giteaService: gitea as never, repoOwner: 'esl-skills' });
   });
@@ -175,8 +183,21 @@ describe('skill catalog acceptance seed', () => {
   });
 
   it('is idempotent: repeated runs converge without duplicate skills or releases', async () => {
-    await seedCatalogAcceptanceData(dbPath, gitea as never);
-    await seedCatalogAcceptanceData(dbPath, gitea as never);
+    // 复用同一组 repository（与 buildApp 已持有的连接同形）：seed 只写数据，不持有
+    // 第二个数据库生命周期。
+    const db = initDatabase(dbPath);
+    try {
+      const repositories = {
+        skills: new SkillRepository(db),
+        skillTeamGrants: new SkillTeamGrantRepository(db)
+      };
+      await seedCatalogAcceptanceData(repositories, gitea as never);
+      await seedCatalogAcceptanceData(repositories, gitea as never);
+      // seed 结束后注入的连接仍可用：说明它没有自行关闭数据库。
+      expect(repositories.skills.getSkill('@acme/public-tool')?.status).toBe('active-published');
+    } finally {
+      db.close();
+    }
 
     await withRepositories(({ skills }) => {
       for (const definition of CATALOG_ACCEPTANCE_SKILLS) {
@@ -212,13 +233,15 @@ describe('skill catalog acceptance seed', () => {
     expect(new Set(union).size).toBe(union.length);
 
     // 未发布、已归档与无权技能都不出现。
+    const visible = identities(await catalog(token));
     for (const absent of [
       '@acme/draft-tool',
       '@acme/retired-tool',
       '@acme/secret-tool',
+      '@acme/owner-only-tool',
       '@dave/unshared-note'
     ]) {
-      expect(bobAll).not.toContain(absent);
+      expect(visible).not.toContain(absent);
     }
 
     const entries = (await catalog(token)).json() as Array<Record<string, unknown>>;
@@ -258,6 +281,17 @@ describe('skill catalog acceptance seed', () => {
       visibility: 'private',
       downloadCount: 0
     });
+  });
+
+  it('AC12: an organization private skill without explicit grants is readable only through the member role', async () => {
+    const aliceToken = await tokenFor(alice);
+    const bobToken = await tokenFor(bob);
+
+    // 所有者成员（alice）凭成员角色可读，即使技能的 owner 不指向她本人。
+    expect(identities(await catalog(aliceToken))).toContain('@acme/owner-only-tool');
+    // 普通成员（bob）没有任何显式团队/成员授权，不可见也不能打开详情。
+    expect(identities(await catalog(bobToken))).not.toContain('@acme/owner-only-tool');
+    expect((await detail(bobToken, '@acme/owner-only-tool')).statusCode).toBe(404);
   });
 
   it('AC5: the user without organizations gets platform content and empty org/granted buckets', async () => {
@@ -455,5 +489,17 @@ describe('skill catalog acceptance seed', () => {
       expect(skills.getSkill('@acme/retired-tool')?.status).toBe('archived');
       expect(skills.getReleases('@acme/retired-tool')).toHaveLength(1);
     });
+
+    // 矩阵里的每个名字都是 core 认得的稳定 Skill Identity（seed 不再手写切分）。
+    for (const definition of CATALOG_ACCEPTANCE_SKILLS) {
+      const identity = parseSkillIdentity(definition.name);
+      expect(identity?.scope, definition.name).toBeTruthy();
+    }
+    // 成员角色形态没有显式授权：可见性只能来自组织成员身份。
+    const roleDefinition = CATALOG_ACCEPTANCE_SKILLS.find(
+      (entry) => entry.name === '@acme/owner-only-tool'
+    );
+    expect(roleDefinition).toMatchObject({ visibility: 'private', status: 'active-published' });
+    expect(roleDefinition?.grant).toBeUndefined();
   });
 });

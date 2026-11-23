@@ -1,10 +1,6 @@
+import { parseSkillIdentity } from '@esl/core';
 import type { GiteaService } from './services/gitea.js';
-import {
-  initDatabase,
-  SkillRepository,
-  SkillTeamGrantRepository,
-  type SkillRecord
-} from './db/database.js';
+import type { SkillRepository, SkillTeamGrantRepository, SkillRecord } from './db/database.js';
 import { DEV_ACCOUNTS, DEV_ORGANIZATIONS } from './seed.js';
 
 /**
@@ -18,6 +14,12 @@ import { DEV_ACCOUNTS, DEV_ORGANIZATIONS } from './seed.js';
  * 不重复创建它们。所有写入都是幂等的：DB 以技能名 + 版本判存在，Gitea 仓库先
  * `getRepo`，团队按名称判存在，协作者与团队挂载是 Gitea 的幂等 PUT。
  */
+
+/** 验收 seed 只消费调用方已初始化的连接，不自行打开/关闭数据库（与 buildApp 共用）。 */
+export interface CatalogAcceptanceRepositories {
+  skills: SkillRepository;
+  skillTeamGrants: SkillTeamGrantRepository;
+}
 
 /** 验收组织名（acme 为历史 seed 已建，beta 为本票新增）。 */
 export const CATALOG_ACCEPTANCE_ORGS: readonly string[] = DEV_ORGANIZATIONS.map((org) => org.name);
@@ -155,6 +157,18 @@ export const CATALOG_ACCEPTANCE_SKILLS: readonly AcceptanceSkillDefinition[] = [
     owner: DEV_ACCOUNTS.publisher,
     grant: { kind: 'member', username: DEV_ACCOUNTS.multiOrgMember }
   },
+  // 成员角色授权形态：组织 private 不做任何显式团队/成员授权，owner 也刻意不指向
+  // alice——只有组织所有者/管理成员（alice）凭成员角色可读，普通成员（bob）不可见。
+  {
+    name: '@acme/owner-only-tool',
+    visibility: 'private',
+    status: 'active-published',
+    description: '仅 Acme 所有者/管理成员经成员角色可读的私有技能',
+    displayName: 'Acme Owner Only Tool',
+    version: '1.0.0',
+    keywords: ['acme', 'member-role'],
+    owner: 'platform'
+  },
   // 无权组织 private：bob 是组织成员但没有被授权；carol 也不是组织成员。
   {
     name: '@acme/secret-tool',
@@ -239,11 +253,11 @@ const SHARE_TIER_TEAMS = {
 } as const;
 
 function splitIdentity(name: string): { scope: string; skillName: string } {
-  const slash = name.indexOf('/');
-  if (!name.startsWith('@') || slash < 0) {
+  const identity = parseSkillIdentity(name);
+  if (!identity || identity.scope === null) {
     throw new Error(`Invalid acceptance skill identity: ${name}`);
   }
-  return { scope: name.slice(1, slash), skillName: name.slice(slash + 1) };
+  return { scope: identity.scope, skillName: identity.shortName };
 }
 
 async function ensureRepository(
@@ -378,29 +392,24 @@ async function ensureGrant(
 
 /**
  * 幂等写入技能目录验收数据集。返回写入后的技能定义，便于测试与文档共用同一份矩阵。
+ * 连接由调用方持有（buildApp 的 `SkillRepository`），本函数不另开数据库。
  */
 export async function seedCatalogAcceptanceData(
-  dbPath: string,
+  repositories: CatalogAcceptanceRepositories,
   giteaService: GiteaService
 ): Promise<readonly AcceptanceSkillDefinition[]> {
-  const db = initDatabase(dbPath);
-  try {
-    const repository = new SkillRepository(db);
-    const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
+  const { skills: repository, skillTeamGrants: skillTeamGrantRepository } = repositories;
 
-    for (const definition of CATALOG_ACCEPTANCE_SKILLS) {
-      const { scope, skillName } = splitIdentity(definition.name);
-      await ensureRepository(giteaService, scope, skillName, definition.visibility === 'private');
-      const skill = ensureSkill(repository, definition);
-      ensureRelease(repository, skill, definition);
-      await ensureGrant(giteaService, skillTeamGrantRepository, definition);
-      if (definition.status === 'archived') {
-        await giteaService.setRepositoryArchived(scope, skillName, true);
-      }
+  for (const definition of CATALOG_ACCEPTANCE_SKILLS) {
+    const { scope, skillName } = splitIdentity(definition.name);
+    await ensureRepository(giteaService, scope, skillName, definition.visibility === 'private');
+    const skill = ensureSkill(repository, definition);
+    ensureRelease(repository, skill, definition);
+    await ensureGrant(giteaService, skillTeamGrantRepository, definition);
+    if (definition.status === 'archived') {
+      await giteaService.setRepositoryArchived(scope, skillName, true);
     }
-
-    return CATALOG_ACCEPTANCE_SKILLS;
-  } finally {
-    db.close();
   }
+
+  return CATALOG_ACCEPTANCE_SKILLS;
 }
