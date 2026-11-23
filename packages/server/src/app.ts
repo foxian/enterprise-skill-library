@@ -33,6 +33,7 @@ import path from 'node:path';
 import { registerUserRoutes } from './routes/register.js';
 import { OrgInvitationRepository, UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
+import { seedCatalogAcceptanceData } from './seed-catalog.js';
 import { readPlatformInfo } from './services/platform-config.js';
 import { logEvent, logTaskFinished, logTaskStarted, taskLogger } from './logging.js';
 import { STATUS_CODES } from 'node:http';
@@ -136,8 +137,21 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const seedTaskId = 'seed-development-accounts';
     const seedLogger = taskLogger(app.log, seedTaskId);
     logTaskStarted(seedLogger, seedTaskId, 'Seeding development accounts');
+    // 技能目录验收数据依赖账号/组织/常设团队已存在，必须串在账号 seed 之后。
+    // 两个任务各自记录生命周期：技能 seed 失败不改变账号 seed 的结果，也不阻塞启动。
+    const catalogSeedTaskId = 'seed-catalog-acceptance';
     void seedDevelopmentAccounts(options.giteaService, new TenantOrganizationRepository(db))
-      .then(() => logTaskFinished(seedLogger, seedTaskId))
+      .then(async () => {
+        logTaskFinished(seedLogger, seedTaskId);
+        const catalogSeedLogger = taskLogger(app.log, catalogSeedTaskId);
+        logTaskStarted(catalogSeedLogger, catalogSeedTaskId, 'Seeding skill catalog acceptance data');
+        try {
+          await seedCatalogAcceptanceData(options.dbPath, options.giteaService);
+          logTaskFinished(catalogSeedLogger, catalogSeedTaskId);
+        } catch (error: unknown) {
+          logTaskFinished(catalogSeedLogger, catalogSeedTaskId, error);
+        }
+      })
       .catch((error: unknown) => logTaskFinished(seedLogger, seedTaskId, error));
   }
   const repository = new SkillRepository(db);
