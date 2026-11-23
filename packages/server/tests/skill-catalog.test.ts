@@ -331,6 +331,18 @@ describe('skill catalog', () => {
     expect(identities(await catalog('alice-token', { bucket: 'all' }))).toEqual(allNames);
   });
 
+  it('gives every entry a detail link into the shared detail page', async () => {
+    const entries = (await catalog('alice-token')).json() as Array<{
+      identity: string;
+      detailPath: string;
+    }>;
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      // 详情页路由是 /skills/:scope/:skillName；条目下发可直接使用的编码路径。
+      expect(entry.detailPath, entry.identity).toBe(`/skills/${entry.identity}`);
+    }
+  });
+
   it('exposes the bucket and the source subject of each entry', async () => {
     const entries = (await catalog('alice-token')).json() as CatalogEntryView[];
     const byIdentity = new Map(entries.map((entry) => [entry.identity, entry]));

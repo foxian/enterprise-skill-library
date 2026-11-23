@@ -28,6 +28,9 @@ function toCatalogView(entry: DiscoveredSkill) {
     namespaceKind: entry.namespaceKind,
     // ESL 没有独立的组织/用户显示名字段，主体名就是命名空间名（技术核查 §1.4）。
     namespaceName: entry.scope,
+    // 共用详情页链接（spec #200 条目契约）：Web 目录卡片直接使用，避免两处各拼
+    // 一套路由形态；`@` 保留在路径里与详情页路由 /skills/:scope/:skillName 对齐。
+    detailPath: `/skills/@${encodeURIComponent(entry.scope)}/${encodeURIComponent(entry.skillName)}`,
     bucket: entry.bucket,
     source: entry.source
   };

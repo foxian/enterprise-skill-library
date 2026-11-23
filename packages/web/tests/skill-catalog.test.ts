@@ -31,6 +31,8 @@ interface CatalogItem {
   namespaceName: string;
   bucket: 'platform' | 'org' | 'granted';
   source: { kind: 'organization' | 'person' | 'self'; name: string };
+  /** 服务端下发的共用详情页链接；缺失时前端自拼兜底。 */
+  detailPath?: string;
 }
 
 function mockCatalog(items: CatalogItem[] = []): ReturnType<typeof useApiMock> {
@@ -319,6 +321,17 @@ describe('个人控制台技能目录', () => {
     expect(url.searchParams.get('traffic_source')).toBe('skill_catalog');
     expect(url.searchParams.get('bucket')).toBe('org');
     expect(url.searchParams.get('q')).toBe('acme');
+  });
+
+  it('卡片优先使用服务端下发的详情链接，缺失时才自拼', async () => {
+    mockCatalog([{ ...orgItem, detailPath: '/skills/@acme/open' }]);
+    await mountCatalog('member', '/admin/me/catalog?bucket=org');
+
+    const link = wrapper!.find('[data-test="catalog-item-link"]');
+    const url = new URL(link.attributes('href')!, 'http://localhost');
+    expect(url.pathname).toBe('/skills/@acme/open');
+    expect(url.searchParams.get('traffic_source')).toBe('skill_catalog');
+    expect(url.searchParams.get('bucket')).toBe('org');
   });
 
   it('从详情返回目录时尽力恢复离开前的滚动位置', async () => {

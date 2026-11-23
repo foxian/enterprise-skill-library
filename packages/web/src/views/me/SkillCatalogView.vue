@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router';
 import { apiRequest } from '../../api/client';
 import { reportCatalogFunnelEvent } from '../../api/funnel-events';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
@@ -109,6 +109,8 @@ interface CatalogItem {
   namespaceName: string;
   bucket: 'platform' | 'org' | 'granted';
   source: { kind: 'organization' | 'person' | 'self'; name: string };
+  /** 服务端下发的共用详情页链接；缺失时前端自拼兜底。 */
+  detailPath?: string;
 }
 
 const BUCKET_OPTIONS = [
@@ -214,13 +216,15 @@ function submitSearch(): void {
 
 // 卡片跳共用详情页（/skills/:scope/:skillName），并带上返回恢复上下文：
 // traffic_source 固定为 skill_catalog（与 T6 漏斗事件字段同名），bucket 与 q 供 T5
-// 渲染「返回技能目录」时恢复原视图。
-function detailTarget(item: CatalogItem): { name: string; params: Record<string, string>; query: Record<string, string> } {
+// 渲染「返回技能目录」时恢复原视图。详情链接优先用服务端下发的 detailPath，旧响应
+// 缺失该字段时才按同一路由形态自拼。
+function detailTarget(item: CatalogItem): RouteLocationRaw {
   const query: Record<string, string> = {
     traffic_source: 'skill_catalog',
     bucket: bucket.value
   };
   if (appliedQuery.value) query.q = appliedQuery.value;
+  if (item.detailPath) return { path: item.detailPath, query };
   return {
     name: 'public-skill-detail',
     params: { scope: item.scope, skillName: item.skillName },
