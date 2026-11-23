@@ -241,6 +241,16 @@ describe('catalog funnel events', () => {
     expect(events.queryEvents({ page: 1, pageSize: 100 }).total).toBe(6);
   });
 
+  it('is not blocked by the organization activation gate that covers /api/catalog', async () => {
+    // 命名空间恰好叫 events 且处于删除中：门禁若仍按 `/api/catalog` 前缀取第三段
+    // 当 scope，就会把上报端点当成 organization=events 的技能路由拦成 409。
+    new TenantOrganizationRepository(observerDb).create({ orgName: 'events', status: 'deleting' });
+
+    const res = await report({ action: 'catalog_view', trafficSource: 'skill_catalog' });
+    expect(res.statusCode).toBe(202);
+    expect(recorded()).toHaveLength(1);
+  });
+
   it('creates the table on a database that predates this ticket without touching existing data', () => {
     const legacyPath = path.join(tmpDir, 'legacy.db');
     const legacy = initDatabase(legacyPath);
