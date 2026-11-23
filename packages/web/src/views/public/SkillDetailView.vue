@@ -30,7 +30,7 @@
         <p class="detail-description" data-test="detail-description">{{ skill.description }}</p>
 
         <div class="detail-meta">
-          <span v-if="latestStableVersion">
+          <span v-if="latestStableVersion" data-test="detail-latest-stable">
             {{ t('catalog.latest') }}: <strong>{{ latestStableVersion }}</strong>
           </span>
           <span>{{ t('catalog.downloads', { count: skill.downloadCount ?? 0 }) }}</span>
@@ -101,6 +101,8 @@ interface PublicSkill {
   description: string;
   keywords?: string[];
   visibility?: string;
+  // 最新稳定版由服务端计算（排除 prerelease，保留 build metadata）；前端只兜底。
+  latestStableVersion?: string;
   versions?: string[];
   downloadCount?: number;
   releases?: PublicRelease[];
@@ -152,9 +154,12 @@ const identity = computed(() => {
 
 const releases = computed(() => skill.value?.releases ?? []);
 
-// 详情契约的 versions 已按版本倒序；最新稳定版取第一个不带预发布后缀的版本。
-const latestStableVersion = computed(() =>
-  (skill.value?.versions ?? []).find((version) => /^\d+\.\d+\.\d+$/.test(version))
+// 最新稳定版以服务端 `latestStableVersion` 为准（排除 prerelease，含 build
+// metadata）；旧响应没有该字段时才回退到 versions 的 `x.y.z` 形态。
+const latestStableVersion = computed(
+  () =>
+    skill.value?.latestStableVersion ??
+    (skill.value?.versions ?? []).find((version) => /^\d+\.\d+\.\d+$/.test(version))
 );
 
 const installCommand = computed(() => `esl skill install ${identity.value}`);

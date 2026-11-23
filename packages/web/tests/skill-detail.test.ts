@@ -249,6 +249,22 @@ describe('共用详情页统一拒绝', () => {
     expect(wrapper.find('[data-test="detail-login-required"]').exists()).toBe(true);
   });
 
+  it('展示服务端下发的最新稳定版，带 build metadata 也不漏', async () => {
+    useApiMock(() => ({
+      status: 200,
+      json: {
+        ...detailSkill,
+        versions: ['1.1.0-beta.1', '1.0.0+build.5'],
+        latestStableVersion: '1.0.0+build.5'
+      }
+    }));
+    wrapper = await mountView(SkillDetailView, '/skills/acme/open', memberSession);
+    await flushPromises();
+
+    // 旧实现用 /^\d+\.\d+\.\d+$/ 自判，1.0.0+build.5 会被漏掉；以服务端字段为准。
+    expect(wrapper.find('[data-test="detail-latest-stable"]').text()).toContain('1.0.0+build.5');
+  });
+
   it('授权 private 正常打开并展示安装命令', async () => {
     useApiMock(() => ({
       status: 200,
