@@ -1530,16 +1530,45 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       });
     }
     if (!skill) {
+      request.log.info(
+        { event: 'skill.detail-unavailable', reason: 'not-found' },
+        'Skill detail unavailable: not found'
+      );
       return reply.status(404).send(apiError('skillNotFound'));
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    // 已归档技能在消费详情上一律不可用（ADR-0076）：与不存在同形，匿名也不给登录
+    // 提示。维护者/管理成员查看与恢复归档技能走管理向端点（/permissions、/restore
+    // 等），不依赖本路由。
+    if (skill.status === 'archived') {
+      request.log.info(
+        {
+          event: 'skill.detail-unavailable',
+          reason: 'archived',
+          skillId: skill.skillId,
+          actorUsername: user?.username ?? null
+        },
+        'Skill detail unavailable: archived'
+      );
+      return reply.status(404).send(apiError('skillNotFound'));
+    }
     const readable = user ? await hasReadAccess(giteaService, skill, user.username) : false;
     if (!readable && !isAnonymousConsumable(skill.visibility)) {
-      // 无登录身份时统一要求登录（不因能否区分 private/public 而泄露更多）；
-      // 已登录但无权读取 private 时仍给既有可行动错误。
-      return user
-        ? reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'))
-        : reply.status(401).send(apiError('unauthorizedMissingToken'));
+      // 匿名访客仍按可见性要求登录（#200 US14 保持现状）；已登录但无权读取
+      // private 的主体与「不存在 / 已归档」返回完全相同的响应，不泄露存在性。
+      if (!user) {
+        return reply.status(401).send(apiError('unauthorizedMissingToken'));
+      }
+      request.log.info(
+        {
+          event: 'skill.detail-unavailable',
+          reason: 'no-read-access',
+          skillId: skill.skillId,
+          actorUsername: user.username
+        },
+        'Skill detail unavailable: no read access'
+      );
+      return reply.status(404).send(apiError('skillNotFound'));
     }
 
     const releases = repository.getReleases(name);

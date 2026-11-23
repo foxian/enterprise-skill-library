@@ -52,6 +52,7 @@ Versions:
 ```
 
 - 未登录只能看到 `anonymous` 技能；`public` 需要登录，`private` 还需要当前账号具备读取权限。
+- 已登录但无权读取 `private`、技能已归档或不存在时，`info` 一律返回同一条通用「不存在」类错误（ADR-0076），不再给出可行动的 403 指引；不要据此推断技能是否存在，也不要反复重试。匿名访问 `public` / `private` 仍提示登录。
 - 无登录态显式筛选 `public` / `private` 会直接报错要求登录，不会返回看似正常的空结果。
 - `anonymous` 是“任何人可安装”，不是“仅匿名可用”：登录用户同样可以消费。
 - `@builtin/*` 显示为 Built-in skill，不属于 Registry。

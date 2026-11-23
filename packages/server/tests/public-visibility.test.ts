@@ -43,6 +43,19 @@ describe('skill visibility', () => {
       gitRepoPath: 'acme/tool',
       status: 'active-published'
     });
+    // 消费详情的三态夹具（ADR-0076）：已归档技能不再可消费，与不存在同形。
+    repository.createServerSkill({
+      name: '@acme/old',
+      scope: 'acme',
+      skillName: 'old',
+      description: 'Archived org tool',
+      createdBy: 'alice',
+      owner: 'alice',
+      maintainers: ['alice'],
+      visibility: 'private',
+      gitRepoPath: 'acme/old',
+      status: 'archived'
+    });
     // search（ADR-0049）只返回有 Skill Release 的技能；给夹具补发布记录。
     const tool = repository.getSkill('@acme/tool')!;
     repository.createRelease({
@@ -136,13 +149,78 @@ describe('skill visibility', () => {
     expect(info.statusCode).toBe(200);
   });
 
-  it('a private skill stays invisible to unrelated users with a clear no-access error', async () => {
+  it('已登录消费主体对不存在 / 无权 private / 已归档得到完全相同的响应', async () => {
+    const detail = (token: string, name: string) =>
+      app.inject({
+        method: 'GET',
+        url: `/api/skills/${name}`,
+        headers: { authorization: `token ${token}` }
+      });
+
+    const missing = await detail('zoe-token', '@acme/missing');
+    const unauthorized = await detail('zoe-token', '@acme/tool');
+    const archived = await detail('zoe-token', '@acme/old');
+
+    // ADR-0076：三种不可用状态在 HTTP 边界完全不可区分。
+    expect(missing.statusCode).toBe(404);
+    expect(unauthorized.statusCode).toBe(missing.statusCode);
+    expect(archived.statusCode).toBe(missing.statusCode);
+    expect(unauthorized.body).toBe(missing.body);
+    expect(archived.body).toBe(missing.body);
+    expect(archived.body).not.toContain('@acme/old');
+  });
+
+  it('归档技能对维护者的消费详情同样按不可用处理', async () => {
+    const archived = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@acme/old',
+      headers: { authorization: 'token alice-token' }
+    });
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@acme/missing',
+      headers: { authorization: 'token alice-token' }
+    });
+
+    expect(archived.statusCode).toBe(404);
+    expect(archived.body).toBe(missing.body);
+  });
+
+  it('维护者经管理向权限端点仍可查看已归档技能', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@acme/old/permissions',
+      headers: { authorization: 'token alice-token' }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ skill: { name: '@acme/old', status: 'archived' } });
+    expect(res.json().viewerAccess).toBe('manage');
+  });
+
+  it('匿名访问 private 仍需登录，访问已归档技能按不存在处理', async () => {
+    const privateSkill = await app.inject({ method: 'GET', url: '/api/skills/@acme/tool' });
+    expect(privateSkill.statusCode).toBe(401);
+
+    const archived = await app.inject({ method: 'GET', url: '/api/skills/@acme/old' });
+    const missing = await app.inject({ method: 'GET', url: '/api/skills/@acme/missing' });
+    expect(archived.statusCode).toBe(404);
+    expect(archived.body).toBe(missing.body);
+  });
+
+  it('授权维护者读取 private 详情仍返回完整 DTO 与安装命令所需字段', async () => {
     const info = await app.inject({
       method: 'GET',
       url: '/api/skills/@acme/tool',
-      headers: { authorization: 'token zoe-token' }
+      headers: { authorization: 'token alice-token' }
     });
-    expect(info.statusCode).toBe(403);
-    expect(info.json().message).toContain('private');
+
+    expect(info.statusCode).toBe(200);
+    expect(info.json()).toMatchObject({
+      name: '@acme/tool',
+      visibility: 'private'
+    });
+    expect(info.json().releases).toEqual([expect.objectContaining({ version: '1.0.0' })]);
+    expect(typeof info.json().packageUrl).toBe('string');
   });
 });
