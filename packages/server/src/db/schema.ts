@@ -298,4 +298,31 @@ export const databaseSchema = `
 
   CREATE INDEX IF NOT EXISTS skill_external_sources_sync_state_index
     ON skill_external_sources (sync_state);
+
+  -- 技能目录漏斗事件（#199 / ADR-0077）：页面行为的原始动作流，不去重、不计算 UV。
+  -- 与 download_logs 分开存储：下载日志是「包发放」且仅超管可查明细，这里是
+  -- 「页面行为」且只用于研发按需导出的三层漏斗基线。
+  --   subject_user_id：Gitea 数值 id 的字符串；匿名或无法解析为 NULL。
+  --   subject_username：服务端从登录态补齐，便于排查，不进入对外契约。
+  --   skill_id：catalog_view 为 NULL；不建外键——技能删除/改名后事件必须保留。
+  --   bucket：只有 traffic_source = skill_catalog 时有值，其他来源为 NULL。
+  -- 不采集搜索关键词、IP、User-Agent 或客户端环境；occurred_at 只用服务端时间。
+  CREATE TABLE IF NOT EXISTS catalog_funnel_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_user_id TEXT,
+    subject_username TEXT,
+    skill_id TEXT,
+    action TEXT NOT NULL CHECK (action IN ('catalog_view','detail_view','install_command_copy')),
+    bucket TEXT CHECK (bucket IN ('all','platform','org','granted') OR bucket IS NULL),
+    traffic_source TEXT NOT NULL CHECK (traffic_source IN ('skill_catalog','public_catalog','direct_or_unknown')),
+    occurred_at DATETIME NOT NULL
+  );
+
+  -- 漏斗计数与按来源/时间窗口导出走这条索引。
+  CREATE INDEX IF NOT EXISTS catalog_funnel_events_action_source_index
+    ON catalog_funnel_events (action, traffic_source, occurred_at);
+
+  -- 按主体排查某个用户的原始行为流。
+  CREATE INDEX IF NOT EXISTS catalog_funnel_events_subject_index
+    ON catalog_funnel_events (subject_username, occurred_at);
 `;

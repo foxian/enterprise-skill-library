@@ -6,6 +6,7 @@ import Fastify, {
 } from 'fastify';
 import {
   AdminRepository,
+  CatalogFunnelEventRepository,
   DownloadLogRepository,
   initDatabase,
   OrgApplicationRepository,
@@ -24,6 +25,7 @@ import { registerUserAdminRoutes } from './routes/user-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
 import { registerCatalogRoutes } from './routes/catalog.js';
+import { registerCatalogEventRoutes } from './routes/catalog-events.js';
 import { registerDownloadLogAdminRoutes } from './routes/download-log-admin.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
 import { SkillCatalogService } from './services/skill-catalog.js';
@@ -153,6 +155,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
   const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   const downloadLogRepository = new DownloadLogRepository(db);
+  const catalogFunnelEventRepository = new CatalogFunnelEventRepository(db);
   const serverIdentityRepository = new ServerIdentityRepository(db);
   const externalSourceRepository = new ExternalSourceRepository(db);
   // 可安装技能发现（#199 / spec #200）：公开目录与登录技能目录共用同一服务。
@@ -271,6 +274,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
       (prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`)
     );
     if (coversOrganizedSkillRoute) {
+      // 漏斗事件上报（ADR-0077）没有技能命名空间可判定：它只记录页面动作，不读
+      // 任何技能归属，落进组织激活门禁反而会让冻结组织下的行为无法入库。
+      if (routePath === '/api/catalog/events') {
+        return;
+      }
       // 技能 Identity 形如 @scope/skill-name,scope 段即命名空间;
       // 冻结/删除中的组织技能由门禁拦截。Source Upload (/api/skills/upload)
       // 的 body.name 是 release.json 的完整 name,由上传路由自行校验组织成员
@@ -375,6 +383,11 @@ export function buildApp(options: AppOptions): FastifyInstance {
   });
   registerCatalogRoutes(app, {
     catalogService: skillCatalogService,
+    adminRepository,
+    giteaService: options.giteaService
+  });
+  registerCatalogEventRoutes(app, {
+    catalogFunnelEventRepository,
     adminRepository,
     giteaService: options.giteaService
   });

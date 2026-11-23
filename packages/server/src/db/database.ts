@@ -1019,6 +1019,191 @@ export class DownloadLogRepository {
   }
 }
 
+// 技能目录漏斗事件（#199 / ADR-0077）。动作与来源都是封闭枚举；主体由服务端从
+// 登录态解析，客户端传来的身份与时间一律忽略。
+export type CatalogFunnelAction = 'catalog_view' | 'detail_view' | 'install_command_copy';
+export type CatalogTrafficSource = 'skill_catalog' | 'public_catalog' | 'direct_or_unknown';
+export type CatalogFunnelBucket = 'all' | 'platform' | 'org' | 'granted';
+
+export const CATALOG_FUNNEL_ACTIONS: readonly CatalogFunnelAction[] = [
+  'catalog_view',
+  'detail_view',
+  'install_command_copy'
+];
+
+export const CATALOG_TRAFFIC_SOURCES: readonly CatalogTrafficSource[] = [
+  'skill_catalog',
+  'public_catalog',
+  'direct_or_unknown'
+];
+
+export const CATALOG_FUNNEL_BUCKETS: readonly CatalogFunnelBucket[] = [
+  'all',
+  'platform',
+  'org',
+  'granted'
+];
+
+export function isCatalogFunnelAction(value: unknown): value is CatalogFunnelAction {
+  return typeof value === 'string' && (CATALOG_FUNNEL_ACTIONS as readonly string[]).includes(value);
+}
+
+export function isCatalogTrafficSource(value: unknown): value is CatalogTrafficSource {
+  return typeof value === 'string' && (CATALOG_TRAFFIC_SOURCES as readonly string[]).includes(value);
+}
+
+export function isCatalogFunnelBucket(value: unknown): value is CatalogFunnelBucket {
+  return typeof value === 'string' && (CATALOG_FUNNEL_BUCKETS as readonly string[]).includes(value);
+}
+
+export interface CatalogFunnelEventRecord {
+  subjectUserId?: string | null;
+  subjectUsername?: string | null;
+  skillId?: string | null;
+  action: CatalogFunnelAction;
+  bucket?: CatalogFunnelBucket | null;
+  trafficSource: CatalogTrafficSource;
+}
+
+export interface CatalogFunnelEventQuery {
+  action?: CatalogFunnelAction;
+  trafficSource?: CatalogTrafficSource;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CatalogFunnelEventView {
+  id: number;
+  subjectUserId: string | null;
+  subjectUsername: string | null;
+  skillId: string | null;
+  action: CatalogFunnelAction;
+  bucket: CatalogFunnelBucket | null;
+  trafficSource: CatalogTrafficSource;
+  occurredAt: string;
+}
+
+// 漏斗三层动作的原始计数。key 恒定包含三项，没有事件的动作记 0——导出方不必
+// 自己补零，也不会把「没有访问」误读成「字段缺失」。
+export type CatalogFunnelActionCounts = Record<CatalogFunnelAction, number>;
+
+export interface CatalogFunnelCountQuery {
+  from?: string;
+  to?: string;
+  /**
+   * 统计来源，默认 `skill_catalog`——本漏斗（第二、三层分子）只取技能目录来向。
+   * 公开目录与直拼流量照常入库，需要时显式传来源即可单独统计。
+   */
+  trafficSource?: CatalogTrafficSource;
+}
+
+const DEFAULT_FUNNEL_PAGE_SIZE = 50;
+
+/**
+ * 技能目录漏斗事件的存储与查询（ADR-0077）：只追加原始行，V1 不做去重、不设
+ * 保留期删除。事件表不与 `skills` 建外键——技能删除或改名后历史必须仍可导出。
+ */
+export class CatalogFunnelEventRepository {
+  private readonly insertStatement: Database.Statement;
+
+  constructor(private readonly db: Database.Database) {
+    this.insertStatement = db.prepare(`
+      INSERT INTO catalog_funnel_events (
+        subject_user_id, subject_username, skill_id, action, bucket, traffic_source, occurred_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+  }
+
+  record(input: CatalogFunnelEventRecord, at: Date = new Date()): void {
+    this.insertStatement.run(
+      input.subjectUserId ?? null,
+      input.subjectUsername ?? null,
+      input.skillId ?? null,
+      input.action,
+      input.bucket ?? null,
+      input.trafficSource,
+      at.toISOString()
+    );
+  }
+
+  countByAction(query: CatalogFunnelCountQuery = {}): CatalogFunnelActionCounts {
+    const clauses = ['traffic_source = ?'];
+    const params: string[] = [query.trafficSource ?? 'skill_catalog'];
+    if (query.from) {
+      clauses.push('occurred_at >= ?');
+      params.push(query.from);
+    }
+    if (query.to) {
+      clauses.push('occurred_at <= ?');
+      params.push(query.to);
+    }
+    const rows = this.db.prepare(`
+      SELECT action AS action, COUNT(*) AS total
+      FROM catalog_funnel_events
+      WHERE ${clauses.join(' AND ')}
+      GROUP BY action
+    `).all(...params) as { action: CatalogFunnelAction; total: number }[];
+    const counts: CatalogFunnelActionCounts = {
+      catalog_view: 0,
+      detail_view: 0,
+      install_command_copy: 0
+    };
+    for (const row of rows) counts[row.action] = row.total;
+    return counts;
+  }
+
+  // 明细查询（研发按需导出）：按动作、来源与时间范围过滤，时间倒序分页。
+  queryEvents(query: CatalogFunnelEventQuery = {}): {
+    items: CatalogFunnelEventView[];
+    total: number;
+  } {
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (query.action) {
+      clauses.push('action = ?');
+      params.push(query.action);
+    }
+    if (query.trafficSource) {
+      clauses.push('traffic_source = ?');
+      params.push(query.trafficSource);
+    }
+    if (query.from) {
+      clauses.push('occurred_at >= ?');
+      params.push(query.from);
+    }
+    if (query.to) {
+      clauses.push('occurred_at <= ?');
+      params.push(query.to);
+    }
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? DEFAULT_FUNNEL_PAGE_SIZE;
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS total FROM catalog_funnel_events ${where}`).get(...params) as {
+        total: number;
+      }
+    ).total;
+    const items = this.db.prepare(`
+      SELECT
+        id,
+        subject_user_id AS subjectUserId,
+        subject_username AS subjectUsername,
+        skill_id AS skillId,
+        action,
+        bucket,
+        traffic_source AS trafficSource,
+        occurred_at AS occurredAt
+      FROM catalog_funnel_events
+      ${where}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, pageSize, (page - 1) * pageSize) as CatalogFunnelEventView[];
+    return { items, total };
+  }
+}
+
 export interface AdminUserRecord {
   username: string;
   disabled: boolean;
