@@ -23,8 +23,10 @@ import { registerOrgAdminRoutes } from './routes/org-admin.js';
 import { registerUserAdminRoutes } from './routes/user-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
+import { registerCatalogRoutes } from './routes/catalog.js';
 import { registerDownloadLogAdminRoutes } from './routes/download-log-admin.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
+import { SkillCatalogService } from './services/skill-catalog.js';
 import path from 'node:path';
 import { registerUserRoutes } from './routes/register.js';
 import { OrgInvitationRepository, UserRegistrationRepository } from './db/database.js';
@@ -153,6 +155,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
   const downloadLogRepository = new DownloadLogRepository(db);
   const serverIdentityRepository = new ServerIdentityRepository(db);
   const externalSourceRepository = new ExternalSourceRepository(db);
+  // 可安装技能发现（#199 / spec #200）：公开目录与登录技能目录共用同一服务。
+  const skillCatalogService = new SkillCatalogService({
+    repository,
+    giteaService: options.giteaService,
+    tenantOrganizationRepository,
+    downloadLogRepository
+  });
   const externalFetcher = new ExternalGitFetcher({
     workRoot:
       options.externalFetchRoot ?? path.join(path.dirname(options.dbPath), 'external-fetch')
@@ -256,7 +265,12 @@ export function buildApp(options: AppOptions): FastifyInstance {
   }));
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
-    if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
+    // 组织激活门禁覆盖技能与目录两个前缀（#199 / spec #200）：新增的
+    // /api/catalog/* 不能绕过冻结/删除中组织的拦截。
+    const coversOrganizedSkillRoute = ['/api/skills', '/api/catalog'].some(
+      (prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`)
+    );
+    if (coversOrganizedSkillRoute) {
       // 技能 Identity 形如 @scope/skill-name,scope 段即命名空间;
       // 冻结/删除中的组织技能由门禁拦截。Source Upload (/api/skills/upload)
       // 的 body.name 是 release.json 的完整 name,由上传路由自行校验组织成员
@@ -353,10 +367,16 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repoOwner: options.repoOwner,
     tenantOrganizationRepository,
     skillTeamGrantRepository,
+    catalogService: skillCatalogService,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
     downloadLogRepository,
     serverIdentityRepository,
     externalSourceRepository
+  });
+  registerCatalogRoutes(app, {
+    catalogService: skillCatalogService,
+    adminRepository,
+    giteaService: options.giteaService
   });
   registerDownloadLogAdminRoutes(app, {
     giteaService: options.giteaService,
