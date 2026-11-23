@@ -143,6 +143,32 @@ describe('discoverCatalogEntries', () => {
     expect(entries.map((entry) => entry.identity)).not.toContain('@acme/notes');
   });
 
+  it('fails closed for organization private skills outside the resolved organization set', () => {
+    // 技术核查 §1.3.4：组织 private 可读却不在我的组织集合，属于不变量破坏（如
+    // 离组后残留 owner/maintainers）。必须排除，不得猜成 granted 或 platform。
+    const resolved = entriesFor(
+      { username: 'zoe', organizationScopes: ['beta'], organizationScopesResolved: true },
+      (identity) => identity === '@acme/notes'
+    );
+    expect(identities(resolved)).not.toContain('@acme/notes');
+
+    // 公开搜索不解析组织集合（标记缺省 false），行为保持不变：可读即进入 granted。
+    const unresolved = entriesFor(
+      { username: 'zoe', organizationScopes: [] },
+      (identity) => identity === '@acme/notes'
+    );
+    expect(unresolved.find((entry) => entry.identity === '@acme/notes')).toMatchObject({
+      bucket: 'granted'
+    });
+
+    // 组织集合已解析时，其他组织的 public/anonymous 仍按「平台公开」呈现（AC4）。
+    const publicOnly = entriesFor(
+      { username: 'zoe', organizationScopes: [], organizationScopesResolved: true },
+      () => false
+    );
+    expect(publicOnly.find((entry) => entry.identity === '@acme/tool')?.bucket).toBe('platform');
+  });
+
   it('limits an anonymous subject to the anonymous visibility tier', () => {
     const entries = entriesFor({ username: null, organizationScopes: [] }, () => true);
 

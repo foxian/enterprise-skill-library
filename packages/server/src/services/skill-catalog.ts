@@ -2,6 +2,7 @@ import {
   discoverCatalogEntries,
   filterCatalogEntries,
   highestStableVersion,
+  isCatalogForeignOrganizationPrivate,
   isSignedInReadable,
   normalizeSkillVisibility,
   type CatalogBucket,
@@ -114,7 +115,29 @@ export class SkillCatalogService {
       skillIds.set(skill.name, skill.skillId);
     }
 
-    const catalogPrincipal: CatalogPrincipal = { username: principal.username, organizationScopes };
+    const catalogPrincipal: CatalogPrincipal = {
+      username: principal.username,
+      organizationScopes,
+      // 只有目录端点解析组织集合；公开搜索保持 false，行为不变（技术核查 §1.3.4）。
+      organizationScopesResolved: options.resolveOrganizationScopes === true
+    };
+    // 组织私有但主体不在该组织集合：属不变量破坏（如离组后残留 owner/maintainers），
+    // core 已 fail closed 排除；这里补一条诊断，避免「为什么少了这一条」无处可查。
+    for (const candidate of candidates) {
+      if (!isCatalogForeignOrganizationPrivate(candidate, catalogPrincipal)) continue;
+      logEvent(
+        logger,
+        'warn',
+        {
+          event: 'skill.catalog.organization-private-outside-scope',
+          ...(principal.username ? { actorUsername: principal.username } : {}),
+          organization: candidate.scope,
+          resourceType: 'skill',
+          resourceId: candidate.identity
+        },
+        'Skill catalog excluded organization private skill outside the caller organizations'
+      );
+    }
     // 先归桶/关键词（纯内存、只作用于已确认可读的条目），再批量取下载量。
     const entries = filterCatalogEntries(discoverCatalogEntries(candidates, catalogPrincipal), {
       bucket: options.bucket,

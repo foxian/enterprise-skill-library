@@ -11,6 +11,7 @@ import {
   TenantOrganizationRepository
 } from '../src/db/database.js';
 import { createGlobalGitea, type GlobalGiteaFake } from './helpers/global-gitea.js';
+import { createLogCapture, recordsForEvent } from './helpers/log-capture.js';
 
 // 技能目录（#199 / spec #200，本票 #202）：登录主体经鉴权 API 取得「我此刻有权
 // 安装消费的全部已发布技能」全集；匿名被拒；越权 / 未发布 / 已归档 / 冻结组织技能
@@ -226,13 +227,70 @@ describe('skill catalog', () => {
   });
 
   it('re-evaluates private read access at request time', async () => {
-    expect(identities(await catalog('zoe-token'))).not.toContain('@acme/notes');
+    expect(identities(await catalog('zoe-token'))).not.toContain('@bob/secret');
 
+    await gitea.addCollaborator('bob', 'secret', 'zoe', 'read');
+    expect(identities(await catalog('zoe-token'))).toContain('@bob/secret');
+
+    await gitea.removeCollaborator('bob', 'secret', 'zoe');
+    expect(identities(await catalog('zoe-token'))).not.toContain('@bob/secret');
+  });
+
+  it('fails closed when an organization private skill is readable outside the caller organizations', async () => {
+    // zoe 是 acme/notes 的直接协作者，但不是 acme 成员：可读性成立，归桶不变量不成立
+    // （技术核查 §1.3.4）。目录必须排除，不得猜成 granted。
     await gitea.addCollaborator('acme', 'notes', 'zoe', 'read');
-    expect(identities(await catalog('zoe-token'))).toContain('@acme/notes');
 
-    await gitea.removeCollaborator('acme', 'notes', 'zoe');
     expect(identities(await catalog('zoe-token'))).not.toContain('@acme/notes');
+    expect(identities(await catalog('zoe-token', { q: 'notes' }))).toEqual([]);
+
+    // 公开搜索不解析组织集合（resolveOrganizationScopes=false），行为保持不变：
+    // 仍然按请求时刻读权限返回该技能。
+    const search = await app.inject({
+      method: 'GET',
+      url: '/api/skills/search?q=notes',
+      headers: { authorization: 'token zoe-token' }
+    });
+    expect(search.statusCode).toBe(200);
+    expect((search.json() as Array<{ name: string }>).map((entry) => entry.name)).toContain(
+      '@acme/notes'
+    );
+  });
+
+  it('logs a diagnostic instead of silently guessing a bucket for the excluded entry', async () => {
+    await gitea.addCollaborator('acme', 'notes', 'zoe', 'read');
+    await app.close();
+    const capture = createLogCapture();
+    app = await buildApp({
+      dbPath,
+      giteaService: gitea as any,
+      repoOwner: 'esl-skills',
+      logger: capture.logger
+    });
+
+    expect((await catalog('zoe-token')).statusCode).toBe(200);
+
+    const [warning] = recordsForEvent(capture, 'skill.catalog.organization-private-outside-scope');
+    expect(warning).toMatchObject({
+      level: 40,
+      actorUsername: 'zoe',
+      organization: 'acme',
+      resourceType: 'skill',
+      resourceId: '@acme/notes'
+    });
+  });
+
+  it('does not apply the organization activation gate to the catalog collection route', async () => {
+    // 组织名恰好叫 skills 且处于删除中：门禁不能把 /api/catalog/skills 的路径段当成
+    // 技能命名空间。目录服务层已按 inactive 组织过滤，端点本身必须可访问。
+    const db = initDatabase(dbPath);
+    try {
+      new TenantOrganizationRepository(db).create({ orgName: 'skills', status: 'deleting' });
+    } finally {
+      db.close();
+    }
+
+    expect((await catalog('zoe-token')).statusCode).toBe(200);
   });
 
   it('excludes only the entry whose permission lookup fails instead of failing the request', async () => {

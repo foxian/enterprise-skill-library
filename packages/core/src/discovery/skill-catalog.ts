@@ -21,6 +21,14 @@ export interface CatalogPrincipal {
   username: string | null;
   /** 主体所属组织命名空间名集合；服务端每个请求解析一次。匿名或无组织时为空。 */
   organizationScopes: readonly string[];
+  /**
+   * 组织集合是否由调用方解析过。只有登录技能目录（`/api/catalog/skills`）为 true；
+   * 公开搜索（`/api/skills/search`）不消费桶，保持 false，行为不变。
+   *
+   * 为 true 时，组织 private 技能可读却不在 `organizationScopes` 属于不变量破坏（如
+   * 离组后残留 owner/maintainers，见技术核查 §1.3.4），必须 fail closed 排除。
+   */
+  organizationScopesResolved?: boolean;
 }
 
 /**
@@ -106,13 +114,44 @@ export function isCatalogInstallable(
 }
 
 /**
+ * 不变量破坏的候选：组织集合已解析、技能属于组织命名空间且为 private，但主体不在
+ * 该组织集合里。服务端可能因为离组后残留 owner/maintainers 仍判定为可读（技术核查
+ * §1.3.4），这类条目不得进入任何桶。
+ */
+function isForeignOrganizationPrivate(
+  candidate: CatalogCandidate,
+  principal: CatalogPrincipal
+): boolean {
+  return (
+    principal.organizationScopesResolved === true &&
+    candidate.namespaceKind === 'organization' &&
+    normalizeSkillVisibility(candidate.visibility) === 'private' &&
+    !principal.organizationScopes.includes(candidate.scope)
+  );
+}
+
+/**
+ * 供服务层记录诊断用的判定：可安装、但属于上述不变量破坏的候选。core 负责排除，
+ * 服务层负责把「为什么少了这一条」写进日志。
+ */
+export function isCatalogForeignOrganizationPrivate(
+  candidate: CatalogCandidate,
+  principal: CatalogPrincipal
+): boolean {
+  return isCatalogInstallable(candidate, principal) && isForeignOrganizationPrivate(candidate, principal);
+}
+
+/**
  * 三桶互斥就近归类：先判命名空间，再判可见性。所在组织命名空间下的可安装技能
  * （含该组织 public）进 `org`；其余 private 进 `granted`；其余进 `platform`。
+ *
+ * 返回 `null` 表示该候选必须被排除（组织 private 却不在主体的组织集合，fail closed）。
  */
 export function classifyCatalogBucket(
   candidate: CatalogCandidate,
   principal: CatalogPrincipal
-): CatalogBucket {
+): CatalogBucket | null {
+  if (isForeignOrganizationPrivate(candidate, principal)) return null;
   if (
     candidate.namespaceKind === 'organization' &&
     principal.organizationScopes.includes(candidate.scope)
@@ -141,20 +180,27 @@ export function resolveCatalogSource(
 }
 
 /**
- * 发现主接缝：给定候选与主体，返回可安装全集（含桶与来源）。无权的 private
- * 候选在这里被排除，因此上层拿到的就是可下发的集合。
+ * 发现主接缝：给定候选与主体，返回可安装全集（含桶与来源）。无权的 private 候选与
+ * 组织集合不变量破坏（fail closed）的候选都在这里被排除，因此上层拿到的就是可下发
+ * 的集合。
  */
 export function discoverCatalogEntries(
   candidates: readonly CatalogCandidate[],
   principal: CatalogPrincipal
 ): CatalogEntry[] {
-  return candidates
-    .filter((candidate) => isCatalogInstallable(candidate, principal))
-    .map(({ accessGranted: _accessGranted, ...candidate }) => ({
-      ...candidate,
-      bucket: classifyCatalogBucket(candidate, principal),
+  const entries: CatalogEntry[] = [];
+  for (const candidate of candidates) {
+    if (!isCatalogInstallable(candidate, principal)) continue;
+    const bucket = classifyCatalogBucket(candidate, principal);
+    if (bucket === null) continue;
+    const { accessGranted: _accessGranted, ...rest } = candidate;
+    entries.push({
+      ...rest,
+      bucket,
       source: resolveCatalogSource(candidate, principal)
-    }));
+    });
+  }
+  return entries;
 }
 
 /**

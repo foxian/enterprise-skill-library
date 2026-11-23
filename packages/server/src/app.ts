@@ -290,7 +290,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     if (coversOrganizedSkillRoute) {
       // 漏斗事件上报（ADR-0077）没有技能命名空间可判定：它只记录页面动作，不读
       // 任何技能归属，落进组织激活门禁反而会让冻结组织下的行为无法入库。
-      if (routePath === '/api/catalog/events') {
+      // 目录集合端点同样不携带技能 scope（bucket/q 是查询参数，组织过滤在服务层
+      // 完成）；否则组织名恰好为 skills 时会把整个目录拦成 409。
+      if (routePath === '/api/catalog/events' || routePath === '/api/catalog/skills') {
         return;
       }
       // 技能 Identity 形如 @scope/skill-name,scope 段即命名空间;
