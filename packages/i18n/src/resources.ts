@@ -70,6 +70,7 @@ const zhCN: TranslationTree = {
     personalInfo: '个人信息',
     myOrganizations: '我的组织',
     skills: '技能',
+    skillCatalog: '技能目录',
     invitations: '邀请',
     orgMembers: '成员管理',
     orgTeams: '团队管理'
@@ -117,6 +118,8 @@ const zhCN: TranslationTree = {
     orgSkills: '组织技能',
     skills: '技能',
     skillsDescription: '跨命名空间聚合：个人与所有所在组织的技能',
+    skillCatalog: '技能目录',
+    skillCatalogDescription: '浏览并安装你有权使用的技能',
     invitations: '邀请',
     invitationsDescription: '待你回应的组织邀请'
   },
@@ -558,6 +561,27 @@ const zhCN: TranslationTree = {
     sourceRepository: '源码仓库',
     details: '技能详情'
   },
+  skillCatalog: {
+    title: '技能目录',
+    subtitle: '浏览并安装你有权使用的技能',
+    searchPlaceholder: '搜索技能名、描述或关键词',
+    search: '搜索',
+    loadFailed: '加载技能目录失败',
+    bucketAll: '全部',
+    bucketPlatform: '平台公开',
+    bucketOrg: '我的组织',
+    bucketGranted: '授权给我',
+    emptyAll: '暂无可安装的技能',
+    emptyBucket: '该范围暂时没有可安装的技能',
+    emptySearch: '没有找到匹配关键词的技能',
+    emptyOrgNoOrganization: '你还没有加入任何组织，暂时没有组织技能',
+    visibilityPublic: '公开',
+    visibilityPrivate: '私有',
+    downloads: '下载量：{{count}}',
+    sourceOrganization: '来源组织：{{name}}',
+    sourcePerson: '授权方：{{name}}',
+    sourceSelf: '我的技能'
+  },
   downloadLog: {
     skill: '技能',
     skillPlaceholder: '按技能身份（@scope/name）或 Skill ID 查询',
@@ -706,6 +730,7 @@ const enUS: TranslationTree = {
     personalInfo: 'Personal info',
     myOrganizations: 'My organizations',
     skills: 'Skills',
+    skillCatalog: 'Skill catalog',
     invitations: 'Invitations',
     orgMembers: 'Members',
     orgTeams: 'Teams'
@@ -753,6 +778,8 @@ const enUS: TranslationTree = {
     orgSkills: 'Organization skills',
     skills: 'Skills',
     skillsDescription: 'Aggregated across personal and every joined organization namespace',
+    skillCatalog: 'Skill catalog',
+    skillCatalogDescription: 'Browse and install skills you are allowed to use',
     invitations: 'Invitations',
     invitationsDescription: 'Organization invitations awaiting your response'
   },
@@ -1193,6 +1220,27 @@ const enUS: TranslationTree = {
     releaseNotes: 'Release history',
     sourceRepository: 'Source repository',
     details: 'Skill details'
+  },
+  skillCatalog: {
+    title: 'Skill catalog',
+    subtitle: 'Browse and install skills you are allowed to use',
+    searchPlaceholder: 'Search skill names, descriptions, or keywords',
+    search: 'Search',
+    loadFailed: 'Failed to load the skill catalog',
+    bucketAll: 'All',
+    bucketPlatform: 'Platform public',
+    bucketOrg: 'My organizations',
+    bucketGranted: 'Granted to me',
+    emptyAll: 'No installable skills yet',
+    emptyBucket: 'No installable skills in this scope yet',
+    emptySearch: 'No skills match your keywords',
+    emptyOrgNoOrganization: "You haven't joined any organization yet, so there are no organization skills",
+    visibilityPublic: 'Public',
+    visibilityPrivate: 'Private',
+    downloads: 'Downloads: {{count}}',
+    sourceOrganization: 'Source organization: {{name}}',
+    sourcePerson: 'Granted by: {{name}}',
+    sourceSelf: 'My skill'
   },
   downloadLog: {
     skill: 'Skill',
