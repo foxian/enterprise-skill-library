@@ -61,14 +61,13 @@ test.describe('npm 式金路径（真实栈）', () => {
     // 5. 发布（release.json v3 的 name 与既定身份一致才被接受）
     await publishSkillRelease(member.api, identity, '1.0.0');
 
-    // 6. private（默认）对他组织用户不可见、不可装，错误指向无权限
+    // 6. private（默认）对他组织用户不可见、不可装：消费详情与不存在同形（ADR-0076）
     // 断言限定在本运行的身份上：栈上可能留有其他运行的 public 同名技能
     const search = await outsider.api.get('/api/skills/search?q=toolkit');
     const searched = ((await search.json()) as Array<{ name: string }>).map((row) => row.name);
     expect(searched).not.toContain(identity);
     const info = await outsider.api.get(`/api/skills/${orgName}/toolkit`);
-    expect(info.status()).toBe(403);
-    expect((await info.json()).error).toContain('private');
+    expect(info.status()).toBe(404);
 
     // 7. 组织成员把它设为 public：平台内所有用户可搜、可读、可安装
     await setVisibility(member.api, identity, 'public');
@@ -85,8 +84,11 @@ test.describe('npm 式金路径（真实栈）', () => {
     const countBefore = await readDownloadCount(outsider.api, 'toolkit', identity);
     const installed = await downloadPackage(outsider.api, identity);
     expect(installed.status).toBe(200);
-    expect(installed.body?.name).toBe(identity);
-    expect(installed.body?.version).toBe('1.0.0');
+    // 安装拿到的是 Published Skill Package（zip 二进制），不是 JSON 元数据
+    expect(installed.contentType).toContain('application/zip');
+    expect(installed.magic).toBe('PK');
+    expect(installed.byteLength).toBeGreaterThan(0);
+    expect(installed.packageUrl).toContain('/1.0.0/');
 
     await expect
       .poll(() => readDownloadCount(outsider.api, 'toolkit', identity))
@@ -105,10 +107,11 @@ test.describe('npm 式金路径（真实栈）', () => {
     await uploadSkill(owner.api, identity, '私有技能');
     await publishSkillRelease(owner.api, identity, '1.0.0');
 
-    // 读取与下载都被门禁拦住，错误文案指明 private 与申请路径
+    // ADR-0076：无权读取 private 与不存在在消费详情上完全不可区分
     const info = await outsider.api.get(`/api/skills/${orgName}/sealed`);
-    expect(info.status()).toBe(403);
-    expect((await info.json()).error).toContain('no access to this private skill');
+    const missing = await outsider.api.get(`/api/skills/${orgName}/missing`);
+    expect(info.status()).toBe(404);
+    expect(await info.text()).toBe(await missing.text());
 
     // 上传者自己可以看到并安装
     const own = await downloadPackage(owner.api, identity);
@@ -125,13 +128,15 @@ test.describe('npm 式金路径（真实栈）', () => {
     await uploadSkill(author.api, identity, '个人技能');
     await publishSkillRelease(author.api, identity, '0.1.0');
 
-    // 个人技能默认 private：他人不可见
-    expect((await consumer.api.get(`/api/skills/${author.user.username}/handbook`)).status()).toBe(403);
+    // 个人技能默认 private：他人不可见（与本票的三态统一一致，返回 404）
+    expect((await consumer.api.get(`/api/skills/${author.user.username}/handbook`)).status()).toBe(404);
 
     // 作者设为 public 后，任何登录用户可安装
     await setVisibility(author.api, identity, 'public');
     const installed = await downloadPackage(consumer.api, identity);
     expect(installed.status).toBe(200);
-    expect(installed.body?.name).toBe(identity);
+    expect(installed.contentType).toContain('application/zip');
+    expect(installed.magic).toBe('PK');
+    expect(installed.packageUrl).toContain('/0.1.0/');
   });
 });

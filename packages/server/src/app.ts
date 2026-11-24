@@ -6,6 +6,7 @@ import Fastify, {
 } from 'fastify';
 import {
   AdminRepository,
+  CatalogFunnelEventRepository,
   DownloadLogRepository,
   initDatabase,
   OrgApplicationRepository,
@@ -23,12 +24,16 @@ import { registerOrgAdminRoutes } from './routes/org-admin.js';
 import { registerUserAdminRoutes } from './routes/user-admin.js';
 import { registerOrgConsoleRoutes } from './routes/org-console.js';
 import { registerSkillsRoutes } from './routes/skills.js';
+import { registerCatalogRoutes } from './routes/catalog.js';
+import { registerCatalogEventRoutes } from './routes/catalog-events.js';
 import { registerDownloadLogAdminRoutes } from './routes/download-log-admin.js';
 import { GiteaRequestError, type GiteaService } from './services/gitea.js';
+import { SkillCatalogService } from './services/skill-catalog.js';
 import path from 'node:path';
 import { registerUserRoutes } from './routes/register.js';
 import { OrgInvitationRepository, UserRegistrationRepository } from './db/database.js';
 import { seedDevelopmentAccounts, seedDevelopmentData } from './seed.js';
+import { seedCatalogAcceptanceData } from './seed-catalog.js';
 import { readPlatformInfo } from './services/platform-config.js';
 import { logEvent, logTaskFinished, logTaskStarted, taskLogger } from './logging.js';
 import { STATUS_CODES } from 'node:http';
@@ -124,6 +129,10 @@ export function buildApp(options: AppOptions): FastifyInstance {
   // the full source tree are not rejected by the 1MB Fastify default.
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 200 * 1024 * 1024 });
   const db = initDatabase(options.dbPath, app.log);
+  // 先建 repository：autoSeed 的验收数据必须复用 buildApp 已持有的连接，不能再
+  // 另开一个数据库（#207 修复 J4）。
+  const repository = new SkillRepository(db);
+  const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   if (options.autoSeed) {
     seedDevelopmentData(options.dbPath);
     // 开发环境同时产出全局账号与示例组织（ADR-0032）；尽力而为，不阻塞启动。
@@ -132,11 +141,26 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const seedTaskId = 'seed-development-accounts';
     const seedLogger = taskLogger(app.log, seedTaskId);
     logTaskStarted(seedLogger, seedTaskId, 'Seeding development accounts');
+    // 技能目录验收数据依赖账号/组织/常设团队已存在，必须串在账号 seed 之后。
+    // 两个任务各自记录生命周期：技能 seed 失败不改变账号 seed 的结果，也不阻塞启动。
+    const catalogSeedTaskId = 'seed-catalog-acceptance';
     void seedDevelopmentAccounts(options.giteaService, new TenantOrganizationRepository(db))
-      .then(() => logTaskFinished(seedLogger, seedTaskId))
+      .then(async () => {
+        logTaskFinished(seedLogger, seedTaskId);
+        const catalogSeedLogger = taskLogger(app.log, catalogSeedTaskId);
+        logTaskStarted(catalogSeedLogger, catalogSeedTaskId, 'Seeding skill catalog acceptance data');
+        try {
+          await seedCatalogAcceptanceData(
+            { skills: repository, skillTeamGrants: skillTeamGrantRepository },
+            options.giteaService
+          );
+          logTaskFinished(catalogSeedLogger, catalogSeedTaskId);
+        } catch (error: unknown) {
+          logTaskFinished(catalogSeedLogger, catalogSeedTaskId, error);
+        }
+      })
       .catch((error: unknown) => logTaskFinished(seedLogger, seedTaskId, error));
   }
-  const repository = new SkillRepository(db);
   const adminRepository = new AdminRepository(db);
   const orgApplicationRepository = new OrgApplicationRepository(db);
   const platformSettingsRepository = new PlatformSettingsRepository(db);
@@ -149,10 +173,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
     process.env.ESL_EMAIL_ACTION_SECRET ??
     crypto.randomBytes(32).toString('hex');
   const tenantOrganizationRepository = new TenantOrganizationRepository(db);
-  const skillTeamGrantRepository = new SkillTeamGrantRepository(db);
   const downloadLogRepository = new DownloadLogRepository(db);
+  const catalogFunnelEventRepository = new CatalogFunnelEventRepository(db);
   const serverIdentityRepository = new ServerIdentityRepository(db);
   const externalSourceRepository = new ExternalSourceRepository(db);
+  // 可安装技能发现（#199 / spec #200）：公开目录与登录技能目录共用同一服务。
+  const skillCatalogService = new SkillCatalogService({
+    repository,
+    giteaService: options.giteaService,
+    tenantOrganizationRepository,
+    downloadLogRepository
+  });
   const externalFetcher = new ExternalGitFetcher({
     workRoot:
       options.externalFetchRoot ?? path.join(path.dirname(options.dbPath), 'external-fetch')
@@ -256,7 +287,19 @@ export function buildApp(options: AppOptions): FastifyInstance {
   }));
   app.addHook('preHandler', async (request, reply) => {
     const routePath = request.url.split('?')[0];
-    if (routePath === '/api/skills' || routePath.startsWith('/api/skills/')) {
+    // 组织激活门禁覆盖技能与目录两个前缀（#199 / spec #200）：新增的
+    // /api/catalog/* 不能绕过冻结/删除中组织的拦截。
+    const coversOrganizedSkillRoute = ['/api/skills', '/api/catalog'].some(
+      (prefix) => routePath === prefix || routePath.startsWith(`${prefix}/`)
+    );
+    if (coversOrganizedSkillRoute) {
+      // 漏斗事件上报（ADR-0077）没有技能命名空间可判定：它只记录页面动作，不读
+      // 任何技能归属，落进组织激活门禁反而会让冻结组织下的行为无法入库。
+      // 目录集合端点同样不携带技能 scope（bucket/q 是查询参数，组织过滤在服务层
+      // 完成）；否则组织名恰好为 skills 时会把整个目录拦成 409。
+      if (routePath === '/api/catalog/events' || routePath === '/api/catalog/skills') {
+        return;
+      }
       // 技能 Identity 形如 @scope/skill-name,scope 段即命名空间;
       // 冻结/删除中的组织技能由门禁拦截。Source Upload (/api/skills/upload)
       // 的 body.name 是 release.json 的完整 name,由上传路由自行校验组织成员
@@ -353,10 +396,21 @@ export function buildApp(options: AppOptions): FastifyInstance {
     repoOwner: options.repoOwner,
     tenantOrganizationRepository,
     skillTeamGrantRepository,
+    catalogService: skillCatalogService,
     packageRoot: options.packageRoot ?? path.join(path.dirname(options.dbPath), 'packages'),
     downloadLogRepository,
     serverIdentityRepository,
     externalSourceRepository
+  });
+  registerCatalogRoutes(app, {
+    catalogService: skillCatalogService,
+    adminRepository,
+    giteaService: options.giteaService
+  });
+  registerCatalogEventRoutes(app, {
+    catalogFunnelEventRepository,
+    adminRepository,
+    giteaService: options.giteaService
   });
   registerDownloadLogAdminRoutes(app, {
     giteaService: options.giteaService,

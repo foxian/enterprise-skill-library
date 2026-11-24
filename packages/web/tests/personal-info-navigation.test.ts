@@ -29,7 +29,7 @@ describe('个人信息入口', () => {
     await flushPromises();
 
     const labels = wrapper.findAll('.el-menu-item').map((item) => item.text());
-    expect(labels).toEqual(['概览', '个人信息', '我的组织', '技能', '邀请']);
+    expect(labels).toEqual(['概览', '个人信息', '我的组织', '技能', '技能目录', '邀请']);
     const active = wrapper.findAll('.el-menu-item').find((item) => item.text() === '个人信息');
     expect(active?.classes()).toContain('is-active');
     expect(wrapper.find('[data-test="profile-email"]').text()).toContain('carol@example.com');

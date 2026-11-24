@@ -748,7 +748,8 @@ describe('skill RBAC permissions', () => {
       url: '/api/skills/@acme/secret',
       headers: { authorization: 'token alice-token' }
     });
-    expect(info.statusCode).toBe(403);
+    // ADR-0076：登录主体无权读取 private 与不存在在消费详情上完全不可区分。
+    expect(info.statusCode).toBe(404);
 
     // 无登录身份时统一要求登录；不因能否区分 private/public 泄露更多。
     const anonymousInfo = await app.inject({ method: 'GET', url: '/api/skills/@acme/secret' });
@@ -760,6 +761,7 @@ describe('skill RBAC permissions', () => {
       headers: { authorization: 'token alice-token' }
     });
     expect(missingSkill.statusCode).toBe(404);
+    expect(info.body).toBe(missingSkill.body);
 
     const deniedPackage = await app.inject({
       method: 'GET',

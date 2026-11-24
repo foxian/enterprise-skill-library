@@ -2,6 +2,7 @@ import { apiError } from '../errors.js';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   highestStableVersion,
+  matchesCatalogQuery,
   ReleaseGraphError,
   releaseGraphErrorStatus,
   resolveReleaseGraph,
@@ -9,7 +10,6 @@ import {
   STANDING_TEAM_NAMES,
   isAnonymousConsumable,
   isSkillVisibility,
-  isSignedInReadable,
   normalizeSkillVisibility,
   parseSkillName,
   parseSkillIdentity,
@@ -44,6 +44,8 @@ import {
   skillRepo,
   type SkillAccessLevel
 } from '../services/skill-access.js';
+import { releaseKeywords, type SkillCatalogService } from '../services/skill-catalog.js';
+import { authenticateSkillUser } from '../services/skill-user-auth.js';
 import { backendTeamName } from '../services/logical-team-projection.js';
 import { ServerReleaseGraphSource } from '../services/release-graph-source.js';
 import {
@@ -60,6 +62,7 @@ export interface SkillsRouteOptions {
   repoOwner: string;
   tenantOrganizationRepository: TenantOrganizationRepository;
   skillTeamGrantRepository: SkillTeamGrantRepository;
+  catalogService: SkillCatalogService;
   packageRoot?: string;
   downloadLogRepository?: DownloadLogRepository;
   serverIdentityRepository?: ServerIdentityRepository;
@@ -121,7 +124,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     giteaService,
     repoOwner,
     tenantOrganizationRepository,
-    skillTeamGrantRepository
+    skillTeamGrantRepository,
+    catalogService
   } = options;
   const packageRoot = options.packageRoot ?? path.resolve(process.cwd(), 'data', 'packages');
   const downloadLogRepository = options.downloadLogRepository;
@@ -364,8 +368,14 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
     if (!user && visibility !== undefined && visibility !== 'anonymous') {
       return reply.status(401).send(apiError('unauthorizedMissingToken'));
     }
-    const lowerQuery = q.toLowerCase();
     const lowerKeyword = keyword?.trim().toLowerCase();
+    // 可安装技能发现与登录技能目录共用同一服务（#199 / spec #200）：服务负责已发布
+    // 过滤、请求时刻可读判定与富化，本路由只做搜索面自己的字段过滤。
+    const discovered = await catalogService.discover(
+      { username: user?.username ?? null },
+      { namespace: namespace?.trim() || undefined },
+      request.log
+    );
     const results: Array<{
       name: string;
       scope: string;
@@ -374,47 +384,31 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       displayName: string;
       latestStableVersion?: string;
       visibility: string;
-      skillId?: string;
+      downloadCount: number;
     }> = [];
-    // query 还要匹配显示名与 keywords（不在 skills 表），文本匹配统一在
-    // 内存里做，DB 只承担已发布状态与 namespace 过滤。
-    for (const skill of repository.searchSkills('', { namespace: namespace?.trim() || undefined })) {
-      if (visibility && skill.visibility !== visibility) continue;
-      // 无登录身份只公开 anonymous；登录后 public / anonymous 都是读取基线，
-      // private 仍需显式授权或角色来源。
-      if (!user) {
-        if (!isAnonymousConsumable(skill.visibility)) continue;
-      } else if (!isSignedInReadable(skill.visibility) &&
-        !(await hasReadAccess(giteaService, skill, user.username))) {
+    for (const entry of discovered) {
+      if (visibility && entry.visibility !== visibility) continue;
+      // 关键词字段集（名称/描述/显示名/keywords）与技能目录共用 core 的同一实现。
+      if (!matchesCatalogQuery(entry, q)) continue;
+      if (
+        lowerKeyword &&
+        !(entry.keywords ?? []).some((entryKeyword) => entryKeyword.toLowerCase() === lowerKeyword)
+      ) {
         continue;
       }
-      // 未发布（无任何 Skill Release）的技能不可安装，不进入发现面。
-      const releases = repository.getReleases(skill.name);
-      if (releases.length === 0) continue;
-      // getReleases 按 id 倒序 = 发布时间最新（含 prerelease，ADR-0048）。
-      const latestRelease = releases[0];
-      // Keywords 与 displayName 一样取最新 Release 快照；历史 Release 已移除的关键词不应继续命中目录。
-      const keywords = new Set(releaseKeywords(latestRelease.releaseManifest).map((keyword) => keyword.toLowerCase()));
-      const displayName = searchDisplayName(latestRelease.releaseManifest, skill.skillName);
-      if (lowerQuery) {
-        const haystack = [skill.name, skill.description, displayName, ...keywords].join('\n').toLowerCase();
-        if (!haystack.includes(lowerQuery)) continue;
-      }
-      if (lowerKeyword && !keywords.has(lowerKeyword)) continue;
       results.push({
-        name: skill.name,
-        scope: skill.scope,
-        skillName: skill.skillName,
-        description: skill.description,
-        displayName,
-        latestStableVersion: highestStableVersion(releases.map((release) => release.version)) ?? undefined,
-        visibility: skill.visibility,
-        skillId: skill.skillId
+        name: entry.identity,
+        scope: entry.scope,
+        skillName: entry.skillName,
+        description: entry.description,
+        displayName: entry.displayName,
+        latestStableVersion: entry.latestStableVersion,
+        visibility: entry.visibility,
+        downloadCount: entry.downloadCount
       });
       if (results.length >= limitCount) break;
     }
-    // 下载量（跨版本汇总）是公开信号：匿名浏览公开技能时同样返回（ADR-0067）。
-    return withDownloadCounts(results, downloadLogRepository);
+    return results;
   });
 
   // 角色化技能清单(ADR-0032):与 search(只返回已发布、面向安装消费)不同,
@@ -1536,16 +1530,45 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       });
     }
     if (!skill) {
+      request.log.info(
+        { event: 'skill.detail-unavailable', reason: 'not-found' },
+        'Skill detail unavailable: not found'
+      );
       return reply.status(404).send(apiError('skillNotFound'));
     }
     const user = await authenticateSkillUser(request, adminRepository, giteaService);
+    // 已归档技能在消费详情上一律不可用（ADR-0076）：与不存在同形，匿名也不给登录
+    // 提示。维护者/管理成员查看与恢复归档技能走管理向端点（/permissions、/restore
+    // 等），不依赖本路由。
+    if (skill.status === 'archived') {
+      request.log.info(
+        {
+          event: 'skill.detail-unavailable',
+          reason: 'archived',
+          skillId: skill.skillId,
+          actorUsername: user?.username ?? null
+        },
+        'Skill detail unavailable: archived'
+      );
+      return reply.status(404).send(apiError('skillNotFound'));
+    }
     const readable = user ? await hasReadAccess(giteaService, skill, user.username) : false;
     if (!readable && !isAnonymousConsumable(skill.visibility)) {
-      // 无登录身份时统一要求登录（不因能否区分 private/public 而泄露更多）；
-      // 已登录但无权读取 private 时仍给既有可行动错误。
-      return user
-        ? reply.status(403).send(apiError('forbiddenNoAccessToThisPrivateSkillRequestAccessFromItsMaintainers'))
-        : reply.status(401).send(apiError('unauthorizedMissingToken'));
+      // 匿名访客仍按可见性要求登录（#200 US14 保持现状）；已登录但无权读取
+      // private 的主体与「不存在 / 已归档」返回完全相同的响应，不泄露存在性。
+      if (!user) {
+        return reply.status(401).send(apiError('unauthorizedMissingToken'));
+      }
+      request.log.info(
+        {
+          event: 'skill.detail-unavailable',
+          reason: 'no-read-access',
+          skillId: skill.skillId,
+          actorUsername: user.username
+        },
+        'Skill detail unavailable: no read access'
+      );
+      return reply.status(404).send(apiError('skillNotFound'));
     }
 
     const releases = repository.getReleases(name);
@@ -1576,6 +1599,9 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
         keywords: latestReleaseKeywords(releases),
         visibility: skill.visibility,
         instanceId,
+        // 最新稳定版（排除 prerelease）由服务端给出：Web 不再用正则自判，否则带
+        // build metadata 的合法稳定版（如 1.0.0+build.5）会被漏掉。
+        latestStableVersion: latest?.version,
         versions: sortVersionsDescending(repository.getVersions(name)),
         downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
         releases: releasesView.map((release) => ({
@@ -1603,6 +1629,8 @@ export function registerSkillsRoutes(app: FastifyInstance, options: SkillsRouteO
       // 关键词（#142）：与 search/displayName 同源，取最新 Release 快照；没有
       // Release 或清单未带关键词时返回空数组，Web 侧据此不渲染空容器。
       keywords: latestReleaseKeywords(releases),
+      // 与匿名 DTO 同口径：最新稳定版由服务端计算，Web 直接展示。
+      latestStableVersion: latest?.version,
       versions: sortVersionsDescending(repository.getVersions(name)),
       downloadCount: skill.skillId ? downloadLogRepository?.getSkillDownloadCount(skill.skillId) ?? 0 : 0,
       releases: releasesView,
@@ -1623,12 +1651,6 @@ function newestStableRelease<T extends { version: string }>(
   return version ? releases.find((release) => release.version === version) : undefined;
 }
 
-// 目录显示名（ADR-0048）：有发布时取最近 Release 快照的 displayName，
-// 缺失或为空回退 Identity 短名。运行时不做 Title Case，保持用户原文。
-function searchDisplayName(releaseManifest: unknown, fallback: string): string {
-  const displayName = (releaseManifest as { displayName?: unknown }).displayName;
-  return typeof displayName === 'string' && displayName.trim() ? displayName : fallback;
-}
 // releaseGraphErrorStatus（图解析失败码 → HTTP 状态）由 @esl/core 提供，server
 // 与 CLI 共用同一映射。
 
@@ -1735,30 +1757,21 @@ async function getPermissionMatrix(
 
 // 技能显示名解析（ADR-0048）：消费面与管理面标题共用同一规则——
 // 1) 曾发布 → 取最近一次 Skill Release（按发布时间，含预发布）快照的 displayName；
-//    字段缺失或为空 → 回退 Identity 短名（不读 upload 脏值）；
+//    字段缺失、空串或纯空白 → 回退 Identity 短名（不读 upload 脏值）；
 // 2) 从未发布（active-unreleased）→ 取 upload 同步到服务器的当前源码 displayName；
 // 3) 仍未设置 → Identity 短名原文（运行时不做 Title Case）。
+// 「空白即未设置」与目录侧 `catalogDisplayName` 保持同一口径（trim 后非空才采用）。
 function resolveSkillDisplayName(repository: SkillRepository, skill: SkillRecord): string {
   const releases = repository.getReleases(skill.name);
   if (releases.length > 0) {
     const manifest = releases[0].releaseManifest as { displayName?: unknown };
-    if (typeof manifest.displayName === 'string' && manifest.displayName.length > 0) {
+    if (typeof manifest.displayName === 'string' && manifest.displayName.trim().length > 0) {
       return manifest.displayName;
     }
     return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
   }
   if (skill.displayName) return skill.displayName;
   return parseSkillIdentity(skill.name)?.shortName ?? skill.name;
-}
-
-// 关键词解析（#142）：与显示名同一数据源——最近一次 Skill Release（按发布时间，
-// 含预发布）快照的 keywords。保留清单中的原始文本；非字符串、空白与重复项丢弃。
-function releaseKeywords(manifest: unknown): string[] {
-  const raw = (manifest as { keywords?: unknown }).keywords;
-  if (!Array.isArray(raw)) return [];
-  return [
-    ...new Set(raw.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0))
-  ];
 }
 
 function latestReleaseKeywords(releases: ReadonlyArray<{ releaseManifest: unknown }>): string[] {
@@ -1820,26 +1833,6 @@ async function authorizePlatformAdministrator(
   // 测试或精简 Git Backend 可能不提供管理员 token 校验；按 fail closed 处理。
   if (typeof giteaService.validateAdminUserToken !== 'function') return false;
   return (await giteaService.validateAdminUserToken(token)) !== null;
-}
-
-async function authenticateSkillUser(
-  request: FastifyRequest,
-  adminRepository: AdminRepository | undefined,
-  giteaService: GiteaService
-): Promise<{ username: string; id?: string } | null> {
-  const authorization = request.headers.authorization;
-  if (!authorization?.startsWith('token ')) return null;
-  const token = authorization.replace('token ', '').trim();
-  const eslUser = adminRepository?.validateUserToken(token);
-  if (eslUser) return eslUser;
-  if (adminRepository?.hasIssuedToken(token) || token.startsWith('esl_')) return null;
-  const user = await giteaService.validateToken(token);
-  // Git Backend 的数值型用户 id 稳定且不随改名变化，适合作为下载日志的
-  // user_id；ESL 原生 token 没有独立数值 id，此时 user_id 留空。
-  if (!user) return null;
-  return typeof user.id === 'number'
-    ? { username: user.username, id: String(user.id) }
-    : { username: user.username };
 }
 
 // 客户端 IP 取自可信代理头（部署拓扑为 nginx 前置），无代理头时回退连接地址；

@@ -40,6 +40,7 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
   const repoTeams = new Map<string, Set<number>>(); // "owner/repo" → teamIds
   const collaborators = new Map<string, Map<string, 'read' | 'write' | 'admin'>>();
   const repos = new Set<string>(); // 已创建的仓库（"owner/repo"）
+  const archivedRepos = new Set<string>();
 
   for (const user of seed.users ?? []) {
     users.set(user.username, user.password);
@@ -199,6 +200,29 @@ export function createGlobalGitea(seed: GlobalGiteaSeed = {}) {
 
     deleteRepo: vi.fn(async (owner: string, name: string) => {
       repos.delete(`${owner}/${name}`);
+      archivedRepos.delete(`${owner}/${name}`);
+    }),
+
+    // GiteaService.getRepo 的语义：仓库不存在返回 null（404）。技能目录验收 seed
+    // 用它做「先判存在再创建」的幂等前置判断。
+    getRepo: vi.fn(async (owner: string, name: string) => {
+      const key = `${owner}/${name}`;
+      if (!repos.has(key)) return null;
+      return {
+        id: 1,
+        name,
+        full_name: key,
+        clone_url: `http://gitea.local/${key}.git`,
+        html_url: `http://gitea.local/${key}`,
+        private: false,
+        archived: archivedRepos.has(key)
+      };
+    }),
+
+    setRepositoryArchived: vi.fn(async (owner: string, name: string, archived: boolean) => {
+      const key = `${owner}/${name}`;
+      if (archived) archivedRepos.add(key);
+      else archivedRepos.delete(key);
     }),
 
     addCollaborator: vi.fn(async (owner: string, repo: string, username: string, permission: 'read' | 'write' | 'admin' = 'write') => {

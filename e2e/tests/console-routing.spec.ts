@@ -28,7 +28,8 @@ test('普通用户登录后落到个人控制台概览', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/admin\/me\/overview$/);
   await expect(page.getByRole('menuitem', { name: '我的组织' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: '技能' })).toBeVisible();
+  // exact：侧边栏还有「技能目录」，子串匹配会同时命中两项（strict 冲突）
+  await expect(page.getByRole('menuitem', { name: '技能', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '邀请' })).toBeVisible();
 });
 
@@ -39,10 +40,12 @@ test('所有者成员在本组织看到治理入口，并可进入组织详情',
   await login.login({ username: 'alice', password: env.devPassword });
 
   await expect(page).toHaveURL(/\/admin\/me\/overview$/);
+  // alice 是 acme 与 beta 两个验收组织的所有者成员；身份标签按组织行定位，
+  // 否则两行的同名 testid 会触发 strict 冲突。
   await page.getByRole('menuitem', { name: '我的组织' }).click();
 
   await expect(page).toHaveURL(/\/admin\/me\/orgs$/);
-  await expect(page.getByTestId('org-identity-owner')).toBeVisible();
+  await expect(page.getByRole('row', { name: /@acme/ }).getByTestId('org-identity-owner')).toBeVisible();
   await page.getByTestId('manage-acme').click();
 
   await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/members$/);
@@ -76,7 +79,7 @@ test('从组织技能页签进入管理页后，面包屑可逐级返回且侧�
   await expect(page.getByTestId('crumb-org-skills')).toHaveText('技能');
   await expect(page.getByTestId('crumb-current')).toHaveText(identity);
   // 深层页不再整栏无高亮：URL 落在 /admin/me/skills 子树，父级菜单「技能」保持选中
-  await expect(page.getByRole('menuitem', { name: '技能' })).toHaveClass(/is-active/);
+  await expect(page.getByRole('menuitem', { name: '技能', exact: true })).toHaveClass(/is-active/);
 
   await page.getByTestId('crumb-org-skills').click();
   await expect(page).toHaveURL(/\/admin\/me\/orgs\/acme\/skills$/);
@@ -95,8 +98,8 @@ test('组织成员在同一页面只看到只读视图，且直接敲治理 URL 
   await expect(page).toHaveURL(/\/admin\/me\/overview$/);
 
   await page.goto('/admin/me/orgs');
-  // 普通成员：显示身份标签，但没有治理入口
-  await expect(page.getByTestId('org-identity-ordinary')).toBeVisible();
+  // 普通成员：显示身份标签，但没有治理入口（bob 在 acme/beta 两行都有标签，按行定位）
+  await expect(page.getByRole('row', { name: /@acme/ }).getByTestId('org-identity-ordinary')).toBeVisible();
   await expect(page.getByTestId('manage-acme')).toHaveCount(0);
 
   await page.goto('/admin/me/orgs/acme/teams');

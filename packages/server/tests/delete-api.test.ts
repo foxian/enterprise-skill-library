@@ -173,12 +173,14 @@ describe('Skill Delete API', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().message).toContain('confirm');
+    // 消费详情对归档技能按不可用处理（ADR-0076），「仍存在」经管理向端点确认。
     const stillThere = await app.inject({
       method: 'GET',
-      url: '/api/skills/@alice/reviewer',
+      url: '/api/skills/@alice/reviewer/permissions',
       headers: { authorization: 'token alice-token' }
     });
     expect(stillThere.statusCode).toBe(200);
+    expect(stillThere.json().skill).toMatchObject({ name: '@alice/reviewer', status: 'archived' });
   });
 
   it('returns 404 when the skill does not exist', async () => {

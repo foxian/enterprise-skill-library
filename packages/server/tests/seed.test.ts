@@ -80,4 +80,33 @@ describe('development seed', () => {
     expect(new TenantOrganizationRepository(db2).get('acme')?.status).toBe('active');
     db2.close();
   });
+
+  it('seeds the catalog acceptance accounts and second organization idempotently', async () => {
+    const gitea = createGlobalGitea();
+    const db = initDatabase(dbPath);
+    const tenantRepository = new TenantOrganizationRepository(db);
+    await seedDevelopmentAccounts(gitea as any, tenantRepository);
+    await seedDevelopmentAccounts(gitea as any, tenantRepository);
+    db.close();
+
+    for (const username of ['carol', 'dave']) {
+      expect(gitea.createUser).toHaveBeenCalledWith(username, expect.any(String), {
+        tolerateExisting: true
+      });
+    }
+    expect(gitea.createOrg).toHaveBeenCalledWith('beta', { tolerateExisting: true });
+
+    // bob 是多组织普通成员：两个组织都在，且都是三个技能授权团队、不进 org-managers。
+    expect((await gitea.listUserOrgs('bob')).map((org) => org.name).sort()).toEqual(['acme', 'beta']);
+    for (const org of ['acme', 'beta']) {
+      const teams = await gitea.listTeams(org);
+      const memberOf: string[] = [];
+      for (const team of teams) {
+        if (await gitea.isTeamMember(team.id, 'bob')) memberOf.push(team.name);
+      }
+      expect(memberOf.sort()).toEqual(['all-managers', 'all-readers', 'all-writers']);
+    }
+    // carol 是无组织新注册用户。
+    expect(await gitea.listUserOrgs('carol')).toEqual([]);
+  });
 });

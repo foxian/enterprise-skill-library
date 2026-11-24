@@ -53,6 +53,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import type { RouteLocationRaw } from 'vue-router';
 import { apiRequest } from '../../api/client';
 import { formatRequestError, useLocaleState } from '../../i18n/locale';
 import { visibilityTagType, visibilityTextKey } from '../../skills/visibility';
@@ -74,10 +75,15 @@ const loading = ref(false);
 const errorMessage = ref('');
 const query = ref('');
 
-function detailPath(item: CatalogItem): string {
+function detailPath(item: CatalogItem): RouteLocationRaw {
   const scope = item.scope ?? item.name.replace(/^@/, '').split('/')[0];
   const skillName = item.skillName ?? item.name.split('/')[1];
-  return `/skills/${encodeURIComponent(scope)}/${encodeURIComponent(skillName)}`;
+  // traffic_source 用于共用详情页区分来向渲染返回出口（T5）；匿名视觉行为不变。
+  return {
+    name: 'public-skill-detail',
+    params: { scope, skillName },
+    query: { traffic_source: 'public_catalog' }
+  };
 }
 
 function visibilityText(visibility: string): string {

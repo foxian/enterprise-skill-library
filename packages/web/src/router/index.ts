@@ -23,6 +23,7 @@ import OrgDetailLayout from '../views/me/OrgDetailLayout.vue';
 import OrgMembersView from '../views/me/OrgMembersView.vue';
 import OrgTeamsView from '../views/me/OrgTeamsView.vue';
 import MeSkillsView from '../views/me/SkillsView.vue';
+import MeSkillCatalogView from '../views/me/SkillCatalogView.vue';
 import MeSkillManageView from '../views/me/SkillManageView.vue';
 import MeExternalReferenceManageView from '../views/me/ExternalReferenceManageView.vue';
 import InvitationsView from '../views/me/InvitationsView.vue';
@@ -98,8 +99,8 @@ export const router = createRouter({
       ]
     },
     {
-      // 个人控制台（ADR-0035）：概览 / 个人信息 / 我的组织 / 技能 / 邀请。组织治理挂在
-      // 「我的组织」下，不是独立视角。
+      // 个人控制台（ADR-0035）：概览 / 个人信息 / 我的组织 / 技能 / 技能目录 / 邀请。
+      // 组织治理挂在「我的组织」下，不是独立视角。
       path: '/admin/me',
       component: PersonalLayout,
       meta: { view: 'personal' },
@@ -127,6 +128,8 @@ export const router = createRouter({
           ]
         },
         { path: 'skills', name: 'me-skills', component: MeSkillsView, meta: { title: 'routes.skills', description: 'routes.skillsDescription' } },
+        // 登录主体的可安装技能发现入口（spec #200）：与管理向「技能」并列，仅此一处入口。
+        { path: 'catalog', name: 'me-catalog', component: MeSkillCatalogView, meta: { title: 'routes.skillCatalog', description: 'routes.skillCatalogDescription' } },
         { path: 'skills/:scope/:skillName/manage', name: 'me-skill-manage', component: MeSkillManageView, meta: { title: 'routes.skillManagement' } },
         { path: 'skills/:scope/:skillName/external', name: 'me-external-manage', component: MeExternalReferenceManageView, meta: { title: 'external.title' } },
         { path: 'invitations', name: 'me-invitations', component: InvitationsView, meta: { title: 'routes.invitations', description: 'routes.invitationsDescription' } }

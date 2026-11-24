@@ -94,6 +94,12 @@ describe('公开技能目录', () => {
     expect(list).toContain('任何人可安装');
     expect(requests[0].url).toBe('/api/skills/search');
     expect(requests[0].headers.authorization).toBeUndefined();
+
+    // 卡片链接带公开目录来源标记，供详情页渲染返回出口（T5）。
+    const link = wrapper.find('[data-test="catalog-item-link"]');
+    const url = new URL(link.attributes('href')!, 'http://localhost');
+    expect(url.pathname).toBe('/skills/alice/open');
+    expect(url.searchParams.get('traffic_source')).toBe('public_catalog');
   });
 
   it('匿名详情展示安全字段与安装命令', async () => {

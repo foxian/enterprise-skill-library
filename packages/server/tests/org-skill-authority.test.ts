@@ -81,13 +81,20 @@ describe('org skill authority', () => {
   });
 
   it('a new skill is private and invisible to org members by default (zero default access)', async () => {
+    const missing = await app.inject({
+      method: 'GET',
+      url: '/api/skills/@acme/missing',
+      headers: { authorization: 'token carol-token' }
+    });
     for (const token of ['carol-token', 'mallory-token']) {
       const info = await app.inject({
         method: 'GET',
         url: '/api/skills/@acme/tool',
         headers: { authorization: `token ${token}` }
       });
-      expect(info.statusCode).toBe(403);
+      // ADR-0076：无权 private 与不存在在消费详情上完全不可区分。
+      expect(info.statusCode).toBe(404);
+      expect(info.body).toBe(missing.body);
     }
   });
 
