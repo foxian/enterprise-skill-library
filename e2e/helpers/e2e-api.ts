@@ -26,7 +26,10 @@ export async function registerUser(
   username: string,
   password: string
 ): Promise<void> {
-  const response = await request.post('/api/auth/register', { data: { username, password } });
+  // 注册接口要求邮箱（注册模式 approval/open 都要落邮箱校验），helper 跟进该契约。
+  const response = await request.post('/api/auth/register', {
+    data: { username, password, email: `${username}@e2e.invalid` }
+  });
   if (response.status() !== 201) {
     throw new Error(`注册失败 (${username}): ${response.status()} ${await response.text()}`);
   }
@@ -139,19 +142,34 @@ export async function getSkill(api: APIRequestContext, identity: string): Promis
 
 /**
  * “安装”的服务端等价：下载 Published Skill Package（CLI install 的第一步，
- * 受同一可见性门禁保护）。
+ * 受同一可见性门禁保护）。接口回传 zip 二进制（application/zip），不再有
+ * JSON 载荷，因此这里返回状态、Content-Type、字节数与来源 URL 供断言。
  */
+export interface PackageDownload {
+  status: number;
+  contentType: string;
+  byteLength: number;
+  /** zip 魔数校验用：前两字节为 "PK" */
+  magic: string;
+  packageUrl: string;
+}
+
 export async function downloadPackage(
   api: APIRequestContext,
   identity: string
-): Promise<{ status: number; body: { name?: string; version?: string } | null }> {
+): Promise<PackageDownload> {
   const skill = await getSkill(api, identity);
   if (!skill.packageUrl) {
     throw new Error(`技能 ${identity} 没有可下载的发布包`);
   }
-  const response = await api.get(skill.packageUrl.replace(resolveTestEnv().baseURL, ''));
-  if (!response.ok()) {
-    return { status: response.status(), body: { name: identity } };
-  }
-  return { status: response.status(), body: (await response.json()) as { name?: string; version?: string } };
+  const packageUrl = skill.packageUrl.replace(resolveTestEnv().baseURL, '');
+  const response = await api.get(packageUrl);
+  const body = response.ok() ? await response.body() : Buffer.alloc(0);
+  return {
+    status: response.status(),
+    contentType: response.headers()['content-type'] ?? '',
+    byteLength: body.length,
+    magic: body.subarray(0, 2).toString('latin1'),
+    packageUrl
+  };
 }

@@ -84,8 +84,11 @@ test.describe('npm 式金路径（真实栈）', () => {
     const countBefore = await readDownloadCount(outsider.api, 'toolkit', identity);
     const installed = await downloadPackage(outsider.api, identity);
     expect(installed.status).toBe(200);
-    expect(installed.body?.name).toBe(identity);
-    expect(installed.body?.version).toBe('1.0.0');
+    // 安装拿到的是 Published Skill Package（zip 二进制），不是 JSON 元数据
+    expect(installed.contentType).toContain('application/zip');
+    expect(installed.magic).toBe('PK');
+    expect(installed.byteLength).toBeGreaterThan(0);
+    expect(installed.packageUrl).toContain('/1.0.0/');
 
     await expect
       .poll(() => readDownloadCount(outsider.api, 'toolkit', identity))
@@ -132,6 +135,8 @@ test.describe('npm 式金路径（真实栈）', () => {
     await setVisibility(author.api, identity, 'public');
     const installed = await downloadPackage(consumer.api, identity);
     expect(installed.status).toBe(200);
-    expect(installed.body?.name).toBe(identity);
+    expect(installed.contentType).toContain('application/zip');
+    expect(installed.magic).toBe('PK');
+    expect(installed.packageUrl).toContain('/0.1.0/');
   });
 });

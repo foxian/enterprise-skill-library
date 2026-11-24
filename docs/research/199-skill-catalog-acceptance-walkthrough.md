@@ -201,16 +201,28 @@ docker 集成栈，是否执行以交付记录为准，未执行时不以其他�
 未做浏览器级覆盖的仍是「真实剪贴板授权弹窗以外的视觉观感」与平台超管直拼出口
 （后者在 §5.8 已有口径）；AC12（seed 可重复）仍由 `seed-acceptance.test.ts` 覆盖。
 
-走查中遇到、但**与本票改动无关**的既有环境/测试缺口（供后续开票，未在本票修复）：
+### 8.1 走查中修掉的仓库级缺口
 
-1. **Windows 检出的 `docker/gitea-bootstrap.sh` 是 CRLF**：`core.autocrlf=true` 且仓库无
-   `.gitattributes`，全新数据目录第一次 `docker compose up` 会在 bootstrap 步骤报
-   `set: illegal option -` 并中止整栈启动。本地先转 LF 后恢复。建议补 `*.sh text eol=lf`。
-2. **`npm run test:e2e` 当前跑不通**（与本票无关的既有漂移）：
-   - `e2e/helpers/e2e-api.ts` 注册不带 `email`，接口早已 `400 emailIsRequired`；
-   - `downloadPackage` 仍按 JSON 解析，而包接口已回传 zip（`PK…`）；
-   - `console-routing.spec.ts` 部分用例依赖既有数据（超管控制台入口、面包屑用例在常驻栈上同样失败）；
-   - 另需 `E2E_GITEA_URL` 指向目标栈的 gitea，默认 3001 会命中常驻开发栈而 401。
-   本票改写 `golden-path.spec.ts` 的三处 ADR-0076 断言在各自用例中均先于坏点
-   （`downloadPackage`）执行通过，未暴露新回归。
+走查时 `npm run test:e2e` 与全新数据目录启动都跑不通，本票一并修复（非产品行为变更）：
+
+| 缺口 | 原因 | 修复 |
+|---|---|---|
+| 全新数据目录起不来 | Windows `core.autocrlf=true` 把 `docker/gitea-bootstrap.sh` 检出成 CRLF，容器内 `set -e` 报 `illegal option -` | 新增 `.gitattributes`：`*.sh text eol=lf`，`*.bat/*.cmd/*.ps1 text eol=crlf` |
+| e2e 注册 400 `emailIsRequired` | 注册接口早已要求邮箱，helper 没跟进 | `registerUser` 带 `email` |
+| e2e 安装步骤崩在 `Unexpected token 'P'` | 包接口回传 zip 二进制，helper 仍按 JSON 解析 | `downloadPackage` 改为返回状态 / Content-Type / 字节数 / `PK` 魔数 / 包 URL |
+| e2e 全批走英文界面断言失败 | Playwright 默认 `locale` 为 en-US，账户语言偏好为空时整站英文 | `playwright.config.ts` 固定 `locale: 'zh-CN'` |
+| 「技能」菜单项 strict 冲突 | 侧边栏新增「技能目录」，子串匹配同时命中两项 | 菜单断言加 `exact: true` |
+| 组织身份标签 strict 冲突 | 验收 seed 让 alice/bob 同时属于 acme 与 beta，两行同名 testid | 断言按组织行（`row name=/@acme/`）定位 |
+| 金路径用例 30s 超时 | 真实栈要跑注册/建组/发布/下载多轮 API | 测试超时放宽到 60s |
+
+修复后在同一隔离栈上跑全量 e2e：
+
+```text
+E2E_BASE_URL=http://localhost:4080 E2E_GITEA_URL=http://localhost:3002 npx playwright test
+11 passed (52.5s)
+```
+
+注意 `E2E_GITEA_URL` 必须指向目标栈的 gitea：默认 `http://localhost:3001` 会命中常驻
+开发栈，超管 token 与目标栈不匹配时报 401 `user does not exist`。
+
 

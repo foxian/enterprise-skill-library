@@ -1,0 +1,9 @@
+# 仓库内脚本必须保持 LF：Docker 以只读方式挂载执行，Windows 下
+# core.autocrlf=true 检出成 CRLF 会让容器内 `set -e` 直接报
+# "illegal option -" 并中止 gitea-bootstrap，整栈起不来。
+*.sh text eol=lf
+
+# Windows 批处理/PowerShell 保持 CRLF。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

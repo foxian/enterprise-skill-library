@@ -8,6 +8,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
+  // 真实栈用例要跑注册/建组/发布/下载多轮 API，30s 默认值在本机（Windows +
+  // Docker）经常在最后一个下载请求上超时，放宽到 60s。
+  timeout: 60_000,
   // Gitea(SQLite)在开发栈里扛不住多 worker 并发登录写 token(锁竞争会放大成
   // 挂起/空列表),本地限 2 个 worker;CI 可按栈能力调高。
   workers: isCI ? '50%' : 2,
@@ -16,6 +19,9 @@ export default defineConfig({
     baseURL,
     // 仓库选择器约定是 data-test(qa-project-context.md),getByTestId 按它匹配
     testIdAttribute: 'data-test',
+    // 用例按中文界面断言(菜单项/面包屑文案);Playwright 默认 locale 是 en-US,
+    // 不固定 locale 会让同一批用例在"账户语言偏好为空 + 浏览器 en-US"时全部走英文界面而失败。
+    locale: 'zh-CN',
     // 本机优先复用系统 Chrome,避免重复下载浏览器;CI 可用
     // E2E_BROWSER_CHANNEL 切回 playwright 自带内核(如 chromium)。
     channel: process.env.E2E_BROWSER_CHANNEL || 'chrome',
